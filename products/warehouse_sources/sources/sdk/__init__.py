@@ -82,6 +82,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.asy
     JobStatus,
     poll_until_done,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
+    aws_redact_values,
+    resolve_aws_credentials,
+    sign_aws_request,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     UNVERSIONED_API_VERSION,
@@ -413,6 +423,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce
 
 __all__ = [
     "APIKeyAuth",
+    "AWS_AUTH_NON_RETRYABLE_ERRORS",
+    "AWS_FLAT_STORED_SELECTS",
     "AZURE_EXAMPLE_URL",
     "AnsiIdentifierQuoter",
     "ApiKeyAuthConfig",
@@ -420,6 +432,7 @@ __all__ = [
     "AsyncJobTimeoutError",
     "AuthConfig",
     "AuthConfigBase",
+    "AwsAuthError",
     "AzureBlobConfig",
     "BacktickIdentifierQuoter",
     "BaseNextUrlPaginator",
@@ -601,6 +614,9 @@ __all__ = [
     "_looks_like_json",
     "_safe_url",
     "auth_non_retryable_errors",
+    "aws_auth_endpoint_reasons",
+    "aws_auth_field",
+    "aws_redact_values",
     "build_chained_resource",
     "build_dependent_resource",
     "build_endpoint_schemas",
@@ -675,6 +691,7 @@ __all__ = [
     "rename_parent_fields",
     "request_deadline",
     "required_parents_from_endpoint_configs",
+    "resolve_aws_credentials",
     "resolve_file_format",
     "resolve_incremental_start",
     "resolve_merge_keys",
@@ -692,6 +709,7 @@ __all__ = [
     "scrub_url",
     "secret_field",
     "set_json_param",
+    "sign_aws_request",
     "slack_request",
     "source_caption",
     "source_helpers",
