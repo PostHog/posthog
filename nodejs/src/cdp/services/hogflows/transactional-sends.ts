@@ -162,7 +162,7 @@ const UNSENT_CONNECTION_FAILURES = [
 
 const isRetryableQueueFailure = (error: unknown, keyed: boolean): boolean =>
     isTransientPgError(error) &&
-    (keyed || (error instanceof Error && UNSENT_CONNECTION_FAILURES.some((m) => error.message.includes(m))))
+    (keyed || UNSENT_CONNECTION_FAILURES.some((m) => ((error as Error).message ?? '').includes(m)))
 
 // The intake consumer counts the queued email and writes its status once it inserts the run, so a retry counts once.
 const producedResult = (

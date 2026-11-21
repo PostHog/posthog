@@ -3291,6 +3291,22 @@ describe('CDP API', () => {
                 )
             })
 
+            it('answers 503 to an unkeyed send whose queue database refuses the connection', async () => {
+                const refusing = new CyclotronJobQueuePostgresV2(100, hub)
+                refusing['manager'] = new CyclotronV2Manager({
+                    pool: { dbUrl: 'postgres://posthog:posthog@127.0.0.1:1/cyclotron' },
+                    depthLimit: 1_000_000,
+                })
+                api['hogflowQueue'] = refusing
+
+                const res = await sendKeyed(body)
+
+                expect({ status: res.status, retryAfter: res.headers['retry-after'] }).toEqual({
+                    status: 503,
+                    retryAfter: '5',
+                })
+            })
+
             it('returns the first scheduled send for a retry that names the same time in another offset', async () => {
                 const scheduledAt = new Date(Date.now() + 2 * DAY_MS)
                 scheduledAt.setUTCMilliseconds(0)
