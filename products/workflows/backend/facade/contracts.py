@@ -207,7 +207,7 @@ class WorkflowReplayTarget:
     status: str
     # Templates of the workflow's function steps, so template filters can match a workflow.
     template_ids: tuple[str, ...]
-    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    # The rerun worker skips runs of these workflows, because their message data was not stored. Push counts too.
     sends_sensitive_email: bool
 
 
@@ -334,6 +334,43 @@ class ProviderContactsResult:
     notes: tuple[str, ...] = ()
     # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
     person_emails: tuple[str, ...] = ()
+    # Where the people wait to be sent, in `chunks` parts, for `import_contact_chunk` and `fill_contacts_cohort`.
+    storage_prefix: str = ""
+    chunks: int = 0
+
+
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
+@frozen
+class ContactChunkOutcome:
+    """What sending one stored part of a provider list did."""
+
+    people: int
+    # Of them, the people PostHog had once ingestion caught up.
+    found: int
+
+
+@frozen
+class ContactsCohortFilled:
+    """How a provider list's cohort changed once every part was in."""
+
+    members: int
+    # Members not on the list anymore, such as contacts who left it or unsubscribed.
+    removed: int
 
 
 @frozen
@@ -808,6 +845,35 @@ class TransactionalEmailSenderRequired(Exception):
 
 class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
+
+
+TRANSACTIONAL_PUSH_ACTION_ID: Final[str] = "transactional_push"
+
+
+@frozen
+class TransactionalPushContent:
+    """What a transactional push's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    title: str
+    body: str
+    # The Firebase and APNs integrations the push goes out through.
+    channel_ids: tuple[int, ...]
+    message_category_id: UUID | None
+    image: str = ""
+    link: str = ""
+    data: Mapping[str, str] = field(default_factory=dict)
+    # Sends keep a placeholder instead of the title and body.
+    sensitive: bool = False
+
+
+class TransactionalPushContentInvalid(Exception):
+    """The content has no title or body, or no push channel, so the workflow could not send it."""
+
+
+class TransactionalPushChannelUnavailable(Exception):
+    """A push channel is not a Firebase or APNs integration of this project."""
 
 
 class WorkflowNotFound(Exception):

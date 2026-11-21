@@ -67,7 +67,7 @@ def _make_fetch_page(headers: dict[str, str], logger: FilteringBoundLogger):
         wait=wait_exponential_jitter(initial=1, max=60),
         reraise=True,
     )
-    def fetch_page(page_url: str) -> dict[str, Any]:
+    def fetch_page(page_url: str) -> Any:
         response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # Customerly reports missing/invalid access tokens as HTTP 500 with an error body,
@@ -91,8 +91,9 @@ def _make_fetch_page(headers: dict[str, str], logger: FilteringBoundLogger):
     return fetch_page
 
 
-def _extract_items(data: dict[str, Any], config: CustomerlyEndpointConfig) -> list[Any]:
-    payload = data.get("data")
+def _extract_items(data: Any, config: CustomerlyEndpointConfig) -> list[Any]:
+    # v1 wraps lists in `data`; the writers list is documented only for v2, as a bare array.
+    payload = data if isinstance(data, list) else data.get("data") if isinstance(data, dict) else None
     if config.data_key is not None:
         if not isinstance(payload, dict):
             return []

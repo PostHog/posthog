@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { Button, Item, ItemActions, ItemContent, ItemDescription, Skeleton } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillCustomerAnalyticsTaskDigest } from './QuillCustomerAnalyticsTaskDigest'
 import { taskDigestLogic } from './taskDigestLogic'
 
 const CADENCE_OPTIONS = [
@@ -26,6 +30,7 @@ export function CustomerAnalyticsTaskDigest({ source = 'settings' }: { source?: 
     const { draft, hasChanges, configLoading, isInitialLoading, configLoadFailed, timezone, validSendTime } =
         useValues(taskDigestLogic)
     const { setDraft, resetDraft, saveTaskDigest, loadConfig } = useActions(taskDigestLogic)
+    const todayRailNav = useQuillSurface()
     const [hour, minute] = draft.send_time.split(':').map(Number)
     const timeOptions =
         validSendTime && !TIME_OPTIONS.some(({ value }) => value === draft.send_time)
@@ -39,15 +44,47 @@ export function CustomerAnalyticsTaskDigest({ source = 'settings' }: { source?: 
               ]
             : TIME_OPTIONS
 
+    const resetDisabledReason = configLoading ? 'Saving preferences' : hasChanges ? undefined : 'No changes'
+    const saveDisabledReason = !validSendTime ? 'Choose a valid send time' : hasChanges ? undefined : 'No changes'
+
+    const handleSave = (): void => saveTaskDigest({ source })
+
     if (isInitialLoading) {
-        return <LemonSkeleton className="h-20 w-full" />
+        return todayRailNav ? <Skeleton className="h-20 w-full" /> : <LemonSkeleton className="h-20 w-full" />
     }
 
     if (configLoadFailed) {
+        if (todayRailNav) {
+            return (
+                <Item tone="destructive" size="sm" className="flex-wrap">
+                    <ItemContent>
+                        <ItemDescription>Couldn't load your task digest preferences.</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button variant="outline" onClick={loadConfig} loading={configLoading}>
+                            Try again
+                        </Button>
+                    </ItemActions>
+                </Item>
+            )
+        }
+
         return (
             <LemonBanner type="error" action={{ children: 'Try again', onClick: loadConfig, loading: configLoading }}>
                 Couldn't load your task digest preferences.
             </LemonBanner>
+        )
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomerAnalyticsTaskDigest
+                timeOptions={timeOptions}
+                cadenceOptions={CADENCE_OPTIONS}
+                resetDisabledReason={resetDisabledReason}
+                saveDisabledReason={saveDisabledReason}
+                onSave={handleSave}
+            />
         )
     }
 
@@ -96,19 +133,15 @@ export function CustomerAnalyticsTaskDigest({ source = 'settings' }: { source?: 
             />
 
             <div className="flex flex-row flex-wrap gap-2 pt-2">
-                <LemonButton
-                    type="secondary"
-                    onClick={resetDraft}
-                    disabledReason={configLoading ? 'Saving preferences' : hasChanges ? undefined : 'No changes'}
-                >
+                <LemonButton type="secondary" onClick={resetDraft} disabledReason={resetDisabledReason}>
                     Clear changes
                 </LemonButton>
                 <LemonButton
                     data-attr="save-customer-analytics-task-digest"
                     type="primary"
-                    onClick={() => saveTaskDigest({ source })}
+                    onClick={handleSave}
                     loading={configLoading}
-                    disabledReason={!validSendTime ? 'Choose a valid send time' : hasChanges ? undefined : 'No changes'}
+                    disabledReason={saveDisabledReason}
                 >
                     Save
                 </LemonButton>

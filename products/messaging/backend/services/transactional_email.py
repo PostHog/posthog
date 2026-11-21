@@ -11,7 +11,7 @@ from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from django.db import connection, transaction
+from django.db import transaction
 
 import requests
 import structlog
@@ -72,6 +72,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.models.transactional_email_key import lock_team_keys as _lock_team_keys
 from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
 from products.messaging.backend.tasks import detect_code_email_source_task
@@ -89,6 +90,13 @@ from products.workflows.backend.facade.transactional_emails import (
     resolve_transactional_email_sender,
     sending_domain_setup,
     update_transactional_email_workflow,
+)
+from products.workflows.backend.facade.transactional_push import (
+    TransactionalPushChannelUnavailable,
+    TransactionalPushContent,
+    TransactionalPushContentInvalid,
+    create_transactional_push_workflow,
+    update_transactional_push_workflow,
 )
 
 logger = structlog.get_logger(__name__)
@@ -274,16 +282,14 @@ def is_idempotency_key(value: str) -> bool:
 
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
-TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
-    """Raise when a template with these fields can't be a transactional email."""
-    email = (content or {}).get("email")
-    if template_type != "email" or not isinstance(email, dict) or not email.get("subject"):
-        raise TemplateNotSendable("The template has no email subject, so it can't be sent.")
-    if not (email.get("text") or email.get("html")):
-        raise TemplateNotSendable("The template has no email body, so it can't be sent.")
+    """Raise when a template with these fields can't be a transactional email or push notification."""
+    if template_type == "push":
+        _check_push_sendable(content)
+    else:
+        _check_email_sendable(template_type, content)
     if message_category_id:
         # A deleted category still classifies the template, and the category field accepts one.
         category = MessageCategory.objects.filter(team_id=team_id, id=message_category_id).first()
@@ -292,6 +298,24 @@ def check_sendable(team_id: int, *, template_type: str, content: dict, message_c
             raise MarketingTemplate(
                 "The template is in a marketing category. Only transactional templates can be sent."
             )
+
+
+def _check_email_sendable(template_type: str, content: dict) -> None:
+    email = (content or {}).get("email")
+    if template_type != "email" or not isinstance(email, dict) or not email.get("subject"):
+        raise TemplateNotSendable("The template has no email subject, so it can't be sent.")
+    if not (email.get("text") or email.get("html")):
+        raise TemplateNotSendable("The template has no email body, so it can't be sent.")
+
+
+def _check_push_sendable(content: dict) -> None:
+    push = (content or {}).get("push")
+    if not isinstance(push, dict) or not (push.get("title") or "").strip():
+        raise TemplateNotSendable("The template has no push title, so it can't be sent.")
+    if not (push.get("body") or "").strip():
+        raise TemplateNotSendable("The template has no push body, so it can't be sent.")
+    if not push.get("channels"):
+        raise TemplateNotSendable("The template has no push channel. Choose a Firebase or APNs app to send through.")
 
 
 # An address longer than this can't be delivered, and the bound keeps the pattern below fast.
@@ -354,6 +378,22 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
     )
 
 
+def _push_content(template: MessageTemplate) -> TransactionalPushContent:
+    push = template.content["push"]
+    return TransactionalPushContent(
+        message_template_id=template.id,
+        name=template.name,
+        title=push.get("title") or "",
+        body=push.get("body") or "",
+        channel_ids=tuple(push.get("channels") or ()),
+        message_category_id=template.message_category_id,
+        image=push.get("image") or "",
+        link=push.get("link") or "",
+        data=push.get("data") or {},
+        sensitive=template.sensitive,
+    )
+
+
 def make_transactional(
     team_id: int, template_id: UUID, *, user_id: int | None, from_integration_id: int | None
 ) -> UUID:
@@ -370,6 +410,11 @@ def make_transactional(
             content=template.content,
             message_category_id=template.message_category_id,
         )
+        if template.type == "push":
+            hog_flow_id = _create_push_workflow(team_id, template, user_id=user_id)
+            template.transactional_hog_flow_id = hog_flow_id
+            template.save(update_fields=["transactional_hog_flow_id", "updated_at"])
+            return hog_flow_id
         email = template.content["email"]
         sender = _template_sender(email)
         try:
@@ -391,6 +436,15 @@ def make_transactional(
         template.transactional_hog_flow_id = hog_flow_id
         template.save(update_fields=["content", "transactional_hog_flow_id", "updated_at"])
     return hog_flow_id
+
+
+def _create_push_workflow(team_id: int, template: MessageTemplate, *, user_id: int | None) -> UUID:
+    try:
+        return create_transactional_push_workflow(team_id=team_id, user_id=user_id, content=_push_content(template))
+    except TransactionalPushChannelUnavailable as e:
+        raise TemplateNotSendable("A push channel of this template no longer exists. Choose another one.") from e
+    except TransactionalPushContentInvalid as e:
+        raise TemplateNotSendable("The template needs a title, a body and a push channel to send.") from e
 
 
 def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
@@ -421,9 +475,11 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
     if not _workflow_exists(team_id, template.transactional_hog_flow_id):
         return
+    if fields.get("type", template.type) != template.type:
+        raise TemplateNotSendable("A transactional template can't change between email and push.")
     check_sendable(
         team_id,
-        template_type=fields.get("type", template.type),
+        template_type=template.type,
         content=fields.get("content", template.content),
         message_category_id=fields.get("message_category", template.message_category_id),
     )
@@ -440,17 +496,26 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
         return
     try:
-        update_transactional_email_workflow(
-            team_id=team_id,
-            user_id=user_id,
-            hog_flow_id=hog_flow_id,
-            content=_content(template),
-        )
+        if template.type == "push":
+            update_transactional_push_workflow(
+                team_id=team_id, user_id=user_id, hog_flow_id=hog_flow_id, content=_push_content(template)
+            )
+        else:
+            update_transactional_email_workflow(
+                team_id=team_id,
+                user_id=user_id,
+                hog_flow_id=hog_flow_id,
+                content=_content(template),
+            )
     except WorkflowNotFound:
         # Deleted between the check above and the update.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
     except TransactionalEmailContentInvalid as e:
         raise TemplateNotSendable("The template needs a subject and a body to send.") from e
+    except TransactionalPushContentInvalid as e:
+        raise TemplateNotSendable("The template needs a title, a body and a push channel to send.") from e
+    except TransactionalPushChannelUnavailable as e:
+        raise TemplateNotSendable("A push channel of this template no longer exists. Choose another one.") from e
     except TransactionalEmailSenderUnavailable as e:
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
@@ -481,6 +546,8 @@ def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) ->
 
 
 def _sendable_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
+    if template.type != "email":
+        raise TemplateNotSendable("The template isn't an email template. Send it with the push API instead.")
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -503,13 +570,21 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
 
 
 def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
-    template = _template_for_key(team_id, key)
-    if template is not None:
-        hog_flow_id = _template_workflow_id(team_id, template, sensitive)
-    else:
-        hog_flow_id = _key_workflow_id(team_id, key)
+    hog_flow_id = _code_workflow_id(team_id, key, sensitive)
     _require_active(team_id, hog_flow_id)
     return hog_flow_id
+
+
+def _code_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
+    template = _template_for_key(team_id, key)
+    if template is None:
+        hog_flow_id = _key_workflow_id(team_id, key)
+        if hog_flow_id is not None:
+            return hog_flow_id
+        template = _template_for_key(team_id, key)
+    if template is None:
+        raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
+    return _template_workflow_id(team_id, template, sensitive)
 
 
 def _template_workflow_id(team_id: int, template: MessageTemplate, sensitive: bool | None) -> UUID:
@@ -529,7 +604,9 @@ def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
     return TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(key=key).first()
 
 
-def _key_workflow_id(team_id: int, key: str) -> UUID:
+def _key_workflow_id(team_id: int, key: str) -> UUID | None:
+    """The code email workflow for `key`, made on its first send. None when a template took the key while this send
+    waited for the lock, such as one a template import created."""
     known = known_key(team_id, key)
     if known is not None and _workflow_exists(team_id, known.hog_flow_id):
         return known.hog_flow_id
@@ -540,6 +617,8 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             if _workflow_exists(team_id, known.hog_flow_id):
                 return known.hog_flow_id
             known.delete()
+        if _template_for_key(team_id, key) is not None:
+            return None
         keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
         if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
             raise TooManyKeys(
@@ -558,13 +637,6 @@ def _queue_source_detection(team_id: int, key_id: str) -> None:
     # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
     if source_detection_enabled(team_id, only_locally=True):
         detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
-
-
-def _lock_team_keys(team_id: int) -> None:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
-        )
 
 
 def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:

@@ -62,7 +62,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                     className="w-full border rounded p-20 text-secondary flex flex-col items-center justify-center"
                 >
                     <LemonFileInput
-                        accept="application/json"
+                        accept="application/json,.phrec"
                         multiple={false}
                         onChange={(files) => loadFromFile(files[0])}
                         alternativeDropTargetRef={dropRef}

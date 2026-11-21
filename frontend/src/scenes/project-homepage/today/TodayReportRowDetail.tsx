@@ -38,12 +38,15 @@ function PullRequestLink({
 
 export function TodayReportRowDetail({
     preview,
+    reason,
     to,
     onOpen,
     actions,
     dataAttr,
 }: {
     preview: TodayReportPreview
+    /** The full personal ranking reason, because the row cuts a long one and touch has no tooltip. */
+    reason?: string | null
     to: string
     onOpen: () => void
     actions?: ReactNode
@@ -62,6 +65,11 @@ export function TodayReportRowDetail({
     return (
         <div className="TodayRow__detailBody">
             {preview.lead && <p className="TodayRow__detailLead">{preview.lead}</p>}
+            {reason && (
+                <p className="TodayRow__detailReason" data-attr="today-list-report-personal-reason">
+                    {reason}
+                </p>
+            )}
             <div className="TodayRow__detailFooter">
                 <p className="TodayRow__detailFacts">
                     <span>{facts.join(' · ')}</span>

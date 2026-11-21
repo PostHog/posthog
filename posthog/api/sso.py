@@ -18,6 +18,7 @@ from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
 from social_core.backends.google import GoogleOAuth2
+from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.backends.saml import (
     OID_COMMON_NAME,
     OID_GIVEN_NAME,
@@ -567,6 +568,34 @@ class CustomGoogleOAuth2(GoogleOAuth2):
             return sub
 
 
+class ChatGPTOpenIdConnect(OpenIdConnectAuth):
+    name = "chatgpt"
+    OIDC_ENDPOINT = "https://auth.openai.com"
+    DEFAULT_USE_PKCE = True
+    TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+    JWT_DECODE_OPTIONS = {"require": ["iss", "sub", "aud", "exp", "iat", "nonce"]}
+
+    def user_data(self, access_token: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        # The verified ID token carries every claim that sign-in needs, so the access token is never
+        # sent to the userinfo endpoint.
+        id_token = cast(dict[str, Any] | None, self.id_token)
+        if id_token is None:
+            raise AuthFailed(self, "Sign in with ChatGPT did not return a valid ID token.")
+        return dict(id_token)
+
+    def do_auth(self, access_token: str, *args: Any, **kwargs: Any) -> Any:
+        # Only the verified ID token claims enter the pipeline. A paused partial step serializes the
+        # pipeline response to the database, so the OpenAI tokens must not be in it.
+        kwargs.update({"response": self.user_data(access_token), "backend": self})
+        return self.strategy.authenticate(*args, **kwargs)
+
+    def extra_data(
+        self, user: Any, uid: str, response: dict[str, Any], details: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> dict:
+        # Sign-in only needs the identity, so no OpenAI token is stored on the linked account.
+        return {}
+
+
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     email = details.get("email")
     # Check if SSO enforcement is enabled for this email address
@@ -589,6 +618,8 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
         raise AuthFailed(backend, "github_sso_enforced")
     elif sso_enforcement == "gitlab":
         raise AuthFailed(backend, "gitlab_sso_enforced")
+    elif sso_enforcement == "chatgpt":
+        raise AuthFailed(backend, "chatgpt_sso_enforced")
     else:
         # catch-all in case we missed a case above
         raise AuthFailed(backend, "sso_enforced", email)
