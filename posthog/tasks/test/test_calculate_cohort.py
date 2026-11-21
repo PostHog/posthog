@@ -2596,12 +2596,86 @@ class TestCohortCalculationTasks(APIBaseTest):
             (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
             (False, None, CohortErrorCode.REPLACE_DISABLED),
         )
-        # The sweep cleared the marker and this attempt minted none, so the cleanup has no upper bound and keeps
-        # the earlier attempt's row rather than guess.
+        # Even though the sweep cleared the marker and this attempt minted none, the bounded fallback cleanup
+        # deletes the earlier attempt's row so HogQL stops counting it.
         self.assertEqual(
             sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
-            sorted([(str(member.uuid), 0), (str(attempt_uuid), REPLACE_ROW_OFFSET)]),
+            [(str(member.uuid), 0)],
         )
+
+    def test_null_marker_finalize_leaves_a_newer_replace_claim_alone(self) -> None:
+        now = timezone.now().replace(microsecond=0)
+        old_claimed_at = now - relativedelta(hours=6)
+        new_claimed_at = now + relativedelta(minutes=1)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="redispatched replace",
+            is_static=True,
+            is_calculating=True,
+            query=PERSONS_HOGQL_QUERY,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=None,
+            population_first_marker=now - relativedelta(hours=2),
+            population_claimed_at=old_claimed_at,
+        )
+        newer_uuid = uuid4()
+
+        def replace_claimed_elsewhere(*_args: Any, **_kwargs: Any) -> bool:
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_marker=None,
+                population_first_marker=None,
+                population_claimed_at=new_claimed_at,
+            )
+            sync_execute(
+                f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+                [(uuid4(), newer_uuid, cohort.pk, self.team.pk, now - relativedelta(hours=1), REPLACE_ROW_OFFSET)],
+            )
+            return False
+
+        self.mock_replace_flag.side_effect = replace_claimed_elsewhere
+        with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch:
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertEqual(cohort.population_claimed_at, new_claimed_at)
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(newer_uuid), REPLACE_ROW_OFFSET)])
+
+    def test_failed_replace_cleanup_error_in_finalize_keeps_claim_and_closes_history(self) -> None:
+        now = timezone.now().replace(microsecond=0)
+        claimed_at = now - relativedelta(minutes=5)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cleanup fails",
+            is_static=True,
+            is_calculating=True,
+            query=PERSONS_HOGQL_QUERY,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=claimed_at,
+        )
+
+        with (
+            patch(QUERY_CH_INSERT_PATH, return_value=1),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("pg down")),
+            patch(
+                "products.cohorts.backend.models.util.delete_failed_replace_attempt_rows",
+                side_effect=RuntimeError("ch delete down"),
+            ),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertIsNotNone(history.finished_at)
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertIsNotNone(cohort.population_marker)
+        self.assertIsNotNone(cohort.population_first_marker)
+        self.assertEqual(cohort.population_claimed_at, claimed_at)
 
     def test_query_append_still_runs_when_replace_flag_is_off(self) -> None:
         self.mock_replace_flag.return_value = False
@@ -3672,8 +3746,8 @@ class TestCohortCalculationTasks(APIBaseTest):
             ("before_copy_deletes_its_rows", False, True, ["kept", "newer"]),
             # Postgres may hold some of its rows, so ClickHouse keeps them all.
             ("after_copy_keeps_its_rows", True, True, ["kept", "attempt", "newer"]),
-            # Without a latest marker the delete has no upper bound, so it keeps the rows rather than guess.
-            ("without_a_marker_keeps_its_rows", False, False, ["kept", "attempt", "newer"]),
+            # Without a latest marker the delete falls back to now + clock skew margin and cleans up the attempt.
+            ("without_a_marker_deletes_its_rows", False, False, ["kept", "newer"]),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
@@ -3712,7 +3786,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         rows = {
             "kept": (now - relativedelta(hours=3), 0),
             "attempt": (now - relativedelta(hours=2), REPLACE_ROW_OFFSET),
-            "newer": (now - relativedelta(hours=1), REPLACE_ROW_OFFSET),
+            "newer": (now + relativedelta(minutes=1), REPLACE_ROW_OFFSET),
         }
         person_ids = {name: uuid4() for name in rows}
         sync_execute(
@@ -3735,6 +3809,52 @@ class TestCohortCalculationTasks(APIBaseTest):
         # Nothing will run the replace now, so a later edit must not inherit it.
         self.assertEqual(
             (stuck_static_cohort.pending_population_mode, stuck_static_cohort.population_marker), (None, None)
+        )
+
+    @patch("posthog.tasks.calculate_cohort.capture_exception")
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    @patch("posthog.tasks.calculate_cohort.logger")
+    def test_reset_stuck_static_cohorts_keeps_claim_and_alerts_when_cleanup_fails(
+        self,
+        mock_logger: MagicMock,
+        mock_insert_cohort_from_query: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        now = timezone.now()
+        marker = now - relativedelta(hours=2)
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_cleanup_fails",
+            last_calculation=None,
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=MAX_ERRORS_CALCULATING,
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=marker,
+            population_first_marker=marker,
+            population_copy_started=False,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+        with patch(
+            "products.cohorts.backend.models.util.delete_failed_replace_attempt_rows",
+            side_effect=RuntimeError("ch delete down"),
+        ):
+            reset_stuck_cohorts()
+
+        cohort.refresh_from_db()
+        mock_insert_cohort_from_query.delay.assert_not_called()
+        mock_capture.assert_called_once()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertEqual(cohort.population_marker, marker)
+        self.assertIsNotNone(cohort.last_error_at)
+        mock_logger.warning.assert_any_call(
+            "reset_stuck_static_cohort_cleanup_failed",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
         )
 
     @parameterized.expand(

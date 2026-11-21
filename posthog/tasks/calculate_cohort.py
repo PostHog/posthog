@@ -438,11 +438,22 @@ def reset_stuck_cohorts() -> None:
             # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
             # counting them. Decided and done before the save below releases is_calculating and clears the
             # population_marker that bounds the delete.
-            _delete_failed_replace_attempt(
+            if not _delete_failed_replace_attempt(
                 cohort,
                 log_prefix="reset_stuck_static_cohort",
                 replacing=cohort.pending_population_mode == CohortPopulationMode.REPLACE,
-            )
+            ):
+                Cohort.objects.filter(pk=cohort.pk).update(last_error_at=timezone.now())
+                logger.warning(
+                    "reset_stuck_static_cohort_cleanup_failed",
+                    cohort_id=cohort.pk,
+                    team_id=cohort.team_id,
+                )
+                capture_exception(
+                    RuntimeError(f"Failed to clean up stuck static cohort {cohort.pk} replace rows"),
+                    additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id},
+                )
+                continue
 
         cohort.is_calculating = False
         cohort.population_marker = None
@@ -1023,30 +1034,32 @@ def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | N
 
     def _check() -> None:
         nonlocal owns_cohort
-        owns_cohort = owns_population_run(cohort, marker=cohort.population_marker, mode=mode)
+        owns_cohort = owns_population_run(cohort, marker=cohort.population_marker, mode=mode, claimed_at=cohort.population_claimed_at)
 
     save_recovery_bookkeeping(_check, cohort_id=cohort.pk, team_id=cohort.team_id)
     return owns_cohort
 
 
-def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> None:
+def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> bool:
     """Delete a failed replace run's ClickHouse rows when none of its attempts copied any into Postgres.
 
-    The delete covers ``population_first_marker`` to ``population_marker``, the run's first and latest markers.
-    Earlier runs' rows sit below that range. A newer run mints above every existing row, so its rows sit above the
-    range even if other code (a contact import) released is_calculating and a new claim wrote in the meantime.
-    Without a latest marker (a redispatched attempt that failed before minting) nothing is deleted: the rows are
-    kept, which is safe.
+    The delete covers ``population_first_marker`` to ``population_marker`` (or ``now + REPLACE_FLOOR_CLOCK_MARGIN``
+    when the latest marker was cleared by a sweep reset before a pre-mint failure). Returns True when no delete was
+    needed or one was submitted, and False when the delete raised.
     """
-    from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
+    from products.cohorts.backend.models.util import (
+        REPLACE_FLOOR_CLOCK_MARGIN,
+        delete_failed_replace_attempt_rows,
+        population_timestamp_now,
+    )
 
     first_marker = cohort.population_first_marker
-    last_marker = cohort.population_marker
-    if not (replacing and not cohort.population_copy_started and first_marker is not None and last_marker is not None):
-        return
+    if not (replacing and not cohort.population_copy_started and first_marker is not None):
+        return True
+    to_marker = cohort.population_marker or (population_timestamp_now() + REPLACE_FLOOR_CLOCK_MARGIN)
     try:
         delete_failed_replace_attempt_rows(
-            cohort.pk, team_id=cohort.team_id, from_marker=first_marker, to_marker=last_marker
+            cohort.pk, team_id=cohort.team_id, from_marker=first_marker, to_marker=to_marker
         )
     except Exception:
         logger.exception(
@@ -1054,6 +1067,8 @@ def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing
             cohort_id=cohort.pk,
             team_id=cohort.team_id,
         )
+        return False
+    return True
 
 
 def _population_state_update(cohort: Cohort, *, processing_error: BaseException | None) -> dict[str, Any]:
@@ -1097,6 +1112,7 @@ def _release_population_claim(
             cohort,
             marker=cohort.population_marker,
             mode=mode,
+            claimed_at=cohort.population_claimed_at,
             state=_population_state_update(cohort, processing_error=processing_error),
             finished_replace=finished_replace,
         )
@@ -1397,15 +1413,16 @@ def _populate_static_cohort(
         # superseded attempt leaves all of it to the attempt that replaced it.
         if claimed is not None:
             owns_cohort: bool | None = None
+            cleanup_ok = True
             if superseded is None and retry is None:
-                # Finalize only while this attempt still owns the cohort: its mode and marker are still the
-                # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
+                # Finalize only while this attempt still owns the cohort: its mode, marker and claimed_at are still
+                # the stored ones. Otherwise a newer attempt took over at the last moment, and releasing
                 # is_calculating would release that attempt's run. Nothing is cleared until the release at the end.
                 owns_cohort = _check_population_ownership(claimed, mode=claimed_mode)
                 if owns_cohort is True:
                     # Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
                     if processing_error is not None:
-                        _delete_failed_replace_attempt(claimed, log_prefix=log_prefix, replacing=replacing)
+                        cleanup_ok = _delete_failed_replace_attempt(claimed, log_prefix=log_prefix, replacing=replacing)
                     # Recompute count before closing history so a replace records its new size, not the size before it ran.
                     claimed._refresh_count(team_id=claimed.team_id)
                 elif owns_cohort is False:
@@ -1433,7 +1450,7 @@ def _populate_static_cohort(
                         will_retry=retry is not None,
                     )
 
-            if owns_cohort is True:
+            if owns_cohort is True and cleanup_ok:
                 released = _release_population_claim(
                     claimed,
                     mode=claimed_mode,

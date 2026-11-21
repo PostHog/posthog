@@ -1957,12 +1957,19 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     return marker
 
 
-def owns_population_run(cohort: Cohort, *, marker: datetime | None, mode: str | None) -> bool:
-    """Whether ``mode`` and ``marker`` are still the stored ones, so no newer claim or attempt replaced them.
+def owns_population_run(
+    cohort: Cohort, *, marker: datetime | None, mode: str | None, claimed_at: datetime | None
+) -> bool:
+    """Whether ``mode``, ``marker`` and ``claimed_at`` are still the stored ones, so no newer claim or attempt replaced them.
 
-    A newer claim writes its own mode, and a newer attempt its own marker. Nothing is cleared here.
+    A newer claim stamps its own ``population_claimed_at``, and a newer attempt mints its own marker. Nothing is cleared here.
     """
-    return Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode).exists()
+    return Cohort.objects.filter(
+        pk=cohort.pk,
+        population_marker=marker,
+        pending_population_mode=mode,
+        population_claimed_at=claimed_at,
+    ).exists()
 
 
 def clear_population_run_fields(
@@ -1970,20 +1977,26 @@ def clear_population_run_fields(
     *,
     marker: datetime | None,
     mode: str | None,
+    claimed_at: datetime | None,
     state: dict[str, Any],
     finished_replace: tuple[datetime, datetime] | None = None,
 ) -> bool:
-    """Release the run: clear its fields and write ``state`` in one update, if ``mode`` and ``marker`` are still stored.
+    """Release the run: clear its fields and write ``state`` in one update, if ``mode``, ``marker`` and ``claimed_at`` are still stored.
 
     One update means no reader ever sees ``is_calculating`` still set while the run fields are already cleared, so
     the stuck sweep can't release the cohort in between and redispatch the run as an append. Returns False, writing
-    nothing, when a newer claim or attempt, or a sweep reset, replaced the mode or marker. A run with both NULL never
-    claimed: it has no fields to clear, and ``state`` is written unconditionally, as it always was.
+    nothing, when a newer claim or attempt, or a sweep reset, replaced them. A run with both mode and marker NULL
+    never claimed: it has no fields to clear, and ``state`` is written unconditionally, as it always was.
     """
     if marker is None and mode is None:
         Cohort.objects.filter(pk=cohort.pk).update(**state)
         return True
-    owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
+    owned = Cohort.objects.filter(
+        pk=cohort.pk,
+        population_marker=marker,
+        pending_population_mode=mode,
+        population_claimed_at=claimed_at,
+    )
     # A replace that finished records its marker and floor in the same update, so appends and adds ignore the
     # rows it removes from the moment it stops owning the cohort.
     finished = (
