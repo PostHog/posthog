@@ -317,9 +317,17 @@ def _property_removal_where(
 QueryLogger = Callable[[str, str], None]
 
 
+@frozen
+class _TypedColumns:
+    """The ``(name, is_nullable)`` typed columns that a request's properties reach."""
+
+    from_properties: list[tuple[str, bool]]
+    from_person_properties: list[tuple[str, bool]]
+
+
 def _affected_typed_columns(
     client: Client, deletion_request: DeletionRequestContext, target: DeletionTarget, log: QueryLogger | None = None
-) -> tuple[list[tuple[str, bool]], list[tuple[str, bool]]]:
+) -> _TypedColumns:
     """The typed columns of ``target`` that derive from the request's properties and person properties.
 
     A table with no typed columns, such as events_json, has no column comments and so yields nothing.
@@ -340,7 +348,7 @@ def _affected_typed_columns(
         person_mat_cols = _get_affected_mat_columns(
             client, target.read_table, deletion_request.person_properties, table_columns=("person_properties",), log=log
         )
-    return mat_cols, person_mat_cols
+    return _TypedColumns(from_properties=mat_cols, from_person_properties=person_mat_cols)
 
 
 def _get_affected_mat_columns(
@@ -660,13 +668,13 @@ def _refuse_property_removal_unsweepable(
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
         # A typed column keeps a removed value after its JSON key is gone, so the count reads it too.
         # Discovery reads a data node, as the count does. A host without the read table finds no columns.
-        mat_cols, person_mat_cols = cluster.any_host_by_role(
+        typed = cluster.any_host_by_role(
             partial(_affected_typed_columns, deletion_request=deletion_request, target=target), NodeRole.DATA
         ).result()
         return _property_removal_where(
             deletion_request,
-            mat_cols=mat_cols,
-            person_mat_cols=person_mat_cols,
+            mat_cols=typed.from_properties,
+            person_mat_cols=typed.from_person_properties,
             inserted_at_max=marker_str,
             json_schema=target.stores_native_json_properties,
         )
@@ -1311,7 +1319,8 @@ def _shard_predicate(
     the same ``inserted_at < marker`` bound, so they cannot drift. Drift either deletes rows the copy
     does not hold or leaves originals behind.
     """
-    mat_cols, person_mat_cols = _affected_typed_columns(client, deletion_request, target, log)
+    typed = _affected_typed_columns(client, deletion_request, target, log)
+    mat_cols, person_mat_cols = typed.from_properties, typed.from_person_properties
     sql, params = _property_removal_where(
         deletion_request,
         mat_cols=mat_cols,
