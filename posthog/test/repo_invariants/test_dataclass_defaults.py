@@ -10,9 +10,14 @@ Regenerate the baseline (only to ratchet DOWN or after moving code):
 """
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from repo_invariant_scan_scope import ScanScope
+
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "dataclass_frozen_baseline.txt"
@@ -42,6 +47,16 @@ def _is_undeclared_dataclass_decorator(decorator: ast.expr) -> bool:
     return True
 
 
+def _class_definitions(tree: ast.AST) -> Iterator[ast.ClassDef]:
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.ClassDef):
+            yield node
+        # Expressions cannot contain class definitions, so their subtrees need no scan.
+        pending.extend(child for child in ast.iter_child_nodes(node) if not isinstance(child, ast.expr))
+
+
 def collect_offenders() -> dict[str, list[int]]:
     offenders: dict[str, list[int]] = {}
     for root in ScanScope.from_environment().roots(SCANNED_ROOTS):
@@ -57,8 +72,7 @@ def collect_offenders() -> dict[str, list[int]]:
                 continue
             lines = [
                 decorator.lineno
-                for node in ast.walk(tree)
-                if isinstance(node, ast.ClassDef)
+                for node in _class_definitions(tree)
                 for decorator in node.decorator_list
                 if _is_undeclared_dataclass_decorator(decorator)
             ]
@@ -97,6 +111,32 @@ def test_no_new_undeclared_dataclasses() -> None:
         "existing code, regenerate the baseline: python posthog/test/repo_invariants/test_dataclass_defaults.py\n"
         + "\n".join(regressions)
     )
+
+
+def test_collect_offenders_finds_nested_classes(tmp_path: Path, monkeypatch: "MonkeyPatch") -> None:
+    source = (
+        "@dataclass\n"
+        "class Outer:\n"
+        "    @dataclass\n"
+        "    class Nested: pass\n"
+        "    def factory(self):\n"
+        "        @dataclass()\n"
+        "        class Local: pass\n"
+        "        return Local\n"
+        "async def factory():\n"
+        "    match value:\n"
+        "        case True:\n"
+        "            @dataclasses.dataclass\n"
+        "            class Conditional: pass\n"
+        "@dataclass(frozen=True)\n"
+        "class Explicit: pass\n"
+    )
+    (tmp_path / "posthog").mkdir()
+    (tmp_path / "posthog" / "sample.py").write_text(source)
+    monkeypatch.setattr(f"{__name__}.REPO_ROOT", tmp_path)
+    monkeypatch.delenv("REPO_INVARIANTS_SCAN_SCOPE", raising=False)
+
+    assert collect_offenders() == {"posthog/sample.py": [1, 3, 6, 12]}
 
 
 if __name__ == "__main__":
