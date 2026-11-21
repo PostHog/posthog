@@ -49,7 +49,8 @@ def _visible_memberships(
     email: Optional[str],
 ) -> list[OrganizationMembership]:
     memberships = (
-        OrganizationMembership.objects.filter(organization=organization, user__is_active=True)
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization=organization, user__is_active=True)
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .select_related("user")
         .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))

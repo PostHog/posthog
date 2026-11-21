@@ -1110,11 +1110,12 @@ class Team(UUIDTClassicModel):
 
         # General case: resolve each active member through `SubjectAccessControl`, seeding its
         # pool from the single team-rules fetch so N subjects share one query rather than running
-        # N of them. Only load the user columns subject resolution actually reads (its id).
+        # N of them. Only load the user columns subject resolution actually reads (its id and active status).
         memberships = list(
-            member_queryset.filter(user__is_active=True)
+            member_queryset.with_effective_level()
+            .filter(user__is_active=True)
             .select_related("user")
-            .only("id", "user_id", "level", "user__id")
+            .only("id", "user_id", "level", "user__id", "user__is_active")
         )
 
         # Roles the facade uses to resolve each user. User-keyed rather than keyed on the

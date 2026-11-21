@@ -380,7 +380,8 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
 
     # Fetch one extra to account for filtering out the current user downstream.
     memberships = (
-        OrganizationMembership.objects.filter(organization=organization, user__is_active=True)
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization=organization, user__is_active=True)
         .select_related("user")
         .order_by(F("user__last_login").desc(nulls_last=True), "-joined_at")[: _TEAM_MEMBERS_MAX_ITEMS + 1]
     )

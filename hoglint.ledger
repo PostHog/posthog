@@ -3033,7 +3033,6 @@ receiver-direction	products.access_control.backend.models.access_control.AccessC
 receiver-direction	products.access_control.backend.models.access_control.AccessControl	core	posthog.models.file_system.signal_handlers	1
 receiver-direction	products.access_control.backend.models.access_control.AccessControl	core	posthog.storage.gateway_credential_signal_handlers	2
 receiver-direction	products.access_control.backend.models.role.RoleMembership	authorization	products.authorization.backend.apps	2
-receiver-direction	products.access_control.backend.models.role.RoleMembership	core	posthog.storage.gateway_credential_signal_handlers	2
 receiver-direction	products.cdp.backend.models.hog_functions.hog_function.HogFunction	alerts	products.alerts.backend.activity_logging	1
 receiver-direction	products.cdp.backend.models.hog_functions.hog_function.HogFunction	core	posthog.models.remote_config	2
 receiver-direction	products.cdp.backend.models.plugin.PluginConfig	core	posthog.models.remote_config	1

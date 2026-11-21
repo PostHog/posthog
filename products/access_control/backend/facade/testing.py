@@ -12,8 +12,14 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.models.role import Role, RoleMembership
 
 
-def create_role(*, organization_id: UUID, name: str) -> UUID:
-    return Role.objects.create(organization_id=organization_id, name=name).id
+def create_role(*, organization_id: UUID, name: str, organization_access_level: int | None = None) -> UUID:
+    return Role.objects.create(
+        organization_id=organization_id, name=name, organization_access_level=organization_access_level
+    ).id
+
+
+def set_role_organization_access_level(*, organization_id: UUID, role_id: UUID, level: int | None) -> None:
+    Role.objects.filter(organization_id=organization_id, pk=role_id).update(organization_access_level=level)
 
 
 def add_role_member(*, role_id: UUID, user_id: int) -> UUID:

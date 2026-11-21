@@ -541,9 +541,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
         target = _access_target(self, self.get_object())
 
         memberships = list(
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True).select_related(
-                "user"
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=team.organization, user__is_active=True)
+            .select_related("user")
         )
 
         users_with_access = []
