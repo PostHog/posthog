@@ -116,6 +116,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
+    loadWarehouseStatus: 'scenes.data-warehouse.scene.warehouseProvisioningLogic', // Data ops shows an inline retry and keeps polling
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',

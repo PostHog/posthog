@@ -12,6 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { DataOpsVariant } from './dataOpsVariant'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { InitialPasswordBanner } from './InitialPasswordBanner'
 import { MonitoringTab } from './tabs/MonitoringTab'
 import { OverviewTab } from './tabs/OverviewTab'
 import { SettingsTab } from './tabs/SettingsTab'
@@ -58,6 +59,7 @@ export function DataWarehouseScene(): JSX.Element {
                     type: sceneConfigurations[Scene.DataOps].iconType || 'default_icon_type',
                 }}
             />
+            <InitialPasswordBanner />
             {/* Which tabs exist depends on whether a warehouse is ready, so wait for that rather
                 than rendering the setup form and then swapping it for tabs a moment later. */}
             {!warehouseStatusResolved ? (

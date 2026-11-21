@@ -1497,9 +1497,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "project still writes to the shared tables.",
                     ),
                     "team_onboarded": serializers.BooleanField(
+                        allow_null=True,
                         help_text="Whether this project is onboarded onto the managed warehouse. False when the "
-                        "warehouse exists but this project has not picked a schema yet — show the onboarding "
-                        "screen in that case."
+                        "warehouse exists but this project has not picked a schema yet, so show the onboarding "
+                        "screen. Null when the control plane could not report it, so keep the last known state "
+                        "and retry.",
                     ),
                     "schema_name": serializers.CharField(
                         allow_null=True,

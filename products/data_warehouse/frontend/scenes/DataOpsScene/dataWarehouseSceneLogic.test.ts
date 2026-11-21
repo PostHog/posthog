@@ -55,8 +55,18 @@ describe('dataWarehouseSceneLogic', () => {
         },
         {
             name: 'warehouse ready',
-            status: { state: 'ready' },
+            status: { state: 'ready', team_onboarded: true },
             expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS],
+        },
+        {
+            name: 'warehouse ready, onboarding lookup failed',
+            status: { state: 'ready', team_onboarded: null },
+            expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS],
+        },
+        {
+            name: 'warehouse ready but this project not onboarded',
+            status: { state: 'ready', team_onboarded: false },
+            expectedTabs: [DataWarehouseTab.SETTINGS],
         },
     ])('$name', async ({ status, expectedTabs }) => {
         warehouseStatusResponse = status ? [200, status] : [404, {}]
@@ -103,7 +113,7 @@ describe('dataWarehouseSceneLogic', () => {
         useOnlyTheTrinoFlag()
         warehouseStatusResponse = [
             200,
-            { state: 'ready', trino: { state: trinoState, ready_at: null, connection: null } },
+            { state: 'ready', team_onboarded: true, trino: { state: trinoState, ready_at: null, connection: null } },
         ]
         mountScene()
         await waitForWarehouseStatus()
@@ -117,7 +127,7 @@ describe('dataWarehouseSceneLogic', () => {
     })
 
     it('leaves the tab set unresolved until the warehouse status lands', () => {
-        warehouseStatusResponse = [200, { state: 'ready' }]
+        warehouseStatusResponse = [200, { state: 'ready', team_onboarded: true }]
         mountScene()
 
         expect(logic.values.warehouseStatusResolved).toBe(false)
@@ -128,7 +138,7 @@ describe('dataWarehouseSceneLogic', () => {
     it.each([[DataWarehouseTab.OVERVIEW], [DataWarehouseTab.MONITORING], [DataWarehouseTab.SETTINGS]])(
         'honors a tab requested before the warehouse status resolves (%s)',
         async (tab) => {
-            warehouseStatusResponse = [200, { state: 'ready' }]
+            warehouseStatusResponse = [200, { state: 'ready', team_onboarded: true }]
             mountScene()
             router.actions.push(urls.dataOps(tab))
             await waitForWarehouseStatus()

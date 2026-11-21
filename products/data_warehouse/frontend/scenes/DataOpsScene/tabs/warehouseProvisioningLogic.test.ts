@@ -57,6 +57,74 @@ describe('warehouseProvisioningLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', expectedAction])
     })
 
+    it('recovers from a failed status read while provisioning', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+                .mockResolvedValueOnce(warehouseStatusFixture({ state: 'provisioning' }))
+                .mockRejectedValueOnce({ status: 500 })
+                .mockResolvedValue(warehouseStatusFixture({ state: 'ready' }))
+
+            logic = warehouseProvisioningLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusFailure'])
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+            await expectLogic(logic).toMatchValues({ warehouseStatus: expect.objectContaining({ state: 'ready' }) })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('does not start polling after a failed status read once ready', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(
+            warehouseStatusFixture({ state: 'ready' })
+        )
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'stopPolling'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusFailure('boom')
+        }).toNotHaveDispatchedActions(['pollStatus'])
+    })
+
+    it('keeps the last known onboarding state and retries when the lookup fails', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'stopPolling'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess(
+                warehouseStatusFixture({ team_onboarded: null, schema_name: null })
+            )
+        })
+            .toDispatchActions(['pollStatus'])
+            .toMatchValues({ teamOnboarded: true, teamSchemaName: 'analytics' })
+    })
+
+    // availableTabs depends on teamOnboarded, so a deprovision click that fails must not collapse the tabs.
+    it('keeps the project onboarded when a deprovision request fails', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())
+        jest.spyOn(dwApi, 'dataWarehouseDeprovisionCreate').mockRejectedValue(new Error('boom'))
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        logic.actions.deprovisionWarehouse()
+        await expectLogic(logic).toDispatchActions(['deprovisionWarehouseComplete'])
+
+        expect(logic.values.teamOnboarded).toBe(true)
+    })
+
     it('treats a 404 status as no warehouse', async () => {
         jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: 404 })
 

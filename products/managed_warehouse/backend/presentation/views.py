@@ -913,21 +913,24 @@ def _teams_from_response(resp: Response) -> list[dict] | None:
 def team_onboarding_state(organization_id: UUID | str, team_id: int) -> dict:
     """Resolve the calling team's duckgres onboarding state for the warehouse-status response.
 
-    Best-effort: a status read must never 500, so a failed list-teams call degrades to the
-    not-onboarded shape.
+    Best-effort: a status read must never 500, so a failed list-teams call reports the state as
+    unknown (`team_onboarded` None). The client then keeps its last known state and retries.
+    `team_onboarded` is False only when the lookup succeeded and the team has no row.
     """
-    duckgres_team: dict | None = None
     try:
         teams = _teams_from_response(list_teams(organization_id, require_enabled=False))
-        if teams is not None:
-            duckgres_team = next((row for row in teams if _row_team_id(row) == team_id), None)
     except Exception:
         logger.exception(
             "Failed to resolve duckgres team onboarding state",
             organization_id=str(organization_id),
             team_id=team_id,
         )
+        teams = None
 
+    if teams is None:
+        return {"team_onboarded": None, "schema_name": None}
+
+    duckgres_team = next((row for row in teams if _row_team_id(row) == team_id), None)
     schema_name = duckgres_team.get("schema_name") if duckgres_team is not None else None
     return {"team_onboarded": duckgres_team is not None, "schema_name": schema_name}
 
