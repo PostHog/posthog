@@ -23,6 +23,8 @@ export interface AudienceSnapshotResponse {
     status: 'resolving' | 'ready' | 'failed'
     audience_size: number | null
     error: string | null
+    // Absent from a Django that predates it.
+    skipped_test_account_filters?: string[]
 }
 
 export interface AccountAudienceResponse {
