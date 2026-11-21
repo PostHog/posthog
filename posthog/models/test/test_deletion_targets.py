@@ -11,6 +11,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.models.deletion_targets import (
     EVENTS_JSON,
     FLAG_EVALUATIONS,
+    FLAG_EVALUATIONS_JSON,
     DeletionTarget,
     UnreachableTargetError,
     dispatchable_here,
@@ -65,6 +66,7 @@ def _cluster_with(tables_by_host: dict[str, set[str]]) -> Iterator[ClickhouseClu
 _REGISTERED_OFF_CLUSTER_TARGETS = [
     pytest.param(EVENTS_JSON, "events", [1, 2], NodeRole.EVENTS, id="events_json"),
     pytest.param(FLAG_EVALUATIONS, "flags", [1], NodeRole.FLAGS, id="flag_evaluations"),
+    pytest.param(FLAG_EVALUATIONS_JSON, "flags", [1], NodeRole.FLAGS, id="flag_evaluations_json"),
 ]
 
 

@@ -50,7 +50,7 @@ Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
 `DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
-`sharded_flag_evaluations` carries `CLICKHOUSE_FLAGS_CLUSTER`, which names the `flags` cluster, and shards across nodes whose `hostClusterRole` is `flags`.
+`sharded_flag_evaluations` and `sharded_flag_evaluations_json` carry `CLICKHOUSE_FLAGS_CLUSTER`, which names the `flags` cluster, and shard across nodes whose `hostClusterRole` is `flags`.
 A deployment with no `flags` cluster keeps the table on the main cluster, and the handle in hand sweeps it there.
 
 ## Dispatching to a target's own cluster
@@ -90,7 +90,7 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` (`sharded_events`, `sharded_events_json` and `sharded_flag_evaluations`) through an update that joins a snapshot dictionary, then deletes the overrides it just applied.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` (`sharded_events`, `sharded_events_json`, `sharded_flag_evaluations` and `sharded_flag_evaluations_json`) through an update that joins a snapshot dictionary, then deletes the overrides it just applied.
 Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
 `SQUASH_TARGETS` is derived from the `accepts_person_id_rewrite` capability rather than kept as a second hand-written list, so a target registered for deletion and then forgotten by the squash is not expressible.
 Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that decision gets written down.
@@ -101,6 +101,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Stored on the `flags` cluster where that cluster exists. There, deferred event removal without a predicate refuses, and event removal with a predicate refuses while the table holds matching rows (above). Optional.
+- `sharded_flag_evaluations_json` — the same flag calls on the native-JSON events schema, written next to `sharded_flag_evaluations` while both exist. It takes every sweep that table takes, with a patch part where `sharded_events_json` takes one (`uses_patch_parts`). Property removal rewrites its properties as JSON and resets `flag_key`, `response` and `request_id` (below). Event removal with a HogQL predicate refuses while a row here has no events copy, because no HogQL table compiles a predicate for it yet. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -268,6 +269,13 @@ A request naming `$feature_flag` therefore completes: the cleaned row goes back 
 
 The same names on `sharded_events` (`$session_id`, `$window_id`, `$group_0..4`) are true `MATERIALIZED` columns with that comment.
 The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` columns out, and the reingest recomputes them from the cleaned `properties`.
+
+#### The JSON table
+
+`sharded_flag_evaluations_json` is swept by the same ops, with native-JSON properties (`DeletionTarget.stores_native_json_properties`).
+Its three typed columns are `DEFAULT` columns that read JSON paths: `flag_key` and `response` from `properties`, and `request_id` from `temporary_properties`.
+`DeletionTarget.has_typed_property_columns` makes the job discover them through their `column_materializer::` comments on the read table, because a JSON drop leaves the derived value in place.
+Discovery matches a column on both source columns, so a request that names `$feature_flag_request_id` resets `request_id` too.
 
 #### Duplicate rows
 
