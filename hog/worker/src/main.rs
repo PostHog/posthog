@@ -56,7 +56,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    io::{self, BufRead, Write},
+    io::{self, BufRead, IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
@@ -1119,7 +1119,16 @@ fn send(message: &impl Serialize) -> io::Result<()> {
     stdout.flush()
 }
 
+const RUN_BY_HOG: &str =
+    "hog-worker is part of hog and runs only when hog starts it. Use hog instead: run `hog --help` to see what it can do.";
+
 fn main() -> io::Result<()> {
+    // hog starts the worker with no arguments and a pipe on stdin, so an argument or a terminal on
+    // stdin means a person ran it.
+    if std::env::args_os().len() > 1 || io::stdin().is_terminal() {
+        eprintln!("{RUN_BY_HOG}");
+        std::process::exit(2);
+    }
     memory::tune_allocator();
     guard::install_hook();
 
