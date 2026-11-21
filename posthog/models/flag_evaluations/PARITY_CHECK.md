@@ -113,3 +113,21 @@ On a deficit that names a team with no other sign of trouble, check whether the 
 An always-on Dagster version was built and closed unmerged in [PR #92749](https://github.com/PostHog/posthog/pull/92749). It needed three things a hand-run check does not: a source of truth for which teams are enabled, a rule for what catch-up ticks after an outage should do, and a threshold for excess.
 
 Revisit it once the allowlist reaches `*`. At that point "which teams are enabled" stops being a question, and the first of those three problems goes away.
+
+## Comparing `flag_evaluations_json` with `flag_evaluations`
+
+Run the `flag_evaluations_json_parity_job` Dagster job before the read switch moves to the JSON table. It compares `uniqExact(uuid)` per day, and per day, `flag_key` and `response`, in `sharded_flag_evaluations` and `sharded_flag_evaluations_json`, and fails with the first differing groups. Never compare `count()`: unmerged ReplacingMergeTree copies make row counts differ between tables that hold the same calls.
+
+The job's defaults cover the 90 days before today. Days before the fork started differ by design, because `sharded_flag_evaluations` lacks calls that events holds and the backfill copied them. Read the listed days against the fork's start date.
+
+To run it by hand against a region's flags cluster, substitute the day range and run each query on one flags host, as in "Running it" above:
+
+```sql
+SELECT toDate(timestamp) AS day, uniqExact(uuid) AS calls
+FROM sharded_flag_evaluations
+WHERE timestamp >= '{{start}} 00:00:00' AND timestamp < '{{end}} 00:00:00'
+GROUP BY day
+ORDER BY day
+```
+
+Run it again with `sharded_flag_evaluations_json` and compare the two columns by day. For the per-flag comparison, add `flag_key, response` to the SELECT and the GROUP BY.

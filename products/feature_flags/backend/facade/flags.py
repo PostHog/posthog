@@ -56,6 +56,20 @@ def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) 
     }
 
 
+def get_team_ids_in_flag_evaluations_only_organizations() -> list[int]:
+    """The ids of the teams whose organization is on FLAG_EVALUATIONS_ONLY now, sorted. Events holds no flag calls
+    of these teams after their organization moved."""
+    from posthog.models.team import Team
+
+    return sorted(
+        Team.objects.filter(
+            organization_id__in=OrganizationFeatureFlagsConfig.objects.filter(
+                flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+            ).values("organization_id")
+        ).values_list("id", flat=True)
+    )
+
+
 def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     """The mode that picks the table for the flag-call readers that the READ_FLAG_EVALUATIONS comment lists.
     FLAG_EVALUATIONS_READS_FORCE_EVENTS makes it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves
