@@ -52,6 +52,7 @@ from products.stamphog.backend.logic.routing.service import (
     verdict_trigger,
     waiting_attestation_checks,
 )
+from products.stamphog.backend.logic.workflow_proofs import seen_on_head
 from products.stamphog.backend.models import StamphogRepoConfig
 
 logger = structlog.get_logger(__name__)
@@ -663,10 +664,13 @@ def _attestation_poll_step(
     if live_head_sha != head_sha:
         return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_ATTESTATION)
     repository = state.repo_config.repository
-    if not all_reported(client, repository, head_sha, checks, pr_number=state.pr_number):
+    seen = seen_on_head(
+        state.repo_config.team_id, repo_config_id=state.repo_config.id, pr_number=state.pr_number, head_sha=head_sha
+    )
+    if not all_reported(client, repository, head_sha, checks, pr_number=state.pr_number, seen=seen):
         review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
         return None
-    if not attestation_proven(client, repository, pr):
+    if not attestation_proven(client, state.repo_config, pr):
         return _attestation_step(pr, head_sha)
     # Read before the reviewer check: an approval that lands between the two reads then counts in one of them.
     approval_can_still_come = _approval_can_still_come(pr, state, review_path=review_path)
@@ -752,7 +756,7 @@ def _attested_recheck_step(
     live_head_sha = _head_sha(pr)
     if live_head_sha != record.get("head_sha"):
         return _attestation_wait_on_live_head(client, state, pr, trigger=trigger)
-    if not attestation_proven(client, state.repo_config.repository, pr):
+    if not attestation_proven(client, state.repo_config, pr):
         return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.ALWAYS, trigger=trigger)
     if _keeps_a_reviewer(pr, state, review_path=review_path):
         return None

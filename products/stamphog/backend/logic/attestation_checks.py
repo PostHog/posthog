@@ -7,7 +7,7 @@ to a workflow publisher whose result counts only once the server verified its si
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -15,7 +15,7 @@ from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.logic.attestation_policy import WorkflowPublisher, workflow_publisher
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs
+from products.stamphog.backend.logic.workflow_proofs import RunOrder, WorkflowProofs
 
 
 @frozen
@@ -63,11 +63,23 @@ def attestation_check(entry: object) -> AttestationCheck | None:
 
 
 def all_reported(
-    client: StamphogGitHubClient, repository: str, head_sha: str, checks: Sequence[AttestationCheck], *, pr_number: int
+    client: StamphogGitHubClient,
+    repository: str,
+    head_sha: str,
+    checks: Sequence[AttestationCheck],
+    *,
+    pr_number: int,
+    seen: Mapping[str, RunOrder],
 ) -> bool:
-    """Whether every check reported on the head. A shed or rate-limited read answers False, so the poll tries again."""
+    """Whether every check reported on the head. A shed or rate-limited read answers False, so the poll tries again.
+
+    `seen` is the newest run of each publisher that a review of the head verified, so an older result
+    that a review would refuse does not spend one of the head's re-reviews.
+    """
     publishers = [check for check in checks if isinstance(check, WorkflowPublisher)]
-    proofs = WorkflowProofs(client, repository, pr_number=pr_number, head_sha=head_sha, priority=Priority.BATCH)
+    proofs = WorkflowProofs(
+        client, repository, pr_number=pr_number, head_sha=head_sha, priority=Priority.BATCH, seen=seen
+    )
     try:
         if not all(
             _has_reported(client, repository, head_sha, check) for check in checks if isinstance(check, PendingCheck)

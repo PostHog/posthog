@@ -58,7 +58,13 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
-from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs, proof_audience, proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    RunOrder,
+    WorkflowProofs,
+    proof_audience,
+    proven_check_runs,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
@@ -1101,13 +1107,14 @@ class _WorkflowClient:
         return {path: self.default_branch.get(path) for path in paths}
 
 
-def _proofs(client: _WorkflowClient) -> WorkflowProofs:
+def _proofs(client: _WorkflowClient, seen: dict[str, RunOrder] | None = None) -> WorkflowProofs:
     return WorkflowProofs(
         cast(StamphogGitHubClient, client),
         "acme/widgets",
         pr_number=7,
         head_sha="sha",
         signing_key=_test_signing_key,
+        seen=seen,
     )
 
 
@@ -1189,6 +1196,27 @@ class WorkflowProofTests(SimpleTestCase):
         assert proof is not None
         assert (proof["id"], proof["conclusion"], proof["pinned_blobs_current"]) == (6, "failure", False)
 
+    def test_a_result_hidden_after_a_review_verified_it_brings_back_no_older_one(self) -> None:
+        older = _signed_check_run(5, run_id="76", check_run_id="899")
+        newer = _signed_check_run(6, conclusion="neutral", run_id="77")
+        jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
+        verified_by_an_earlier_review = _proofs(_WorkflowClient([older, newer], jobs)).verified_result(_PUBLISHER)
+        # A writer's job renamed the newer check run, so only the older success is listed.
+        hidden = _WorkflowClient([older], jobs)
+
+        seen = seen_runs([[verified_by_an_earlier_review]])
+        assert _proofs(hidden, seen=seen).verified_result(_PUBLISHER) is None
+        assert _proofs(hidden).verified_result(_PUBLISHER) is not None
+        # The poll must not spend one of the head's re-reviews on the result a review would refuse.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, hidden), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen=seen
+            )
+        assert polled is False
+
     @parameterized.expand(
         [
             ("current_code", {}, {}, True),
@@ -1240,7 +1268,9 @@ class WorkflowProofTests(SimpleTestCase):
             "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
             side_effect=lambda _, token: _test_signing_key(token),
         ):
-            polled = all_reported(cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7)
+            polled = all_reported(
+                cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen={}
+            )
         assert polled is reported
 
     @parameterized.expand(
@@ -1365,6 +1395,7 @@ class WorkflowProofTests(SimpleTestCase):
                 head_sha="sha",
                 check_runs=[check_run],
                 policy=policy,
+                seen={},
             )
 
         [carrier, proof] = check_runs

@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import router
+from django.db import router, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
@@ -114,7 +114,13 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    SEEN_OUTPUT_KEY,
+    proven_check_runs,
+    seen_entries,
+    seen_on_head,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -221,6 +227,29 @@ def _output_merge(updates: dict[str, Any]) -> Func:
         arg_joiner=" || ",
         output_field=JSONField(),
     )
+
+
+def _record_seen_workflow_runs(run: ReviewRun, check_runs: list[dict]) -> None:
+    """Raise the newest publisher runs this run stored to include the ones it just verified.
+
+    A writer's job can hide a newer result, so once any read of the head verified a run, an older
+    result must never decide for the head again. A timed-out attempt can overlap its retry, so the
+    read, the maximum and the write happen under the run's row lock and the value never goes down.
+    """
+    db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=db):
+        stored = (
+            ReviewRun.objects.for_team(run.team_id)
+            .using(db)
+            .select_for_update()
+            .filter(id=run.id)
+            .values_list(f"output__{SEEN_OUTPUT_KEY}", flat=True)
+            .first()
+        )
+        current = seen_runs([stored])
+        newest = seen_runs([stored, check_runs])
+        if newest != current:
+            _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -579,6 +608,12 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 if content is not None:
                     policy_files[path] = content
         with timer.step("check_run_proofs"):
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             check_runs = proven_check_runs(
                 client,
                 repo,
@@ -586,7 +621,9 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 head_sha=run.head_sha,
                 check_runs=check_runs_future.result(),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, check_runs)
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -1018,6 +1055,12 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             context["check_runs"] = proven_check_runs(
                 client,
                 repo,
@@ -1025,7 +1068,9 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
                 head_sha=run.head_sha,
                 check_runs=client.get_check_runs(repo, run.head_sha),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, context["check_runs"])
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []
