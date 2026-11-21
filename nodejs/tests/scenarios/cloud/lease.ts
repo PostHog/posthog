@@ -37,6 +37,9 @@ const StoredManifest = z
 
 const stackNameOf = (runId: string): string => `scn-${runId}`
 
+const isGivenRunId = (value: string): boolean =>
+    z.uuid({ version: 'v8' }).safeParse(value).success && value === value.toLowerCase()
+
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
 export const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
@@ -47,11 +50,12 @@ const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
 export function evidenceOf(aws: Aws, bucket: string) {
     return {
         name: bucket,
-        put: async (key: string, body: string | Buffer): Promise<unknown> => {
+        put: async (key: string, body: string | Buffer, createOnly = false): Promise<unknown> => {
             using scratch = scratchDir()
             const file = path.join(scratch.path, 'object')
             writeFileSync(file, body)
-            return await aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
+            const args = ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file]
+            return await aws.call(createOnly ? [...args, '--if-none-match', '*'] : args)
         },
         get: async (key: string): Promise<string> => {
             using scratch = scratchDir()
@@ -120,7 +124,13 @@ export async function lease(
     { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
-    const runId = randomUUID()
+    const given = controller.env.SCENARIO_RUN_ID
+    if (given !== undefined && !isGivenRunId(given)) {
+        throw new LeaseError(
+            `SCENARIO_RUN_ID ${JSON.stringify(given)} is not a lowercase UUID v8, so no run is leased. The harness mints v4 ids for its own runs, so a given id never names one of them.`
+        )
+    }
+    const runId = given ?? randomUUID()
     const createdAt = controller.now()
     const stackName = stackNameOf(runId)
     const manifest: Manifest = {
@@ -140,8 +150,17 @@ export async function lease(
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
+    if (given !== undefined) {
+        await bucket.put(keyOf(runId, 'manifest.json'), body, true).catch((error: unknown) => {
+            throw error instanceof AwsError && error.code === 'PreconditionFailed'
+                ? new LeaseError(`Run ${runId} already has a manifest, so it is not leased again.`)
+                : error
+        })
+    }
     try {
-        await bucket.put(keyOf(runId, 'manifest.json'), body)
+        if (given === undefined) {
+            await bucket.put(keyOf(runId, 'manifest.json'), body)
+        }
         await bucket.put(keyOf(runId, 'input/manifest.json'), body)
         for (const input of inputs) {
             await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)

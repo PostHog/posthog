@@ -24,6 +24,7 @@ const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
+const GIVEN_RUN_ID = '0a1b2c3d-4e5f-8a6b-8c7d-9e0f1a2b3c4d'
 const RUNNER_PROFILE = readFileSync(path.join(__dirname, '..', 'profiles', 'synthetic.yaml'), 'utf8')
 
 type Setup = {
@@ -296,6 +297,36 @@ describe('cloud controller', () => {
             { profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }) },
         ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
+        [
+            'a given run id that is not a UUID',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: 'scn-1' } },
+        ],
+        [
+            'a given run id in upper case',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: GIVEN_RUN_ID.toUpperCase() } },
+        ],
+        [
+            'a given run id of the v4 kind the harness mints for its own runs',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' } },
+        ],
+        [
+            'a given run id of another UUID version',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: '019a8b2c-3d4e-7f5a-8b6c-7d8e9f0a1b2c' } },
+        ],
+        [
+            'a given v8 run id without the RFC variant',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: '0a1b2c3d-4e5f-8a6b-cc7d-9e0f1a2b3c4d' } },
+        ],
         ['no card', undefined, 'Usage:', {}],
     ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
         const { controller } = prepare(setup)
@@ -355,15 +386,70 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain(`Run ${runId} was not leased`)
     })
 
-    it('releases the lease when the run ends', async () => {
-        const { controller } = prepare()
+    it.each<[string, NodeJS.ProcessEnv, unknown, boolean]>([
+        [
+            'a new run id',
+            {},
+            expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+            false,
+        ],
+        ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID, true],
+    ])('runs under %s and releases the lease when the run ends', async (_story, env, expected, createOnly) => {
+        const { controller } = prepare({ env })
+        const calls: string[][] = []
+        const call = cloud.call.bind(cloud)
+        cloud.call = (args) => {
+            calls.push(args)
+            return call(args)
+        }
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
+        expect(runId).toEqual(expected)
+        const leaseCalls = calls
+            .slice(
+                0,
+                calls.findIndex(([, operation]) => operation === 'create-schedule')
+            )
+            .filter((args) => args.some((arg) => arg.startsWith(`runs/${runId}/`)))
+            .map(([, operation, ...rest]) => [
+                operation,
+                rest.find((arg) => arg.startsWith('runs/')),
+                rest.includes('--if-none-match'),
+            ])
+        expect(leaseCalls).toEqual([
+            ['put-object', `runs/${runId}/manifest.json`, createOnly],
+            ['put-object', `runs/${runId}/input/manifest.json`, false],
+            ...loadRunInputs(profilePath()).inputs.map(({ file }) => [
+                'put-object',
+                `runs/${runId}/input/${file}`,
+                false,
+            ]),
+        ])
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!)).toMatchObject({
+            runId,
+            stackName: `scn-${runId}`,
+        })
+        expect(new Set(cloud.resources.map(({ runTag }) => runTag).filter(Boolean))).toEqual(new Set([runId]))
         expect(released(runId)).toBe(1)
         expect(cloud.schedules.size).toBe(0)
         expect(cloud.deleteStackRequests).toEqual([])
+    })
+
+    it('refuses a second lease on a given run id, and leaves the first lease as it was', async () => {
+        const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+        await leaseAt(T, controller)
+        const objects = new Map(cloud.objects)
+        const schedules = schedulesFor(GIVEN_RUN_ID)
+        now = new Date(T.getTime() + 60 * 60 * 1000)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(`Run ${GIVEN_RUN_ID} already has a manifest`)
+        expect(cloud.objects).toEqual(objects)
+        expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
+        expect(cloud.stacks.size).toBe(0)
     })
 
     it('runs on the profile the account pin checked, even when the file changes during the identity check', async () => {
