@@ -677,6 +677,15 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 ["trigger"],
             ),
             ("a_stale_edit_of_a_newer_staged_draft", "patch", {}, {"stage_draft": True}, 409, ["trigger"]),
+            (
+                "a_staged_save_with_a_stale_live_stamp",
+                "patch",
+                {},
+                {"stage_draft": True, "stale_live": True},
+                409,
+                ["trigger"],
+            ),
+            ("a_live_edit_without_the_runtime", "patch", {}, {"runtime_off": True}, 400, ["trigger"]),
         ]
     )
     def test_a_save_the_api_refuses_on_the_test_sender_sets_up_no_test_sender(
@@ -684,7 +693,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
     ) -> None:
         stored = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
         step = _own_email_step(None)
-        body = _flow(step, **{key: value for key, value in extra.items() if key != "duplicate"})
+        body = _flow(
+            step,
+            **{key: value for key, value in extra.items() if key not in ("duplicate", "stale_live", "runtime_off")},
+        )
         if extra.get("duplicate"):
             body["actions"].append(deepcopy(step))
         if extra.get("base_updated_at"):
@@ -697,9 +709,15 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             )
             del body["status"]
             body["base_updated_at"] = stored.updated_at.isoformat()
+            if extra.get("stale_live"):
+                body["base_updated_at"] = (stored.updated_at + timedelta(minutes=1)).isoformat()
+                body["base_live_updated_at"] = (stored.updated_at - timedelta(minutes=1)).isoformat()
+        if extra.get("runtime_off"):
+            HogFlow.objects.filter(id=stored.id).update(status="active")
+            del body["status"]
         headers = headers or {"HTTP_USER_AGENT": "posthog-cli"}
 
-        with _flag(True):
+        with _flag(True), _runtime(not extra.get("runtime_off")):
             if method == "post":
                 response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", body, format="json", **headers)
             else:
@@ -897,43 +915,19 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 / 0")
 
-    @parameterized.expand([("no_sender", False), ("no_sender_with_a_saved_template_under_the_size_cap", True)])
-    def test_a_new_api_step_stays_off_the_test_sender_when_its_setup_fails(
-        self, _name: str, from_template: bool
-    ) -> None:
-        step = _own_email_step(None)
-        if from_template:
-            template_id = create_message_template_for_test(
-                team_id=self.team.id,
-                name="Welcome",
-                content={"email": {"subject": "Welcome", "text": "Welcome", "html": "<p>" + "x" * 5000 + "</p>"}},
-            )
-            step = _own_email_step(None, subject="", text="", html="")
-            step["config"]["template_uuid"] = str(template_id)
+    def test_a_new_api_step_stays_on_the_test_sender_when_its_setup_fails(self) -> None:
         fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
-        cap = patch(
-            "products.workflows.backend.presentation.views.hog_flow.MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES", 8000
-        )
 
-        with _flag(True), fault, cap, capture_logs() as logs:
+        with _flag(True), fault:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
-                _flow(step),
+                _flow(_own_email_step(None)),
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
         assert response.status_code == 201, response.json()
-        assert [
-            (log["path"], log["workflow_id"], log["action_ids"])
-            for log in logs
-            if log["event"] == "sandbox_sender_setup_failed"
-        ] == [("move", None, [OWN_EMAIL_STEP_ID])]
-        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
-        assert (stored["type"], stored["config"]["inputs"]["email"]["value"]["from"]) == (
-            "function_email",
-            {"integrationId": None},
-        )
+        assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == "email_sandbox"
         assert not self._sandbox_sender_is_set_up()
 
     @parameterized.expand(

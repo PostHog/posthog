@@ -31,7 +31,6 @@ from drf_spectacular.utils import (
 from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.fields import empty
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -380,7 +379,6 @@ from products.workflows.backend.facade.writes import (
     destroy_workflow,
     discard_draft,
     edit_workflow_content,
-    is_stale_on_some_route,
     publish_confirm_value,
     publish_draft,
     publish_moves_to_sandbox_sender,
@@ -1080,7 +1078,6 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
 
 
 SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
-STEPS_MOVED_TO_SANDBOX_SENDER = "steps_moved_to_sandbox_sender"
 SANDBOX_SENDER_SETUP_FAILURES = Counter(
     "workflows_sandbox_sender_setup_failures_total",
     "Test sender setups that failed after a save or before a real test.",
@@ -1147,39 +1144,6 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     if not moved:
         return data
     return {**data, "actions": converted}
-
-
-def _steps_moved_to_sandbox_sender(data: Any, defaulted: Any) -> list[str]:
-    if defaulted is data:
-        return []
-    return [
-        moved["id"]
-        for original, moved in zip(data["actions"], defaulted["actions"])
-        if isinstance(original, dict)
-        and original.get("type") != SANDBOX_EMAIL_ACTION_TYPE
-        and moved.get("type") == SANDBOX_EMAIL_ACTION_TYPE
-    ]
-
-
-def _set_up_sandbox_sender_before_the_move(context: dict, workflow_id: Optional[str], step_ids: list[str]) -> bool:
-    team = context["get_team"]()
-    user = context["request"].user
-    try:
-        with transaction.atomic():
-            provision_sandbox_sender(team, user)
-    except Exception as error:
-        SANDBOX_SENDER_SETUP_FAILURES.labels(path="move").inc()
-        logger.warning(
-            "sandbox_sender_setup_failed",
-            team_id=team.id,
-            workflow_id=workflow_id,
-            action_ids=step_ids,
-            path="move",
-            exc_info=True,
-        )
-        capture_exception(error)
-        return False
-    return True
 
 
 def _has_no_sender(action: dict) -> bool:
@@ -4143,26 +4107,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        defaulted = _with_default_senders_on_new_email_steps(data, instance, self.context)
-        validated = super().to_internal_value(defaulted)
-        self.context[STEPS_MOVED_TO_SANDBOX_SENDER] = _steps_moved_to_sandbox_sender(data, defaulted)
-        return validated
-
-    def run_validation(self, data: Any = empty) -> Any:
-        materialized_template_bytes = self.context.get("_materialized_template_bytes", 0)
-        validated = super().run_validation(data)
-        moved = self.context.pop(STEPS_MOVED_TO_SANDBOX_SENDER, None)
-        if not moved:
-            return validated
-        refuses_save = self.context.get("refuses_save")
-        if refuses_save and refuses_save(self.instance, validated):
-            return validated
-        workflow_id = str(self.instance.id) if self.instance else None
-        if _set_up_sandbox_sender_before_the_move(self.context, workflow_id, moved):
-            return validated
-        self.context["_materialized_template_bytes"] = materialized_template_bytes
-        self.context["default_new_email_steps_to_sandbox"] = False
-        return super().run_validation(data)
+        return super().to_internal_value(_with_default_senders_on_new_email_steps(data, instance, self.context))
 
     class Meta:
         fields = [
@@ -5973,7 +5918,6 @@ class HogFlowViewSet(
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
         context["default_new_email_steps_to_sandbox"] = self.action in WORKFLOW_SAVE_ACTIONS
-        context["refuses_save"] = self._refuses_save
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
         if self._proposals_hog_flow is not None:
@@ -6323,59 +6267,8 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
-    def _refuses_save(self, instance: Optional[WorkflowEditState], validated_data: dict) -> bool:
-        if self.action == "create":
-            return self._refuses_active_mcp_create(validated_data) or (
-                validated_data.get("status") == HogFlowState.ACTIVE
-                and not settings.WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED
-            )
-        if self.action not in ("update", "partial_update") or instance is None:
-            return False
-        try:
-            sandbox_sender_warned = self._sandbox_sender_warned()
-        except exceptions.ValidationError:
-            return True
-        return (
-            self._mcp_update_refusal() is not None
-            or is_stale_on_some_route(
-                updated_at=instance.updated_at,
-                draft_updated_at=instance.draft_updated_at,
-                base_updated_at=self.request.data.get("base_updated_at"),
-            )
-            or (
-                sandbox_sender_warned is False
-                and instance.status != HogFlowState.ACTIVE
-                and validated_data.get("status") == HogFlowState.ACTIVE
-            )
-        )
-
-    def _refuses_active_mcp_create(self, validated_data: dict) -> bool:
-        return self._is_mcp_request(self.request) and validated_data.get("status") == HogFlowState.ACTIVE
-
-    def _mcp_update_refusal(self) -> Optional[str]:
-        if not self._is_mcp_request(self.request):
-            return None
-        keys = set(self.request.data.keys())
-        # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
-        # status + field payload is rejected so MCP can't sneak a transition through a field update.
-        if "status" in keys and keys - {"status"}:
-            return (
-                "Status changes via MCP must use workflows-enable / workflows-disable / "
-                "workflows-archive — they can't be combined with other field updates."
-            )
-        # Whole-graph replacement through a plain update wipes any step the payload omits - a
-        # partial actions list has destroyed live graphs. MCP edits the graph exclusively through
-        # the id-addressed patch endpoint; the web builder keeps full-save semantics.
-        if keys & {"actions", "edges"}:
-            return (
-                "actions/edges can't be replaced via workflows-update - a partial list silently "
-                "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
-                "changes steps by id and leaves the rest of the graph untouched."
-            )
-        return None
-
     def perform_create(self, serializer):
-        if self._refuses_active_mcp_create(serializer.validated_data):
+        if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlowState.ACTIVE:
             raise exceptions.ValidationError(
                 "You can't one-shot active workflows via MCP. "
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
@@ -6409,11 +6302,27 @@ class HogFlowViewSet(
         # status-only PATCH look like a mixed edit.
         route_to_draft = False
         if self._is_mcp_request(self.request):
-            refusal = self._mcp_update_refusal()
-            if refusal is not None:
-                raise exceptions.ValidationError(refusal)
             keys = set(self.request.data.keys())
+            has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
+
+            # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
+            # status + field payload is rejected so MCP can't sneak a transition through a field update.
+            if has_status and has_non_status:
+                raise exceptions.ValidationError(
+                    "Status changes via MCP must use workflows-enable / workflows-disable / "
+                    "workflows-archive — they can't be combined with other field updates."
+                )
+
+            # Whole-graph replacement through a plain update wipes any step the payload omits - a
+            # partial actions list has destroyed live graphs. MCP edits the graph exclusively through
+            # the id-addressed patch endpoint; the web builder keeps full-save semantics.
+            if keys & {"actions", "edges"}:
+                raise exceptions.ValidationError(
+                    "actions/edges can't be replaced via workflows-update - a partial list silently "
+                    "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
+                    "changes steps by id and leaves the rest of the graph untouched."
+                )
 
             # Content edits on active workflows, and workflows disabled from active, stage a draft.
             # Status-only lifecycle PATCHes and metadata-only edits apply straight to the live row.
