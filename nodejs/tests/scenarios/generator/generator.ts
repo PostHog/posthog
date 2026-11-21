@@ -28,7 +28,7 @@ export type DrivenStep = {
     runnerCpuMs?: number
 }
 
-export type DriveSummary = { targetUnits: number; offeredUnits: number; steps: DrivenStep[] }
+export type DriveSummary = { targetUnits: number; offeredUnits: number; sendRetries: number; steps: DrivenStep[] }
 
 export type StepWindow = Omit<DrivenStep, 'offeredUnits' | 'waitedFor'>
 
@@ -125,6 +125,7 @@ export async function drive(
     const schedules = stepScheduleOf({ card, profile })
     const chance = new Chance(card.seed)
     let attempted = 0
+    let sendRetries = 0
     const counted: { step: DrivenStep; answeredAt: number }[] = []
     const answeredAts = new Map<DrivenStep, number[]>()
     const steps: DrivenStep[] = []
@@ -151,7 +152,7 @@ export async function drive(
         if (kind.intake !== 'event') {
             answeredAts.get(step)?.push(-Infinity)
         }
-        const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId }, context, stop).then(async (answer) => {
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
             if (stop.aborted) {
@@ -179,6 +180,7 @@ export async function drive(
                 expect: { deliveries: kind.deliveries },
                 ...(followUp && { followUp }),
             })
+            sendRetries += retriesOf(answer) + retriesOf(followUp)
             if (counts) {
                 counted.push({ step, answeredAt })
             }
@@ -305,5 +307,8 @@ export async function drive(
     }
     const targetUnits =
         stoppedEarly || fixedSteps ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
-    return { targetUnits, offeredUnits, steps }
+    return { targetUnits, offeredUnits, sendRetries, steps }
 }
+
+const retriesOf = (answer: FollowUpAnswer | undefined): number =>
+    answer !== undefined && 'retries' in answer ? (answer.retries ?? 0) : 0

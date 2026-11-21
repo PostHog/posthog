@@ -3,6 +3,8 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { LoadedCard, load, stepsOf } from '../cards'
 import type { JournalEntry } from '../judge/judge'
 import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
@@ -272,7 +274,7 @@ describe('drive', () => {
 
     it.each([
         ['accepted', 202],
-        ['refused', 503],
+        ['refused', 422],
     ])('counts a transactional unit sent inside the window that cdp-api %s after the window', async (_, status) => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         const held: http.ServerResponse[] = []
@@ -367,6 +369,66 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(200)
 
             expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 6 } })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
+    it.each<[string, string, object]>([
+        ['transactional sends', 'transactional_email', { answer: { accepted: true, retries: 1 } }],
+        [
+            'bounce follow-ups',
+            'bounce_followup',
+            { answer: { accepted: true }, followUp: { accepted: true, retries: 1 } },
+        ],
+    ])('sums the retries of %s that cdp-api answered with a 5xx, over every unit', async (_kind, traffic, entry) => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const refused = new Set<string>()
+        let retries = 0
+        let elapsedMs = 0
+        let retried = (): void => undefined
+        const answered = new Promise<void>((resolve) => (retried = resolve))
+        const server = http.createServer((request, response) => {
+            let raw = ''
+            request.on('data', (chunk) => (raw += chunk))
+            request.on('end', () => {
+                const key: string = parseJSON(raw).idempotency_key
+                const first = !refused.has(key)
+                refused.add(key)
+                retries += first ? 0 : 1
+                response.writeHead(first ? 503 : 202).end('{}', !first && retries === 2 ? retried : undefined)
+            })
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        try {
+            const { driving, journal } = startDrive(
+                cardWith({ ratePerSecond: 20, driveFor: '100ms', traffic }),
+                ACKNOWLEDGED,
+                {
+                    cdpApi: {
+                        ...CDP_API,
+                        url: `http://127.0.0.1:${port}`,
+                        clock: {
+                            now: () => elapsedMs,
+                            wait: (ms) => {
+                                elapsedMs += ms
+                                return Promise.resolve()
+                            },
+                        },
+                    },
+                    sesFeedback: { settled: () => Promise.resolve(undefined) },
+                }
+            )
+
+            await jest.advanceTimersByTimeAsync(100)
+            await Promise.race([answered, driving])
+            await jest.advanceTimersByTimeAsync(100)
+            expect({ summary: await driving, journal }).toMatchObject({
+                summary: { offeredUnits: 2, sendRetries: 2 },
+                journal: [entry, entry],
+            })
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))

@@ -619,7 +619,10 @@ export function createRunner(
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
                 const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
-                const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
+                const driveWindow: DriveWindow = {
+                    startedAt: driveStartedAt,
+                    endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
