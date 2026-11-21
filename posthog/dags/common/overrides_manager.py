@@ -152,18 +152,19 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         return self.get_checksum(client)
 
     @abstractmethod
-    def update_commands(self) -> set[str]:
+    def update_commands(self, filter_teams: bool = False) -> set[str]:
         raise NotImplementedError()
 
-    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
+    def update_mutation_runner_for(self, table: str, filter_teams: bool = False) -> AlterTableMutationRunner:
         """The rewrite this snapshot applies, aimed at one target's storage table.
 
         A squash rewrites every table that stamps the overridden column, so the table is an
-        argument rather than a property of the snapshot.
+        argument rather than a property of the snapshot. filter_teams limits the rewrite to the
+        teams in the snapshot.
         """
         return AlterTableMutationRunner(
             table=table,
-            commands=self.update_commands(),
+            commands=self.update_commands(filter_teams=filter_teams),
             parameters={"name": self.qualified_name},
         )
 

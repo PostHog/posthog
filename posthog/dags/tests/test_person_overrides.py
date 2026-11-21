@@ -345,15 +345,16 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
             enqueue.args[0].table,
             enqueue.args[1] is sibling,
             enqueue.args[0].patch_parts,
+            any("team_id IN (SELECT" in command for command in enqueue.args[0].commands),
         )
         for enqueue in enqueue_on_shards.call_args_list
     ) == sorted(
         [
-            (EVENTS_DATA_TABLE(), False, False),
-            (FLAG_EVALUATIONS_DATA_TABLE, True, False),
+            (EVENTS_DATA_TABLE(), False, False, False),
+            (FLAG_EVALUATIONS_DATA_TABLE, True, False, False),
             # A patch part on person_id stops ClickHouse from using the bloom filter index on that
             # column, so the rewrite is a mutation even where deletes write patch parts.
-            (EVENTS_JSON_DATA_TABLE, True, False),
+            (EVENTS_JSON_DATA_TABLE, True, False, True),
         ]
     )
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
