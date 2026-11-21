@@ -436,10 +436,13 @@ Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
 pnpm --filter hog hog --help  # run hog from source
-pnpm --filter hog unit        # run the tests
+pnpm --filter hog build:worker # build hog-worker, which `hog error-tracking` runs
+pnpm --filter hog unit        # build hog-worker, then run the tests
 pnpm --filter hog typecheck   # check types
 pnpm --filter hog compile     # build dist/hog for this machine
 ```
+
+`hog error-tracking` hands its file work to hog-worker, the Rust program in `worker/`, so those commands and their tests need a Rust toolchain. A run from source starts the worker that `build:worker` leaves in `worker/target/release/`. A compiled hog starts the `hog-worker` next to its own binary, and never looks for one anywhere else.
 
 A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
 
@@ -453,6 +456,7 @@ The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `r
 A change to code compiled into hog that the downloadable tool catalog can't deliver, such as a change to the MCP code the CLI library bundles, needs no changeset of its own.
 Every release builds master, so it ships those changes anyway.
 `release/catalog-gap.ts` reads the build metafiles of hog and the CLI library to find the compiled files the catalog can't deliver.
+It also counts every change under `worker/`, because hog-worker ships in every release beside hog.
 A change to the generated API schemas in `services/mcp/src/generated/`, or to the registry of generated tool modules, counts only when it reaches a tool the catalog doesn't carry or hand-written code, because hog builds every tool the catalog carries from its catalog entry.
 
 On a pull request with such a change and no changeset, the `hog release check` workflow comments with the files and the choices below, and deletes the comment once a changeset is added. It runs the pull request's code with no secrets, so it works on forks, and `hog release check comment` posts the comment from the default branch.
