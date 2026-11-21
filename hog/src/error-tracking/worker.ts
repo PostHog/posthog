@@ -53,7 +53,11 @@ const PairState = z.object({
 })
 export type PairState = z.output<typeof PairState>
 
-const Detected = z.object({ sourcemap: z.array(z.number()), composed: z.array(z.number()) })
+const Detected = z.object({
+    sourcemap: z.array(z.number()),
+    composed: z.array(z.number()),
+    mapping: z.array(z.number()),
+})
 const Pairs = z.object({
     pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
 })
@@ -64,15 +68,38 @@ const Outcomes = z.object({
     ),
 })
 const Done = z.object({})
+const Targets = z.object({ targets: z.array(z.number()) })
+const Container = z.object({ contentHash: z.string(), size: z.number(), path: z.string().nullable() })
+const Prepared = z.object({
+    skipped: z.array(z.object({ id: z.number(), reason: z.string() })),
+    prepared: z.array(Container.extend({ id: z.number(), chunkId: z.string(), releaseId: z.string().nullable() })),
+    duplicates: z.array(z.string()),
+})
+const CssCandidates = z.object({
+    candidates: z.array(z.object({ id: z.number(), mapRealPath: z.string().nullable() }).nullable()),
+})
+const Cleaned = z.object({ deletedMaps: z.array(z.string()), warnings: z.array(z.string()) })
+const ProguardContainer = z.union([z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }), Container])
 
-type PairAnswer = z.output<typeof Pairs>['pairs'][number]
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
+type PairAnswer = z.output<typeof Pairs>['pairs'][number]
+type PreparedPairs = z.output<typeof Prepared>
+type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
+type CleanupReport = z.output<typeof Cleaned>
+type ProguardContainer = z.output<typeof ProguardContainer>
 
 interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
+    mapping: boolean
+}
+
+export interface Detected {
+    sourcemap: Set<string>
+    composed: Set<string>
+    mapping: Set<string>
 }
 
 async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -150,9 +177,9 @@ export class Worker {
         return this.running
     }
 
-    // `empty` answers a request whose `ids` or `paths` name nothing, so it never starts the worker.
+    // `empty` answers a request whose list of ids, paths, files or items is empty, so it never starts the worker.
     private async call<T>(request: Record<string, unknown>, result: Schema<T>, empty?: T): Promise<T> {
-        const list = request.ids ?? request.paths
+        const list = request.ids ?? request.paths ?? request.files ?? request.items
         if (empty !== undefined && Array.isArray(list) && list.length === 0) {
             return empty
         }
@@ -179,25 +206,23 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    async detect(
-        files: DetectCandidate[],
-        publicPathPrefix: string | undefined
-    ): Promise<{ sourcemap: Set<string>; composed: Set<string> }> {
-        const asked = files.filter((file) => file.bundle || file.map)
-        if (asked.length === 0) {
-            return { sourcemap: new Set(), composed: new Set() }
-        }
+    async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
+        const asked = files.filter((file) => file.bundle || file.map || file.mapping)
         const found = await this.call(
             { op: 'detect', files: asked, publicPathPrefix: publicPathPrefix ?? null },
-            Detected
+            Detected,
+            { sourcemap: [], composed: [], mapping: [] }
         )
         const paths = (indices: number[]): Set<string> => new Set(indices.map((index) => asked[index]!.path))
-        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed) }
+        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed), mapping: paths(found.mapping) }
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
-        const request = { op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }
-        return (await this.call(request, Pairs, { pairs: [] })).pairs
+        return (
+            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs, {
+                pairs: [],
+            })
+        ).pairs
     }
 
     async drop(ids: number[]): Promise<void> {
@@ -210,6 +235,36 @@ export class Worker {
 
     async save(ids: number[]): Promise<void> {
         await this.call({ op: 'save', ids }, Done, {})
+    }
+
+    async fingerprint(ids: number[]): Promise<number[]> {
+        return (await this.call({ op: 'fingerprint', ids }, Targets, { targets: [] })).targets
+    }
+
+    async setRelease(ids: number[], releaseId: string | null): Promise<void> {
+        await this.call({ op: 'set_release', ids, releaseId }, Done, {})
+    }
+
+    // The worker lets the pairs go, so this is the last request that names them.
+    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPairs> {
+        return this.call({ op: 'prepare', ids, mode, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
+    }
+
+    async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
+        const found = await this.call(
+            { op: 'css_candidates', files, publicPathPrefix: publicPathPrefix ?? null },
+            CssCandidates,
+            { candidates: [] }
+        )
+        return found.candidates.filter((candidate) => candidate !== null)
+    }
+
+    async cleanUp(targets: number[], css: number[], roots: string[]): Promise<CleanupReport> {
+        return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
+    }
+
+    async proguard(path: string, folder: string | null): Promise<ProguardContainer> {
+        return this.call({ op: 'proguard', path, folder }, ProguardContainer)
     }
 
     async close(): Promise<void> {

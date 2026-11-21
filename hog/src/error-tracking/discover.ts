@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
@@ -7,9 +7,8 @@ import { HogError } from '@/core/errors'
 
 import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
 import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
-import { isValidProguardMapping } from './kinds/proguard'
 import { nativeFormat } from './native/package'
-import { commandWorker } from './worker'
+import { commandWorker, type Detected } from './worker'
 
 export interface Root {
     path: string
@@ -32,25 +31,20 @@ export interface Artifact {
     root: Root
 }
 
-interface Answers {
-    sourcemap: Set<string>
-    composed: Set<string>
-}
-
 // Each artifact type answers whether a file belongs to it. Detection is deterministic: the same
 // files always give the same result, and a file only two types could claim is an error.
 interface Detector {
     kind: ArtifactKind
     // While scanning a folder, only files with these extensions are opened. Null opens every file.
     extensions: readonly string[] | null
-    matches(path: string, answers: Answers): boolean
+    matches(path: string, answers: Detected): boolean
 }
 
 const DETECTORS: readonly Detector[] = [
     {
         kind: 'proguard',
         extensions: ['.txt'],
-        matches: (path) => isValidProguardMapping(readFileSync(path)),
+        matches: (path, answers) => answers.mapping.has(path),
     },
     {
         // A bundle counts only when its sourcemap exists, as in posthog-cli. Bundles without one are
@@ -89,7 +83,7 @@ function detect(
     path: string,
     fromFolder: boolean,
     kind: ArtifactKind | undefined,
-    answers: Answers
+    answers: Detected
 ): ArtifactKind | undefined {
     const candidates = DETECTORS.filter(
         (detector) =>
@@ -177,6 +171,7 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 }
 
 const MAP_EXTENSION = '.map'
+const MAPPING_EXTENSION = '.txt'
 
 export async function discover(
     ctx: Context,
@@ -184,10 +179,11 @@ export async function discover(
     cwd: string,
     options: DiscoverOptions = {}
 ): Promise<Artifact[]> {
+    const worker = commandWorker(ctx)
     const listed = roots.map((root) => rootFiles(root, cwd))
     // One request for every file, so the worker reads them in parallel. A root with a kind asks only
     // the checks of that kind, as `detect` runs only its detectors.
-    const answers = await commandWorker(ctx).detect(
+    const answers = await worker.detect(
         listed.flatMap(({ isFile, files }, index) => {
             const wants = (kind: ArtifactKind): boolean =>
                 roots[index]!.kind === undefined || roots[index]!.kind === kind
@@ -197,6 +193,7 @@ export async function discover(
                     (wants('js') && hasBundleName(path, JS_EXTENSIONS)) ||
                     (wants('hermes') && hasBundleName(path, HERMES_BUNDLE_EXTENSIONS)),
                 map: wants('hermes') && (isFile || path.endsWith(MAP_EXTENSION)),
+                mapping: wants('proguard') && (isFile || path.endsWith(MAPPING_EXTENSION)),
             }))
         }),
         options.publicPathPrefix

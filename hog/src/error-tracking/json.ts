@@ -5,7 +5,7 @@ import { decodeJsonString } from '@/core/json'
 // so `JSON.parse` and `JSON.stringify` are not enough: they reorder integer-like keys, round large
 // integers, print `1.0` as `1`, and accept lone surrogates and `1e400`, which serde rejects.
 
-export type JsonNumber = { kind: 'u' | 'i'; value: bigint } | { kind: 'f'; value: number }
+type JsonNumber = { kind: 'u' | 'i'; value: bigint } | { kind: 'f'; value: number }
 
 // serde_json without `preserve_order` stores objects in a BTreeMap, so output keys are sorted by
 // their UTF-8 bytes. A Map keeps the values; the writer sorts.
@@ -15,17 +15,13 @@ export class JsonObject {
 
 export type JsonValue = null | boolean | string | JsonNumber | JsonValue[] | JsonObject
 
-export function isJsonNumber(value: JsonValue | undefined): value is JsonNumber {
-    return value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof JsonObject)
-}
-
 const POW10 = Array.from({ length: 309 }, (_, index) => Number(`1e${index}`))
 const U64_MAX = (1n << 64n) - 1n
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 // serde_json's recursion limit: nesting deeper than this is an error.
 const MAX_DEPTH = 128
 
-export class JsonError extends Error {}
+class JsonError extends Error {}
 
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
@@ -365,15 +361,8 @@ export class JsonParser {
     }
 }
 
-export function parseJson(text: string): JsonValue {
-    const parser = new JsonParser(text)
-    const value = parser.value()
-    parser.end()
-    return value
-}
-
 // ryu's `format_finite` layout over JavaScript's shortest round-trip digits.
-export function formatFloat(value: number): string {
+function formatFloat(value: number): string {
     const sign = value < 0 || Object.is(value, -0) ? '-' : ''
     if (value === 0) {
         return `${sign}0.0`
@@ -408,7 +397,7 @@ export function writeString(value: string): string {
     return JSON.stringify(value)
 }
 
-export function writeJson(value: JsonValue, parts: string[] = []): string[] {
+function writeJson(value: JsonValue, parts: string[] = []): string[] {
     if (value === null) {
         parts.push('null')
     } else if (value === true) {
@@ -446,8 +435,4 @@ export function writeEntries(entries: [string, JsonValue][], parts: string[]): v
             writeJson(item, parts)
         })
     parts.push('}')
-}
-
-export function stringifyJson(value: JsonValue): string {
-    return writeJson(value).join('')
 }

@@ -7,7 +7,7 @@ import { HogError } from '@/core/errors'
 import { isIgnored, type Artifact } from './discover'
 import { releaseRequested, resolveJsRelease } from './js-flow'
 import { isHermesBundlePath } from './kinds/hermes'
-import type { Skip } from './kinds/js'
+import type { ReleaseMode, Skip } from './kinds/js'
 import type { Release } from './release'
 import {
     DRY_RUN_RELEASE_WARNING,
@@ -19,7 +19,8 @@ import {
     type ReleaseReport,
     type Selection,
 } from './run'
-import { commandWorker, type InjectOutcome, type PairState } from './worker'
+import type { SymbolSetFile } from './upload'
+import { commandWorker, type InjectOutcome, type PairState, type Worker } from './worker'
 
 export const isBundle = (artifact: Artifact): boolean =>
     artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
@@ -94,9 +95,9 @@ export async function injectPairs(
     preset?: Release,
     warnMissingRelease = true
 ): Promise<InjectedPairs> {
+    const worker = commandWorker(ctx)
     const skipped: Skip[] = []
     const warnings: string[] = []
-    const worker = commandWorker(ctx)
     const pairs = await readPairs(ctx, selection, options, skipped)
     if (pairs.length === 0) {
         throw new HogError(
@@ -179,5 +180,34 @@ export async function injectPairs(
         skipped,
         warnings,
         pairs: injected,
+    }
+}
+
+export interface PreparedPairs {
+    uploads: { owned: OwnedPair; upload: SymbolSetFile }[]
+    skipped: Skip[]
+    duplicates: string[]
+}
+
+export async function preparePairs(
+    worker: Worker,
+    pairs: OwnedPair[],
+    mode: ReleaseMode,
+    folder: string | null
+): Promise<PreparedPairs> {
+    const prepared = await worker.prepare(
+        pairs.map(({ pair }) => pair.id),
+        mode,
+        folder
+    )
+
+    const owners = new Map(pairs.map((owned) => [owned.pair.id, owned]))
+    return {
+        uploads: prepared.prepared.map(({ id, path, ...container }) => ({
+            owned: owners.get(id)!,
+            upload: { ...container, file: path },
+        })),
+        skipped: prepared.skipped.map(({ id, reason }) => ({ path: owners.get(id)!.pair.sourcePath, reason })),
+        duplicates: prepared.duplicates,
     }
 }
