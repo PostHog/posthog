@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
@@ -22,6 +23,22 @@ interface TicketProps {
     messagesMaxHeight?: string
 }
 
+// Saves go to `ticketId`, not the open ticket, because a send can resolve after another ticket opens
+function ReplyComposer({ ticketId }: { ticketId: string }): JSX.Element {
+    const { messageSending } = useValues(sidepanelTicketsLogic)
+    const { sendMessage, setTicketDraft } = useActions(sidepanelTicketsLogic)
+    const initialDraft = useMemo(() => sidepanelTicketsLogic.values.currentTicketDraft, [])
+
+    return (
+        <MessageInput
+            onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
+            messageSending={messageSending}
+            draftContent={initialDraft}
+            onDraftChange={(content) => setTicketDraft(ticketId, content)}
+        />
+    )
+}
+
 export function Ticket({
     showBackButton = true,
     backButtonClassName,
@@ -29,8 +46,9 @@ export function Ticket({
     messagesMinHeight = fillParent ? '0' : '300px',
     messagesMaxHeight = fillParent ? 'none' : '400px',
 }: TicketProps): JSX.Element {
-    const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
+    const { messages, messagesLoading, currentTicket, currentTicketHasDraft, composerRevision } =
+        useValues(sidepanelTicketsLogic)
+    const { setView, discardDraft } = useActions(sidepanelTicketsLogic)
 
     return (
         <div
@@ -63,6 +81,17 @@ export function Ticket({
                 >
                     {currentTicket?.status === 'on_hold' ? 'On hold' : currentTicket?.status}
                 </LemonTag>
+                {currentTicketHasDraft && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        className="ml-auto"
+                        onClick={discardDraft}
+                        data-attr="sidebar-discard-ticket-draft"
+                    >
+                        Discard draft
+                    </LemonButton>
+                )}
             </div>
             <LemonDivider />
             <MessageList
@@ -75,10 +104,9 @@ export function Ticket({
                 isCustomerView
             />
             <div className="border-t pt-3 shrink-0">
-                <MessageInput
-                    onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
-                    messageSending={messageSending}
-                />
+                {currentTicket && (
+                    <ReplyComposer key={`${currentTicket.id}:${composerRevision}`} ticketId={currentTicket.id} />
+                )}
             </div>
         </div>
     )

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 
+import { clearSupportTicketDrafts } from 'lib/components/Support/supportTicketDraftStorage'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     buildAuthorizeUrl,
@@ -123,6 +124,7 @@ export const oauthLogic = kea<oauthLogicType>([
         },
         logout: () => {
             clearSQLEditorDrafts()
+            clearSupportTicketDrafts()
             clearSession()
             // Back to the local instance's login.
             window.location.href = '/login'
