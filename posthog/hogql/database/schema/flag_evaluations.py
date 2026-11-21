@@ -203,7 +203,8 @@ class FlagEvaluationsTable(EventsRetentionTable):
             nullable=True,
             description="What the flag returned: 'true', 'false', or a variant key. NULL when the flag returned null "
             "or the SDK sent no response, as on events. A variant named 'null' also reads NULL. "
-            "`JSONHas(properties, '$feature_flag_response')` tells a null response from a missing one.",
+            "`JSONHas(properties, '$feature_flag_response')` tells a null response from a missing one on the legacy table "
+            "only, because the native JSON table drops null values.",
         ),
         "session_id": StringDatabaseField(
             name="session_id", nullable=False, description="Session the evaluation happened in, if the SDK sent one."
