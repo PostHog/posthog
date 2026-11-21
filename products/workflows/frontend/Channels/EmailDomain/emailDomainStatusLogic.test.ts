@@ -185,6 +185,7 @@ describe('emailDomainStatusLogic', () => {
         releaseRecheck()
         await jest.advanceTimersByTimeAsync(0)
         backend.sesReports(DOMAIN, 'pending')
+        jest.setSystemTime(Date.now() + 10_000)
         releasePoll()
         await jest.advanceTimersByTimeAsync(0)
 

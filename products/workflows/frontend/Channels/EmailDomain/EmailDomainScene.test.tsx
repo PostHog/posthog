@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -14,6 +14,8 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { integrationsEmailStatusRetrieve } from 'products/integrations/frontend/generated/api'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
@@ -524,6 +526,22 @@ describe('EmailDomainScene', () => {
         expectStep('We could not load your sending domain')
 
         click('email-domain-retry')
+        await flush()
+
+        expectStep('Verification stopped')
+        expect(backend.requestsTo('email_verify')).toHaveLength(0)
+    })
+
+    it('checks live before it repairs a stopped domain whose cached status is out of date', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        await integrationsEmailStatusRetrieve(String(MOCK_TEAM_ID), SENDER_ID)
+        backend.sesReports(DOMAIN, 'failed')
+        const releaseStatus = backend.hold('email_status')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+
+        releaseStatus()
         await flush()
 
         expectStep('Verification stopped')
