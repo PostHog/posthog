@@ -1577,6 +1577,7 @@ def insert_cohort_people_into_pg(
     replace_marker: datetime | None = None,
     replace_floor: datetime | None = None,
     on_pg_write: Callable[[], None] | None = None,
+    still_current: Callable[[], bool] | None = None,
 ) -> None:
     """Copy the cohort's ClickHouse rows to Postgres.
 
@@ -1590,7 +1591,8 @@ def insert_cohort_people_into_pg(
     keeps (``REPLACE_KEEPS_ROW``): this attempt's rows at the marker, and members added at or after
     ``replace_floor``. Only the rows at the marker count toward ``min_rows``. The stored marker is checked
     before each page. A newer replace attempt makes this raise ``PopulationSuperseded`` before it writes
-    another page.
+    another page. ``still_current`` is checked before each page read when provided, raising
+    ``ReconcileSuperseded`` when false.
     """
 
     def _copy_once() -> tuple[int, bool]:
@@ -1601,6 +1603,7 @@ def insert_cohort_people_into_pg(
             replace_marker=replace_marker,
             replace_floor=replace_floor,
             on_pg_write=on_pg_write,
+            still_current=still_current,
         )
 
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
@@ -1630,6 +1633,7 @@ def _copy_static_cohort_rows_to_pg(
     replace_marker: datetime | None = None,
     replace_floor: datetime | None = None,
     on_pg_write: Callable[[], None] | None = None,
+    still_current: Callable[[], bool] | None = None,
 ) -> tuple[int, bool]:
     """Copy kept rows to Postgres and return ``(counted_rows_read, any_counted_resolved)``.
 
@@ -1681,6 +1685,8 @@ def _copy_static_cohort_rows_to_pg(
         nonlocal new_rows_read, exhausted
         if replace_marker is not None:
             require_current_population_marker(cohort.pk, replace_marker)
+        if still_current is not None and not still_current():
+            raise ReconcileSuperseded(cohort.pk)
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
 
@@ -1800,6 +1806,14 @@ class PopulationSuperseded(Exception):
 
     def __init__(self, cohort_id: int):
         super().__init__(f"A newer population attempt owns cohort {cohort_id}")
+        self.cohort_id = cohort_id
+
+
+class ReconcileSuperseded(Exception):
+    """A replace claimed or updated the cohort during a membership repair, so the repair must stop."""
+
+    def __init__(self, cohort_id: int):
+        super().__init__(f"A replace superseded static cohort {cohort_id} reconciliation")
         self.cohort_id = cohort_id
 
 

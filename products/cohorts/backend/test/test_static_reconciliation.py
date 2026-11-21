@@ -25,11 +25,16 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.persons import create_person
 
 from products.cohorts.backend import static_reconciliation
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models import (
+    cohort as cohort_models,
+    util as cohort_util,
+)
+from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     StaticCohortReadBackIncomplete,
     count_cohort_members,
     delete_cohort_member,
+    insert_cohort_members,
     insert_cohort_people_into_pg,
     insert_static_cohort,
 )
@@ -459,3 +464,68 @@ class TestStaticCohortReconciliation(BaseTest):
                 cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)
+
+    @parameterized.expand(
+        [
+            ("pending_replace", {"pending_population_mode": CohortPopulationMode.REPLACE}),
+            ("marker_changed", {"last_replace_marker_now": True}),
+        ]
+    )
+    @patch.object(cohort_util, "CH_PAGE_SIZE", 2)
+    def test_a_repair_stops_between_pages_when_a_replace_claims_or_finishes(
+        self, _name: str, replace_update: dict[str, Any]
+    ) -> None:
+        people = sorted(
+            [create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2)], key=lambda p: str(p.uuid)
+        )
+        cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
+        target = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
+        static_reconciliation._hold(cohort.pk, timedelta(hours=1))
+        update = {
+            key.removesuffix("_now"): self.now if key.endswith("_now") else value
+            for key, value in replace_update.items()
+        }
+        writes = 0
+
+        def claim_replace_after_first_page(*args: Any, **kwargs: Any) -> Any:
+            nonlocal writes
+            writes += 1
+            result = insert_cohort_members(*args, **kwargs)
+            if writes == 1:
+                Cohort.objects.filter(pk=cohort.pk).update(count=1, **update)
+            return result
+
+        skipped_before = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
+        with patch.object(cohort_models, "insert_cohort_members", side_effect=claim_replace_after_first_page):
+            reconcile_static_cohort(target)
+
+        skipped_after = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
+        cohort.refresh_from_db()
+        self.assertEqual(skipped_after - skipped_before, 1)
+        # Page 1 wrote only people[0]; page 2's people[1] was never re-inserted after the replace claimed.
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+        self.assertEqual(cohort.count, 1)
+        self.assertIsNone(cache.get(static_reconciliation._hold_cache_key(cohort.pk)))
+
+    @patch.object(cohort_util, "CH_PAGE_SIZE", 2)
+    def test_a_repair_continues_when_an_append_claims_between_pages(self) -> None:
+        people = sorted(
+            [create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2)], key=lambda p: str(p.uuid)
+        )
+        cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
+        writes = 0
+
+        def claim_append_after_first_page(*args: Any, **kwargs: Any) -> Any:
+            nonlocal writes
+            writes += 1
+            result = insert_cohort_members(*args, **kwargs)
+            if writes == 1:
+                Cohort.objects.filter(pk=cohort.pk).update(pending_population_mode=CohortPopulationMode.APPEND)
+            return result
+
+        with patch.object(cohort_models, "insert_cohort_members", side_effect=claim_append_after_first_page):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+        self.assertEqual(cohort.count, 2)
