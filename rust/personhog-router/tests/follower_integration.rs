@@ -7,7 +7,9 @@ use common::{
     create_client, create_test_person, start_test_replica, start_test_router_raw_following,
     start_test_router_raw_with_followers, TestReplicaService,
 };
-use personhog_proto::personhog::types::v1::{GetPersonByUuidRequest, GetPersonRequest};
+use personhog_proto::personhog::types::v1::{
+    GetFlagContextRequest, GetPersonByUuidRequest, GetPersonRequest,
+};
 use tonic::Request;
 
 fn for_person() -> Request<GetPersonRequest> {
@@ -130,9 +132,18 @@ async fn a_read_no_follower_can_take_is_answered_by_a_replica() {
             .get_person_by_uuid(routed(by_uuid()))
             .await
             .expect("served");
+        let context = client
+            .get_flag_context(routed(GetFlagContextRequest {
+                team_id: 1,
+                person_id: Some(42),
+                ..Default::default()
+            }))
+            .await
+            .expect("served");
 
         assert!(by_id.get_ref().person.is_some());
         assert!(by_uuid.get_ref().person.is_some());
+        assert!(context.get_ref().person.is_some());
     }
 }
 
@@ -234,4 +245,44 @@ async fn a_single_person_read_goes_to_a_follower_only_with_the_routing_headers()
         .expect("served");
 
     assert_eq!((with_headers, seen()), ((0, 2), (3, 2)));
+}
+
+#[tokio::test]
+async fn a_flag_context_goes_to_a_follower_only_when_it_names_a_person_in_the_headers() {
+    let plain = TestReplicaService::new();
+    let follower = TestReplicaService::new();
+    let (plain_calls, follower_calls) = (plain.calls.clone(), follower.calls.clone());
+    let router = start_test_router_raw_with_followers(
+        start_test_replica(plain).await,
+        vec![Some(start_test_replica(follower).await)],
+    )
+    .await;
+    let mut client = create_client(router).await;
+    let context = |person_id| GetFlagContextRequest {
+        team_id: 1,
+        person_id,
+        ..Default::default()
+    };
+
+    client
+        .get_flag_context(routed(context(Some(42))))
+        .await
+        .expect("served");
+    let with_headers = (
+        plain_calls.load(Ordering::SeqCst),
+        follower_calls.load(Ordering::SeqCst),
+    );
+    client
+        .get_flag_context(Request::new(context(None)))
+        .await
+        .expect("served");
+
+    assert_eq!(with_headers, (0, 1));
+    assert_eq!(
+        (
+            plain_calls.load(Ordering::SeqCst),
+            follower_calls.load(Ordering::SeqCst)
+        ),
+        (1, 1)
+    );
 }

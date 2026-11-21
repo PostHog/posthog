@@ -31,7 +31,7 @@ See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
 ### Follower mode
 
 With `FOLLOWER_ENABLED=true` the replica follows the changelog: it registers for partitions in its own coordination instance (`FOLLOWER_ETCD_PREFIX`), keeps the leader's cache current from the changelog, and answers a read of one person from that cache, so the read shows writes the writer has not applied yet.
-The router sends it `GetPerson` and `GetPersonByUuid` when the call carries the `x-team-id` and `x-person-id` routing headers; without them the call is answered from Postgres as before.
+The router sends it `GetPerson`, `GetPersonByUuid` and `GetFlagContext` when the call carries the `x-team-id` and `x-person-id` routing headers; without them the call is answered from Postgres as before.
 A read the follower cannot answer is answered from Postgres too: a person the cache does not hold, a partition it has not confirmed current within `FOLLOWER_STALENESS_THRESHOLD_MS`, or a replica that is not following yet.
 Current means it holds every record Kafka shows as committed, so a write is visible once its transaction's commit marker reaches the partition.
 `personhog_follower_reads_total` counts each routed read by how it was answered.
