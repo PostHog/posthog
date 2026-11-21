@@ -1,7 +1,10 @@
 from django.conf import settings
 
+import structlog
+
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
+from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
@@ -9,6 +12,8 @@ from posthog.ph_client import feature_enabled_or_false
 from products.workflows.backend.facade.contracts import SandboxSenderStatus, SandboxSenderUnavailable
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.services.sandbox_email.validation import ADOPTION_UNAVAILABLE
+
+logger = structlog.get_logger(__name__)
 
 SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_INTEGRATION_ID = "posthog-managed-sandbox"
@@ -69,6 +74,19 @@ def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     return provision_sandbox_sender(team, user)
 
 
+def has_sandbox_sender(team_id: int) -> bool:
+    return bool(IntegrationManager.email_sandbox.credentials.find(team_id, external_id=SANDBOX_SENDER_INTEGRATION_ID))
+
+
+def provision_sandbox_sender_if_available(team: Team, user: User) -> None:
+    if has_sandbox_sender(team.id):
+        return
+    try:
+        set_up_sandbox_sender(team, user)
+    except SandboxSenderUnavailable as error:
+        logger.info("sandbox_sender_setup_skipped", team_id=team.id, reason=str(error))
+
+
 def check_sandbox_sender_available(team: Team, user: User) -> None:
     status = sandbox_sender_status(team, user)
     if not status.adoption_enabled:
@@ -84,6 +102,14 @@ def has_verified_own_sender(team_id: int) -> bool:
 def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     return frozenset(
         sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
+    )
+
+
+def deliverable_own_sender_ids(team_id: int) -> frozenset[int]:
+    return frozenset(
+        sender.id
+        for sender in IntegrationManager.email.credentials.list(team_id)
+        if sender.config.get("verified") and sender.config.get(SES_SENDING_STATUS_KEY) != SES_SENDING_FAILED
     )
 
 

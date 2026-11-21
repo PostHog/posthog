@@ -9,6 +9,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { debounce } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -22,6 +23,7 @@ import {
     MAX_ATTRIBUTION_WINDOW_DAYS,
     MIN_ATTRIBUTION_WINDOW_DAYS,
 } from '../../logic/utils'
+import { QuillAttributionSettings } from './QuillAttributionSettings'
 
 const SINGLE_TOUCH_OPTIONS = [
     { value: AttributionMode.FirstTouch, label: 'First touch' },
@@ -48,6 +50,7 @@ export function AttributionSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     const attributionModeOptions = useMemo(
         () => (hasMultiTouchAttribution ? [...SINGLE_TOUCH_OPTIONS, ...MULTI_TOUCH_OPTIONS] : SINGLE_TOUCH_OPTIONS),
@@ -136,6 +139,44 @@ export function AttributionSettings(): JSX.Element {
         }
     }, [hasError, localDays, attribution_window_days, debouncedUpdateDays])
 
+    const saveDisabledReason = hasError
+        ? `Please enter a valid value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
+        : localDays === attribution_window_days
+          ? 'No changes to save'
+          : restrictedReason
+
+    const attributionModeDescription =
+        localAttributionMode === AttributionMode.FirstTouch
+            ? 'Credit the first marketing touchpoint in the customer journey'
+            : localAttributionMode === AttributionMode.LastTouch
+              ? 'Credit the last marketing touchpoint before conversion'
+              : localAttributionMode === AttributionMode.Linear
+                ? 'Distribute credit equally across all touchpoints'
+                : localAttributionMode === AttributionMode.TimeDecay
+                  ? `More credit to touchpoints closer to the conversion. Credit halves every ${Math.round(localDays / 4)} days.`
+                  : 'First and last touchpoints get 40% each, remaining 20% split among middle touchpoints'
+
+    if (quillSurface) {
+        return (
+            <QuillAttributionSettings
+                currentTeamLoading={currentTeamLoading}
+                windowSelectValue={isCustomValue ? 'custom' : localDays}
+                onDaysChange={handleDaysChange}
+                localDays={localDays}
+                onCustomInputChange={handleCustomInputChange}
+                onKeyDown={handleKeyDown}
+                hasError={hasError}
+                onSave={saveCustomInput}
+                saveDisabledReason={saveDisabledReason}
+                restrictedReason={restrictedReason}
+                attributionModeOptions={attributionModeOptions}
+                localAttributionMode={localAttributionMode}
+                onAttributionModeChange={handleAttributionModeChange}
+                attributionModeDescription={attributionModeDescription}
+            />
+        )
+    }
+
     return (
         <div className="space-y-4">
             <div>
@@ -185,13 +226,7 @@ export function AttributionSettings(): JSX.Element {
                             type="primary"
                             size="small"
                             onClick={saveCustomInput}
-                            disabledReason={
-                                hasError
-                                    ? `Please enter a valid value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
-                                    : localDays === attribution_window_days
-                                      ? 'No changes to save'
-                                      : restrictedReason
-                            }
+                            disabledReason={saveDisabledReason}
                             data-attr="attribution-window-save-button"
                         >
                             Save
@@ -231,17 +266,7 @@ export function AttributionSettings(): JSX.Element {
                             ))}
                         </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                        {localAttributionMode === AttributionMode.FirstTouch
-                            ? 'Credit the first marketing touchpoint in the customer journey'
-                            : localAttributionMode === AttributionMode.LastTouch
-                              ? 'Credit the last marketing touchpoint before conversion'
-                              : localAttributionMode === AttributionMode.Linear
-                                ? 'Distribute credit equally across all touchpoints'
-                                : localAttributionMode === AttributionMode.TimeDecay
-                                  ? `More credit to touchpoints closer to the conversion. Credit halves every ${Math.round(localDays / 4)} days.`
-                                  : 'First and last touchpoints get 40% each, remaining 20% split among middle touchpoints'}
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">{attributionModeDescription}</p>
                 </div>
             </div>
         </div>

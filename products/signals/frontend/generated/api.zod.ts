@@ -1388,6 +1388,60 @@ export const SignalsReportsMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it gets its first step. The step goes last in plan order. When the step is already resolved or archived and every other step is too, the plan closes the same way a plan closes when its last step does.
+ * @summary Add a step to this plan
+ */
+export const signalsReportsPlanStepsCreateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsCreateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsCreateBody = /* @__PURE__ */ zod.object({
+    report_id: zod
+        .uuid()
+        .describe(
+            'Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged.'
+        ),
+    depends_on: zod
+        .array(zod.uuid())
+        .max(signalsReportsPlanStepsCreateBodyDependsOnMax)
+        .optional()
+        .describe(
+            'Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsCreateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
+ * Replace the step's `depends_on` links to the other steps of this plan with the given set. The step's links to reports outside the plan are unchanged. A note on the step records removed links.
+ * @summary Replace what a plan step builds on
+ */
+export const signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsDependsOnUpdateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsDependsOnUpdateBody = /* @__PURE__ */ zod.object({
+    depends_on: zod
+        .array(zod.uuid())
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax)
+        .describe(
+            'Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */

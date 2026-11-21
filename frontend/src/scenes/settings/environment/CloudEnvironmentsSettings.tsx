@@ -3,16 +3,21 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+
 import type { SandboxEnvironmentDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { CloudEnvironmentModal } from './CloudEnvironmentModal'
 import { networkAccessLabel } from './cloudEnvironmentNetworkAccess'
 import { cloudEnvironmentsLogic } from './cloudEnvironmentsLogic'
+import { QuillCloudEnvironmentsSettings } from './QuillCloudEnvironmentsSettings'
 
 export function CloudEnvironmentsSettings(): JSX.Element {
     const { environments, environmentsLoading, environmentsFailed } = useValues(cloudEnvironmentsLogic)
     const { loadEnvironments, startNewEnvironment, editEnvironment, deleteEnvironment } =
         useActions(cloudEnvironmentsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmDelete = (environment: SandboxEnvironmentDTOApi): void => {
         LemonDialog.open({
@@ -21,6 +26,19 @@ export function CloudEnvironmentsSettings(): JSX.Element {
             primaryButton: { children: 'Delete', status: 'danger', onClick: () => deleteEnvironment(environment) },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    const actionItems = (environment: SandboxEnvironmentDTOApi): LemonMenuItems => [
+        { label: 'Edit', onClick: () => editEnvironment(environment) },
+        {
+            label: 'Delete',
+            status: 'danger',
+            onClick: () => confirmDelete(environment),
+        },
+    ]
+
+    if (todayRailNav) {
+        return <QuillCloudEnvironmentsSettings actionItems={actionItems} />
     }
 
     return (
@@ -100,16 +118,7 @@ export function CloudEnvironmentsSettings(): JSX.Element {
                             width: 0,
                             render: (_, environment) =>
                                 environment.internal ? null : (
-                                    <LemonMenu
-                                        items={[
-                                            { label: 'Edit', onClick: () => editEnvironment(environment) },
-                                            {
-                                                label: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => confirmDelete(environment),
-                                            },
-                                        ]}
-                                    >
+                                    <LemonMenu items={actionItems(environment)}>
                                         <LemonButton
                                             size="small"
                                             icon={<IconEllipsis />}

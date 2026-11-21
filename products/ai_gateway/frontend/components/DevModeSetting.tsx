@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { Item, ItemContent, ItemDescription } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { DevTokenApi } from '../generated/api.schemas'
 import { DURATION_PRESETS, devModeLogic, formatDuration } from '../logics/devModeLogic'
+import { QuillDevModeSetting } from './QuillDevModeSetting'
 
 const STATUS_TAG: Record<DevTokenApi['status'], { label: string; type: 'success' | 'muted' | 'danger' }> = {
     live: { label: 'Live', type: 'success' },
@@ -31,9 +34,18 @@ export function DevModeSetting(): JSX.Element {
         pickError,
     } = useValues(devModeLogic)
     const { mint, revokeToken, authorizeCli, dismissCliRequest, setCapUsd, setTtlSeconds } = useActions(devModeLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (refusal && !usage) {
-        return <LemonBanner type="warning">{refusal}</LemonBanner>
+        return todayRailNav ? (
+            <Item tone="warning" size="sm">
+                <ItemContent>
+                    <ItemDescription>{refusal}</ItemDescription>
+                </ItemContent>
+            </Item>
+        ) : (
+            <LemonBanner type="warning">{refusal}</LemonBanner>
+        )
     }
 
     const durationOptions = DURATION_PRESETS.filter(
@@ -52,6 +64,16 @@ export function DevModeSetting(): JSX.Element {
               : !canMint
                 ? `This token needs $${capUsd?.toFixed(2)} of your $${usage?.daily_cap_usd} limit, and $${remainingUsd?.toFixed(2)} is left.${liveTokenCount > 0 ? " Revoke a live token to get back what it hasn't spent." : ''}`
                 : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillDevModeSetting
+                durationOptions={durationOptions}
+                pickedSummary={pickedSummary}
+                disabledReason={disabledReason}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-4">

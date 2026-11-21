@@ -36,6 +36,7 @@ const RESULT: RunResult = {
     cardHash: SMOKE.cardHash,
     profileHash: SMOKE.profileHash,
     origin: 'local-agent',
+    target: 'local',
     units: { targetUnits: 60, offeredUnits: 58, steps: [] },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
     janitorResets: 2,
