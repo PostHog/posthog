@@ -33,14 +33,17 @@ from products.messaging.backend.provider_imports.base import (
     ImportTooLarge,
 )
 from products.messaging.backend.provider_imports.sendgrid import (
+    NO_MARKETING_CAMPAIGNS_NOTE,
     SENDERS_NEED_FULL_ACCESS,
     SendGridImportProvider,
-    missing_scopes,
+    missing_scopes_by_step,
+    missing_scopes_message,
 )
 from products.messaging.backend.services.imported_data import carry_opt_outs
 from products.messaging.backend.services.sendgrid_client import SendGridClient, _seconds_until_reset
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_sendgrid import (
+    EMAIL_API_ONLY_KEY,
     EMPTY_ACCOUNT_KEY,
     EU_KEY,
     FULL_KEY,
@@ -347,7 +350,12 @@ class TestSendGridImport(BaseTest):
     @parameterized.expand(
         [
             ("wrong_key", "SG.nope", ["suppressions"], "SendGrid rejected this API key"),
-            ("too_few_scopes", NARROW_KEY, ["suppressions", "templates"], "templates.read, templates.versions.read"),
+            (
+                "too_few_scopes",
+                NARROW_KEY,
+                ["suppressions", "templates"],
+                "missing templates.read and templates.versions.read, which the Dynamic and legacy templates step needs",
+            ),
             ("no_scopes", NO_SCOPE_KEY, ["domains"], "whitelabel.read"),
         ]
     )
@@ -358,6 +366,16 @@ class TestSendGridImport(BaseTest):
             self._start(steps, key)
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_an_account_without_marketing_campaigns_imports_everything_else(self) -> None:
+        run = self._run(api_key=EMAIL_API_ONLY_KEY)
+
+        assert run.status == "completed"
+        for step in ("single_sends", "lists"):
+            assert run.progress[step]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+        assert not any(path.startswith("/v3/marketing/") for path in self._paths())
+        assert len(self._suppressions()) == 6
+        assert MessageTemplate.objects.filter(team_id=self.team.id).exists()
 
     def test_a_narrow_key_can_run_the_steps_it_covers(self) -> None:
         assert self._run(["suppressions"], NARROW_KEY).status == "completed"
@@ -607,11 +625,54 @@ class TestSendGridImport(BaseTest):
 
 class TestSendGridKeys(SimpleTestCase):
     def test_scopes_need_the_broad_suppression_scope(self) -> None:
-        assert missing_scopes({"suppression.read"}, ["suppressions", "global_unsubscribes"]) == []
+        assert missing_scopes_by_step({"suppression.read"}, ["suppressions", "global_unsubscribes"]) == {}
         per_list = {"suppression.bounces.read", "suppression.invalid_emails.read", "suppression.spam_reports.read"}
-        assert missing_scopes(per_list, ["suppressions"]) == ["suppression.read"]
-        assert missing_scopes({"asm.groups.read"}, ["group_unsubscribes"]) == ["suppression.read"]
-        assert missing_scopes({"marketing.read"}, ["single_sends"]) == ["design_library.read"]
+        assert missing_scopes_by_step(per_list, ["suppressions"]) == {"suppression.read": ["suppressions"]}
+        assert missing_scopes_by_step({"asm.groups.read"}, ["group_unsubscribes"]) == {
+            "suppression.read": ["group_unsubscribes"]
+        }
+        assert missing_scopes_by_step({"marketing.read"}, ["single_sends"]) == {"design_library.read": ["single_sends"]}
+
+    @parameterized.expand(
+        [
+            # A key with any marketing scope belongs to a Marketing Campaigns account, so the missing one can be added.
+            ("partial_marketing", {"marketing.automation.read"}, ["lists"], {"marketing.read": ["lists"]}),
+            ("no_marketing_campaigns", {"design_library.read"}, ["single_sends", "lists"], {}),
+            ("design_still_needed", set(), ["single_sends", "designs"], {"design_library.read": ["designs"]}),
+        ]
+    )
+    def test_marketing_steps_only_need_a_scope_the_account_can_grant(
+        self, _name: str, scopes: set[str], steps: list[str], expected: dict[str, list[str]]
+    ) -> None:
+        assert missing_scopes_by_step(scopes, steps) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "one_scope_one_step",
+                {"whitelabel.read": ["domains"]},
+                "This SendGrid API key is missing whitelabel.read, which the Authenticated domains step needs. Add it "
+                "in SendGrid, or turn off that step.",
+            ),
+            (
+                "one_scope_two_steps",
+                {"suppression.read": ["suppressions", "global_unsubscribes"]},
+                "This SendGrid API key is missing suppression.read, which the Bounces, invalid addresses and spam "
+                "reports and Global unsubscribes steps need. Add it in SendGrid, or turn off those steps.",
+            ),
+            (
+                "scopes_for_different_steps",
+                {"suppression.read": ["suppressions"], "whitelabel.read": ["domains"]},
+                "This SendGrid API key is missing suppression.read (for Bounces, invalid addresses and spam reports) "
+                "and whitelabel.read (for Authenticated domains). Add them in SendGrid, or turn off the steps that need "
+                "them.",
+            ),
+        ]
+    )
+    def test_missing_scope_message_names_the_steps(
+        self, _name: str, missing: dict[str, list[str]], expected: str
+    ) -> None:
+        assert missing_scopes_message(missing, SendGridImportProvider.steps) == expected
 
     @parameterized.expand([("seconds_left", "37", 37.0), ("unix_time", "1700000060", 60.0)])
     def test_rate_limit_reset_reads_both_header_formats(self, _name: str, header: str, expected: float) -> None:
