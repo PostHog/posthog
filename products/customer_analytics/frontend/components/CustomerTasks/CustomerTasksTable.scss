@@ -22,6 +22,7 @@
 
 @container (max-width: 720px) {
     .CustomerTasksTable__updated,
+    .CustomerTasksTable__tags,
     .CustomerTasksTable__assignee {
         @include collapsed-cell;
     }
@@ -31,11 +32,13 @@
     }
 
     // LemonTable renders one <col> per column, so these must follow the column order in CustomerTasksTable.tsx.
-    // Account: The selection column shifts Assignee to 4 and Updated to 6. Inbox adds Account at 4.
-    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(4),
-    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(6),
-    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(5),
-    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(7) {
+    // Account: Selection 1, Task 2, Tags 3, Status 4, Assignee 5, Due 6, Updated 7. Inbox adds Account at 5.
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(3),
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(5),
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(7),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(3),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(6),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(8) {
         width: 0 !important;
     }
 }
@@ -47,10 +50,10 @@
             @include collapsed-cell;
         }
 
-        &--account .LemonTable colgroup col:nth-child(3),
-        &--account .LemonTable colgroup col:nth-child(5),
-        &--inbox .LemonTable colgroup col:nth-child(3),
-        &--inbox .LemonTable colgroup col:nth-child(6) {
+        &--account .LemonTable colgroup col:nth-child(4),
+        &--account .LemonTable colgroup col:nth-child(6),
+        &--inbox .LemonTable colgroup col:nth-child(4),
+        &--inbox .LemonTable colgroup col:nth-child(7) {
             width: 0 !important;
         }
 
