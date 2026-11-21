@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -5,10 +7,12 @@ import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { emailImpactLogic } from './emailImpactLogic'
+import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
 const { ToastContainer } = jest.requireActual('react-toastify')
@@ -24,6 +28,11 @@ const IMPACT: TransactionalEmailImpactApi = {
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
+
+const teamWithLinkTagging = (enabled: boolean): TeamType => ({
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: enabled },
+})
 
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
@@ -44,16 +53,51 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
-    const renderCard = (): void => {
+    const renderCard = (sensitive = false): void => {
         render(
             <Provider>
-                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1' }}>
+                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1', alwaysSensitive: sensitive }}>
                     <ImpactFunnelCard />
                 </BindLogic>
                 <ToastContainer />
             </Provider>
         )
     }
+
+    it.each([
+        ['tagging is off', false, false, 'Needs link tagging', true],
+        ['tagging is on', true, false, 'Not measured yet', false],
+        ['the email protects sensitive data', false, true, 'Not measured', false],
+    ])(
+        "links the session step to the project's link tagging setting only when it would help, when %s",
+        async (_, enabled, sensitive, label, linked) => {
+            initKeaTests(true, teamWithLinkTagging(enabled))
+            answer = [200, IMPACT]
+            renderCard(sensitive)
+
+            const step = await screen.findByText(label)
+            expect(step.closest('a')?.getAttribute('href') ?? null).toEqual(
+                linked ? expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/) : null
+            )
+            expect(step.closest('a')?.getAttribute('target') ?? null).toBe(linked ? '_blank' : null)
+        }
+    )
+
+    it("shows a template's new sensitivity on a mounted Impact tab", async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        answer = [200, IMPACT]
+        const tab = (alwaysSensitive: boolean): JSX.Element => (
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={alwaysSensitive} />
+            </Provider>
+        )
+        const { rerender } = render(tab(false))
+        await screen.findByText('Needs link tagging')
+
+        rerender(tab(true))
+
+        expect(await screen.findByText('Not measured')).toBeInTheDocument()
+    })
 
     it.each([
         { untracked: 0, note: null },

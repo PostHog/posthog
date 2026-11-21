@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -14,6 +27,7 @@ import {
     ImpactFunnelState,
     ImpactLift,
     ImpactStep,
+    LinkTagging,
     followedSendsNote,
     impactFunnelState,
     impactLift,
@@ -23,6 +37,7 @@ import {
 
 export interface EmailImpactLogicProps {
     workflowId: string
+    alwaysSensitive?: boolean
 }
 
 export const IMPACT_DATE_RANGES = [
@@ -35,6 +50,7 @@ export const IMPACT_DATE_RANGES = [
 export interface emailImpactLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    alwaysSensitive: boolean
     days: number
     event: string | null
     followedNote: string | null
@@ -43,6 +59,7 @@ export interface emailImpactLogicValues {
     impactError: string | null
     impactLoading: boolean
     lift: ImpactLift | null
+    linkTagging: LinkTagging
     replayEnabled: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
@@ -72,6 +89,9 @@ export interface emailImpactLogicActions {
         impact: TransactionalEmailImpactApi | null
         payload?: void
     }
+    setAlwaysSensitive: (alwaysSensitive: boolean) => {
+        alwaysSensitive: boolean
+    }
     setDays: (days: number) => {
         days: number
     }
@@ -89,7 +109,12 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        steps: (impact: TransactionalEmailImpactApi | null, event: string | null) => ImpactStep[] | null
+        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        steps: (
+            impact: TransactionalEmailImpactApi | null,
+            event: string | null,
+            linkTagging: LinkTagging
+        ) => ImpactStep[] | null
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
         untrackedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -144,8 +169,12 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     actions({
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
+        setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
-    reducers({
+    reducers(({ props }) => ({
+        // A selector that reads props keeps its result while the store is unchanged, so a template's new
+        // sensitivity flag goes through the store.
+        alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
         impactError: [
@@ -156,7 +185,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 loadImpactFailure: (_, { errorObject }) => impactErrorMessage(errorObject),
             },
         ],
-    }),
+    })),
     loaders(({ props, values }) => ({
         impact: [
             null as TransactionalEmailImpactApi | null,
@@ -205,10 +234,22 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 impactError: string | null
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
+        linkTagging: [
+            (s) => [s.currentTeam, s.alwaysSensitive],
+            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
+                alwaysSensitive
+                    ? 'sensitive-email'
+                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                      ? 'on'
+                      : 'off',
+        ],
         steps: [
-            (s) => [s.impact, s.event],
-            (impact: TransactionalEmailImpactApi | null, event: string | null): ImpactStep[] | null =>
-                impact ? impactSteps(impact, event) : null,
+            (s) => [s.impact, s.event, s.linkTagging],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                event: string | null,
+                linkTagging: LinkTagging
+            ): ImpactStep[] | null => (impact ? impactSteps(impact, event, linkTagging) : null),
         ],
         lift: [
             (s) => [s.impact],
@@ -246,5 +287,10 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             }
         },
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!!props.alwaysSensitive !== !!oldProps.alwaysSensitive) {
+            actions.setAlwaysSensitive(!!props.alwaysSensitive)
+        }
+    }),
     afterMount(({ actions }) => actions.loadImpact()),
 ])
