@@ -1,13 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { ImportProviderOptionApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { customerioImportLogic } from '../Workflows/import/customerioImportLogic'
+import { CustomerioImportModal } from '../Workflows/import/CustomerioImportModal'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportSteps } from './CustomerIOImportSteps'
 import { providerImportLogic } from './providerImportLogic'
@@ -16,12 +18,12 @@ import { ProviderImportPanel } from './ProviderImportPanel'
 const CUSTOMERIO_PROVIDER = 'customerio'
 
 function ProviderPicker(): JSX.Element {
-    const { importProviders, latestImportRunByProvider } = useValues(providerImportLogic)
+    const { orderedImportProviders, latestImportRunByProvider } = useValues(providerImportLogic)
     const { selectProvider } = useActions(providerImportLogic)
 
     return (
         <div className="flex flex-col gap-2">
-            {importProviders?.map((provider) => (
+            {orderedImportProviders.map((provider) => (
                 <LemonButton
                     key={provider.key}
                     type="secondary"
@@ -49,7 +51,8 @@ function ProviderPicker(): JSX.Element {
 
 function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
     const { hasSeveralProviders } = useValues(providerImportLogic)
-    const { selectProvider } = useActions(providerImportLogic)
+    const { selectProvider, closeImportModal } = useActions(providerImportLogic)
+    const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
     const isCustomerIO = provider.key === CUSTOMERIO_PROVIDER
 
@@ -65,6 +68,20 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
                 >
                     All tools
                 </LemonButton>
+            )}
+            {isCustomerIO && (
+                <p className="mb-0 text-secondary">
+                    Moving automations too?{' '}
+                    <Link
+                        onClick={() => {
+                            closeImportModal()
+                            openAutomationImport()
+                        }}
+                        data-attr="import-provider-customerio-automations"
+                    >
+                        Import them as draft workflows
+                    </Link>
+                </p>
             )}
             {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
             {isCustomerIO && isAdminOrOwner === false ? (
@@ -112,20 +129,23 @@ export function ProviderImportModal(): JSX.Element {
           : 'Import from another tool'
 
     return (
-        <LemonModal
-            title={title}
-            description={
-                isCustomerIO
-                    ? 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
-                    : selectedProvider
-                      ? undefined
-                      : 'Bring your data with you when you move to PostHog.'
-            }
-            isOpen={isImportModalOpen}
-            onClose={closeImportModal}
-            width={640}
-        >
-            <ProviderImportModalContent />
-        </LemonModal>
+        <>
+            <LemonModal
+                title={title}
+                description={
+                    isCustomerIO
+                        ? 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
+                        : selectedProvider
+                          ? undefined
+                          : 'Bring your data with you when you move to PostHog.'
+                }
+                isOpen={isImportModalOpen}
+                onClose={closeImportModal}
+                width={640}
+            >
+                <ProviderImportModalContent />
+            </LemonModal>
+            <CustomerioImportModal />
+        </>
     )
 }

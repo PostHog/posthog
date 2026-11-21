@@ -21,6 +21,7 @@ import type {
 } from 'products/messaging/frontend/generated/api.schemas'
 
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
@@ -38,7 +39,9 @@ export interface providerImportLogicValues {
     chosenImportSettings: Record<string, string>
     chosenProviderKey: string | null
     deselectedImportSteps: string[]
+    entryPoint: ImportEntryPoint
     hasSeveralProviders: boolean
+    importButtonLabel: string
     importError: string | null
     importForm: ImportFormValues
     importFormAllErrors: Record<string, any>
@@ -62,6 +65,7 @@ export interface providerImportLogicValues {
     latestImportRun: ProviderImportRunApi | null
     latestImportRunByProvider: Record<string, ProviderImportRunApi>
     missingImportSetting: ImportSettingOptionApi | null
+    orderedImportProviders: ImportProviderOptionApi[]
     selectedImportSteps: string[]
     selectedProvider: ImportProviderOptionApi | null
     showImportAgainForm: boolean
@@ -107,7 +111,11 @@ export interface providerImportLogicActions {
         importRuns: ProviderImportRunApi[]
         payload?: any
     }
-    openImportModal: (providerKey?: string | null) => {
+    openImportModal: (
+        providerKey?: string | null,
+        entryPoint?: ImportEntryPoint
+    ) => {
+        entryPoint: ImportEntryPoint
         providerKey: string | null
     }
     resetImport: () => {
@@ -203,6 +211,11 @@ export interface providerImportLogicMeta {
             importProviders: ImportProviderOptionApi[] | null,
             chosenProviderKey: string | null
         ) => ImportProviderOptionApi | null
+        orderedImportProviders: (
+            importProviders: ImportProviderOptionApi[] | null,
+            entryPoint: ImportEntryPoint
+        ) => ImportProviderOptionApi[]
+        importButtonLabel: (importProviders: ImportProviderOptionApi[] | null) => string
         hasSeveralProviders: (importProviders: ImportProviderOptionApi[] | null) => boolean
         latestImportRunByProvider: (importRuns: ProviderImportRunApi[] | null) => Record<string, ProviderImportRunApi>
         latestImportRun: (
@@ -240,7 +253,10 @@ export const providerImportLogic = kea<providerImportLogicType>([
         values: [teamLogic, ['currentTeamIdStrict']],
     })),
     actions({
-        openImportModal: (providerKey: string | null = null) => ({ providerKey }),
+        openImportModal: (providerKey: string | null = null, entryPoint: ImportEntryPoint = 'opt-outs') => ({
+            providerKey,
+            entryPoint,
+        }),
         closeImportModal: true,
         selectProvider: (providerKey: string | null) => ({ providerKey }),
         resetImport: true,
@@ -308,6 +324,12 @@ export const providerImportLogic = kea<providerImportLogicType>([
             {
                 openImportModal: () => true,
                 closeImportModal: () => false,
+            },
+        ],
+        entryPoint: [
+            'opt-outs' as ImportEntryPoint,
+            {
+                openImportModal: (_, { entryPoint }) => entryPoint,
             },
         ],
         chosenProviderKey: [
@@ -394,6 +416,19 @@ export const providerImportLogic = kea<providerImportLogicType>([
                     : (importProviders.find((provider) => provider.key === chosenProviderKey) ?? null)
             },
         ],
+        orderedImportProviders: [
+            (s) => [s.importProviders, s.entryPoint],
+            (
+                importProviders: ImportProviderOptionApi[] | null,
+                entryPoint: ImportEntryPoint
+            ): ImportProviderOptionApi[] => orderProvidersForEntryPoint(importProviders ?? [], entryPoint),
+        ],
+        // Until the tools load, the generic label avoids a flash of one tool's name for teams with several.
+        importButtonLabel: [
+            (s) => [s.importProviders],
+            (importProviders: ImportProviderOptionApi[] | null): string =>
+                importProviders?.length === 1 ? `Import from ${importProviders[0].label}` : 'Import from another tool',
+        ],
         hasSeveralProviders: [
             (s) => [s.importProviders],
             (importProviders: ImportProviderOptionApi[] | null): boolean => (importProviders?.length ?? 0) > 1,
@@ -473,7 +508,12 @@ export const providerImportLogic = kea<providerImportLogicType>([
             actions.resetImportForm()
             if (providerKey) {
                 // pinned: analytics event name, shared with the backend stages of the same funnel
-                posthog.capture('workflows import run', { source: providerKey, stage: 'selected', dry_run: false })
+                posthog.capture('workflows import run', {
+                    source: providerKey,
+                    stage: 'selected',
+                    dry_run: false,
+                    entry_point: values.entryPoint,
+                })
             }
         },
         startImport: () => {

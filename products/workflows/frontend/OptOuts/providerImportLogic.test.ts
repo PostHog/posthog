@@ -263,17 +263,44 @@ describe('providerImportLogic', () => {
     })
 
     it('asks which tool to import from only when there is more than one', async () => {
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedProvider?.key).toBe('customerio')
+        expect(logic.values.importButtonLabel).toBe('Import from Customer.io')
 
         const resend = { ...PROVIDER_OPTION, key: 'resend', label: 'Resend', retains_credentials: false }
         logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
         expect(logic.values.selectedProvider).toBeNull()
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
 
         logic.actions.setImportFormValue('api_key', 'a-key-for-another-tool')
         logic.actions.selectProvider('resend')
         expect(logic.values.selectedProvider?.key).toBe('resend')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.importForm.api_key).toBe('')
+    })
+
+    it.each([
+        ['opt-outs', ['customerio', 'postmark', 'sendgrid', 'resend']],
+        ['workflows', ['resend', 'customerio', 'postmark', 'sendgrid']],
+        ['templates', ['postmark', 'resend', 'customerio', 'sendgrid']],
+        ['transactional', ['postmark', 'resend', 'customerio', 'sendgrid']],
+        ['broadcasts', ['sendgrid', 'resend', 'customerio', 'postmark']],
+    ] as const)('lists the tools that bring what the %s page is about first', async (entryPoint, expectedOrder) => {
+        const tool = (key: string, steps: string[]): typeof PROVIDER_OPTION => ({
+            ...PROVIDER_OPTION,
+            key,
+            steps: steps.map((step) => ({ key: step, label: step, description: '' })),
+        })
+        logic.actions.loadImportProvidersSuccess([
+            PROVIDER_OPTION,
+            tool('postmark', ['streams', 'templates']),
+            tool('sendgrid', ['lists', 'suppressions']),
+            tool('resend', ['contacts', 'templates', 'automations']),
+        ] as any)
+
+        logic.actions.openImportModal(null, entryPoint)
+
+        expect(logic.values.orderedImportProviders.map((provider) => provider.key)).toEqual(expectedOrder)
     })
 })
