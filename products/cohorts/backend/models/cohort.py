@@ -62,6 +62,34 @@ class CohortType(StrEnum):
     ANALYTICAL = "analytical"
 
 
+class CohortPopulationMode(models.TextChoices):
+    APPEND = "append", "Append"
+    REPLACE = "replace", "Replace"
+
+
+# Columns a static population owns while it runs or when recording a replace. Only the claim and the population itself write them.
+STATIC_POPULATION_RUN_FIELDS = frozenset(
+    {
+        "is_calculating",
+        "pending_population_mode",
+        "population_marker",
+        "population_claimed_at",
+        "population_copy_started",
+        "population_first_marker",
+        "last_replace_marker",
+        "last_replace_floor",
+    }
+)
+
+PENDING_POPULATION_CLEARED: dict[str, Any] = {
+    "pending_population_mode": None,
+    "population_marker": None,
+    "population_claimed_at": None,
+    "population_copy_started": False,
+    "population_first_marker": None,
+}
+
+
 class CohortConditionFlags(TypedDict):
     """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,
     independent of `CohortType` (which is about realtime-evaluation eligibility, not filter shape)."""
@@ -142,16 +170,19 @@ class CohortManager(RootTeamManager):
 # Fields that are updated during cohort recalculation. The save_fields lists
 # in _safe_save_cohort_state must remain subsets of this set, otherwise the
 # is_cohort_recalculation_only_save guard will incorrectly allow signal handlers to fire.
-COHORT_RECALCULATION_FIELDS = frozenset(
-    {
-        "is_calculating",
-        "last_calculation",
-        "errors_calculating",
-        "last_error_at",
-        "count",
-        "last_import_total_count",
-        "last_import_unmatched_count",
-    }
+COHORT_RECALCULATION_FIELDS = (
+    frozenset(
+        {
+            "is_calculating",
+            "last_calculation",
+            "errors_calculating",
+            "last_error_at",
+            "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
+        }
+    )
+    | STATIC_POPULATION_RUN_FIELDS
 )
 
 
@@ -296,6 +327,43 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         blank=True,
         null=True,
         help_text="How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
+    )
+    pending_population_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=CohortPopulationMode.choices,
+        help_text="How the claimed static population writes its matches: append adds them to the current members, and replace also removes the members the query no longer matches. Null if the cohort was never claimed for a population.",
+    )
+    population_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
+    )
+    last_replace_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Marker of the newest replace that finished. With last_replace_floor, appends and adds ignore the rows that replace removes while its ClickHouse delete is still applying. Null if no replace has finished.",
+    )
+    last_replace_floor = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Cutoff timestamp of the newest replace that finished, set to the claim time minus the clock-skew margin and capped at the marker. Rows before it, and rows written by earlier attempts, are ignored by appends and adds. Null if no replace has finished.",
+    )
+    population_claimed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the current static population was requested. A replace keeps members added from just before this time within the clock-skew margin. Null when no population is pending.",
+    )
+    population_copy_started = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether the current static cohort replace has started copying its own rows into Postgres. Survives worker kills so a sweep redispatch finishes converging even if the flag is turned off.",
+    )
+    population_first_marker = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse _timestamp of the first attempt in the current replace run. Kept across retries and sweep redispatches so failed-attempt cleanup deletes only this run's rows.",
     )
 
     is_static = models.BooleanField(default=False)
@@ -1156,6 +1224,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_in_clickhouse: bool,
         *,
         team_id: int,
+        before_write: Callable[[set[str]], None] | None = None,
     ) -> set[str]:
         """Personhog path for inserting a single batch of cohort members.
 
@@ -1166,8 +1235,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         with personhog_caller_tag("cohorts/static-insert"):
             id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
+        resolved = {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
+        if before_write is not None:
+            before_write(resolved)
         self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
-        return {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
+        return resolved
 
     def _insert_resolved_batch(
         self,
@@ -1206,12 +1278,39 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if insert_in_clickhouse:
             # An explicit addition undoes an earlier removal, so a repair must not delete these members.
             clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
-            existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            replace_in_flight = self.refresh_replace_state()
+            # A replace in flight removes every member without a row at or after its marker, so a re-add
+            # during it writes a fresh row even for an existing member, and the existing rows needn't be read.
+            # Readers use DISTINCT, so the duplicate row is harmless.
+            existing_uuids = (
+                set()
+                if replace_in_flight
+                else self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            )
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
-                insert_static_cohort(new_uuids, self.pk, team_id=team_id)
+                # During a replace the row is a quorum write, so the prune's sequentially consistent read sees it
+                # or fails. A buffered row could reach that replica too late, and the prune would then delete the
+                # person from Postgres while the row kept them in ClickHouse.
+                insert_static_cohort(new_uuids, self.pk, team_id=team_id, quorum=replace_in_flight)
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
+
+    def refresh_replace_state(self) -> bool:
+        # Read from the database: the caller's instance may predate a claim or the finish of a prior replace.
+        # Refreshing last_replace_marker and last_replace_floor here ensures the ClickHouse membership check ignores
+        # lingering rows from a replace that finished after this instance was loaded.
+        # Only pending_population_mode decides whether a replace is in flight, not is_calculating: the sweep
+        # releases is_calculating before its redispatch starts, and an add in that gap must still write a fresh row.
+        row = (
+            Cohort.objects.filter(pk=self.pk)
+            .values_list("pending_population_mode", "last_replace_marker", "last_replace_floor")
+            .first()
+        )
+        if row is None:
+            return False
+        mode, self.last_replace_marker, self.last_replace_floor = row
+        return mode == CohortPopulationMode.REPLACE
 
     def _get_existing_ch_member_uuids(
         self,
@@ -1220,16 +1319,25 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         table: str,
     ) -> set[str]:
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
+        from posthog.models.person.sql import static_cohort_membership_filter
+
         if not person_uuids:
             return set()
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
+        # deletes them. They do not count as membership: an add that saw one would skip its insert, and lose the
+        # person once the delete applied.
+        membership_sql, membership_params = static_cohort_membership_filter(
+            self.last_replace_marker, self.last_replace_floor
+        )
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
+            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s AND {membership_sql} GROUP BY person_id",
             {
                 "team_id": team_id,
                 "cohort_id": self.pk,
                 "person_uuids": person_uuids,
+                **membership_params,
             },
         )
         return {str(row[0]) for row in rows}

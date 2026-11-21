@@ -15,7 +15,7 @@ const getAddToStaticCohortJwt = (): ScopedServiceJwt =>
         defaultConfig.WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET
     ))
 
-// Django waits up to 5 seconds for another run that adds the same person, then inserts.
+// Django waits up to 2 seconds for another run that adds the same person, then inserts (with up to 9 s of quorum-lock retries during a replace).
 const ADD_TO_STATIC_COHORT_TIMEOUT_MS = 15_000
 
 // The step test panel mocks async functions by default, so `mock` runs these checks too.

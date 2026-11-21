@@ -31,6 +31,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.schema_enums import ProductKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -45,10 +46,24 @@ from products.cohorts.backend.backfill.runs import (
 )
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
+from products.cohorts.backend.models.cohort import (
+    PENDING_POPULATION_CLEARED,
+    Cohort,
+    CohortOrEmpty,
+    CohortPopulationMode,
+    ImportResolution,
+)
 from products.cohorts.backend.models.util import (
+    CLICKHOUSE_QUORUM_LOCKED_CODE,
+    CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
+    CLICKHOUSE_TOO_FEW_LIVE_REPLICAS_CODE,
+    CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    REPLACE_FLOOR_CLOCK_MARGIN,
     CohortErrorCode,
+    PopulationClaimIncomplete,
+    PopulationMarkerClockSkew,
+    ReplaceDisabled,
     StaticCohortReadBackIncomplete,
     close_open_population_attempts,
     count_cohort_members,
@@ -56,6 +71,7 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
     get_friendly_error_message,
+    is_static_cohort_replace_enabled,
     parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
@@ -111,6 +127,20 @@ STATIC_POPULATION_TRANSIENT_ERRORS = (
     *COHORT_RECALCULATION_TRANSIENT_ERRORS,
     SoftTimeLimitExceeded,
     StaticCohortReadBackIncomplete,
+    PopulationMarkerClockSkew,
+)
+
+# Quorum errors, which only a replace can raise because only its insert and reads set quorum settings:
+# TOO_FEW_LIVE_REPLICAS, UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE, REPLICA_IS_NOT_IN_QUORUM and
+# UNKNOWN_STATUS_OF_INSERT. Retrying each is safe even when the insert's outcome is unknown: the retry
+# mints a newer marker, and the prune removes every row an older attempt left behind.
+REPLACE_QUORUM_RETRYABLE_CLICKHOUSE_CODES = frozenset(
+    {
+        CLICKHOUSE_TOO_FEW_LIVE_REPLICAS_CODE,
+        CLICKHOUSE_QUORUM_LOCKED_CODE,
+        CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
+        CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
+    }
 )
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
@@ -246,9 +276,17 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    - AND its population is not live. last_calculation is when the previous calculation finished, so it says
+      nothing about the current run. An attempt whose history row is still open and started within the soft time
+      limit is running, since the limit ends any attempt that outlasts it. A claim made within the soft time limit
+      plus an hour may still be waiting in the queue.
     A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
-    one_hour_ago = timezone.now() - relativedelta(hours=1)
+    now = timezone.now()
+    one_hour_ago = now - relativedelta(hours=1)
+    attempt_live_since = now - timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS)
+    claim_live_since = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
+    newest_attempt = CohortCalculationHistory.objects.filter(cohort=OuterRef("pk")).order_by("-started_at")
     return (
         Cohort.objects.filter(
             is_static=True,
@@ -261,6 +299,18 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
         )
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
         .filter(HAS_STATIC_POPULATION_SOURCE)
+        .alias(
+            newest_attempt_started_at=Subquery(newest_attempt.values("started_at")[:1]),
+            newest_attempt_finished_at=Subquery(newest_attempt.values("finished_at")[:1]),
+        )
+        # Written as filters that keep the stuck cohorts, not as exclude(): a cohort without a history row has NULL
+        # in both columns, and an exclude() over a NULL comparison would drop it too.
+        .filter(
+            Q(newest_attempt_started_at__isnull=True)
+            | Q(newest_attempt_finished_at__isnull=False)
+            | Q(newest_attempt_started_at__lt=attempt_live_since)
+        )
+        .filter(Q(population_claimed_at__isnull=True) | Q(population_claimed_at__lt=claim_live_since))
     )
 
 
@@ -299,6 +349,13 @@ def _record_stuck_resets(event: str, cohort_ids: list[int]) -> None:
         logger.warning(event, cohort_ids=cohort_ids, count=len(cohort_ids))
 
 
+def _end_pending_population(cohort_id: int) -> None:
+    # A reset that dispatches no population clears the mode, marker and request time. A population dispatched
+    # without a claim, such as the staff re-sync, then runs as an append instead of the abandoned replace. The
+    # is_calculating filter skips a cohort a request claimed again after the reset, whose fields now belong to it.
+    Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(**PENDING_POPULATION_CLEARED)
+
+
 def reset_stuck_sourceless_static_cohorts() -> None:
     # These cohorts have no query or filters to populate from again. A flag cohort is also a snapshot that a later run
     # would change. So the reset records the failure and never dispatches a population.
@@ -314,7 +371,13 @@ def reset_stuck_sourceless_static_cohorts() -> None:
             reset = (
                 get_stuck_sourceless_static_cohort_candidates_queryset(cutoff)
                 .filter(pk=cohort.pk)
-                .update(is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=now)
+                .update(
+                    is_calculating=False,
+                    errors_calculating=F("errors_calculating") + 1,
+                    last_error_at=now,
+                    # This reset never dispatches a population, so it ends any pending one.
+                    **PENDING_POPULATION_CLEARED,
+                )
             )
             if not reset:
                 continue
@@ -368,25 +431,42 @@ def reset_stuck_cohorts() -> None:
     for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
         0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
     ]:
+        supported_source = static_cohort_has_supported_population_source(cohort)
+        errors_after_reset = cohort.errors_calculating + 1
+        gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING
+        if gives_up:
+            # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
+            # counting them. Decided and done before the save below releases is_calculating and clears the
+            # population_marker that bounds the delete.
+            _delete_failed_replace_attempt(
+                cohort,
+                log_prefix="reset_stuck_static_cohort",
+                replacing=cohort.pending_population_mode == CohortPopulationMode.REPLACE,
+            )
+
         cohort.is_calculating = False
+        cohort.population_marker = None
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.last_error_at = timezone.now()
-        cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
+        cohort.save(update_fields=["is_calculating", "population_marker", "errors_calculating", "last_error_at"])
         reset_static_cohort_ids.append(cohort.pk)
 
-        if not static_cohort_has_supported_population_source(cohort):
+        if not supported_source:
             logger.warning(
                 "reset_unsupported_stuck_static_cohort",
                 cohort_id=cohort.pk,
                 team_id=cohort.team_id,
             )
+            _end_pending_population(cohort.pk)
             continue
 
         # Re-trigger the population task for static cohorts whose membership
-        # can be reconstructed from persisted data.
-        # Refresh from DB to get the actual errors_calculating integer value after the F() expression save.
-        cohort.refresh_from_db(fields=["errors_calculating"])
-        if cohort.errors_calculating <= MAX_ERRORS_CALCULATING:
+        # can be reconstructed from persisted data. The run fields stay, so a stuck replace is
+        # redispatched as a replace.
+        cohort.errors_calculating = errors_after_reset
+        if gives_up:
+            _end_pending_population(cohort.pk)
+        else:
             logger.warning(
                 "retrigger_stuck_static_cohort",
                 cohort_id=cohort.pk,
@@ -697,8 +777,10 @@ def calculate_cohort_ch(
 def _is_transient_population_error(err: BaseException) -> bool:
     # Static population runs the same ORM statements as recalculation, so it shares the Postgres
     # legs: a pooler blip between two personhog batches must not be recorded as a permanent failure.
-    return isinstance(err, STATIC_POPULATION_TRANSIENT_ERRORS) or is_transient_rpc_error(
-        err, codes=STATIC_POPULATION_RETRYABLE_RPC_CODES
+    return (
+        isinstance(err, STATIC_POPULATION_TRANSIENT_ERRORS)
+        or is_transient_rpc_error(err, codes=STATIC_POPULATION_RETRYABLE_RPC_CODES)
+        or getattr(err, "code", None) in REPLACE_QUORUM_RETRYABLE_CLICKHOUSE_CODES
     )
 
 
@@ -757,7 +839,11 @@ def _schedule_population_retry(
 
 
 def _tag_population_queries(task: Task, *, cohort_id: int, team_id: int) -> None:
-    tags = QueryTags(cohort_id=cohort_id, team_id=team_id)
+    # Product and feature come first because a replace queries ClickHouse to mint its marker before the
+    # insert tags anything, and an untagged query raises in local dev.
+    tags = QueryTags(
+        cohort_id=cohort_id, team_id=team_id, product=ProductKey.COHORTS, feature=query_tagging.Feature.COHORT
+    )
     if task.request.id:
         tags.celery_task_id = task.request.id
     update_tags(tags)
@@ -886,6 +972,10 @@ def calculate_cohort_from_list(
     )
 
 
+def _discard_population_history(history: CohortCalculationHistory) -> None:
+    history.delete()
+
+
 def _finalize_population_history(
     history: CohortCalculationHistory,
     *,
@@ -921,6 +1011,163 @@ def _finalize_population_history(
     )
 
 
+def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | None:
+    """Whether this attempt still owns the cohort's run, checked without clearing anything.
+
+    Returns True when its mode and marker are still the stored ones, False when a newer claim or attempt took
+    ownership first, and None when Postgres failed while checking.
+    """
+    from products.cohorts.backend.models.util import owns_population_run
+
+    owns_cohort: bool | None = None
+
+    def _check() -> None:
+        nonlocal owns_cohort
+        owns_cohort = owns_population_run(cohort, marker=cohort.population_marker, mode=mode)
+
+    save_recovery_bookkeeping(_check, cohort_id=cohort.pk, team_id=cohort.team_id)
+    return owns_cohort
+
+
+def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> None:
+    """Delete a failed replace run's ClickHouse rows when none of its attempts copied any into Postgres.
+
+    The delete covers ``population_first_marker`` to ``population_marker``, the run's first and latest markers.
+    Earlier runs' rows sit below that range. A newer run mints above every existing row, so its rows sit above the
+    range even if other code (a contact import) released is_calculating and a new claim wrote in the meantime.
+    Without a latest marker (a redispatched attempt that failed before minting) nothing is deleted: the rows are
+    kept, which is safe.
+    """
+    from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
+
+    first_marker = cohort.population_first_marker
+    last_marker = cohort.population_marker
+    if not (replacing and not cohort.population_copy_started and first_marker is not None and last_marker is not None):
+        return
+    try:
+        delete_failed_replace_attempt_rows(
+            cohort.pk, team_id=cohort.team_id, from_marker=first_marker, to_marker=last_marker
+        )
+    except Exception:
+        logger.exception(
+            f"{log_prefix}_failed_replace_cleanup_failed",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+        )
+
+
+def _population_state_update(cohort: Cohort, *, processing_error: BaseException | None) -> dict[str, Any]:
+    """The calculation-state columns a finished population writes, as ``Cohort._safe_save_cohort_state`` writes them."""
+    if processing_error is None:
+        return {
+            "is_calculating": False,
+            "count": cohort.count,
+            "last_calculation": timezone.now(),
+            "errors_calculating": 0,
+        }
+    return {
+        "is_calculating": False,
+        "count": cohort.count,
+        "errors_calculating": F("errors_calculating") + 1,
+        "last_error_at": timezone.now(),
+    }
+
+
+def _release_population_claim(
+    cohort: Cohort,
+    *,
+    mode: str | None,
+    processing_error: BaseException | None,
+    finished_replace: tuple[datetime, datetime] | None,
+) -> bool | None:
+    """Release the run last: clear its fields and save the final cohort state in one update guarded on its mode and marker.
+
+    Until this update lands every run field stays stored, so a kill anywhere before it leaves the sweep to redispatch
+    the run as a replace, with ``population_copy_started`` and ``population_first_marker`` kept. Returns True when
+    the release landed, False when the mode or marker changed since the ownership check and nothing was written, and
+    None when Postgres failed while writing it.
+    """
+    from products.cohorts.backend.models.util import clear_population_run_fields
+
+    released: bool | None = None
+
+    def _release() -> None:
+        nonlocal released
+        released = clear_population_run_fields(
+            cohort,
+            marker=cohort.population_marker,
+            mode=mode,
+            state=_population_state_update(cohort, processing_error=processing_error),
+            finished_replace=finished_replace,
+        )
+
+    save_recovery_bookkeeping(_release, cohort_id=cohort.pk, team_id=cohort.team_id)
+    return released
+
+
+def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
+    """Cutoff time from which a replace keeps added members: claim time minus the clock-skew margin, capped at the marker."""
+    claimed_at = cohort.population_claimed_at
+    if claimed_at is None:
+        raise PopulationClaimIncomplete(f"Cohort {cohort.pk} is queued for a replace without population_claimed_at")
+    return min(claimed_at - REPLACE_FLOOR_CLOCK_MARGIN, marker)
+
+
+def _replace_static_members(
+    cohort: Cohort,
+    *,
+    team: Team,
+    team_id: int,
+    marker: datetime,
+    floor: datetime,
+    rows_written: int,
+    check_replace_enabled: bool,
+    on_pg_write: Callable[[], None],
+    log_prefix: str,
+) -> None:
+    """Sync a replace's new members into Postgres, then prune the members it no longer matches.
+
+    Runs after the ClickHouse insert, and raises ``PopulationSuperseded`` as soon as a newer attempt
+    stores its own marker on the cohort, so this one never writes after losing it.
+    """
+    from products.cohorts.backend.models.util import (
+        PopulationEmptyResult,
+        insert_cohort_people_into_pg,
+        prune_members_absent_from_replace,
+        prune_stale_static_cohort_rows,
+        require_current_population_marker,
+    )
+
+    # Check again once ClickHouse finishes when this execution minted the marker, so flipping the kill switch
+    # stops a slow query before any Postgres write or prune. Marker-carrying retries finish converging.
+    if check_replace_enabled and not is_static_cohort_replace_enabled(team):
+        raise ReplaceDisabled(f"Static cohort replace is disabled for team {team_id}")
+
+    # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
+    # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
+    # would all change at once. Nothing is pruned yet, so Postgres keeps every member.
+    if not rows_written:
+        raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched no persons")
+    # The replace keeps every member added since the request, across retries and sweep redispatches, and drops
+    # the rows its own earlier attempts wrote.
+    insert_cohort_people_into_pg(
+        cohort,
+        team_id=team_id,
+        min_rows=rows_written,
+        replace_marker=marker,
+        replace_floor=floor,
+        on_pg_write=on_pg_write,
+    )
+    require_current_population_marker(cohort.pk, marker)
+    # Postgres first: the flags service reads it, and it now holds every new member, so the prune
+    # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
+    removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker, floor=floor)
+    require_current_population_marker(cohort.pk, marker)
+    prune_stale_static_cohort_rows(cohort.pk, team_id=team_id, marker=marker, floor=floor)
+    require_current_population_marker(cohort.pk, marker)
+    logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort.pk, team_id=team_id, removed=removed)
+
+
 def _populate_static_cohort(
     task: Task,
     *,
@@ -931,13 +1178,32 @@ def _populate_static_cohort(
     written_since: Optional[str],
     insert_actors_into_ch: Callable[..., int],
     log_prefix: str,
+    supports_replace: bool = False,
+    replace_marker: str | None = None,
+    append_only: bool = False,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
 
     Both population tasks delegate here, so the claim, retry and finalize protocol has one home
     and cannot drift between them.
+
+    A replace (only the query task supports one) stamps every match with a marker stored on the
+    cohort, and checks that marker before each write. ``replace_marker`` and ``rows_written`` carry
+    a finished insert's marker and row count into a retry. ``cohort.population_copy_started`` records
+    on the cohort row whether any attempt of this replace request has started copying its own rows
+    into Postgres (a kept add is already in Postgres from the add itself and does not set it).
+
+    ``append_only`` is for runs dispatched without a claim, such as the staff re-sync. Such a run only
+    ever adds members: it stops without writing anything while a replace is pending.
     """
-    from products.cohorts.backend.models.util import insert_cohort_people_into_pg
+    from products.cohorts.backend.models.util import (
+        PopulationEmptyResult,
+        PopulationSuperseded,
+        insert_cohort_people_into_pg,
+        mint_population_marker,
+        population_marker_is_current,
+        require_current_population_marker,
+    )
 
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
     # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
@@ -945,6 +1211,11 @@ def _populate_static_cohort(
     history: CohortCalculationHistory | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
+    replacing = False
+    claimed_mode: str | None = None
+    superseded: PopulationSuperseded | None = None
+    marker: datetime | None = None
+    finished_replace: tuple[datetime, datetime] | None = None
     try:
         if team_id is not None:
             cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
@@ -953,6 +1224,22 @@ def _populate_static_cohort(
             team_id = cohort.team_id
         if _static_population_obsolete(task, cohort):
             return
+        # NULL means append: the create path and workflows never claim, so they never write a mode.
+        if append_only and cohort.pending_population_mode == CohortPopulationMode.REPLACE:
+            # The replace was requested after this run was queued, and its own task runs it. Stopping
+            # before is_calculating keeps this run from claiming the cohort or pruning anyone.
+            logger.info(f"{log_prefix}_skipped_pending_replace", cohort_id=cohort_id, team_id=team_id)
+            return
+        replacing = supports_replace and cohort.pending_population_mode == CohortPopulationMode.REPLACE
+        if replace_marker is not None:
+            # A retry that carries a marker belongs to that replace, whatever the cohort runs now. If the cohort no
+            # longer runs it (a newer attempt minted another marker, the sweep ended the run, or a claim started a new
+            # one), it stops before touching is_calculating. Otherwise it would continue as an append, and its
+            # finalize could clear a run whose stored mode and marker it happens to match.
+            marker = datetime.fromisoformat(replace_marker)
+            if not (replacing and population_marker_is_current(cohort_id, marker)):
+                logger.info(f"{log_prefix}_superseded", cohort_id=cohort_id, team_id=team_id)
+                return
         team = Team.objects.get(pk=team_id)
         _tag_population_queries(task, cohort_id=cohort_id, team_id=team_id)
         logger.info(
@@ -966,48 +1253,128 @@ def _populate_static_cohort(
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
+        # The mode as first read, in case the refresh below raises and the finalize still needs one to compare.
+        claimed_mode = cohort.pending_population_mode
         cohort.refresh_from_db()
+        # The finalize clears the run fields only while the stored mode and marker still match this attempt's.
+        # A newer claim writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
+        claimed_mode = cohort.pending_population_mode
+        if append_only and claimed_mode == CohortPopulationMode.REPLACE:
+            # A replace claimed the cohort between the check above and this attempt's claim.
+            raise PopulationSuperseded(cohort_id)
+        replacing = supports_replace and claimed_mode == CohortPopulationMode.REPLACE
+        if marker is not None and not replacing:
+            raise PopulationSuperseded(cohort_id)
+        # Checked before entry gates and history creation so an overtaken retry still exits as superseded.
+        if marker is not None:
+            require_current_population_marker(cohort_id, marker)
+
+        # If the flag is off, stop the replace unless an earlier attempt of this request already copied some of
+        # its own rows into Postgres. Once that has happened, the replace finishes so Postgres doesn't stay half pruned.
+        replace_disabled = (
+            replacing and not cohort.population_copy_started and not is_static_cohort_replace_enabled(team)
+        )
+        claim_incomplete = replacing and cohort.population_claimed_at is None
+        if replacing and marker is None and not replace_disabled and not claim_incomplete:
+            # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
+            # one fall below this run's prune instead of being re-inserted under the same marker.
+            ch_insert_done = False
+            marker = mint_population_marker(cohort, team_id=team_id)
+            if marker is None:
+                raise PopulationSuperseded(cohort_id)
+            # Checked again before the history row exists: a retry that a sweep redispatch overtook while
+            # it started up must not open a row, because it would sort above the newer attempt's.
+            require_current_population_marker(cohort_id, marker)
 
         # A history record is the only way a population failure reaches the user: the cohort API
         # reads `last_error_message` from the newest finished history row. Without one,
         # a population that died on a ClickHouse limit is indistinguishable from a cohort that
         # matched nobody.
         history = CohortCalculationHistory.objects.create(
-            team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+            team=team,
+            cohort=cohort,
+            filters=cohort.properties.to_dict() if cohort.properties.values else {},
+            mode=claimed_mode,
         )
 
-        # The CH insert is idempotent: it excludes person_ids already in the cohort.
-        # This handles both the retry-after-OOM case (no duplicates) and the
-        # add-more-people-via-query case (only new people inserted). A retry whose earlier attempt
+        if replace_disabled:
+            raise ReplaceDisabled(f"Static cohort replace is disabled for team {team_id}")
+        if claim_incomplete:
+            raise PopulationClaimIncomplete(f"Cohort {cohort.pk} is queued for a replace without population_claimed_at")
+
+        # An append's CH insert is idempotent: it excludes person_ids already in the cohort. This handles
+        # both the retry-after-OOM case (no duplicates) and the add-more-people-via-query case (only new
+        # people inserted). A replace inserts every match at its marker instead. A retry whose earlier attempt
         # finished this phase skips it, because re-evaluating the source query costs the same hours
         # again and inserts nothing.
         if not ch_insert_done:
             written_since = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            rows_written = insert_actors_into_ch(cohort, team=team)
+            if marker is not None:
+                require_current_population_marker(cohort_id, marker)
+                rows_written = insert_actors_into_ch(cohort, team=team, replace_marker=marker)
+            else:
+                rows_written = insert_actors_into_ch(cohort, team=team)
             ch_insert_done = True
             logger.info(
                 f"{log_prefix}_ch_complete",
                 cohort_id=cohort_id,
                 team_id=team_id,
+                replace=marker is not None,
+                written=rows_written,
             )
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
-        insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, written_since=written_since)
+        if marker is not None:
+            floor = _replace_floor(cohort, marker)
+
+            def _mark_copy_started() -> None:
+                if cohort.population_copy_started:
+                    return
+                updated = Cohort.objects.filter(
+                    pk=cohort.pk,
+                    pending_population_mode=CohortPopulationMode.REPLACE,
+                    population_marker=marker,
+                ).update(population_copy_started=True)
+                if not updated:
+                    raise PopulationSuperseded(cohort.pk)
+                cohort.population_copy_started = True
+
+            _replace_static_members(
+                cohort,
+                team=team,
+                team_id=team_id,
+                marker=marker,
+                floor=floor,
+                rows_written=rows_written,
+                check_replace_enabled=not cohort.population_copy_started,
+                on_pg_write=_mark_copy_started,
+                log_prefix=log_prefix,
+            )
+            finished_replace = (marker, floor)
+        else:
+            # save_state=False is internal to insert_cohort_people_into_pg: releasing is_calculating inside the sync
+            # would let a new claim land before this attempt finalizes, and the finalize would then release that claim.
+            insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, written_since=written_since)
         logger.info(
             f"{log_prefix}_pg_complete",
             cohort_id=cohort_id,
             team_id=team_id,
         )
+    except PopulationSuperseded as err:
+        # A newer attempt owns is_calculating and the run fields from here, so this one stops writing.
+        superseded = err
+        logger.info(f"{log_prefix}_superseded", cohort_id=cohort_id, team_id=team_id)
     except Exception as err:
         processing_error = err
         if not _is_final_attempt(task, _is_transient_population_error(err)):
-            retry = _schedule_population_retry(
-                task,
-                cohort_id,
-                err,
-                team_id=team_id,
-                kwargs={"ch_insert_done": ch_insert_done, "rows_written": rows_written, "written_since": written_since},
-            )
+            retry_kwargs: dict[str, Any] = {
+                "ch_insert_done": ch_insert_done,
+                "rows_written": rows_written,
+                "written_since": written_since,
+            }
+            if marker is not None and ch_insert_done:
+                retry_kwargs["replace_marker"] = marker.isoformat()
+            retry = _schedule_population_retry(task, cohort_id, err, team_id=team_id, kwargs=retry_kwargs)
             raise retry
         logger.exception(
             f"{log_prefix}_failed",
@@ -1015,33 +1382,77 @@ def _populate_static_cohort(
             team_id=team_id,
             error=str(err),
         )
-        # ExposedHogQLError is a user validation failure, so do not send it to error tracking.
-        if not isinstance(err, ExposedHogQLError):
+        # ExposedHogQLError is a user validation failure, and empty/disabled replaces are expected stops rather
+        # than system faults, so none of them go to error tracking.
+        if not isinstance(err, (ExposedHogQLError, PopulationEmptyResult, ReplaceDisabled)):
             capture_exception()
     except BaseException as err:
         # A run the worker cut short (shutdown, revoke) failed; it must not be saved as a success.
         processing_error = err
         raise
     finally:
-        # One history row records one attempt, so every exit closes it, including a scheduled
-        # retry. An open row left behind would read as a population still in flight.
-        if history is not None and claimed is not None:
-            _finalize_population_history(
-                history, cohort=claimed, processing_error=processing_error, will_retry=retry is not None
-            )
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
-        # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.
-        if claimed is not None and retry is None:
-            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
-            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-            logger.info(
-                f"{log_prefix}_finished",
-                cohort_id=cohort_id,
-                team_id=claimed.team_id,
-                is_calculating=claimed.is_calculating,
-                errors_calculating=claimed.errors_calculating,
-            )
+        # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt, and a
+        # superseded attempt leaves all of it to the attempt that replaced it.
+        if claimed is not None:
+            owns_cohort: bool | None = None
+            if superseded is None and retry is None:
+                # Finalize only while this attempt still owns the cohort: its mode and marker are still the
+                # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
+                # is_calculating would release that attempt's run. Nothing is cleared until the release at the end.
+                owns_cohort = _check_population_ownership(claimed, mode=claimed_mode)
+                if owns_cohort is True:
+                    # Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
+                    if processing_error is not None:
+                        _delete_failed_replace_attempt(claimed, log_prefix=log_prefix, replacing=replacing)
+                    # Recompute count before closing history so a replace records its new size, not the size before it ran.
+                    claimed._refresh_count(team_id=claimed.team_id)
+                elif owns_cohort is False:
+                    logger.info(
+                        f"{log_prefix}_superseded_at_finalize",
+                        cohort_id=cohort_id,
+                        team_id=claimed.team_id,
+                    )
+
+            # One history row records one attempt: discard it when a newer attempt took the cohort,
+            # otherwise close it (including on a DB failure during the ownership check, where owns_cohort is None).
+            if history is not None:
+                if superseded is not None or owns_cohort is False:
+                    lost_history = history
+                    save_recovery_bookkeeping(
+                        lambda: _discard_population_history(lost_history),
+                        cohort_id=cohort_id,
+                        team_id=claimed.team_id,
+                    )
+                else:
+                    _finalize_population_history(
+                        history,
+                        cohort=claimed,
+                        processing_error=processing_error,
+                        will_retry=retry is not None,
+                    )
+
+            if owns_cohort is True:
+                released = _release_population_claim(
+                    claimed,
+                    mode=claimed_mode,
+                    processing_error=processing_error,
+                    finished_replace=finished_replace if processing_error is None else None,
+                )
+                if released is False:
+                    # The sweep reset a claim older than its window after the ownership check, so the run belongs
+                    # to whoever claimed or redispatched it since.
+                    logger.warning(f"{log_prefix}_release_lost", cohort_id=cohort_id, team_id=claimed.team_id)
+                elif released is True:
+                    claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+                    logger.info(
+                        f"{log_prefix}_finished",
+                        cohort_id=cohort_id,
+                        team_id=claimed.team_id,
+                        is_calculating=claimed.is_calculating,
+                        errors_calculating=claimed.errors_calculating,
+                    )
     if settings.DEBUG and processing_error is not None:
         raise processing_error
 
@@ -1061,15 +1472,21 @@ def insert_cohort_from_query(
     ch_insert_done: bool = False,
     rows_written: int = 0,
     written_since: Optional[str] = None,
+    replace_marker: Optional[str] = None,
+    append_only: bool = False,
 ) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
     (e.g. duplicating a dynamic cohort as static).
 
-    Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
+    Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres. Replaces the
+    members instead when the cohort's pending population mode is replace.
 
     team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written and written_since.
+    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written,
+    written_since and replace_marker; whether any attempt of this replace request has started
+    copying its own rows into Postgres is stored on ``cohort.population_copy_started``. The staff
+    re-sync sets append_only, so it never runs a pending replace.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1082,6 +1499,9 @@ def insert_cohort_from_query(
         written_since=written_since,
         insert_actors_into_ch=insert_cohort_query_actors_into_ch,
         log_prefix="insert_cohort_from_query",
+        supports_replace=True,
+        replace_marker=replace_marker,
+        append_only=append_only,
     )
 
 
@@ -1175,12 +1595,16 @@ def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> Non
         raise
 
 
+def _recount_static_cohort(*, team_id: int, cohort_id: int) -> None:
+    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
+    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
+
+
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
 def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
     cache.delete(_static_cohort_count_refresh_key(cohort_id))
-    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
-    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
+    _recount_static_cohort(team_id=team_id, cohort_id=cohort_id)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:

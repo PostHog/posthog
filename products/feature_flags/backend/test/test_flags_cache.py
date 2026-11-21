@@ -4553,6 +4553,11 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("version", "version", 2),
             ("last_import_total_count", "last_import_total_count", 5),
             ("last_import_unmatched_count", "last_import_unmatched_count", 3),
+            ("pending_population_mode", "pending_population_mode", "replace"),
+            ("population_marker", "population_marker", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
+            ("population_claimed_at", "population_claimed_at", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
+            ("population_copy_started", "population_copy_started", True),
+            ("population_first_marker", "population_first_marker", datetime(2026, 11, 7, 12, 0, tzinfo=UTC)),
         ]
     )
     @patch("django.db.transaction.on_commit", lambda fn: fn())
@@ -4563,6 +4568,36 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         setattr(cohort, field, value)
         cohort.save(update_fields=[field])
         mock_task.delay.assert_not_called()
+
+    def test_recalculation_fields_match_expected_set(self):
+        from products.feature_flags.backend.flags_cache import _COHORT_RECALCULATION_FIELDS
+
+        self.assertEqual(
+            _COHORT_RECALCULATION_FIELDS,
+            frozenset(
+                {
+                    "count",
+                    "version",
+                    "pending_version",
+                    "is_calculating",
+                    "last_calculation",
+                    "last_calculation_duration_ms",
+                    "errors_calculating",
+                    "last_error_at",
+                    "last_import_total_count",
+                    "last_import_unmatched_count",
+                    "pending_population_mode",
+                    "population_marker",
+                    "population_claimed_at",
+                    "population_copy_started",
+                    "population_first_marker",
+                    "last_replace_marker",
+                    "last_replace_floor",
+                    "groups",
+                    "cohort_type",
+                }
+            ),
+        )
 
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")

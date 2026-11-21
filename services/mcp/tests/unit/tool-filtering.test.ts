@@ -484,6 +484,27 @@ describe('Tool Filtering - API Scopes', () => {
         }
     })
 
+    it('should expose the destructive static cohort replace tool only with its feature flag and write scope', async () => {
+        const writeContext = createMockContext(['cohort:write'])
+        const readContext = createMockContext(['cohort:read'])
+
+        const flagEnabledTools = await getToolsFromContext(writeContext, {
+            featureFlags: { 'static-cohort-replace-on-recalc': true },
+        })
+        const flagDisabledTools = await getToolsFromContext(writeContext, {
+            featureFlags: { 'static-cohort-replace-on-recalc': false },
+        })
+        const readOnlyTools = await getToolsFromContext(readContext, {
+            featureFlags: { 'static-cohort-replace-on-recalc': true },
+        })
+        const replaceTool = flagEnabledTools.find((tool) => tool.name === 'cohorts-replace-static-members')
+
+        expect(replaceTool?.annotations.destructiveHint).toBe(true)
+        expect(flagDisabledTools.map((tool) => tool.name)).not.toContain('cohorts-replace-static-members')
+        expect(flagDisabledTools.map((tool) => tool.name)).toContain('cohorts-partial-update')
+        expect(readOnlyTools.map((tool) => tool.name)).not.toContain('cohorts-replace-static-members')
+    })
+
     it.each([
         ['notebooks-widget-generate', ['notebook:write', 'query:read']],
         ['notebooks-widget-status', ['notebook:read']],
@@ -1171,6 +1192,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-bulk-suppressions-mcp',
             'signals-source-filters',
             'error-tracking-issue-tags',
+            'static-cohort-replace-on-recalc',
             'inbox-plan-edits-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

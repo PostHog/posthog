@@ -29,6 +29,7 @@ import { discoverDefinitions, modulesWithStrictBodies, resolveSchemaPath } from 
 import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
 import { collectOpenObjectPaths, loosenOpenObjects } from './lib/loosen-open-objects.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
+import { collectToolExclusions } from './lib/tool-exclusions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -49,26 +50,8 @@ if (!fs.existsSync(schemaPath)) {
  * grouped by operationId for schema-level exclusion before Orval runs.
  */
 function parseToolDefinition(filePath) {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseYaml(content)
-    const operationIds = new Set()
-    /** @type {Map<string, string[]>} */
-    const schemaExclusions = new Map()
-
-    if (parsed?.tools) {
-        for (const tool of Object.values(parsed.tools)) {
-            if (!tool?.enabled || !tool?.operation) {
-                continue
-            }
-
-            operationIds.add(tool.operation)
-            const excludeParams = tool.exclude_params ?? []
-            if (excludeParams.length > 0) {
-                schemaExclusions.set(tool.operation, excludeParams)
-            }
-        }
-    }
-    return { operationIds, schemaExclusions }
+    const parsed = parseYaml(fs.readFileSync(filePath, 'utf-8'))
+    return collectToolExclusions(parsed?.tools, filePath)
 }
 
 // ------------------------------------------------------------------

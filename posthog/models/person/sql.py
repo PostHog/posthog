@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Any
+
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
@@ -503,6 +506,12 @@ def PERSON_DISTINCT_ID_OVERRIDES_WS_MV_SQL(target_table=PERSON_DISTINCT_ID_OVERR
 #
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
+# person_static_cohort isn't fed from Kafka, so its _offset carries no Kafka offset: every other writer
+# leaves it at 0, and a static cohort replace's own query insert writes REPLACE_ROW_OFFSET. That tells a replace's
+# rows, stamped at their attempt's marker, apart from members added since the request, which a replace keeps even
+# when an add and a marker share a second. REPLACE_KEEPS_ROW treats any _offset other than REPLACE_ROW_OFFSET as an
+# add.
+REPLACE_ROW_OFFSET = 1
 PERSON_STATIC_COHORT_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
@@ -543,6 +552,47 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id IN %(person_ids)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+# A replace keeps this attempt's rows and the members added since the request, and only those.
+REPLACE_KEEPS_ROW = (
+    "((_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
+    " OR (_offset != %(replace_offset)s AND _timestamp >= %(floor)s))"
+)
+
+
+def replace_keeps_row_params(marker: datetime, *, floor: datetime) -> dict[str, Any]:
+    """Query parameters shared by every ``REPLACE_KEEPS_ROW`` reader and its corresponding prune."""
+    return {"marker": marker, "floor": floor, "replace_offset": REPLACE_ROW_OFFSET}
+
+
+def static_cohort_membership_filter(
+    last_replace_marker: datetime | None,
+    last_replace_floor: datetime | None,
+) -> tuple[str, dict[str, Any]]:
+    """Bare SQL predicate and params matching ClickHouse rows that currently count as static cohort membership.
+
+    After a finished replace, keeps rows that satisfy ``REPLACE_KEEPS_ROW``; before any replace has finished,
+    excludes unkept ``_offset = 1`` rows left by failed attempts.
+    """
+    if last_replace_marker is not None:
+        return (
+            REPLACE_KEEPS_ROW,
+            replace_keeps_row_params(last_replace_marker, floor=last_replace_floor or last_replace_marker),
+        )
+    return "_offset != %(replace_offset)s", {"replace_offset": REPLACE_ROW_OFFSET}
+
+
+# Everything a replace doesn't keep: rows from before the request, and the rows its own earlier attempts wrote.
+DELETE_STALE_STATIC_COHORT_ROWS = (
+    f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
+    " AND (_timestamp < %(floor)s OR (_offset = %(replace_offset)s AND _timestamp < %(marker)s))"
+)
+# Cleanup for a failed replace that never started copying into Postgres: deletes the replace-flagged rows stamped
+# between this run's first and latest markers. Every marker is later than every row before it, so earlier runs'
+# rows sit below the range and a newer run's rows above it, whoever released the cohort in between.
+DELETE_STATIC_COHORT_ROWS_BETWEEN_MARKERS = (
+    f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
+    " AND _offset = %(replace_offset)s AND _timestamp >= %(from_marker)s AND _timestamp <= %(to_marker)s"
+)
 
 #
 # Copying demo data
@@ -595,8 +645,17 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(t
 ) AS new_actors
 WHERE actor_id NOT IN (
     SELECT person_id FROM {cohort_table}
-    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{kept_filter}
 )
+"""
+
+# A replace inserts every match, existing members included, because the prune that follows removes
+# rows older than this run's _timestamp. Skipping existing members would leave them only at older
+# timestamps, and the prune would delete members the query still matches. Its rows carry REPLACE_ROW_OFFSET.
+INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE = """
+INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, %(_offset)s FROM (
+    SELECT DISTINCT actor_id FROM ({query})
+) AS new_actors
 """
 
 

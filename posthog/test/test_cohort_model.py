@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.models.person.util import get_person_by_id
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person
@@ -24,7 +25,11 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
-from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.models.util import (
+    count_cohort_members,
+    delete_failed_replace_attempt_rows,
+    list_cohort_member_ids,
+)
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
@@ -530,6 +535,79 @@ class TestCohort(BaseTest):
         )
         assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
         assert cohort.is_calculating is False
+
+    @parameterized.expand(
+        [
+            ("no_replace_in_flight", None, True, 1),
+            ("replace_in_flight", "replace", True, 2),
+            ("replace_waiting_after_sweep_reset", "replace", False, 2),
+        ]
+    )
+    def test_insert_users_by_list_rewrites_an_existing_member_only_during_a_replace(
+        self, _name: str, pending_mode: str | None, is_calculating: bool, expected_rows: int
+    ):
+        person = create_person(team=self.team, distinct_ids=["readded"], uuid=uuid.uuid4())
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["readded"])
+        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=is_calculating, pending_population_mode=pending_mode)
+
+        # A replace removes members without a row at its marker, so the re-add needs a fresh row.
+        cohort.insert_users_by_list(["readded"])
+
+        rows = sync_execute(
+            "SELECT count() FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.pk, "person_id": str(person.uuid)},
+        )
+        self.assertEqual(rows[0][0], expected_rows)
+
+    def test_stale_instance_insert_after_replace_ignores_lingering_ch_rows(self):
+        person = create_person(team=self.team, distinct_ids=["pruned"], uuid=uuid.uuid4())
+        stale_cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        before_replace = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        floor = before_replace + timedelta(minutes=5)
+        marker = floor + timedelta(minutes=1)
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), person.uuid, stale_cohort.pk, self.team.pk, before_replace)],
+        )
+
+        # Simulate a replace finishing after stale_cohort was loaded, leaving the pre-replace ClickHouse row
+        # lingering while last_replace_marker/last_replace_floor are stored in Postgres.
+        Cohort.objects.filter(pk=stale_cohort.pk).update(
+            pending_population_mode=None,
+            last_replace_marker=marker,
+            last_replace_floor=floor,
+        )
+
+        stale_cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+
+        fresh_rows = sync_execute(
+            "SELECT count() FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s AND _timestamp >= %(floor)s",
+            {"team_id": self.team.id, "cohort_id": stale_cohort.pk, "person_id": str(person.uuid), "floor": floor},
+        )
+        self.assertEqual(fresh_rows[0][0], 1)
+        self.assertEqual(count_cohort_members(self.team.id, stale_cohort.pk), 1)
+
+    def test_add_after_failed_first_replace_ignores_lingering_replace_row(self):
+        person = create_person(team=self.team, distinct_ids=["failed-first-replace"], uuid=uuid.uuid4())
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        attempt_marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid.uuid4(), person.uuid, cohort.pk, self.team.pk, attempt_marker, REPLACE_ROW_OFFSET)],
+        )
+
+        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+        delete_failed_replace_attempt_rows(
+            cohort.pk, team_id=self.team.pk, from_marker=attempt_marker, to_marker=attempt_marker
+        )
+
+        remaining_rows = sync_execute(
+            f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual([(str(pid), offset) for pid, offset in remaining_rows], [(str(person.uuid), 0)])
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 1)
 
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""

@@ -32,7 +32,9 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMP
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
+    CohortCalculationHistorySerializer,
     CohortFilters,
+    CohortSerializer,
     CohortViewSet,
     _criteria_edit_queues_behavioral_run,
     flag_call_criterion_shape_problem,
@@ -63,7 +65,12 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
+from products.cohorts.backend.models.cohort import (
+    DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    Cohort,
+    CohortPopulationMode,
+    CohortType,
+)
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
@@ -890,6 +897,11 @@ email@example.org
         csv = SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
 
         first = self.client.patch(url, data={"query": query})
+        cohort.refresh_from_db()
+        claimed_at = cohort.population_claimed_at
+        self.assertIsNotNone(claimed_at)
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_rename):
             rename = self.client.patch(url, data={"name": "renamed"})
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_query):
@@ -908,6 +920,11 @@ email@example.org
         )
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
         mock_csv_delay.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.name, cohort.pending_population_mode, cohort.population_marker, cohort.population_claimed_at),
+            ("renamed", CohortPopulationMode.APPEND, marker, claimed_at),
+        )
 
     @parameterized.expand(
         [
@@ -931,17 +948,272 @@ email@example.org
     def test_static_cohort_patch_releases_claim_when_enqueue_fails(
         self, source_field: str, delay_path: str, request_kwargs: Callable[[], dict[str, Any]]
     ):
-        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        # The run fields a replace the sweep gave up on leaves behind, while its worker may still be running.
+        old_marker = timezone.now().replace(microsecond=0) - timedelta(hours=1)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=old_marker,
+            population_copy_started=True,
+            population_first_marker=old_marker,
+        )
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
         with patch(delay_path, side_effect=[ConnectionError("broker down"), None]) as mock_delay:
             failed = self.client.patch(url, **request_kwargs())
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating)
+            self.assertIsNone(cohort.pending_population_mode)
+            self.assertIsNone(cohort.population_marker)
+            self.assertIsNone(cohort.population_claimed_at)
+            self.assertFalse(cohort.population_copy_started)
+            self.assertIsNone(cohort.population_first_marker)
+            # Also seed stale copy_started/first_marker before the succeeding claim to confirm a fresh claim resets both.
+            Cohort.objects.filter(pk=cohort.pk).update(population_copy_started=True, population_first_marker=old_marker)
             retried = self.client.patch(url, **request_kwargs())
 
         self.assertEqual(failed.status_code, 400, failed.json())
         self.assertEqual(failed.json()["attr"], source_field)
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
+        cohort.refresh_from_db()
+        # Either way the stale replace is gone. A CSV import records no mode, because its task never clears one. The
+        # marker, copy flag and first marker are gone too, so the old worker fails its next marker check and the new
+        # run never inherits copy state from a killed run.
+        self.assertEqual(
+            (
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.population_copy_started,
+                cohort.population_first_marker,
+            ),
+            (CohortPopulationMode.APPEND if source_field == "query" else None, None, False, None),
+        )
+
+    def test_static_cohort_patch_population_mode_replace_rejected_when_flag_off(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
+
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=False):
+            response = self.client.patch(
+                url,
+                data={
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                    "population_mode": "replace",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "population_mode")
+        self.assertIn("The static cohort replace option is not enabled.", response.json()["detail"])
+
+    def test_static_cohort_patch_population_mode_replace_wires_claim_and_task(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
+        claimed_at = datetime(2026, 11, 7, 12, 0, 10, tzinfo=UTC)
+
+        with (
+            time_machine.travel(claimed_at, tick=False),
+            patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay,
+        ):
+            response = self.client.patch(
+                url,
+                data={
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                    "population_mode": "replace",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertIsNone(cohort.population_marker)
+        self.assertEqual(cohort.population_claimed_at, claimed_at)
+        mock_delay.assert_called_once_with(cohort.pk, self.team.id)
+
+    @parameterized.expand(
+        [
+            ("metadata", lambda: {"name": "renamed"}, False),
+            ("claim", lambda: {"name": "claimed", "query": {"kind": "HogQLQuery", "query": "select 1"}}, True),
+            (
+                "static_to_dynamic",
+                lambda: {
+                    "is_static": False,
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": ["user@example.com"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    },
+                },
+                True,
+            ),
+        ]
+    )
+    def test_stale_cohort_instance_patch_preserves_last_replace_fields(
+        self, _name: str, payload_fn: Callable[[], dict[str, Any]], expects_calculating: bool
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        stale_instance = Cohort.objects.get(pk=cohort.pk)
+        finished_marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        finished_floor = finished_marker - timedelta(seconds=5)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            last_replace_marker=finished_marker,
+            last_replace_floor=finished_floor,
+        )
+
+        with (
+            patch.object(CohortViewSet, "get_object", return_value=stale_instance),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay"),
+            patch.object(Cohort, "enqueue_calculation"),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data=payload_fn(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_replace_marker, finished_marker)
+        self.assertEqual(cohort.last_replace_floor, finished_floor)
+        self.assertEqual(cohort.is_calculating, expects_calculating)
+
+    def test_dynamic_cohort_patch_still_writes_is_calculating(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="dynamic",
+            is_static=False,
+            is_calculating=False,
+            groups=[{"properties": [{"key": "email", "value": "user@example.com", "type": "person"}]}],
+        )
+
+        with patch.object(Cohort, "enqueue_calculation"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data={"name": "dynamic renamed"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+
+    def test_switching_cohort_to_dynamic_mid_replace_stops_replace_finalization(self) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        from products.cohorts.backend.models.util import insert_cohort_people_into_pg
+
+        run = uuid4().hex[:8]
+        create_person(team=self.team, distinct_ids=[f"{run}-dyn"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static-turning-dynamic",
+            is_static=True,
+            count=7,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        claimed_at = timezone.now().replace(microsecond=0)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=claimed_at,
+        )
+
+        def flip_to_dynamic_then_copy(*args: Any, **kwargs: Any) -> None:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data={
+                    "is_static": False,
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": ["user@example.com"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200, response.json())
+            insert_cohort_people_into_pg(*args, **kwargs)
+
+        with (
+            patch("posthog.tasks.calculate_cohort.is_static_cohort_replace_enabled", return_value=True),
+            patch.object(Cohort, "enqueue_calculation"),
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_people_into_pg",
+                side_effect=flip_to_dynamic_then_copy,
+            ),
+        ):
+            insert_cohort_from_query(cohort.pk, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_static)
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.count, 7)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertIsNone(cohort.population_marker)
+        self.assertIsNone(cohort.population_claimed_at)
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [])
+        # Adds and appends skip _offset = 1 rows until a replace finishes, so they ignore these if the cohort is
+        # populated statically again.
+
+    def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
+        history = CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=5),
+            finished_at=timezone.now(),
+            count=42,
+            mode=CohortPopulationMode.REPLACE,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(history.id))
+        self.assertEqual(results[0]["mode"], "replace")
+
+        # Read-only check: mode passed to serializer is not accepted in validated_data
+        serializer = CohortCalculationHistorySerializer(
+            data={"mode": "append", "cohort": cohort.id, "team": self.team.id, "filters": {}}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("mode", serializer.validated_data)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_csv_patch_recovers_csv_only_cohort_left_calculating(self, mock_csv_delay: MagicMock):
@@ -6189,6 +6461,212 @@ email@example.org,
         assert response.status_code == 200, response.json()
         assert _cohort_member_uuids(self.team.pk, static_cohort) == {str(person.uuid)}
 
+    def test_add_persons_to_static_cohort_updates_count_and_logs_activity(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        flush_persons_and_events()
+
+        with patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh") as mock_schedule:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid), str(p2.uuid)]},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_schedule.assert_not_called()
+        static_cohort.refresh_from_db()
+        assert static_cohort.count == 2
+        assert ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
+    def test_add_persons_count_refresh_failure_does_not_mask_insert_error(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        flush_persons_and_events()
+
+        with (
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid",
+                side_effect=RuntimeError("insert boom"),
+            ),
+            patch(
+                "posthog.tasks.calculate_cohort._recount_static_cohort",
+                side_effect=RuntimeError("recount boom"),
+            ),
+            patch("posthog.api.cohort.capture_exception") as mock_capture,
+            patch("posthog.exceptions.capture_exception", return_value=None) as mock_request_capture,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid)]},
+                format="json",
+            )
+
+        assert response.status_code == 500
+        mock_request_capture.assert_called_once()
+        assert str(mock_request_capture.call_args.args[0]) == "insert boom"
+        mock_capture.assert_called_once()
+        assert str(mock_capture.call_args.args[0]) == "recount boom"
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
+    def test_add_persons_to_static_cohort_fails_when_personhog_insert_raises(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        flush_persons_and_events()
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                side_effect=RuntimeError("personhog down"),
+            ),
+            patch("posthog.exceptions.capture_exception", return_value=None) as mock_request_capture,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid)]},
+                format="json",
+            )
+
+        assert response.status_code == 500
+        mock_request_capture.assert_called_once()
+        assert str(mock_request_capture.call_args.args[0]) == "personhog down"
+
+        static_cohort.refresh_from_db()
+        assert static_cohort.last_calculation is None
+        assert not static_cohort.is_calculating
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("idle_clears_errors", False, None, 0),
+            ("calculating_keeps_errors", True, None, 2),
+            ("insert_error_keeps_errors", False, RuntimeError("insert boom"), 2),
+        ]
+    )
+    def test_add_persons_resets_errors_calculating_only_on_idle_success(
+        self, _name: str, is_calculating: bool, insert_error: Exception | None, expected_errors: int
+    ) -> None:
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Failed Static Cohort",
+            is_static=True,
+            is_calculating=is_calculating,
+            errors_calculating=2,
+        )
+        person = create_person(team=self.team, distinct_ids=["clear-error-person"])
+        flush_persons_and_events()
+
+        if insert_error is not None:
+            with (
+                patch(
+                    "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid",
+                    side_effect=insert_error,
+                ),
+                patch("posthog.exceptions.capture_exception", return_value=None),
+            ):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                    {"person_ids": [str(person.uuid)]},
+                    format="json",
+                )
+            self.assertEqual(response.status_code, 500)
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        static_cohort.refresh_from_db()
+        self.assertEqual(static_cohort.errors_calculating, expected_errors)
+
+    def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
+        from posthog.errors import InternalCHQueryError
+
+        from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
+
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Replacing Cohort",
+            is_static=True,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        person = create_person(team=self.team, distinct_ids=["locked-add"])
+        flush_persons_and_events()
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=locked),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh"),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.json())
+        self.assertEqual(response["Retry-After"], "9")
+        self.assertIn("This cohort is being replaced. Try again shortly.", response.json()["detail"])
+        self.assertEqual(count_cohort_members(self.team.pk, static_cohort.pk, consistency="strong"), 0)
+
+    @patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh")
+    def test_add_persons_during_a_replace_keeps_the_replace_running(self, mock_schedule_refresh: MagicMock) -> None:
+        # An add during a replace writes a fresh ClickHouse row so the prune keeps the person. If one add-persons call
+        # released is_calculating, a later call that re-adds an existing member would write no fresh row, and the
+        # replace would prune that member.
+        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+
+        static_cohort = Cohort.objects.create(team=self.team, name="Replacing", is_static=True)
+        existing = _create_person(team_id=self.team.pk, distinct_ids=["existing-member"])
+        added = _create_person(team_id=self.team.pk, distinct_ids=["added-member"])
+        flush_persons_and_events()
+        static_cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=static_cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=timezone.now().replace(microsecond=0),
+        )
+
+        for person in (added, existing):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+
+        static_cohort.refresh_from_db()
+        assert (static_cohort.is_calculating, static_cohort.pending_population_mode) == (
+            True,
+            CohortPopulationMode.REPLACE,
+        )
+        existing_rows = sync_execute(
+            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s",
+            {"team_id": self.team.pk, "cohort_id": static_cohort.pk, "person_id": str(existing.uuid)},
+        )[0][0]
+        assert existing_rows == 2
+        assert mock_schedule_refresh.call_count == 2
+
     @parameterized.expand(
         [
             (
@@ -9620,3 +10098,133 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             {"access": "serving", "cohorts_used": 1, "max_cohorts": 3},
             {"access": "off", "cohorts_used": None, "max_cohorts": None},
         )
+
+
+class TestCohortPopulationModeValidation(SimpleTestCase):
+    def _make_context(self, request: Any | None = None, team: Any | None = None) -> dict[str, Any]:
+        if request is None:
+            request = MagicMock(
+                method="PATCH", FILES={}, user=MagicMock(is_authenticated=True, distinct_id="test-user")
+            )
+        if team is None:
+            team = MagicMock(
+                id=1,
+                uuid="00000000-0000-0000-0000-000000000001",
+                organization_id="00000000-0000-0000-0000-000000000002",
+            )
+        return {"request": request, "team": team, "team_id": 1}
+
+    @parameterized.expand(
+        [
+            (
+                "flag_off",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                None,
+                False,
+                "The static cohort replace option is not enabled.",
+            ),
+            (
+                "on_create",
+                None,
+                {
+                    "name": "new",
+                    "is_static": True,
+                    "population_mode": "replace",
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                },
+                MagicMock(method="POST", FILES={}, user=MagicMock(is_authenticated=True, distinct_id="test-user")),
+                True,
+                "population_mode cannot be specified on create.",
+            ),
+            (
+                "dynamic_cohort",
+                Cohort(id=1, is_static=False),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                None,
+                True,
+                "population_mode is only supported on static cohorts.",
+            ),
+            (
+                "csv_in_same_request",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                MagicMock(
+                    method="PATCH",
+                    FILES={"csv": SimpleUploadedFile("test.csv", b"id\n1")},
+                    user=MagicMock(is_authenticated=True, distinct_id="test-user"),
+                ),
+                True,
+                "population_mode cannot be used with CSV uploads.",
+            ),
+            (
+                "replace_without_query",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace"},
+                None,
+                True,
+                "population_mode requires query in the same request.",
+            ),
+            (
+                "append_without_query",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "append"},
+                None,
+                True,
+                "population_mode requires query in the same request.",
+            ),
+        ]
+    )
+    def test_population_mode_rejection_matrix(
+        self,
+        _name: str,
+        instance: Cohort | None,
+        payload: dict,
+        request: Any | None,
+        flag_enabled: bool,
+        expected_error: str,
+    ) -> None:
+        context = self._make_context(request=request)
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=flag_enabled):
+            serializer = CohortSerializer(instance=instance, data=payload, context=context, partial=True)
+            assert not serializer.is_valid()
+            assert expected_error in serializer.errors["population_mode"]
+
+    def test_population_mode_rejected_when_no_team_in_context(self) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = {"request": MagicMock(method="PATCH", FILES={})}
+        serializer = CohortSerializer(
+            instance=cohort,
+            data={"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+            context=context,
+            partial=True,
+        )
+        assert not serializer.is_valid()
+        assert "The static cohort replace option is not enabled." in serializer.errors["population_mode"]
+
+    def test_population_mode_invalid_choice_rejected(self) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = self._make_context()
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True):
+            serializer = CohortSerializer(
+                instance=cohort,
+                data={"population_mode": "invalid_mode", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                context=context,
+                partial=True,
+            )
+            assert not serializer.is_valid()
+            assert serializer.errors["population_mode"][0].code == "invalid_choice"
+
+    @parameterized.expand([("replace", "replace"), ("append", "append")])
+    def test_population_mode_valid_choices(self, _name: str, mode: str) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = self._make_context()
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True):
+            serializer = CohortSerializer(
+                instance=cohort,
+                data={"population_mode": mode, "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                context=context,
+                partial=True,
+            )
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data["population_mode"] == mode
