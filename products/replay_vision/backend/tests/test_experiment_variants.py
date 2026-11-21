@@ -224,6 +224,11 @@ class TestExperimentVariants(_VisionAPITestCase):
         resp = self.client.get(f"{self.scanners_url}{scoped.id}/variants/")
 
         assert resp.status_code == 200, resp.content
+        # Resolved from `scope`, not from the legacy accessor: that one answers None for a scanner
+        # of another type, so the readout would name no experiment and list no unobserved variant.
+        body = resp.json()
+        assert body["experiment"] is not None, body
+        assert {v["key"] for v in body["variants"]} == {"control", "test"}, body
 
     @parameterized.expand(
         [

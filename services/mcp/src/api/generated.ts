@@ -82890,7 +82890,7 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
-      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null on a scanner that has no scope watches every session the filters match. A stored scope can be narrowed or widened but not removed, because its experiment is fixed after creation; make a new scanner to watch every session instead. */
       scope?: ScannerExperimentScope | null;
       /**
          * What this scanner's scope watches, for a reader that cannot see the experiment.
@@ -97293,7 +97293,7 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
-      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null on a scanner that has no scope watches every session the filters match. A stored scope can be narrowed or widened but not removed, because its experiment is fixed after creation; make a new scanner to watch every session instead. */
       scope?: ScannerExperimentScope | null;
       /**
          * What this scanner's scope watches, for a reader that cannot see the experiment.

@@ -1949,6 +1949,35 @@ class TestScannerScope(_VisionAPITestCase):
             )
             self.assertEqual(retargeted.status_code, 400, retargeted.json())
 
+    def test_clearing_the_legacy_store_cannot_remove_a_scope(self) -> None:
+        # The same removal through the older door: clearing `experiment_targeting` makes the mirror
+        # derive None and write it, so the scope goes too and the fixed-experiment check has
+        # nothing left to compare on the next write.
+        scanner = self._create_scanner(name="mirror-backed", experiment_targeting={"experiment_id": self.experiment.id})
+        scanner.refresh_from_db()
+        stored = scanner.scope
+        assert isinstance(stored, dict)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", data={"experiment_targeting": None}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scope, stored)
+
+    def test_clearing_targeting_still_works_without_a_scope(self) -> None:
+        # The refusal is about losing a scope, not about the older store: a scanner that never had
+        # one still clears its targeting.
+        scanner = self._create_scanner(name="unscoped")
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"experiment_targeting": None}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+
     def test_a_rename_keeps_the_scope_settings_it_resends(self) -> None:
         # The settings the scope carries are not scan config the editor shows; it echoes back
         # whatever it read. A field left off the scope serializer is dropped from that resend, and

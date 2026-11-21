@@ -602,7 +602,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text=(
             "Which sessions the scanner watches beyond its filters, and the label it gives each "
-            "one. Null watches every session the filters match. Set null to remove the scope."
+            "one. Null on a scanner that has no scope watches every session the filters match. A "
+            "stored scope can be narrowed or widened but not removed, because its experiment is "
+            "fixed after creation; make a new scanner to watch every session instead."
         ),
     )
     scope_summary = serializers.SerializerMethodField(
@@ -1169,6 +1171,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         the scope model treats as immutable.
         """
         self._refuse_a_legacy_write_that_moves_the_scope(attrs)
+        self._refuse_clearing_the_store_a_scope_mirrors(attrs)
         if "scope" not in attrs:
             return
         if attrs["scope"] is None:
@@ -1224,6 +1227,36 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if self.instance is None or not isinstance(self.instance.scope, dict):
             return
         raise serializers.ValidationError({"scope": "A scanner's scope cannot be removed. Make a new scanner instead."})
+
+    def _refuse_clearing_the_store_a_scope_mirrors(self, attrs: dict[str, Any]) -> None:
+        """Refuse a legacy clear that would take the scope with it.
+
+        Clearing `experiment_targeting` on a row whose scope the mirror derived from it makes
+        `save()` derive None and write it, so the scope goes too. That is the same removal
+        `_refuse_clearing_a_stored_scope` refuses, reached through the older store: empty it, and
+        the fixed-experiment check has nothing left to compare, so the next write may name another
+        experiment. The scanner's earlier observations stay, and a per-variant readout then counts
+        them under the experiment they were never scanned for.
+        """
+        if self.instance is None or "experiment_targeting" not in attrs or attrs["experiment_targeting"]:
+            return
+        if not isinstance(self.instance.experiment_targeting, dict):
+            return
+        if not isinstance(self.instance.scope, dict):
+            return
+        # Only under the flag. With it off a scope cannot be written, so there is no scope edit to
+        # protect and clearing the older store is the ordinary way to stop watching an experiment.
+        get_team = self.context.get("get_team")
+        if get_team is None or not scope_api_enabled(get_team(), acting_user(self.context)):
+            return
+        raise serializers.ValidationError(
+            {
+                "experiment_targeting": (
+                    "A scanner's experiment is fixed after creation, and clearing this would remove "
+                    "its scope. Make a new scanner instead."
+                )
+            }
+        )
 
     def _refuse_a_new_scope_that_names_no_variant(self, scope: dict[str, Any]) -> None:
         """Keep the variant-less shape to the rows that already carry it.
