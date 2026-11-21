@@ -30,6 +30,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 
 import sqlparse
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import (
@@ -84,6 +85,7 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -2154,7 +2156,12 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
             try:
                 future.result()
             except Exception as exc:
-                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                driver_error = exc.__cause__ if isinstance(exc, CHQueryErrorUnknownTable) else exc
+                if (
+                    isinstance(driver_error, ServerException)
+                    and driver_error.code == 60
+                    and "posthog_test." in (driver_error.message or "")
+                ):
                     continue
                 exceptions.append(exc)
 
