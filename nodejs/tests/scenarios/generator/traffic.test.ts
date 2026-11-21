@@ -249,7 +249,7 @@ describe('traffic', () => {
                         contextFor(cdpApi.url, undefined, clock),
                         abort.signal
                     )
-                    await backingOff
+                    await Promise.race([backingOff, offered.catch(() => undefined)])
                     abort.abort()
 
                     await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
