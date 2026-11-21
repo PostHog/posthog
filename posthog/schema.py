@@ -22492,6 +22492,14 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    detectedChange: Literal["negative_keyword"] | None = Field(
+        default=None,
+        description=(
+            "The change in Google Ads that applied this recommendation, when the synced"
+            " data shows one. A detected recommendation counts as applied, so it"
+            " follows the same rules as a resolved one."
+        ),
+    )
     identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
