@@ -273,14 +273,27 @@ def select_from_persons_table(
     return select
 
 
+def _select_alias_expr(field: ast.Field, select_aliases: dict[str, ast.Alias]) -> Optional[Expr]:
+    """The expression of the SELECT alias that `field` names, or None when `field` names anything else."""
+    if not isinstance(field.type, ast.FieldAliasType):
+        return None
+    alias = select_aliases.get(field.type.alias)
+    return alias.expr if alias is not None and alias.type is field.type else None
+
+
 class _CopyableConjunctVisitor(TraversingVisitor):
-    def __init__(self, table_types: tuple[ast.Type, ...]):
+    def __init__(self, table_types: tuple[ast.Type, ...], select_aliases: dict[str, ast.Alias]):
         super().__init__()
         self.table_types = table_types
+        self.select_aliases = select_aliases
         self.reads_table = False
         self.copyable = True
 
     def visit_field(self, node: ast.Field):
+        alias_expr = _select_alias_expr(node, self.select_aliases)
+        if alias_expr is not None:
+            self.visit(alias_expr)
+            return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if isinstance(field_type, ast.FieldType) and any(field_type.table_type is t for t in self.table_types):
             self.reads_table = True
@@ -302,8 +315,20 @@ class _CopyableConjunctVisitor(TraversingVisitor):
 
 # The copy drops the hidden alias that the resolver puts on every field. The resolver adds it back.
 class _AliasStrippingCloner(CloningVisitor):
+    def __init__(self, select_aliases: dict[str, ast.Alias]):
+        super().__init__(clear_types=True, clear_locations=True)
+        self.select_aliases = select_aliases
+
     def visit_alias(self, node: ast.Alias) -> Expr:
         return self.visit(node.expr)
+
+    # The subquery has no SELECT aliases. A bare name there resolves to a column of the left table, which can hold
+    # a different value than the alias of the same name.
+    def visit_field(self, node: ast.Field) -> Expr:
+        alias_expr = _select_alias_expr(node, self.select_aliases)
+        if alias_expr is not None:
+            return self.visit(alias_expr)
+        return super().visit_field(node)
 
 
 def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
@@ -325,6 +350,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
 
     The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
     A term must read at least one left-table column, because a constant term narrows nothing.
+    A term that names a SELECT alias is copied with the expression of the alias in its place.
     Every row that the outer query keeps satisfies all of them. Its person stays in the set. The join returns the same
     rows. A term is copied whole or left out. Leaving a term out only widens the set.
     The subquery reads the left table before the outer scan does. A row that arrives between the two reads can lack
@@ -348,13 +374,16 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     ):
         return None
 
-    cloner = _AliasStrippingCloner(clear_types=True, clear_locations=True)
+    select_aliases = {
+        column.alias: column for column in node.select if isinstance(column, ast.Alias) and not column.hidden
+    }
+    cloner = _AliasStrippingCloner(select_aliases)
     conjuncts: list[Expr] = []
     for where in (node.where, node.prewhere):
         if where is None:
             continue
         for conjunct in top_level_conjuncts(where):
-            visitor = _CopyableConjunctVisitor(left_types)
+            visitor = _CopyableConjunctVisitor(left_types, select_aliases)
             visitor.visit(conjunct)
             if visitor.copyable and visitor.reads_table:
                 conjuncts.append(cloner.visit(conjunct))

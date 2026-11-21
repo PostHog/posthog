@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_event,
     _create_flag_evaluations,
     _create_person,
     flush_persons_and_events,
@@ -668,6 +669,54 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         self.assertEqual(self._cohort_member_ids(cohort, 0), {str(caller.uuid)})
+
+    def test_person_filter_on_event_criterion_reads_only_persons_with_matching_events(self) -> None:
+        now = datetime.now(ZoneInfo("UTC"))
+        paid_recent = _create_person(team=self.team, distinct_ids=["paid-recent"], properties={"plan": "paid"})
+        _create_person(team=self.team, distinct_ids=["free-recent"], properties={"plan": "free"})
+        _create_person(team=self.team, distinct_ids=["paid-old"], properties={"plan": "paid"})
+        for distinct_id, age in [("paid-recent", 1), ("free-recent", 1), ("paid-old", 60)]:
+            _create_event(
+                team=self.team, event="signed up", distinct_id=distinct_id, timestamp=now - timedelta(days=age)
+            )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="paid signups",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "signed up",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "event_filters": [
+                                        {"key": "plan", "type": "person", "value": "paid", "operator": "exact"}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(self._cohort_member_ids(cohort, 0), {str(paid_recent.uuid)})
+        sql, _ = HogQLCohortQuery(cohort=cohort, team=self.team).get_query_executor().generate_clickhouse_sql()
+        sql = " ".join(sql.split())
+        persons_join_end = sql.index(" AS e__person ON")
+        key_subquery = sql[sql.rindex("SELECT DISTINCT", 0, persons_join_end) : persons_join_end]
+        self.assertIn("e.event", key_subquery)
+        self.assertIn("e.timestamp", key_subquery)
 
     def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
         internal = _create_person(
