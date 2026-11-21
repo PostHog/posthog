@@ -146,7 +146,7 @@ describe('traffic', () => {
 
         const UNAVAILABLE: Answer = { status: 503, body: { error: 'intake_unavailable' } }
 
-        it('stops retrying when the run aborts after a 5xx, on the real clock', async () => {
+        it("hands the run's abort to the real clock's wait, so no retry follows a 5xx", async () => {
             const cdpApi = await startCdpApi([UNAVAILABLE])
             const abort = new AbortController()
             try {
@@ -224,6 +224,35 @@ describe('traffic', () => {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
                     ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable' })
+                    expect(cdpApi.received).toHaveLength(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
+
+            it('stops waiting to retry when the run aborts during its backoff', async () => {
+                let waiting = (): void => undefined
+                const backingOff = new Promise<void>((resolve) => (waiting = resolve))
+                const clock: SendClock = {
+                    now: () => 0,
+                    wait: (_ms, signal) =>
+                        new Promise((_resolve, reject) => {
+                            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+                            waiting()
+                        }),
+                }
+                const cdpApi = await startCdpApi([UNAVAILABLE])
+                const abort = new AbortController()
+                try {
+                    const offered = transactionalEmail.offer(
+                        UNIT,
+                        contextFor(cdpApi.url, undefined, clock),
+                        abort.signal
+                    )
+                    await backingOff
+                    abort.abort()
+
+                    await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
                     expect(cdpApi.received).toHaveLength(1)
                 } finally {
                     await cdpApi.close()

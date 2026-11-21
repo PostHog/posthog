@@ -3,6 +3,8 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { LoadedCard, load, stepsOf } from '../cards'
 import type { JournalEntry } from '../judge/judge'
 import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
@@ -373,21 +375,35 @@ describe('drive', () => {
         }
     })
 
-    it('sums the retries of transactional sends that cdp-api answered with a 5xx', async () => {
+    it.each<[string, string, object]>([
+        ['transactional sends', 'transactional_email', { answer: { accepted: true, retries: 1 } }],
+        [
+            'bounce follow-ups',
+            'bounce_followup',
+            { answer: { accepted: true }, followUp: { accepted: true, retries: 1 } },
+        ],
+    ])('sums the retries of %s that cdp-api answered with a 5xx, over every unit', async (_kind, traffic, entry) => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
-        let answers = 0
+        const refused = new Set<string>()
+        let retries = 0
         let retried = (): void => undefined
         const answered = new Promise<void>((resolve) => (retried = resolve))
         const server = http.createServer((request, response) => {
-            request.resume()
-            answers += 1
-            response.writeHead(answers === 1 ? 503 : 202).end('{}', answers === 2 ? retried : undefined)
+            let raw = ''
+            request.on('data', (chunk) => (raw += chunk))
+            request.on('end', () => {
+                const key: string = parseJSON(raw).idempotency_key
+                const first = !refused.has(key)
+                refused.add(key)
+                retries += first ? 0 : 1
+                response.writeHead(first ? 503 : 202).end('{}', !first && retries === 2 ? retried : undefined)
+            })
         })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
             const { driving, journal } = startDrive(
-                cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'transactional_email' }),
+                cardWith({ ratePerSecond: 20, driveFor: '100ms', traffic }),
                 ACKNOWLEDGED,
                 {
                     cdpApi: {
@@ -395,6 +411,7 @@ describe('drive', () => {
                         url: `http://127.0.0.1:${port}`,
                         clock: { now: () => 0, wait: () => Promise.resolve() },
                     },
+                    sesFeedback: { settled: () => Promise.resolve(undefined) },
                 }
             )
 
@@ -402,8 +419,8 @@ describe('drive', () => {
             await Promise.race([answered, driving])
             await jest.advanceTimersByTimeAsync(100)
             expect({ summary: await driving, journal }).toMatchObject({
-                summary: { offeredUnits: 1, sendRetries: 1 },
-                journal: [{ answer: { accepted: true, retries: 1 } }],
+                summary: { offeredUnits: 2, sendRetries: 2 },
+                journal: [entry, entry],
             })
         } finally {
             server.closeAllConnections()
