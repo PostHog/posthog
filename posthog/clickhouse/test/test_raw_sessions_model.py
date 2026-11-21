@@ -1,11 +1,14 @@
 import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+from posthog.models.raw_sessions.sessions_v2 import (
+    RAW_SESSION_TABLE_BACKFILL_SELECT_SQL,
+    TRUNCATE_RAW_SESSIONS_TABLE_SQL,
+)
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
@@ -366,6 +369,50 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             {"team_id": self.team.id},
         )
         self.assertEqual(results, [("ExampleBrowser", 640, 0, 42.5, "ExampleCity")])
+
+    @parameterized.expand([("materialized_view",), ("backfill",)])
+    def test_mcp_and_ai_events_do_not_create_or_extend_sessions(self, writer):
+        distinct_id = create_distinct_id()
+        mcp_only_session_id = create_session_id()
+        ai_only_session_id = create_session_id()
+        web_session_id = create_session_id()
+
+        def create(event: str, session_id: str, timestamp: str, url: str | None = None) -> None:
+            properties = {"$session_id": session_id}
+            if url is not None:
+                properties["$current_url"] = url
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                properties=properties,
+                timestamp=timestamp,
+            )
+
+        create("$mcp_tool_call", mcp_only_session_id, "2024-03-08T10:00:00")
+        create("$ai_generation", ai_only_session_id, "2024-03-08T10:00:00")
+        create("$ai_generation", web_session_id, "2024-03-08T09:00:00", url="https://example.com/ai-before")
+        create("$pageview", web_session_id, "2024-03-08T10:00:00", url="https://example.com/entry")
+        create("$pageview", web_session_id, "2024-03-08T10:05:00", url="https://example.com/exit")
+        create("$ai_trace", web_session_id, "2024-03-08T11:00:00", url="https://example.com/ai-after")
+
+        if writer == "backfill":
+            flush_persons_and_events()
+            sync_execute(TRUNCATE_RAW_SESSIONS_TABLE_SQL())
+            sync_execute(
+                "INSERT INTO raw_sessions" + RAW_SESSION_TABLE_BACKFILL_SELECT_SQL() + "AND team_id = %(team_id)s",
+                {"team_id": self.team.id},
+            )
+
+        assert self.select_by_session_id(mcp_only_session_id) == []
+        assert self.select_by_session_id(ai_only_session_id) == []
+
+        [web_session] = self.select_by_session_id(web_session_id)
+        assert web_session["min_timestamp"] == datetime.datetime(2024, 3, 8, 10, 0, tzinfo=datetime.UTC)
+        assert web_session["max_timestamp"] == datetime.datetime(2024, 3, 8, 10, 5, tzinfo=datetime.UTC)
+        assert web_session["entry_url"] == "https://example.com/entry"
+        assert web_session["end_url"] == "https://example.com/exit"
+        assert set(web_session["urls"]) == {"https://example.com/entry", "https://example.com/exit"}
 
     def test_max_inserted_at(self):
         distinct_id = create_distinct_id()

@@ -301,6 +301,60 @@
     AND team_id = 99999
   '''
 # ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_0_materialized_view
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_0_materialized_view.1
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_0_materialized_view.2
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_1_backfill
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_1_backfill.1
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_mcp_and_ai_events_do_not_create_or_extend_sessions_1_backfill.2
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
 # name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_0_autocapture_first
   '''
   

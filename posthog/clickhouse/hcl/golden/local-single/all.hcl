@@ -24108,7 +24108,9 @@ SELECT
   ) AS vitals_lcp
 FROM posthog.sharded_events
 WHERE
-  bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7
+  (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
+AND
+  (NOT (startsWith(event, '$mcp_') OR startsWith(event, '$ai_')))
 GROUP BY
   team_id, toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), cityHash64(session_id_v7), session_id_v7
 SQL
@@ -24423,6 +24425,8 @@ WHERE
   (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
 AND
   ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) >= (timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) <= (timestamp + toIntervalDay(31))))
+AND
+  (NOT (startsWith(event, '$mcp_') OR startsWith(event, '$ai_')))
 AND
   true
 SQL
