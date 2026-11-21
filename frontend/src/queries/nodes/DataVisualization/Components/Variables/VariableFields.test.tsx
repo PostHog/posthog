@@ -1,5 +1,10 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { dayjs } from 'lib/dayjs'
+
 import { ListVariable } from '../../types'
-import { coerceListVariableValue, getListVariableValues } from './VariableFields'
+import { DateField, coerceListVariableValue, getListVariableValues } from './VariableFields'
 import {
     formatRelativeDateValue,
     getListVariableSelectedValues,
@@ -77,5 +82,23 @@ describe('VariableFields', () => {
         ['empty number input', Number.NaN, 0],
     ])('normalizeRelativeDateAmount: %s', (_name, amount, expected) => {
         expect(normalizeRelativeDateAmount(amount)).toBe(expected)
+    })
+
+    it('lets a date variable saved without a default pick a date', async () => {
+        const updateVariable = jest.fn()
+        render(
+            <DateField
+                variable={{ id: '1', name: 'Start', code_name: 'start', type: 'Date', default_value: null }}
+                updateVariable={updateVariable}
+                onSave={() => {}}
+            />
+        )
+
+        await userEvent.click(screen.getAllByText('15')[0])
+        await userEvent.click(screen.getByText('Apply'))
+
+        expect(updateVariable).toHaveBeenCalledWith(
+            expect.objectContaining({ default_value: dayjs().date(15).format('YYYY-MM-DD') })
+        )
     })
 })

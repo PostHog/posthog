@@ -11,7 +11,7 @@ export const VariableCalendar = ({
     rawValue,
     updateVariable,
 }: {
-    value: dayjs.Dayjs
+    value: dayjs.Dayjs | null
     rawValue?: string | null
     updateVariable: (date: string) => void
 }): JSX.Element => {
