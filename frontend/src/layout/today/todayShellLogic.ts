@@ -270,6 +270,7 @@ export interface todayShellLogicValues {
     routePane: TodayRailPane | null
     sidebarBreadcrumbShown: boolean
     sidebarOpen: boolean
+    sidebarPeeking: boolean
     sidebarPinned: boolean
     sidebarVisible: boolean
     sidebarWidth: number
@@ -302,6 +303,9 @@ export interface todayShellLogicActions {
     clickRailPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
     }
+    clickSidebarPin: () => {
+        value: true
+    }
     goBackOnPhone: () => {
         value: true
     }
@@ -329,6 +333,9 @@ export interface todayShellLogicActions {
     }
     setSidebarOpen: (open: boolean) => {
         open: boolean
+    }
+    setSidebarPeeking: (peeking: boolean) => {
+        peeking: boolean
     }
     setSidebarWidth: (width: number) => {
         width: number
@@ -368,6 +375,7 @@ export interface todayShellLogicMeta {
         ) => TodayView
         leftNavWidth: (
             sidebarOpen: boolean,
+            sidebarPeeking: boolean,
             sidebarWidth: number,
             mobileLayout: boolean,
             phoneLayout: boolean,
@@ -377,6 +385,7 @@ export interface todayShellLogicMeta {
             mobileLayout: boolean,
             mobileSidebarOpen: boolean,
             sidebarOpen: boolean,
+            sidebarPeeking: boolean,
             paneHasSidebar: boolean
         ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
@@ -444,9 +453,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
         setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
         setMobileSidebarOpen: (open: boolean) => ({ open }),
         setSidebarOpen: (open: boolean) => ({ open }),
+        setSidebarPeeking: (peeking: boolean) => ({ peeking }),
         setSidebarWidth: (width: number) => ({ width }),
         toggleSidebar: (source: TodaySidebarToggleSource) => ({ source }),
         toggleSidebarPinned: true,
+        clickSidebarPin: true,
         clickRailPane: (pane: TodayRailPane) => ({ pane }),
     }),
     windowValues(() => ({
@@ -468,6 +479,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
             { persist: true },
             {
                 setSidebarOpen: (_, { open }) => open,
+            },
+        ],
+        // A rail pick on a closed sidebar shows it until the next page. The stored choice stays closed, so a reload keeps it hidden.
+        sidebarPeeking: [
+            false,
+            {
+                setSidebarPeeking: (_, { peeking }) => peeking,
+                setSidebarOpen: () => false,
             },
         ],
         sidebarPinned: [
@@ -535,9 +554,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }),
         ],
         leftNavWidth: [
-            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.paneHasSidebar],
+            (s) => [s.sidebarOpen, s.sidebarPeeking, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.paneHasSidebar],
             (
                 sidebarOpen: boolean,
+                sidebarPeeking: boolean,
                 sidebarWidth: number,
                 mobileLayout: boolean,
                 phoneLayout: boolean,
@@ -545,16 +565,18 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ): number =>
                 phoneLayout
                     ? 0
-                    : TODAY_RAIL_WIDTH + (sidebarOpen && paneHasSidebar && !mobileLayout ? sidebarWidth : 0),
+                    : TODAY_RAIL_WIDTH +
+                      ((sidebarOpen || sidebarPeeking) && paneHasSidebar && !mobileLayout ? sidebarWidth : 0),
         ],
         sidebarVisible: [
-            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen, s.paneHasSidebar],
+            (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen, s.sidebarPeeking, s.paneHasSidebar],
             (
                 mobileLayout: boolean,
                 mobileSidebarOpen: boolean,
                 sidebarOpen: boolean,
+                sidebarPeeking: boolean,
                 paneHasSidebar: boolean
-            ): boolean => paneHasSidebar && (mobileLayout ? mobileSidebarOpen : sidebarOpen),
+            ): boolean => paneHasSidebar && (mobileLayout ? mobileSidebarOpen : sidebarOpen || sidebarPeeking),
         ],
         todayRailEnabled: [
             (s) => [s.featureFlags],
@@ -624,6 +646,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
         toggleSidebar: ({ source }) => {
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(!values.mobileSidebarOpen)
+            } else if (values.sidebarPeeking) {
+                actions.setSidebarPeeking(false)
             } else {
                 actions.setSidebarOpen(!values.sidebarOpen)
             }
@@ -641,13 +665,12 @@ export const todayShellLogic = kea<todayShellLogicType>([
             actions.setPickedPane(paneAfterNavigation(pickedPane, pathname, shownPane, featureFlags))
             const pageChanged = method === 'PUSH' && pathname !== cache.lastPathname
             cache.lastPathname = pathname
-            // An unpinned sidebar gives the new page room. The drawer closes on its own, and a rail pick wants it open.
+            // An unpinned or peeking sidebar gives the new page room. The drawer closes on its own, and a rail pick wants it open.
             if (
                 pageChanged &&
-                !values.sidebarPinned &&
                 !values.mobileLayout &&
-                values.sidebarOpen &&
-                !cache.pickingPane
+                !cache.pickingPane &&
+                (values.sidebarPeeking || (!values.sidebarPinned && values.sidebarOpen))
             ) {
                 actions.toggleSidebar('navigation')
             }
@@ -655,6 +678,16 @@ export const todayShellLogic = kea<todayShellLogicType>([
         toggleSidebarPinned: () => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today sidebar pin toggled', { pinned: values.sidebarPinned })
+        },
+        // A peeking sidebar shows as unpinned, so its pin keeps the sidebar open as well as pinned.
+        clickSidebarPin: () => {
+            if (values.sidebarPeeking) {
+                actions.setSidebarOpen(true)
+                if (values.sidebarPinned) {
+                    return
+                }
+            }
+            actions.toggleSidebarPinned()
         },
         setMobileSidebarOpen: ({ open }) => {
             if (!open) {
@@ -702,8 +735,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
-            } else {
-                actions.setSidebarOpen(true)
+            } else if (!values.sidebarOpen) {
+                actions.setSidebarPeeking(true)
             }
         },
         restoreView: ({ view }) => {

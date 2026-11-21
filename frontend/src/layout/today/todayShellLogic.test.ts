@@ -376,6 +376,32 @@ describe('todayShellLogic', () => {
         logic.actions.pickPane('analytics')
         expect(logic.values.sidebarVisible).toBe(true)
     })
+    it('shows a closed sidebar from the rail until the next page, and keeps it closed after a reload', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.setSidebarOpen(false)
+        logic.actions.pickPane('analytics')
+        expect(logic.values.sidebarVisible).toBe(true)
+        expect(logic.values.leftNavWidth).toBeGreaterThan(TODAY_RAIL_WIDTH)
+
+        // A reload starts a new kea context and keeps localStorage.
+        initKeaTests()
+        router.actions.push('/project/1/analytics')
+        todayShellLogic.mount()
+        expect(todayShellLogic.values.sidebarVisible).toBe(false)
+
+        todayShellLogic.actions.pickPane('products')
+        router.actions.push('/project/1/feature-flags')
+        expect(todayShellLogic.values.sidebarVisible).toBe(false)
+
+        todayShellLogic.actions.pickPane('products')
+        todayShellLogic.actions.clickSidebarPin()
+        router.actions.push('/project/1/cohorts')
+        expect(todayShellLogic.values.sidebarVisible).toBe(true)
+        expect(todayShellLogic.values.sidebarOpen).toBe(true)
+    })
+
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
