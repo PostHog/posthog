@@ -4943,6 +4943,18 @@ class TestPrinter(BaseTest):
         assert f"FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT" in printed
         assert "p1.id, (SELECT" not in printed
 
+    def test_persons_join_filter_keeps_json_string_extraction(self):
+        printed = self._print(
+            """
+            select p1.id as p1_id
+            from events
+                     join persons as p1 on p1.id = events.person_id
+                         and p1.id in (select id from persons where JSONExtractString(properties, 'name') = 'a')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "JSONExtractString(" in printed.split("AS p1 ON")[0].split("FROM person WHERE")[-1]
+
     def test_two_joins(self):
         printed = self._print(
             """
