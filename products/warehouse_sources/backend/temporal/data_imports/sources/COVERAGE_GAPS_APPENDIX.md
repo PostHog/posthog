@@ -11091,10 +11091,10 @@ Diffed against: <https://api.ownerreservations.com/openapi/v2.json>
 - [x] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
 - [x] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
 - [x] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
-- [ ] `Listings (GET /v2/listings)` — compare property amenities and room details with booking demand and revenue (medium)
-- [ ] `Messages (GET /v2/messages)` — analyze guest communication volume and response times by booking thread (medium)
-- [ ] `Fields (GET /v2/fields)` — add custom entity attributes to booking, guest, and property analysis (medium)
-- [ ] `Tags (GET /v2/tags)` — group bookings and guests by assigned tags for cohort analysis (medium)
+- [x] `Listings (GET /v2/listings)` — compare property amenities and room details with booking demand and revenue (medium). Added as `Listings` (full refresh, amenities, rooms and bathrooms included, `wifi_password` dropped).
+- [ ] `Messages (GET /v2/messages)` — analyze guest communication volume and response times by booking thread (medium). Skipped: personal access tokens get 402 messaging_not_enabled; it needs an OAuth app and one request per thread.
+- [ ] `Fields (GET /v2/fields)` — add custom entity attributes to booking, guest, and property analysis (medium). Skipped: needs one request per entity; the same values come inline on bookings, guests, owners and properties with include_fields.
+- [ ] `Tags (GET /v2/tags)` — group bookings and guests by assigned tags for cohort analysis (medium). Skipped: needs one request per entity; the same values come inline on the list endpoints with include_tags.
 - [x] `Spot Rates (GET /v2/spotrates)` — raw per-night rate and stay-rule overrides, to separate manual pricing from seasonal defaults (medium). Added as `SpotRates` (full refresh, no date window).
 
 Note: Parsed the full OwnerRez v2 OpenAPI specification and inherited response schemas. Owners and listing sites resolve IDs in existing property, booking, and quote records. Calendar requests need date windows; messages need thread IDs and OAuth credentials. Listings have access limits; fields and tags need entity IDs; excluded authentication, webhooks, and pricing settings.
