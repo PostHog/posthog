@@ -98,14 +98,13 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         ],
         group_by: 'series',
         order: 'recent',
-        max_anomaly_rate: 0.1,
-        hidden_series: 0,
         series: [],
         insights: [],
         has_more: false,
         truncated: false,
         series_capped: false,
         message: null,
+        scored_through: iso(NOW),
         ...overrides,
     }
 }
@@ -183,6 +182,10 @@ const meta: Meta = {
                 // One saved insight, so the scene shows its tabs rather than the first-run screen.
                 '/api/environments/:team_id/insights': toPaginatedResponse(insightsJson.results.slice(0, 1)),
                 '/api/projects/:team_id/insights/': toPaginatedResponse(insightsJson.results.slice(0, 1)),
+                '/api/projects/:team_id/dashboards/': toPaginatedResponse([
+                    { id: 1, name: 'Growth' },
+                    { id: 2, name: 'Checkout health' },
+                ]),
             },
         }),
     ],
@@ -201,13 +204,7 @@ export const FlaggedSeries: Story = {
     },
     decorators: [
         mswDecorator({
-            get: {
-                [SEARCH_URL]: searchResponse({
-                    series: FLAGGED_SERIES.map(({ row }) => row),
-                    has_more: true,
-                    hidden_series: 3,
-                }),
-            },
+            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
             post: { [POINTS_URL]: pointsResponse() },
         }),
     ],

@@ -5,12 +5,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils/strings'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { ANOMALY_RATE_FILTER_OFF, SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
 import { AnomalyChartLegend } from './AnomalyChartLegend'
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
@@ -44,20 +42,14 @@ export function AnomaliesTab(): JSX.Element {
         toggleInsightExpanded,
         rateSeries,
         reportCreateAlertOpened,
-        setMaxAnomalyRate,
     } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
-    const scoredThrough = series
-        .map((row) => row.scored_through)
-        .filter((value): value is string => !!value)
-        .sort()
-        .at(-1)
 
     return (
         <div className="flex flex-col gap-4">
             <p className="text-secondary m-0">
-                Saved trends insights that behaved unusually, checked automatically. No setup needed.
+                Saved trends insights with anomalous values, checked automatically. No setup needed.
             </p>
             <AnomaliesFilters />
 
@@ -89,7 +81,7 @@ export function AnomaliesTab(): JSX.Element {
                 <>
                     {!anomalies.scored_history_ready && (
                         <LemonBanner type="info">
-                            {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, flags are less reliable.`}
+                            {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, anomaly results are less reliable.`}
                         </LemonBanner>
                     )}
                     {anomalies.series_capped && <SeriesCappedBanner />}
@@ -98,21 +90,10 @@ export function AnomaliesTab(): JSX.Element {
                             <span>
                                 {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
                             </span>
-                            {scoredThrough && (
+                            {anomalies.scored_through && (
                                 <>
                                     <span> · Checked through </span>
-                                    <TZLabel time={scoredThrough} />
-                                </>
-                            )}
-                            {anomalies.hidden_series > 0 && (
-                                <>
-                                    <span>{` · ${pluralize(anomalies.hidden_series, 'noisy series', 'noisy series')} hidden. `}</span>
-                                    <Link
-                                        onClick={() => setMaxAnomalyRate(ANOMALY_RATE_FILTER_OFF)}
-                                        data-attr="anomalies-tab-show-hidden"
-                                    >
-                                        Show them
-                                    </Link>
+                                    <TZLabel time={anomalies.scored_through} />
                                 </>
                             )}
                         </div>
