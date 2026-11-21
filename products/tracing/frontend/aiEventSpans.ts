@@ -144,9 +144,15 @@ export function buildAiEventSpans(events: TraceAiEvent[], spans: Span[]): Span[]
     }
     const traceId = spans[0].trace_id
     const candidates = parentCandidates(spans.filter((span) => !isAiEventSpan(span)))
-    const aiParents = findAiParents(events, new Set(candidates.byId.keys()))
-    return events.map((event): Span => {
-        const interval = aiEventInterval(event)
+    // An event whose start does not parse has no place on the waterfall, and formatting it would throw.
+    const timed = events
+        .map((event) => ({ event, interval: aiEventInterval(event) }))
+        .filter(({ interval }) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs))
+    const aiParents = findAiParents(
+        timed.map(({ event }) => event),
+        new Set(candidates.byId.keys())
+    )
+    return timed.map(({ event, interval }): Span => {
         const aiParentUuid = aiParents.get(event.uuid)
         const parentSpanId = aiParentUuid
             ? `${AI_SPAN_ID_PREFIX}${aiParentUuid}`
