@@ -302,14 +302,7 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 #
 # sharded_events_json_recent holds the same recent events in the events_json shape, with the same
 # TTL. It is accepted on the same terms.
-#
-# sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
-# sweep target. Migration 0394 creates its consumer only in local development and CI, so no deployed
-# table receives rows before that change lands. The two changes must merge together before any
-# deployment starts its consumer.
-TTL_ONLY_TABLES: frozenset[str] = frozenset(
-    {SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE, FLAG_EVALUATIONS_JSON_DATA_TABLE}
-)
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
