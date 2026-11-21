@@ -551,13 +551,33 @@ class TestApplyRun(BaseTest):
                 REFRESHES_NOW,
                 (None, None),
             ),
+            (
+                "deprecate_view_deleted_saves_its_refreshes_right_away",
+                WarehouseSuggestionKind.DEPRECATE,
+                None,
+                timedelta(days=1),
+                REFRESH_COST_BEFORE,
+                None,
+                None,
+                (5000.0, 5e12),
+            ),
+            (
+                "deprecate_kept_materialized",
+                WarehouseSuggestionKind.DEPRECATE,
+                True,
+                timedelta(days=1),
+                REFRESH_COST_BEFORE,
+                None,
+                REFRESHES_NOW,
+                (None, None),
+            ),
         ]
     )
     def test_records_the_savings_an_accepted_suggestion_realized(
         self,
         _name: str,
         kind: WarehouseSuggestionKind,
-        materialized_now: bool,
+        materialized_now: bool | None,
         accepted_ago: timedelta,
         score_inputs: dict[str, float],
         reads_now: SubjectReads | None,
@@ -575,7 +595,7 @@ class TestApplyRun(BaseTest):
                 {view_subject(view_id): reads_now} if reads_now else {},
                 refreshes={view_id: refreshes_now} if refreshes_now else None,
             ),
-            views=[view(view_id, materializes=materialized_now)],
+            views=[] if materialized_now is None else [view(view_id, materializes=materialized_now)],
             team_id=self.team.pk,
         )
 

@@ -302,7 +302,7 @@ def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[
     subject = _subject(row)
     savings = (
         candidate.realized_savings(context, subject, row.score_inputs)
-        if _window_starts_after(context, row.reviewed_at)
+        if not candidate.realized_savings_wait_for_read_window or _window_starts_after(context, row.reviewed_at)
         else None
     )
     return {
