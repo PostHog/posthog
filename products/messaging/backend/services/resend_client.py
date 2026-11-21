@@ -9,7 +9,7 @@ import re
 import time
 import threading
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -114,7 +114,14 @@ class ResendClient:
     def each(self, read: Callable[[T], R], items: Iterable[T]) -> list[R]:
         """`read` for every item, a few at a time, in the order of `items`. The first error is raised."""
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_REQUESTS) as pool:
-            return list(pool.map(read, items))
+            futures = [pool.submit(read, item) for item in items]
+            done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+            errors = [error for future in futures if future in done and (error := future.exception())]
+            if errors:
+                # A rejected key or a rate limit fails every read, so the rest of the page must not keep sending.
+                pool.shutdown(cancel_futures=True)
+                raise errors[0]
+            return [future.result() for future in futures]
 
     def _get(self, path: str, params: dict[str, Any] | None) -> dict[str, Any]:
         waits = 0
@@ -158,14 +165,14 @@ class ResendClient:
             time.sleep(start_at - now)
 
     def _pause(self, seconds: float) -> None:
-        """Holds every request, including those other threads have queued, for `seconds`."""
+        """Holds every request that hasn't been given a time yet for `seconds`."""
         with self._lock:
             self._next_request_at = max(self._next_request_at, time.monotonic() + seconds)
         time.sleep(seconds)
 
     def _follow_limit(self, response: requests.Response) -> None:
         limit = _int_header(response, "ratelimit-limit")
-        if not limit:
+        if not limit or limit < 1:
             return
         window = _policy_window_seconds(response)
         with self._lock:

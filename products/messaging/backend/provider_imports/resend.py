@@ -180,7 +180,7 @@ class ResendImportProvider(ImportProvider):
             label="Topic preferences",
             description=(
                 "Opts contacts out of each topic they left in Resend. Resend only shares this one contact at a "
-                "time, so PostHog reads about 25,000 contacts an hour."
+                "time, so PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
         ),
@@ -242,7 +242,7 @@ class ResendImportProvider(ImportProvider):
             description=(
                 "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
                 "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads about 25,000 contacts an hour. Each person updated counts as one event."
+                "PostHog reads up to about 25,000 contacts an hour. Each person updated counts as one event."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),

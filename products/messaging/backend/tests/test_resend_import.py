@@ -1,6 +1,7 @@
 import re
 import copy
 import json
+import threading
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1042,27 +1043,58 @@ class TestResendClientPace(SimpleTestCase):
                 {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"},
                 [1.0, 1.0, 1.0],
             ),
+            ("garbage_limit", {"ratelimit-limit": "-3", "ratelimit-policy": "x"}, [0.5, 0.5, 0.5]),
         ]
     )
     def test_requests_follow_the_rate_limit_resend_reports(
         self, _name: str, headers: dict[str, str], gaps: list[float]
     ) -> None:
         clock = [0.0]
+        sent_at: list[float] = []
 
         def sleep(seconds: float) -> None:
             clock[0] += seconds
 
+        def get(*_: Any, **__: Any) -> MagicMock:
+            sent_at.append(clock[0])
+            return FakeResend._response(200, {}, headers)
+
         client_module = "products.messaging.backend.services.resend_client"
         with (
             patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
-            patch(f"{client_module}.time.sleep", side_effect=sleep) as slept,
-            patch(f"{client_module}.requests.get", return_value=FakeResend._response(200, {}, headers)),
+            patch(f"{client_module}.time.sleep", side_effect=sleep),
+            patch(f"{client_module}.requests.get", side_effect=get),
         ):
             client = resend_client.ResendClient(API_KEY)
             for _ in range(4):
                 client.get("/domains")
 
-        assert [call.args[0] for call in slept.call_args_list] == gaps
+        assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == gaps
+
+    def test_a_rejected_read_stops_the_rest_of_the_page(self) -> None:
+        reads: list[str] = []
+        rejected = threading.Event()
+
+        def get(url: str, **_: Any) -> MagicMock:
+            reads.append(url)
+            if url.endswith("/contacts/c3"):
+                rejected.set()
+                return FakeResend._response(401, {"name": "invalid_api_key", "message": "API key is invalid"})
+            # The first reads are still in flight when the rejection arrives, as they are against the real API.
+            rejected.wait(timeout=5)
+            return FakeResend._response(200, {})
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            with self.assertRaises(resend_client.ResendKeyRejected):
+                client.each(lambda contact_id: client.get(f"/contacts/{contact_id}"), [f"c{i}" for i in range(100)])
+
+        assert len(reads) < 10
 
 
 class TestResendImportBudget(SimpleTestCase):
