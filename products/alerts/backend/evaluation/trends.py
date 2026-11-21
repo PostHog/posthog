@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, cast
 
 from posthog.schema import (
@@ -198,7 +199,16 @@ class TrendsExtractor:
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )
-        compare_series_values_shadow(alert, query, filters_override, result, alert_kind="threshold")
+        compare_series_values_shadow(
+            alert,
+            query,
+            filters_override,
+            result,
+            alert_kind="threshold",
+            replay=lambda series: _ReplayedTrendsExtractor(replace(result, result=series)).extract(
+                alert, insight, query, execution_mode, cache_age_seconds
+            ),
+        )
         return result
 
     def _empty_result(
@@ -265,6 +275,22 @@ class TrendsExtractor:
                 )
             )
         return series
+
+
+class _ReplayedTrendsExtractor(TrendsExtractor):
+    def __init__(self, calculation_result: InsightResult) -> None:
+        self._calculation_result = calculation_result
+
+    def _calculate(
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: TrendsQuery,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None,
+        filters_override: dict | None,
+    ) -> InsightResult:
+        return self._calculation_result
 
 
 def _breakdown_identity(result: dict[str, Any]) -> str:

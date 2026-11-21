@@ -92,8 +92,22 @@ class ClosedSeriesValues:
 
 
 @dataclass(frozen=True)
+class ClosedSqlSeriesValues:
+    """Stored values of one SQL insight column for every bucket before ``closed_before``, keyed by the bucket start in UTC.
+
+    ``bucket_column`` names the result column that holds each row's bucket. A bucket the query returned no row for
+    has no entry.
+    """
+
+    bucket_column: str
+    values: dict[datetime, float]
+    closed_before: datetime
+    freshly_built: bool = False
+
+
+@dataclass(frozen=True)
 class SeriesValuesUnavailable:
-    """Why stored Trends counts cannot serve a query, as the ``reason`` label of the fallback counter."""
+    """Why stored series values cannot serve a query, as a short snake_case reason."""
 
     reason: str
 
