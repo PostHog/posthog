@@ -74,6 +74,23 @@ describe('customer task filter helpers', () => {
         })
     })
 
+    test.each([
+        ['no tags', [], undefined],
+        ['tags persisted before the tag filter existed', undefined, undefined],
+        ['selected tags', ['renewal', 'urgent'], '["renewal","urgent"]'],
+    ])('sends %s as the tags param', (_, tags, expected) => {
+        const query = customerTasksQuery(
+            { ...defaultCustomerTaskFilters('inbox'), tags },
+            'inbox',
+            undefined,
+            1,
+            50,
+            'UTC'
+        )
+
+        expect(query.tags).toBe(expected)
+    })
+
     test('keeps an assignee and omits due filters in account context', () => {
         const query = customerTasksQuery(
             { ...defaultCustomerTaskFilters('account'), assignee: 42, due: 'overdue' },
@@ -131,6 +148,7 @@ describe('customer task filter helpers', () => {
         ['a role', { assignee: `role:${ROLE_ID}` }],
         ['a search', { search: 'renewal' }],
         ['a whitespace search the query still sends', { search: '  ' }],
+        ['tags', { tags: '["renewal","urgent"]' }],
     ])('round-trips %s through the search params', (_, params) => {
         expect(customerTaskSearchParams(parseCustomerTaskSearchParams(params))).toEqual(params)
     })
@@ -145,6 +163,8 @@ describe('customer task filter helpers', () => {
         ['a malformed role id', { assignee: 'role:../x' }, { assignee: 'me' }],
         ['an empty account', { account: '' }, { account: null }],
         ['a path-shaped account', { account: '../../x' }, { account: null }],
+        ['malformed tags', { tags: '[renewal' }, { tags: [] }],
+        ['tags the router already parsed', { tags: ['renewal', 3] }, { tags: ['renewal'] }],
     ])('falls back to the inbox default for %s', (_, params, expected) => {
         expect(parseCustomerTaskSearchParams(params).filters).toMatchObject(expected)
     })
