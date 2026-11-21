@@ -167,6 +167,11 @@ describe('Cohorts', { concurrent: false }, () => {
             expect(updated.name).toBe(updatedName)
             expect(updated.description).toBe('Updated description')
         })
+    })
+
+    describe('cohorts-delete tool', () => {
+        const createTool = GENERATED_TOOLS['cohorts-create']!()
+        const deleteTool = GENERATED_TOOLS['cohorts-delete']!()
 
         it('should soft-delete a cohort', async () => {
             const createResult = await createTool.handler(context, {
@@ -175,10 +180,7 @@ describe('Cohorts', { concurrent: false }, () => {
             })
             const created = parseToolResponse(createResult)
 
-            const result = await updateTool.handler(context, {
-                id: created.id,
-                deleted: true,
-            })
+            const result = await deleteTool.handler(context, { id: created.id })
             const deleted = parseToolResponse(result)
 
             expect(deleted.id).toBe(created.id)
