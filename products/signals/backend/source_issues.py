@@ -141,15 +141,19 @@ def schedule_writeback_for_status_change(*, team_id: int, report_id: str, status
         .exists()
     ):
         return
-    _queue_writeback(team_id=team_id, report_id=report_id, signals=None)
+    _queue_writeback(team_id=team_id, report_id=report_id, signals=None, update_existing=True)
 
 
-def _queue_writeback(*, team_id: int, report_id: str, signals: list[dict] | None) -> None:
+def _queue_writeback(
+    *, team_id: int, report_id: str, signals: list[dict] | None, update_existing: bool = False
+) -> None:
     from products.signals.backend.github_writeback_tasks import (  # noqa: PLC0415 - keep Celery off the import path
         post_source_issue_links,
     )
 
-    post_source_issue_links.delay(team_id=team_id, report_id=report_id, signals=signals)
+    post_source_issue_links.delay(
+        team_id=team_id, report_id=report_id, signals=signals, update_existing=update_existing
+    )
 
 
 def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | None:

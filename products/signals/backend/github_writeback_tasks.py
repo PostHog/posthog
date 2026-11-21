@@ -11,7 +11,9 @@ from products.signals.backend.signal_metadata import fetch_signals_for_report_sy
 
 @shared_task(ignore_result=True, soft_time_limit=240, time_limit=300)
 @with_team_scope()
-def post_source_issue_links(team_id: int, report_id: str, signals: list[dict] | None = None) -> None:
+def post_source_issue_links(
+    team_id: int, report_id: str, signals: list[dict] | None = None, update_existing: bool = False
+) -> None:
     """Comment a link to a report on the GitHub issues it names as its source or that contributed to
     it, or edit that comment after a status change.
 
@@ -27,4 +29,4 @@ def post_source_issue_links(team_id: int, report_id: str, signals: list[dict] | 
         signals = fetch_signals_for_report_sync(
             team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE
         )
-    post_report_link_to_github_issues(team, report_id, signals=signals)
+    post_report_link_to_github_issues(team, report_id, signals=signals, update_existing=update_existing)
