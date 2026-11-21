@@ -2,12 +2,21 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { aiCreditsLogic, polledPurchaseEntry } from './aiCreditsLogic'
+import { aiCreditsLogic } from './aiCreditsLogic'
+
+const mockHandleNextAction = jest.fn()
+jest.mock('@stripe/stripe-js', () => ({
+    loadStripe: () => Promise.resolve({ handleNextAction: mockHandleNextAction }),
+}))
+
+type BillingAnswer = [number, Record<string, string>]
 
 const QUOTE = { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' }
 const RELOAD_ON = {
@@ -20,19 +29,17 @@ const RELOAD_ON = {
         disabled_at: null,
     },
 }
+const STORED_PURCHASE_KEY = `ai-credits-unanswered-purchase-${MOCK_DEFAULT_ORGANIZATION.id}`
 
-function historyEntry(paymentId: string, status: 'pending' | 'added'): Record<string, unknown> {
-    return {
-        created_at: '2026-11-19T15:00:00Z',
-        kind: 'purchase',
-        amount_usd: '50.00',
-        tax_usd: '4.13',
-        total_usd: '54.13',
-        status,
-        payment_id: paymentId,
-        receipt_url: null,
-    }
-}
+const PROCESSING: BillingAnswer = [202, { status: 'processing' }]
+const PAID: BillingAnswer = [200, { status: 'paid', total_usd: QUOTE.total_usd, payment_id: 'pi_new' }]
+const CREDIT_PENDING: BillingAnswer = [200, { ...PAID[1], credit_status: 'pending' }]
+const CREDIT_ADDED: BillingAnswer = [200, { ...PAID[1], credit_status: 'added' }]
+const DECLINED: BillingAnswer = [402, { code: 'ai_credits_card_declined', detail: 'Your card issuer declined' }]
+const REQUIRES_ACTION: BillingAnswer = [
+    200,
+    { status: 'requires_action', total_usd: QUOTE.total_usd, payment_id: 'pi_new', client_secret: 'pi_new_secret' },
+]
 
 // The current period starts on Oct 18, so each read names its own period.
 function spendFor(periodsAgo: number): Record<string, unknown> {
@@ -48,16 +55,41 @@ function spendFor(periodsAgo: number): Record<string, unknown> {
     }
 }
 
+function storePurchase(startedAt: number): string {
+    const key = 'stored-purchase'
+    localStorage.setItem(
+        STORED_PURCHASE_KEY,
+        JSON.stringify({
+            key,
+            amountUsd: QUOTE.amount_usd,
+            totalUsd: QUOTE.total_usd,
+            startedAt,
+            organizationId: MOCK_DEFAULT_ORGANIZATION.id,
+            reload: null,
+        })
+    )
+    return key
+}
+
 describe('aiCreditsLogic', () => {
     let logic: ReturnType<typeof aiCreditsLogic.build>
     let purchaseKeys: string[]
-    let firstPurchaseAnswer: [number, Record<string, string>]
+    let firstPurchaseAnswer: BillingAnswer
     // Billing's answers after the first send, in order. Once they run out, billing answers paid.
-    let laterPurchaseAnswers: [number, Record<string, string>][]
+    let laterPurchaseAnswers: BillingAnswer[]
+    // The key of each status read, and billing's answers to them in order. Once they run out, billing answers that
+    // it added the credit.
+    let statusReads: string[]
+    let statusAnswers: BillingAnswer[]
+    let historyReads: number
 
     beforeEach(() => {
+        localStorage.clear()
         purchaseKeys = []
         laterPurchaseAnswers = []
+        statusReads = []
+        statusAnswers = []
+        historyReads = 0
         useMocks({
             get: {
                 '/api/billing/ai_credits/settings/': () => [
@@ -77,7 +109,10 @@ describe('aiCreditsLogic', () => {
                     200,
                     { card: { brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2030 } },
                 ],
-                '/api/billing/ai_credits/history/': () => [200, { results: [], has_more: false }],
+                '/api/billing/ai_credits/history/': () => {
+                    historyReads += 1
+                    return [200, { in_progress: [], results: [], has_more: false }]
+                },
                 '/api/billing/ai_credits/spend_limit/': () => [200, { limit_usd: '250.00' }],
                 '/api/billing/ai_credits/quote/': ({ request }) => [
                     200,
@@ -87,6 +122,10 @@ describe('aiCreditsLogic', () => {
                     const periodsAgo = Number(new URL(request.url).searchParams.get('periods_ago'))
                     return [200, spendFor(periodsAgo)]
                 },
+                '/api/billing/ai_credits/purchase/:key/': ({ params }) => {
+                    statusReads.push(String(params.key))
+                    return statusAnswers.shift() ?? CREDIT_ADDED
+                },
             },
             post: {
                 '/api/billing/ai_credits/purchase/': async ({ request }) => {
@@ -94,7 +133,7 @@ describe('aiCreditsLogic', () => {
                     if (purchaseKeys.length === 1) {
                         return firstPurchaseAnswer
                     }
-                    return laterPurchaseAnswers.shift() ?? [200, { status: 'paid', total_usd: QUOTE.total_usd }]
+                    return laterPurchaseAnswers.shift() ?? PAID
                 },
             },
         })
@@ -103,9 +142,10 @@ describe('aiCreditsLogic', () => {
         logic.mount()
     })
 
-    // Unmounting disposes the timer that reads the history again after a purchase.
+    // Unmounting disposes the timers that read the status again.
     afterEach(() => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
         logic.unmount()
     })
 
@@ -147,24 +187,34 @@ describe('aiCreditsLogic', () => {
         expect(purchaseKeys[2]).not.toEqual(purchaseKeys[1])
     })
 
-    it('pays for the organization the page loaded for after this tab loads another one', async () => {
+    it('pays and reads the status for the organization the page loaded for after this tab loads another one', async () => {
         const purchaseOrganizations: string[] = []
+        const statusOrganizations: (string | null)[] = []
         useMocks({
+            get: {
+                '/api/billing/ai_credits/purchase/:key/': ({ request }) => {
+                    statusOrganizations.push(new URL(request.url).searchParams.get('organization_id'))
+                    return CREDIT_ADDED
+                },
+            },
             post: {
                 '/api/billing/ai_credits/purchase/': async ({ request }) => {
                     purchaseOrganizations.push(((await request.json()) as { organization_id: string }).organization_id)
-                    return [200, { status: 'paid', total_usd: QUOTE.total_usd }]
+                    return PROCESSING
                 },
             },
         })
         organizationLogic.actions.loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, id: 'another-org' })
-
         logic.actions.openAddFundsModal()
         await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
         logic.actions.submitAddFundsForm()
+        await jest.advanceTimersByTimeAsync(2000)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(purchaseOrganizations).toEqual([MOCK_DEFAULT_ORGANIZATION.id])
+        expect(statusOrganizations).toEqual([MOCK_DEFAULT_ORGANIZATION.id])
     })
 
     it('drops the failure of a quote that a newer quote replaced', async () => {
@@ -286,68 +336,112 @@ describe('aiCreditsLogic', () => {
     })
 
     describe('while billing still processes a purchase', () => {
-        const PROCESSING: [number, Record<string, string>] = [202, { status: 'processing' }]
-
         beforeEach(async () => {
             firstPurchaseAnswer = PROCESSING
             logic.actions.openAddFundsModal()
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('sends the purchase again with the same key until billing answers paid', async () => {
-            laterPurchaseAnswers = [PROCESSING]
+        it('reads the status every 2 s for 10 s, then every 5 to 10 s, and never sends the purchase again', async () => {
+            // The slow reads wait 5 s plus half the 5 s spread.
+            jest.spyOn(Math, 'random').mockReturnValue(0.5)
+            statusAnswers = Array.from({ length: 10 }, () => PROCESSING)
             jest.useFakeTimers()
 
             logic.actions.submitAddFundsForm()
             await jest.advanceTimersByTimeAsync(0)
             expect(logic.values.purchaseStatus).toEqual('processing')
-            expect(logic.values.addFundsModalOpen).toEqual(true)
+            expect(logic.values.payDisabledReason).toEqual('The payment is in progress')
+            expect(localStorage.getItem(STORED_PURCHASE_KEY)).toContain(purchaseKeys[0])
 
-            await jest.advanceTimersByTimeAsync(4000)
-            await expectLogic(logic).toFinishAllListeners()
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(statusReads).toHaveLength(5)
+            await jest.advanceTimersByTimeAsync(7499)
+            expect(statusReads).toHaveLength(5)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(statusReads).toHaveLength(6)
 
-            expect(purchaseKeys).toHaveLength(3)
-            expect(new Set(purchaseKeys).size).toEqual(1)
-            expect(logic.values.purchaseStatus).toBeNull()
-            expect(logic.values.unansweredPurchase).toBeNull()
-            expect(logic.values.addFundsModalOpen).toEqual(false)
+            expect(purchaseKeys).toHaveLength(1)
+            expect(new Set(statusReads)).toEqual(new Set(purchaseKeys))
         })
 
-        it('shows a decline that billing answers after processing', async () => {
-            laterPurchaseAnswers = [[402, { code: 'ai_credits_card_declined', detail: 'Your card issuer declined' }]]
+        it('stops reading at the cap, shows the payment as pending and keeps the purchase from starting again', async () => {
+            statusAnswers = Array.from({ length: 40 }, () => PROCESSING)
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(121_000)
+            await expectLogic(logic).toFinishAllListeners()
+            const readsAtCap = statusReads.length
+
+            expect(logic.values.purchaseStatus).toEqual('still_processing')
+            expect(logic.values.payDisabledReason).toEqual("We're still confirming your last payment")
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(statusReads).toHaveLength(readsAtCap)
+
+            // The form submits on Enter too, so the submit itself refuses while the purchase is pending.
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(purchaseKeys).toHaveLength(1)
+        })
+
+        it.each([
+            ['a decline as an error', DECLINED, 'error', 'Your card issuer declined'],
+            [
+                'a payment as a success',
+                CREDIT_PENDING,
+                'success',
+                'Payment received. Your AI credits show as pending until we add them to your balance.',
+            ],
+        ])('shows %s toast when the modal is closed', async (_, answer, toastKind, message) => {
+            const toast = jest.spyOn(lemonToast, toastKind as 'error' | 'success').mockImplementation(() => 'toast')
+            statusAnswers = [answer]
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(0)
+            logic.actions.closeAddFundsModal()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(toast).toHaveBeenCalledWith(message)
+            expect(logic.values.purchasePending).toEqual(false)
+            expect(localStorage.getItem(STORED_PURCHASE_KEY)).toBeNull()
+        })
+
+        it('shows a decline in the modal while it is open, and pays again with a new key', async () => {
+            statusAnswers = [DECLINED]
             jest.useFakeTimers()
 
             logic.actions.submitAddFundsForm()
             await jest.advanceTimersByTimeAsync(2000)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(purchaseKeys).toHaveLength(2)
-            expect(logic.values.purchaseStatus).toBeNull()
             expect(logic.values.purchaseError).toEqual('Your card issuer declined')
             expect(logic.values.unansweredPurchase).toBeNull()
             expect(logic.values.addFundsModalOpen).toEqual(true)
         })
 
-        it('stops after the timeout and keeps the key, so paying again checks on the same purchase', async () => {
-            laterPurchaseAnswers = Array.from({ length: 40 }, () => PROCESSING)
+        it('runs the card authentication that a status read asks for, and runs it once', async () => {
+            window.STRIPE_PUBLIC_KEY = 'pk_test_example'
+            mockHandleNextAction.mockResolvedValue({ paymentIntent: { status: 'succeeded' } })
+            // Billing answers requires_action again until Stripe tells it about the payment.
+            statusAnswers = [REQUIRES_ACTION, REQUIRES_ACTION, CREDIT_ADDED]
             jest.useFakeTimers()
 
             logic.actions.submitAddFundsForm()
-            await jest.advanceTimersByTimeAsync(61_000)
-            await expectLogic(logic).toFinishAllListeners()
-            const sendsAtTimeout = purchaseKeys.length
-
-            expect(logic.values.purchaseStatus).toEqual('still_processing')
-            await jest.advanceTimersByTimeAsync(10_000)
-            expect(purchaseKeys).toHaveLength(sendsAtTimeout)
-
-            laterPurchaseAnswers = []
-            logic.actions.submitAddFundsForm()
-            await jest.advanceTimersByTimeAsync(0)
+            await jest.advanceTimersByTimeAsync(2000)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(new Set(purchaseKeys).size).toEqual(1)
-            expect(logic.values.addFundsModalOpen).toEqual(false)
+            expect(mockHandleNextAction).toHaveBeenCalledWith({ clientSecret: 'pi_new_secret' })
+            expect(logic.values.purchasePending).toEqual(false)
+
+            await jest.advanceTimersByTimeAsync(4000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockHandleNextAction).toHaveBeenCalledTimes(1)
+            expect(statusReads).toHaveLength(3)
+            expect(logic.values.followedCredit).toBeNull()
         })
 
         it('turns automatic reload on only once the purchase is paid', async () => {
@@ -360,7 +454,7 @@ describe('aiCreditsLogic', () => {
                     },
                 },
             })
-            laterPurchaseAnswers = [PROCESSING]
+            statusAnswers = [PROCESSING, CREDIT_PENDING]
             logic.actions.setAddFundsFormValue('reloadEnabled', true)
             jest.useFakeTimers()
 
@@ -376,84 +470,93 @@ describe('aiCreditsLogic', () => {
         })
     })
 
-    describe('after a purchase', () => {
-        let historyReads: number
-        let historyAnswers: Record<string, unknown>[][]
-
-        beforeEach(async () => {
-            historyReads = 0
-            useMocks({
-                get: {
-                    '/api/billing/ai_credits/history/': () => {
-                        const results = historyAnswers[Math.min(historyReads, historyAnswers.length - 1)]
-                        historyReads += 1
-                        return [200, { results, has_more: false }]
-                    },
+    describe('with a purchase that another page load left processing', () => {
+        it.each([
+            [
+                'on mount',
+                () => {
+                    logic.unmount()
+                    logic.mount()
                 },
-            })
-            firstPurchaseAnswer = [200, { status: 'paid', total_usd: QUOTE.total_usd, payment_id: 'pi_new' }]
-            logic.actions.openAddFundsModal()
+            ],
+            ['on focus', () => window.dispatchEvent(new Event('focus'))],
+        ])('reads it %s and follows it to its answer', async (_, resume) => {
             await expectLogic(logic).toFinishAllListeners()
-            historyReads = 0
+            jest.useFakeTimers()
+            const key = storePurchase(Date.now() - 30_000)
+            statusAnswers = [PROCESSING, CREDIT_ADDED]
+
+            resume()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(statusReads).toEqual([key])
+            expect(logic.values.purchaseStatus).toEqual('processing')
+            expect(logic.values.payDisabledReason).toEqual('The payment is in progress')
+
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(statusReads).toEqual([key, key])
+            expect(logic.values.purchasePending).toEqual(false)
+            expect(localStorage.getItem(STORED_PURCHASE_KEY)).toBeNull()
         })
 
-        it('reads the history again until the purchase is added, then reads the balance', async () => {
-            historyAnswers = [[historyEntry('pi_new', 'pending')], [historyEntry('pi_new', 'added')]]
+        it('reads it once on each focus after the cap', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+            jest.useFakeTimers()
+            storePurchase(Date.now() - 5 * 60_000)
+            statusAnswers = [PROCESSING, PROCESSING]
+
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(statusReads).toHaveLength(1)
+            expect(logic.values.purchaseStatus).toEqual('still_processing')
+
+            window.dispatchEvent(new Event('focus'))
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(statusReads).toHaveLength(2)
+            expect(logic.values.purchaseStatus).toEqual('still_processing')
+        })
+    })
+
+    describe('after billing answers paid', () => {
+        beforeEach(async () => {
+            firstPurchaseAnswer = PAID
+            logic.actions.openAddFundsModal()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('reads the credit status until billing adds the credit, then reloads the history', async () => {
+            statusAnswers = [CREDIT_PENDING, CREDIT_ADDED]
             jest.useFakeTimers()
 
             logic.actions.submitAddFundsForm()
             await jest.advanceTimersByTimeAsync(0)
             await expectLogic(logic).toFinishAllListeners()
-            expect(historyReads).toEqual(1)
-            expect(logic.values.polledPurchase?.paymentId).toEqual('pi_new')
+            const historyReadsAtPayment = historyReads
 
-            await expectLogic(logic, async () => {
-                await jest.advanceTimersByTimeAsync(2000)
-            }).toDispatchActions(['loadHistory', 'loadHistorySuccess', 'stopPollingHistory', 'loadCurrentSpend'])
+            await jest.advanceTimersByTimeAsync(4000)
+            await expectLogic(logic).toFinishAllListeners()
 
-            expect(historyReads).toEqual(2)
-            expect(logic.values.polledPurchase).toBeNull()
+            expect(statusReads).toEqual([purchaseKeys[0], purchaseKeys[0]])
+            expect(historyReads).toEqual(historyReadsAtPayment + 1)
             await jest.advanceTimersByTimeAsync(10_000)
-            expect(historyReads).toEqual(2)
+            expect(statusReads).toHaveLength(2)
         })
 
-        it('stops reading the history after the timeout and leaves the purchase pending', async () => {
-            historyAnswers = [[historyEntry('pi_new', 'pending')]]
+        it('stops reading the credit status at the cap and leaves the credit pending', async () => {
+            statusAnswers = Array.from({ length: 40 }, () => CREDIT_PENDING)
             jest.useFakeTimers()
 
             logic.actions.submitAddFundsForm()
-            await jest.advanceTimersByTimeAsync(61_000)
+            await jest.advanceTimersByTimeAsync(121_000)
             await expectLogic(logic).toFinishAllListeners()
-            const readsAtTimeout = historyReads
+            const readsAtCap = statusReads.length
 
-            expect(readsAtTimeout).toBeGreaterThan(1)
-            expect(logic.values.polledPurchase).toBeNull()
-            expect(logic.values.history?.results[0]?.status).toEqual('pending')
+            expect(readsAtCap).toBeGreaterThan(1)
+            expect(logic.values.followedCredit).toBeNull()
             await jest.advanceTimersByTimeAsync(10_000)
-            expect(historyReads).toEqual(readsAtTimeout)
-        })
-    })
-
-    describe('polledPurchaseEntry', () => {
-        const history = (...results: Record<string, unknown>[]): any => ({ results, has_more: false })
-
-        it('finds a paid purchase by its payment', () => {
-            const polled = { paymentId: 'pi_new', newestPaymentBefore: 'pi_old', startedAt: 0 }
-            expect(
-                polledPurchaseEntry(
-                    history(historyEntry('pi_other', 'pending'), historyEntry('pi_new', 'added')),
-                    polled
-                )?.payment_id
-            ).toEqual('pi_new')
-        })
-
-        it('takes a new newest entry for a purchase billing still processes', () => {
-            const polled = { paymentId: null, newestPaymentBefore: 'pi_old', startedAt: 0 }
-            expect(polledPurchaseEntry(history(historyEntry('pi_old', 'added')), polled)).toBeUndefined()
-            expect(
-                polledPurchaseEntry(history(historyEntry('pi_new', 'pending'), historyEntry('pi_old', 'added')), polled)
-                    ?.payment_id
-            ).toEqual('pi_new')
+            expect(statusReads).toHaveLength(readsAtCap)
         })
     })
 })

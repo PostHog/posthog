@@ -35,6 +35,7 @@ const RELOAD_OFF_AFTER_DECLINE = {
 
 const HISTORY = {
     has_more: false,
+    in_progress: [] as Record<string, unknown>[],
     results: [
         {
             created_at: '2026-11-02T10:14:00Z',
@@ -126,11 +127,21 @@ function spendFor(periodsAgo: number, balanceUsd: string): Record<string, unknow
     }
 }
 
+const PROCESSING_PURCHASE = {
+    created_at: '2026-11-03T09:12:00Z',
+    amount_usd: '100.00',
+    tax_usd: '8.25',
+    total_usd: '108.25',
+    status: 'processing',
+    idempotency_key: 'example-purchase',
+}
+
 /** A null balance means the AI gateway doesn't answer. */
 function mocks(
     settings: Record<string, unknown>,
     balanceUsd: string | null,
-    limitUsd: string | null = '500.00'
+    limitUsd: string | null = '500.00',
+    history: Record<string, unknown> = HISTORY
 ): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
@@ -138,7 +149,7 @@ function mocks(
             '/api/billing/': { ...billingJson, stripe_portal_url: 'https://billing.stripe.com/p/session/example' },
             '/api/billing/ai_credits/settings/': settings,
             '/api/billing/ai_credits/card/': { card: { brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2030 } },
-            '/api/billing/ai_credits/history/': HISTORY,
+            '/api/billing/ai_credits/history/': history,
             '/api/billing/ai_credits/quote/': { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' },
             // A balance of null stands for an AI gateway that doesn't answer, which also holds the limit.
             '/api/billing/ai_credits/spend_limit/': () =>
@@ -223,4 +234,28 @@ function AICreditsWithAnEarlierPeriod(): JSX.Element {
 export const EarlierBillingPeriod: Story = {
     decorators: [mocks(RELOAD_ON, '118.400000')],
     render: () => <AICreditsWithAnEarlierPeriod />,
+}
+
+function AICreditsWithAPaymentStillConfirming(): JSX.Element {
+    const { purchaseResumed, openAddFundsModal } = useActions(aiCreditsLogic)
+    useEffect(() => {
+        purchaseResumed(
+            {
+                key: PROCESSING_PURCHASE.idempotency_key,
+                amountUsd: PROCESSING_PURCHASE.amount_usd,
+                totalUsd: PROCESSING_PURCHASE.total_usd,
+                startedAt: dayjs(PROCESSING_PURCHASE.created_at).valueOf(),
+                organizationId: 'example-organization',
+                reload: null,
+            },
+            'still_processing'
+        )
+        openAddFundsModal()
+    }, [purchaseResumed, openAddFundsModal])
+    return <AICredits />
+}
+
+export const PaymentStillConfirming: Story = {
+    decorators: [mocks(RELOAD_ON, '118.400000', '500.00', { ...HISTORY, in_progress: [PROCESSING_PURCHASE] })],
+    render: () => <AICreditsWithAPaymentStillConfirming />,
 }

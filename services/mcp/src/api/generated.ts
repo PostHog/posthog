@@ -1427,7 +1427,45 @@ export namespace Schemas {
       payment_id?: string | null;
     }
 
+    /**
+     * * `processing` - Processing
+     */
+    export type AICreditInProgressStatusEnum = typeof AICreditInProgressStatusEnum[keyof typeof AICreditInProgressStatusEnum];
+
+
+    export const AICreditInProgressStatusEnum = {
+      Processing: 'processing',
+    } as const;
+
+    export interface AICreditInProgressEntry {
+      /** When the person paid for the purchase. */
+      created_at: string;
+      /**
+         * The AI credit to buy, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      amount_usd: string;
+      /**
+         * The tax on it, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      tax_usd: string;
+      /**
+         * The amount to charge to the card, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd: string;
+      /** Processing until billing has a final answer.
+       *
+       * * `processing` - Processing */
+      status: AICreditInProgressStatusEnum;
+      /** The idempotency key that the purchase sent. */
+      idempotency_key: string;
+    }
+
     export interface AICreditHistoryResponse {
+      /** Purchases that are not paid and not finished yet, newest first. */
+      in_progress: AICreditInProgressEntry[];
       /** Purchases and automatic reloads, newest first. */
       results: AICreditHistoryEntry[];
       /** Whether older entries follow. */
@@ -1469,7 +1507,7 @@ export namespace Schemas {
     } as const;
 
     export interface AICreditPurchaseResponse {
-      /** Paid, waiting for the person to finish card authentication, or still processing. A purchase that is still processing finishes on its own. Send it again with the same idempotency key to get its final answer.
+      /** Paid, waiting for the person to finish card authentication, or still processing. A purchase that is still processing finishes on its own. Read its status with the same idempotency key to get its final answer.
        *
        * * `paid` - Paid
        * * `requires_action` - Requires action
@@ -1490,6 +1528,35 @@ export namespace Schemas {
          * @nullable
          */
       client_secret?: string | null;
+    }
+
+    export interface AICreditPurchaseStatusResponse {
+      /** Paid, waiting for the person to finish card authentication, or still processing. A purchase that is still processing finishes on its own. Read its status with the same idempotency key to get its final answer.
+       *
+       * * `paid` - Paid
+       * * `requires_action` - Requires action
+       * * `processing` - Processing */
+      status: AICreditPurchaseStatusEnum;
+      /**
+         * What the card is charged, in USD. Absent while the purchase is processing.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd?: string;
+      /**
+         * Stripe's ID for the payment, which the history entry for this purchase carries. Absent while the purchase is processing.
+         * @nullable
+         */
+      payment_id?: string | null;
+      /**
+         * Confirm this with Stripe.js when the status is requires_action.
+         * @nullable
+         */
+      client_secret?: string | null;
+      /** For a paid purchase, pending until billing sends the credit to the AI gateway. Absent when the purchase is not paid.
+       *
+       * * `added` - Added
+       * * `pending` - Pending */
+      credit_status?: AICreditHistoryStatusEnum;
     }
 
     export interface AICreditQuoteResponse {
@@ -130555,6 +130622,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type BillingAiCreditsPurchaseRetrieveParams = {
+    /**
+     * Organization selected when this payment flow started.
+     */
+    organization_id: string;
     };
 
     export type BillingAiCreditsQuoteRetrieveParams = {

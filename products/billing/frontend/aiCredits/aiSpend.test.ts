@@ -69,6 +69,7 @@ describe('aiSpend', () => {
     ])('%s', (_, hasMore, oldestAt, expected) => {
         const history = {
             has_more: hasMore,
+            in_progress: [],
             results: [
                 entry('automatic_reload', '2026-10-30T00:00:00Z', '60.00'),
                 entry('purchase', '2026-10-25T00:00:00Z', '200.00'),

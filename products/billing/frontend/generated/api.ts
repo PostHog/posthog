@@ -13,6 +13,7 @@ import type {
     AICreditHistoryResponseApi,
     AICreditPurchaseRequestApi,
     AICreditPurchaseResponseApi,
+    AICreditPurchaseStatusResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
     AISpendLimitResponseApi,
@@ -20,6 +21,7 @@ import type {
     BillingActivationRequestApi,
     BillingActivationResponseApi,
     BillingAiCreditsHistoryRetrieveParams,
+    BillingAiCreditsPurchaseRetrieveParams,
     BillingAiCreditsQuoteRetrieveParams,
     BillingAiCreditsSpendRetrieveParams,
     BillingAlertCheckNowResponseApi,
@@ -216,6 +218,42 @@ export const billingAiCreditsPurchaseCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aICreditPurchaseRequestApi),
     })
+}
+
+export const getBillingAiCreditsPurchaseRetrieveUrl = (
+    idempotencyKey: string,
+    params: BillingAiCreditsPurchaseRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/ai_credits/purchase/${idempotencyKey}/?${stringifiedParams}`
+        : `/api/billing/ai_credits/purchase/${idempotencyKey}/`
+}
+
+/**
+ * Billing's answer for a purchase as it stands now. Reading it starts no purchase and charges nothing.
+ */
+export const billingAiCreditsPurchaseRetrieve = async (
+    idempotencyKey: string,
+    params: BillingAiCreditsPurchaseRetrieveParams,
+    options?: RequestInit
+): Promise<AICreditPurchaseStatusResponseApi> => {
+    return apiMutator<AICreditPurchaseStatusResponseApi>(
+        getBillingAiCreditsPurchaseRetrieveUrl(idempotencyKey, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBillingAiCreditsQuoteRetrieveUrl = (params: BillingAiCreditsQuoteRetrieveParams) => {

@@ -14,12 +14,14 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
+import { z } from 'zod'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { LocalStorageSlot, localStorageSlot } from 'lib/utils/localStorageSlot'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -27,6 +29,7 @@ import {
     billingAiCreditsCardRetrieve,
     billingAiCreditsHistoryRetrieve,
     billingAiCreditsPurchaseCreate,
+    billingAiCreditsPurchaseRetrieve,
     billingAiCreditsQuoteRetrieve,
     billingAiCreditsSettingsAutomaticReloadPartialUpdate,
     billingAiCreditsSettingsRetrieve,
@@ -37,8 +40,9 @@ import {
 import type {
     AICreditCardApi,
     AICreditCardResponseApi,
-    AICreditHistoryEntryApi,
     AICreditHistoryResponseApi,
+    AICreditPurchaseResponseApi,
+    AICreditPurchaseStatusResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
     AISpendLimitResponseApi,
@@ -62,18 +66,29 @@ export const AI_CREDIT_PRESET_AMOUNTS_USD = [20, 50, 100]
 export const MINIMUM_AI_CREDIT_USD = 20
 export const MAXIMUM_AI_CREDIT_USD = 1_000_000
 const HISTORY_PAGE_SIZE = 50
-// While billing still processes a purchase, the page sends it again at this interval to get its final answer.
-// After billing answers paid, the page reads the history at the same interval until billing adds the credit.
-const POLL_INTERVAL_MS = 2000
-// Each stops after this long. A purchase then stays processing until the person pays again with the same key, and
-// a history entry stays pending until the next visit to the page.
-const POLL_TIMEOUT_MS = 60_000
+// Billing answers processing only after its own wait, so fast first reads catch an answer that follows soon.
+const STATUS_READ_FAST_INTERVAL_MS = 2000
+// The fast reads stop this long after the reads start, so a slow payment does not cost many reads.
+const STATUS_READ_FAST_PERIOD_MS = 10_000
+// After the fast reads, each read waits at least this long, to keep the load on billing low.
+const STATUS_READ_SLOW_MIN_INTERVAL_MS = 5000
+// Each later read waits a random time up to this long, so that many waiting pages do not read at the same moment.
+const STATUS_READ_SLOW_MAX_INTERVAL_MS = 10_000
+// Reads stop this long after the person pays or billing answers paid, so a page left open stops calling billing.
+const STATUS_READ_CAP_MS = 120_000
 
 const PURCHASE_FAILED = "The purchase didn't finish. Try again."
 const STRIPE_UNAVAILABLE = "We couldn't load the payment form. Disable any ad blocker, reload the page and try again."
 const CARD_NOT_AUTHENTICATED = "Your card's authentication didn't finish, so you weren't charged. Try again."
+const CREDIT_PENDING = 'Payment received. Your AI credits show as pending until we add them to your balance.'
+const CREDIT_ADDED = 'Payment received. We added your AI credits to your balance.'
 // Each of these ends the purchase without a charge, so paying again starts a new purchase.
-const PURCHASE_ENDING_CODES = ['ai_credits_card_declined', 'ai_credits_purchase_ended', 'ai_credits_total_changed']
+const PURCHASE_ENDING_CODES = [
+    'ai_credits_card_declined',
+    'ai_credits_purchase_ended',
+    'ai_credits_total_changed',
+    'ai_credits_purchase_not_found',
+]
 
 // Number inputs clear to undefined at runtime, so the code checks for both null and undefined.
 export interface ReloadAmounts {
@@ -201,36 +216,36 @@ export interface UnansweredPurchase {
     key: string
     amountUsd: string
     totalUsd: string
-    /** When the person last paid. The page sends a processing purchase again until the poll timeout after this. */
+    /** When the person last paid. The page stops the status reads STATUS_READ_CAP_MS after this. */
     startedAt: number
-    reloadForm: AddFundsForm | null
+    /** The organization the page paid for. Each status read names it, also after a switch in another tab. */
+    organizationId: string
+    /** The automatic reload that the person chose with the purchase. The page turns it on once billing answers paid. */
+    reload: ReloadAmounts | null
+}
+
+/**
+ * Processing while the page reads the status on a schedule, still processing after the read cap, and authenticating
+ * while Stripe.js runs the card authentication. Each of them keeps the pay button disabled.
+ */
+export type PurchaseStatus = 'processing' | 'still_processing' | 'authenticating'
+
+/** The page reads the status only while billing processes the purchase, never while Stripe.js authenticates it. */
+function awaitsAnswer(status: PurchaseStatus | null): boolean {
+    return status === 'processing' || status === 'still_processing'
 }
 
 export type PurchaseAnswer =
-    | { kind: 'paid'; paymentId: string | null; authenticated: boolean }
     | { kind: 'processing' }
-    | { kind: 'failed'; failure: PurchaseFailure; authenticated: boolean }
+    | { kind: 'requires_action'; clientSecret: string | null }
+    | { kind: 'paid'; creditAdded: boolean }
+    | { kind: 'failed'; failure: PurchaseFailure }
 
-/** A purchase whose history entry the page reads again until billing adds its credit. */
-export interface PolledPurchase {
-    /** Stripe's payment ID. Null while billing still processes the purchase. */
-    paymentId: string | null
-    /** The newest entry's payment before the purchase, so a new newest entry is the purchase's own. */
-    newestPaymentBefore: string | null
+/** A paid purchase whose status the page reads until billing adds its credit to the balance. */
+export interface FollowedCredit {
+    key: string
+    organizationId: string
     startedAt: number
-}
-
-/** The history entry for the polled purchase, if the history has it yet. */
-export function polledPurchaseEntry(
-    history: AICreditHistoryResponseApi | null,
-    polled: PolledPurchase
-): AICreditHistoryEntryApi | undefined {
-    const results = history?.results ?? []
-    if (polled.paymentId) {
-        return results.find((entry) => entry.payment_id === polled.paymentId)
-    }
-    const newest = results[0]
-    return newest && (newest.payment_id ?? null) !== polled.newestPaymentBefore ? newest : undefined
 }
 
 export interface PurchaseFailure {
@@ -249,18 +264,68 @@ function purchaseFailure(error: unknown): PurchaseFailure {
     }
 }
 
+function reloadAmounts(form: ReloadAmounts): ReloadAmounts {
+    return {
+        lowBalanceThresholdUsd: form.lowBalanceThresholdUsd ?? null,
+        targetUsd: form.targetUsd ?? null,
+        monthlyReloadLimitUsd: form.monthlyReloadLimitUsd ?? null,
+    }
+}
+
+const storedPurchaseSchema = z.object({
+    key: z.string(),
+    amountUsd: z.string(),
+    totalUsd: z.string(),
+    startedAt: z.number(),
+    organizationId: z.string(),
+    reload: z
+        .object({
+            lowBalanceThresholdUsd: z.number().nullable(),
+            targetUsd: z.number().nullable(),
+            monthlyReloadLimitUsd: z.number().nullable(),
+        })
+        .nullable(),
+})
+
+// Each organization has its own key, so a purchase resumes only on the page of the organization that paid.
+function storedPurchaseKey(organizationId: string): string {
+    return `ai-credits-unanswered-purchase-${organizationId}`
+}
+
+/** The purchase that billing still processes, kept so that a reload or another tab can follow it to its answer. */
+function storedPurchase(organizationId: string): LocalStorageSlot<UnansweredPurchase> {
+    return localStorageSlot(storedPurchaseKey(organizationId), storedPurchaseSchema)
+}
+
+function forgetStoredPurchase(organizationId: string): void {
+    try {
+        localStorage.removeItem(storedPurchaseKey(organizationId))
+    } catch {
+        // Storage that the browser does not make available holds no purchase.
+    }
+}
+
+/** How long to wait before the next status read, from how long the page has read the status. */
+function statusReadDelayMs(readingForMs: number): number {
+    if (readingForMs < STATUS_READ_FAST_PERIOD_MS) {
+        return STATUS_READ_FAST_INTERVAL_MS
+    }
+    const spread = STATUS_READ_SLOW_MAX_INTERVAL_MS - STATUS_READ_SLOW_MIN_INTERVAL_MS
+    return STATUS_READ_SLOW_MIN_INTERVAL_MS + Math.random() * spread
+}
+
 async function turnOnReloadAfterPurchase(
     organizationId: string,
     card: AICreditCardApi,
-    form: AddFundsForm,
+    reload: ReloadAmounts,
     totalUsd: string
 ): Promise<void> {
     try {
         await billingAiCreditsSettingsAutomaticReloadPartialUpdate({
             organization_id: organizationId,
-            ...reloadRequest(form),
+            ...reloadRequest(reload),
             enabled: true,
-            consent_text: automaticReloadConsent(card, form, totalUsd),
+            consent_text: automaticReloadConsent(card, reload, totalUsd),
         })
     } catch (error) {
         lemonToast.error(
@@ -302,7 +367,7 @@ async function saveReloadSettings(
 }
 
 /** Runs the card authentication that billing's payment asks for, such as a 3D Secure check. */
-async function confirmCardAuthentication(clientSecret: string | null | undefined): Promise<void> {
+async function confirmCardAuthentication(clientSecret: string | null): Promise<void> {
     if (!clientSecret || !window.STRIPE_PUBLIC_KEY) {
         throw new PaymentNotConfirmed(STRIPE_UNAVAILABLE)
     }
@@ -317,29 +382,44 @@ async function confirmCardAuthentication(clientSecret: string | null | undefined
     }
 }
 
+function purchaseAnswer(answer: AICreditPurchaseResponseApi | AICreditPurchaseStatusResponseApi): PurchaseAnswer {
+    if (answer.status === 'processing') {
+        return { kind: 'processing' }
+    }
+    if (answer.status === 'requires_action') {
+        return { kind: 'requires_action', clientSecret: answer.client_secret ?? null }
+    }
+    return { kind: 'paid', creditAdded: 'credit_status' in answer && answer.credit_status === 'added' }
+}
+
 /**
  * Sends the purchase to billing once. The same key reaches the same purchase, so billing charges the card at most
  * once however often the page sends it.
  */
-async function sendPurchase(organizationId: string, purchase: UnansweredPurchase): Promise<PurchaseAnswer> {
-    let authenticated = false
+async function sendPurchase(purchase: UnansweredPurchase): Promise<PurchaseAnswer> {
     try {
-        const answer = await billingAiCreditsPurchaseCreate({
-            organization_id: organizationId,
-            amount_usd: purchase.amountUsd,
-            total_usd: purchase.totalUsd,
-            idempotency_key: purchase.key,
-        })
-        if (answer.status === 'processing') {
-            return { kind: 'processing' }
-        }
-        if (answer.status === 'requires_action') {
-            authenticated = true
-            await confirmCardAuthentication(answer.client_secret)
-        }
-        return { kind: 'paid', paymentId: answer.payment_id ?? null, authenticated }
+        return purchaseAnswer(
+            await billingAiCreditsPurchaseCreate({
+                organization_id: purchase.organizationId,
+                amount_usd: purchase.amountUsd,
+                total_usd: purchase.totalUsd,
+                idempotency_key: purchase.key,
+            })
+        )
     } catch (error) {
-        return { kind: 'failed', failure: purchaseFailure(error), authenticated }
+        return { kind: 'failed', failure: purchaseFailure(error) }
+    }
+}
+
+/** Reads billing's answer for a purchase as it stands. The read starts nothing and charges nothing. */
+async function readPurchase(organizationId: string, key: string): Promise<PurchaseAnswer> {
+    try {
+        return purchaseAnswer(await billingAiCreditsPurchaseRetrieve(key, { organization_id: organizationId }))
+    } catch (error) {
+        // A read that billing or the network did not answer says nothing new, so the page reads again later.
+        const unanswered =
+            !(error instanceof ApiError) || error.status === undefined || error.status >= 500 || error.status === 429
+        return unanswered ? { kind: 'processing' } : { kind: 'failed', failure: purchaseFailure(error) }
     }
 }
 
@@ -364,6 +444,7 @@ export interface aiCreditsLogicValues {
     currentSpendLoading: boolean
     currentSpendSummary: AISpendSummary | null
     currentSpendUnavailable: boolean
+    followedCredit: FollowedCredit | null
     history: AICreditHistoryResponseApi | null
     historyLoading: boolean
     isAddFundsFormSubmitting: boolean
@@ -375,14 +456,15 @@ export interface aiCreditsLogicValues {
     pastSpend: AISpendResponseApi | null
     pastSpendLoading: boolean
     pastSpendPeriodsAgo: number | null
+    payDisabledReason: string | null
     pendingUsd: number
     periodOptions: BillingPeriodOption[]
-    polledPurchase: PolledPurchase | null
     previousSpend: AISpendResponseApi | null
     previousSpendLoading: boolean
     previousSpendPeriodsAgo: number | null
     purchaseError: string | null
-    purchaseStatus: 'processing' | 'still_processing' | null
+    purchasePending: boolean
+    purchaseStatus: PurchaseStatus | null
     quote: AICreditQuoteResponseApi | null
     quoteError: string | null
     quoteLoading: boolean
@@ -411,17 +493,30 @@ export interface aiCreditsLogicValues {
     spendSettingsFormValidationErrors: DeepPartialMap<AISpendSettingsForm, ValidationErrorType>
     spendSummary: AISpendSummary | null
     spendUnavailable: boolean
+    statusReadsStartedAt: number | null
     unansweredPurchase: UnansweredPurchase | null
     unavailable: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface aiCreditsLogicActions {
+    authenticationStarted: () => {
+        value: true
+    }
+    checkPendingPurchase: () => {
+        value: true
+    }
     closeAddFundsModal: () => {
         value: true
     }
     closeSettingsModal: () => {
         value: true
+    }
+    creditAdded: () => {
+        value: true
+    }
+    followCredit: (credit: FollowedCredit) => {
+        credit: FollowedCredit
     }
     loadCard: () => any
     loadCardFailure: (
@@ -552,29 +647,50 @@ export interface aiCreditsLogicActions {
     openSettingsModal: () => {
         value: true
     }
-    pollHistoryAgain: () => {
-        value: true
-    }
-    purchaseAnswered: (answer: PurchaseAnswer) => {
+    purchaseAnswered: (
+        answer: PurchaseAnswer,
+        authenticated?: boolean
+    ) => {
         answer: PurchaseAnswer
+        authenticated: boolean
     }
     purchaseCompleted: (
-        amountUsd: number,
+        purchase: UnansweredPurchase,
         authenticated: boolean,
-        paymentId: string | null
+        creditAdded: boolean
     ) => {
-        amountUsd: number
         authenticated: boolean
-        paymentId: string | null
+        creditAdded: boolean
+        purchase: UnansweredPurchase
+    }
+    purchaseFailed: (
+        failure: PurchaseFailure,
+        authenticated: boolean
+    ) => {
+        authenticated: boolean
+        failure: PurchaseFailure
+    }
+    purchaseProcessing: (readsStartedAt: number) => {
+        readsStartedAt: number
+    }
+    purchaseResumed: (
+        purchase: UnansweredPurchase,
+        status: PurchaseStatus
+    ) => {
+        purchase: UnansweredPurchase
+        status: PurchaseStatus
     }
     purchaseTimedOut: () => {
         value: true
     }
+    readCreditStatus: () => {
+        value: true
+    }
+    readPurchaseStatus: () => {
+        value: true
+    }
     recordPageOrganization: (organizationId: string | null) => {
         organizationId: string | null
-    }
-    resendPurchase: () => {
-        value: true
     }
     resetAddFundsForm: (values?: AddFundsForm) => {
         values?: AddFundsForm
@@ -623,10 +739,7 @@ export interface aiCreditsLogicActions {
     setUnansweredPurchase: (purchase: UnansweredPurchase | null) => {
         purchase: UnansweredPurchase | null
     }
-    startPollingHistory: (purchase: PolledPurchase) => {
-        purchase: PolledPurchase
-    }
-    stopPollingHistory: () => {
+    stopFollowingCredit: () => {
         value: true
     }
     submitAddFundsForm: () => {
@@ -674,6 +787,12 @@ export interface aiCreditsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pageOrganizationId: (recordedOrganizationId: string | null, currentOrganizationId: string) => string
         isCurrentPeriod: (selectedPeriodsAgo: number) => boolean
+        purchasePending: (purchaseStatus: PurchaseStatus | null) => boolean
+        payDisabledReason: (
+            purchaseStatus: PurchaseStatus | null,
+            card: AICreditCardResponseApi | null,
+            quote: AICreditQuoteResponseApi | null
+        ) => string | null
         spend: (
             selectedPeriodsAgo: number,
             currentSpend: AISpendResponseApi | null,
@@ -738,17 +857,23 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         closeSettingsModal: true,
         setUnansweredPurchase: (purchase: UnansweredPurchase | null) => ({ purchase }),
         setPurchaseError: (error: string | null) => ({ error }),
-        purchaseAnswered: (answer: PurchaseAnswer) => ({ answer }),
-        resendPurchase: true,
+        purchaseAnswered: (answer: PurchaseAnswer, authenticated: boolean = false) => ({ answer, authenticated }),
+        checkPendingPurchase: true,
+        purchaseResumed: (purchase: UnansweredPurchase, status: PurchaseStatus) => ({ purchase, status }),
+        readPurchaseStatus: true,
+        purchaseProcessing: (readsStartedAt: number) => ({ readsStartedAt }),
         purchaseTimedOut: true,
-        purchaseCompleted: (amountUsd: number, authenticated: boolean, paymentId: string | null) => ({
-            amountUsd,
+        authenticationStarted: true,
+        purchaseFailed: (failure: PurchaseFailure, authenticated: boolean) => ({ failure, authenticated }),
+        purchaseCompleted: (purchase: UnansweredPurchase, authenticated: boolean, creditAdded: boolean) => ({
+            purchase,
             authenticated,
-            paymentId,
+            creditAdded,
         }),
-        startPollingHistory: (purchase: PolledPurchase) => ({ purchase }),
-        pollHistoryAgain: true,
-        stopPollingHistory: true,
+        followCredit: (credit: FollowedCredit) => ({ credit }),
+        readCreditStatus: true,
+        creditAdded: true,
+        stopFollowingCredit: true,
         loadQuote: (amountUsd: number | null) => ({ amountUsd }),
         setQuote: (quote: AICreditQuoteResponseApi | null) => ({ quote }),
         setQuoteError: (error: string) => ({ error }),
@@ -798,7 +923,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                         limit: HISTORY_PAGE_SIZE,
                         offset: current.results.length,
                     })
-                    return { results: [...current.results, ...older.results], has_more: older.has_more }
+                    return { ...current, results: [...current.results, ...older.results], has_more: older.has_more }
                 },
             },
         ],
@@ -815,18 +940,39 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         // modal or the quote reloads.
         unansweredPurchase: [
             null as UnansweredPurchase | null,
-            { setUnansweredPurchase: (_, { purchase }) => purchase, purchaseCompleted: () => null },
-        ],
-        purchaseStatus: [
-            null as 'processing' | 'still_processing' | null,
             {
-                purchaseAnswered: (_, { answer }) => (answer.kind === 'processing' ? 'processing' : null),
-                purchaseTimedOut: () => 'still_processing',
+                setUnansweredPurchase: (_, { purchase }) => purchase,
+                purchaseResumed: (_, { purchase }) => purchase,
+                purchaseCompleted: () => null,
+                purchaseFailed: (purchase, { failure }) => (failure.endsPurchase ? null : purchase),
             },
         ],
-        polledPurchase: [
-            null as PolledPurchase | null,
-            { startPollingHistory: (_, { purchase }) => purchase, stopPollingHistory: () => null },
+        purchaseStatus: [
+            null as PurchaseStatus | null,
+            {
+                purchaseResumed: (_, { status }) => status,
+                purchaseProcessing: () => 'processing',
+                purchaseTimedOut: () => 'still_processing',
+                authenticationStarted: () => 'authenticating',
+                purchaseCompleted: () => null,
+                purchaseFailed: () => null,
+            },
+        ],
+        // When the page started to read the status of the processing purchase, for the fast reads at the start.
+        statusReadsStartedAt: [
+            null as number | null,
+            {
+                purchaseProcessing: (_, { readsStartedAt }) => readsStartedAt,
+                purchaseResumed: () => null,
+                purchaseTimedOut: () => null,
+                authenticationStarted: () => null,
+                purchaseCompleted: () => null,
+                purchaseFailed: () => null,
+            },
+        ],
+        followedCredit: [
+            null as FollowedCredit | null,
+            { followCredit: (_, { credit }) => credit, creditAdded: () => null, stopFollowingCredit: () => null },
         ],
         purchaseError: [
             null as string | null,
@@ -874,6 +1020,10 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             submit: async (form: AddFundsForm) => {
                 const quote = values.quote
                 const card = values.card?.card
+                // The form also submits on Enter, so the disabled pay button alone can't stop a second purchase.
+                if (values.purchasePending) {
+                    return
+                }
                 if (!quote || !card) {
                     actions.setPurchaseError('Wait for the total, then pay.')
                     return
@@ -885,11 +1035,13 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                     amountUsd: quote.amount_usd,
                     totalUsd: quote.total_usd,
                     startedAt: Date.now(),
-                    reloadForm: form.reloadEnabled && !values.settings?.automatic_reload.enabled ? { ...form } : null,
+                    organizationId: values.pageOrganizationId,
+                    reload:
+                        form.reloadEnabled && !values.settings?.automatic_reload.enabled ? reloadAmounts(form) : null,
                 }
                 actions.setUnansweredPurchase(purchase)
                 actions.setPurchaseError(null)
-                actions.purchaseAnswered(await sendPurchase(values.pageOrganizationId, purchase))
+                actions.purchaseAnswered(await sendPurchase(purchase))
             },
         },
         spendSettingsForm: {
@@ -953,6 +1105,26 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 recordedOrganizationId ?? currentOrganizationId,
         ],
         isCurrentPeriod: [(s) => [s.selectedPeriodsAgo], (periodsAgo: number): boolean => periodsAgo === 0],
+        purchasePending: [(s) => [s.purchaseStatus], (status: PurchaseStatus | null): boolean => status !== null],
+        payDisabledReason: [
+            (s) => [s.purchaseStatus, s.card, s.quote],
+            (
+                status: PurchaseStatus | null,
+                card: AICreditCardResponseApi | null,
+                quote: AICreditQuoteResponseApi | null
+            ): string | null => {
+                if (status === 'still_processing') {
+                    return "We're still confirming your last payment"
+                }
+                if (status) {
+                    return 'The payment is in progress'
+                }
+                if (!card?.card) {
+                    return 'Add a card to your billing details first'
+                }
+                return quote ? null : 'Wait for the total'
+            },
+        ],
         spend: [
             (s) => [s.selectedPeriodsAgo, s.currentSpend, s.pastSpend, s.pastSpendPeriodsAgo],
             (
@@ -1056,167 +1228,260 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        loadQuote: async ({ amountUsd }, breakpoint) => {
-            await breakpoint(300)
-            if (!amountUsd || amountUsd < MINIMUM_AI_CREDIT_USD || amountUsd > MAXIMUM_AI_CREDIT_USD) {
-                actions.setQuote(null)
-                return
-            }
-            try {
-                const quote = await billingAiCreditsQuoteRetrieve({
-                    organization_id: values.pageOrganizationId,
-                    amount_usd: amountUsd.toFixed(2),
-                })
-                breakpoint()
-                actions.setQuote(quote)
-            } catch (error) {
-                if (isBreakpoint(error as Error)) {
-                    throw error
-                }
-                // A newer quote replaced this one, so its failure must not show over the newer state.
-                breakpoint()
-                actions.setQuoteError(errorMessage(error, "We couldn't work out the total. Try again in a minute."))
-            }
-        },
-        openAddFundsModal: () => {
-            actions.resetAddFundsForm()
-            actions.loadCard()
-            actions.loadQuote(values.addFundsForm.amountUsd)
-            posthog.capture('ai credits add funds opened')
-        },
-        setAddFundsFormValue: ({ name }) => {
-            if (name === 'amountUsd' || (Array.isArray(name) && name[0] === 'amountUsd')) {
-                actions.loadQuote(values.addFundsForm.amountUsd)
-            }
-        },
-        setAddFundsFormValues: ({ values: changed }) => {
-            if ('amountUsd' in changed) {
-                actions.loadQuote(values.addFundsForm.amountUsd)
-            }
-        },
-        openSettingsModal: () => {
-            const settings = values.settings
-            const reload = settings?.automatic_reload
-            const amount = (value: string | null | undefined): number | null =>
-                value === null || value === undefined ? null : Number(value)
-            actions.resetSpendSettingsForm({
-                reloadEnabled: reload?.enabled ?? false,
-                lowBalanceThresholdUsd: amount(settings?.low_balance_threshold_usd) ?? 20,
-                targetUsd: amount(reload?.target_usd) ?? 100,
-                monthlyReloadLimitUsd: amount(reload?.monthly_reload_limit_usd),
-                spendLimitUsd: amount(values.spendLimit?.limit_usd),
-                noSpendLimit: !values.spendLimit?.limit_usd,
-            })
-        },
-        loadCurrentSpendSuccess: ({ currentSpend }) => {
-            if (currentSpend && values.selectedPeriodsAgo === 0) {
-                actions.loadPreviousSpend(0)
-            }
-        },
-        selectPeriod: ({ periodsAgo }) => {
-            if (periodsAgo > 0) {
-                actions.loadPastSpend(periodsAgo)
-            }
-            actions.loadPreviousSpend(periodsAgo)
-            posthog.capture('ai credits period selected', { periods_ago: periodsAgo })
-        },
-        purchaseAnswered: async ({ answer }) => {
-            const purchase = values.unansweredPurchase
-            if (answer.kind === 'processing') {
-                if (!purchase || Date.now() - purchase.startedAt >= POLL_TIMEOUT_MS) {
-                    actions.purchaseTimedOut()
+    listeners(({ actions, values, cache }) => {
+        // Each kind of read has one timer. A new timer with the same key replaces the old one, and unmounting the
+        // page disposes it. The last wait ends at the cap, so the read that stops the reads comes at the cap.
+        const scheduleRead = (timerKey: string, read: () => void, readsStartedAt: number, cappedFrom: number): void => {
+            cache.disposables.add(() => {
+                const untilCap = Math.max(cappedFrom + STATUS_READ_CAP_MS - Date.now(), 0)
+                const wait = Math.min(statusReadDelayMs(Date.now() - readsStartedAt), untilCap)
+                const timerId = window.setTimeout(read, wait)
+                return () => window.clearTimeout(timerId)
+            }, timerKey)
+        }
+
+        return {
+            loadQuote: async ({ amountUsd }, breakpoint) => {
+                await breakpoint(300)
+                if (!amountUsd || amountUsd < MINIMUM_AI_CREDIT_USD || amountUsd > MAXIMUM_AI_CREDIT_USD) {
+                    actions.setQuote(null)
                     return
                 }
-                cache.disposables.add(() => {
-                    const timerId = window.setTimeout(() => actions.resendPurchase(), POLL_INTERVAL_MS)
-                    return () => window.clearTimeout(timerId)
-                }, 'purchaseResend')
-                return
-            }
-            if (answer.kind === 'failed') {
-                const { failure } = answer
-                if (failure.endsPurchase) {
-                    actions.setUnansweredPurchase(null)
+                try {
+                    const quote = await billingAiCreditsQuoteRetrieve({
+                        organization_id: values.pageOrganizationId,
+                        amount_usd: amountUsd.toFixed(2),
+                    })
+                    breakpoint()
+                    actions.setQuote(quote)
+                } catch (error) {
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    // A newer quote replaced this one, so its failure must not show over the newer state.
+                    breakpoint()
+                    actions.setQuoteError(errorMessage(error, "We couldn't work out the total. Try again in a minute."))
                 }
+            },
+            openAddFundsModal: () => {
+                actions.resetAddFundsForm()
+                actions.loadCard()
+                actions.loadQuote(values.addFundsForm.amountUsd)
+                posthog.capture('ai credits add funds opened')
+            },
+            setAddFundsFormValue: ({ name }) => {
+                if (name === 'amountUsd' || (Array.isArray(name) && name[0] === 'amountUsd')) {
+                    actions.loadQuote(values.addFundsForm.amountUsd)
+                }
+            },
+            setAddFundsFormValues: ({ values: changed }) => {
+                if ('amountUsd' in changed) {
+                    actions.loadQuote(values.addFundsForm.amountUsd)
+                }
+            },
+            openSettingsModal: () => {
+                const settings = values.settings
+                const reload = settings?.automatic_reload
+                const amount = (value: string | null | undefined): number | null =>
+                    value === null || value === undefined ? null : Number(value)
+                actions.resetSpendSettingsForm({
+                    reloadEnabled: reload?.enabled ?? false,
+                    lowBalanceThresholdUsd: amount(settings?.low_balance_threshold_usd) ?? 20,
+                    targetUsd: amount(reload?.target_usd) ?? 100,
+                    monthlyReloadLimitUsd: amount(reload?.monthly_reload_limit_usd),
+                    spendLimitUsd: amount(values.spendLimit?.limit_usd),
+                    noSpendLimit: !values.spendLimit?.limit_usd,
+                })
+            },
+            loadCurrentSpendSuccess: ({ currentSpend }) => {
+                if (currentSpend && values.selectedPeriodsAgo === 0) {
+                    actions.loadPreviousSpend(0)
+                }
+            },
+            selectPeriod: ({ periodsAgo }) => {
+                if (periodsAgo > 0) {
+                    actions.loadPastSpend(periodsAgo)
+                }
+                actions.loadPreviousSpend(periodsAgo)
+                posthog.capture('ai credits period selected', { periods_ago: periodsAgo })
+            },
+            checkPendingPurchase: () => {
+                const organizationId = values.recordedOrganizationId ?? values.currentOrganization?.id
+                if (!organizationId || values.isAddFundsFormSubmitting || values.purchaseStatus === 'authenticating') {
+                    return
+                }
+                const current = values.unansweredPurchase
+                if (!current) {
+                    const stored = storedPurchase(organizationId).get()
+                    if (!stored || stored.organizationId !== organizationId) {
+                        return
+                    }
+                    const withinCap = Date.now() - stored.startedAt < STATUS_READ_CAP_MS
+                    actions.purchaseResumed(stored, withinCap ? 'processing' : 'still_processing')
+                } else if (!values.purchasePending) {
+                    return
+                }
+                actions.readPurchaseStatus()
+            },
+            readPurchaseStatus: async (_, breakpoint) => {
+                const purchase = values.unansweredPurchase
+                if (!purchase || !awaitsAnswer(values.purchaseStatus)) {
+                    return
+                }
+                const answer = await readPurchase(purchase.organizationId, purchase.key)
+                breakpoint()
+                // Another answer can end the purchase, or start its authentication, while this read runs.
+                if (
+                    cache.disposables.isDisposed ||
+                    values.unansweredPurchase?.key !== purchase.key ||
+                    !awaitsAnswer(values.purchaseStatus)
+                ) {
+                    return
+                }
+                actions.purchaseAnswered(answer)
+            },
+            purchaseAnswered: async ({ answer, authenticated }) => {
+                const purchase = values.unansweredPurchase
+                if (!purchase) {
+                    return
+                }
+                if (answer.kind === 'processing') {
+                    if (values.purchaseStatus === null) {
+                        storedPurchase(purchase.organizationId).set(purchase)
+                        actions.loadHistory()
+                    }
+                    if (Date.now() - purchase.startedAt >= STATUS_READ_CAP_MS) {
+                        cache.disposables.dispose('purchaseStatusRead')
+                        actions.purchaseTimedOut()
+                        return
+                    }
+                    const readsStartedAt = values.statusReadsStartedAt ?? Date.now()
+                    actions.purchaseProcessing(readsStartedAt)
+                    scheduleRead(
+                        'purchaseStatusRead',
+                        () => actions.readPurchaseStatus(),
+                        readsStartedAt,
+                        purchase.startedAt
+                    )
+                    return
+                }
+                cache.disposables.dispose('purchaseStatusRead')
+                if (answer.kind === 'requires_action') {
+                    actions.authenticationStarted()
+                    let next: PurchaseAnswer = { kind: 'paid', creditAdded: false }
+                    try {
+                        await confirmCardAuthentication(answer.clientSecret)
+                    } catch (error) {
+                        next = { kind: 'failed', failure: purchaseFailure(error) }
+                    }
+                    if (!cache.disposables.isDisposed) {
+                        actions.purchaseAnswered(next, true)
+                    }
+                    return
+                }
+                // A final answer. A purchase that ends here must not resume in a reload or in another tab.
+                forgetStoredPurchase(purchase.organizationId)
+                if (answer.kind === 'failed') {
+                    if (values.purchaseStatus !== null) {
+                        actions.loadHistory()
+                    }
+                    actions.purchaseFailed(answer.failure, authenticated)
+                    return
+                }
+                const card = values.card?.card
+                if (purchase.reload && card && !values.settings?.automatic_reload.enabled) {
+                    await turnOnReloadAfterPurchase(purchase.organizationId, card, purchase.reload, purchase.totalUsd)
+                }
+                actions.purchaseCompleted(purchase, authenticated, answer.creditAdded)
+            },
+            purchaseFailed: ({ failure, authenticated }) => {
                 if (failure.code === 'ai_credits_total_changed') {
                     actions.loadQuote(values.addFundsForm.amountUsd)
                 }
+                // The quote load clears the error, so this listener sets the error after it.
                 actions.setPurchaseError(failure.message)
                 // The person may have closed the modal while billing still processed the purchase.
                 if (!values.addFundsModalOpen) {
                     lemonToast.error(failure.message)
                 }
-                posthog.capture('ai credits purchase failed', {
-                    code: failure.code,
-                    authenticated: answer.authenticated,
+                posthog.capture('ai credits purchase failed', { code: failure.code, authenticated })
+            },
+            purchaseCompleted: ({ purchase, authenticated, creditAdded }) => {
+                posthog.capture('ai credits purchase completed', {
+                    amount_usd: Number(purchase.amountUsd),
+                    authenticated,
                 })
-                return
-            }
-            const card = values.card?.card
-            if (purchase?.reloadForm && card && !values.settings?.automatic_reload.enabled) {
-                await turnOnReloadAfterPurchase(values.pageOrganizationId, card, purchase.reloadForm, purchase.totalUsd)
-            }
-            actions.purchaseCompleted(Number(purchase?.amountUsd ?? 0), answer.authenticated, answer.paymentId)
-        },
-        resendPurchase: async () => {
-            const purchase = values.unansweredPurchase
-            if (purchase) {
-                actions.purchaseAnswered(await sendPurchase(values.pageOrganizationId, purchase))
-            }
-        },
-        purchaseCompleted: ({ amountUsd, authenticated, paymentId }) => {
-            posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated })
-            lemonToast.success('Payment received. Your AI credits show as pending until we add them to your balance.')
-            actions.closeAddFundsModal()
-            actions.startPollingHistory({
-                paymentId,
-                newestPaymentBefore: values.history?.results[0]?.payment_id ?? null,
-                startedAt: Date.now(),
-            })
-            actions.loadHistory()
-            actions.loadSettings()
-            actions.loadCurrentSpend()
-        },
-        loadHistorySuccess: ({ history }) => {
-            const polled = values.polledPurchase
-            if (!polled) {
-                return
-            }
-            if (polledPurchaseEntry(history, polled)?.status === 'added') {
-                actions.stopPollingHistory()
+                lemonToast.success(creditAdded ? CREDIT_ADDED : CREDIT_PENDING)
+                actions.closeAddFundsModal()
+                if (!creditAdded) {
+                    actions.followCredit({
+                        key: purchase.key,
+                        organizationId: purchase.organizationId,
+                        startedAt: Date.now(),
+                    })
+                }
+                actions.loadHistory()
+                actions.loadSettings()
                 actions.loadCurrentSpend()
-                return
-            }
-            actions.pollHistoryAgain()
-        },
-        loadHistoryFailure: () => {
-            if (values.polledPurchase) {
-                actions.pollHistoryAgain()
-            }
-        },
-        // One timer at a time. Disposing it stops the polling, and unmounting the page disposes it too.
-        pollHistoryAgain: () => {
-            const polled = values.polledPurchase
-            if (!polled || Date.now() - polled.startedAt >= POLL_TIMEOUT_MS) {
-                actions.stopPollingHistory()
-                return
-            }
-            cache.disposables.add(() => {
-                const timerId = window.setTimeout(() => actions.loadHistory(), POLL_INTERVAL_MS)
-                return () => window.clearTimeout(timerId)
-            }, 'historyPoll')
-        },
-        stopPollingHistory: () => {
-            cache.disposables.dispose('historyPoll')
-        },
-    })),
-    afterMount(({ actions, values }) => {
+            },
+            followCredit: ({ credit }) => {
+                scheduleRead('creditStatusRead', () => actions.readCreditStatus(), credit.startedAt, credit.startedAt)
+            },
+            readCreditStatus: async (_, breakpoint) => {
+                const credit = values.followedCredit
+                if (!credit) {
+                    return
+                }
+                const answer = await readPurchase(credit.organizationId, credit.key)
+                breakpoint()
+                if (cache.disposables.isDisposed || values.followedCredit?.key !== credit.key) {
+                    return
+                }
+                if (answer.kind === 'paid' && answer.creditAdded) {
+                    actions.creditAdded()
+                    return
+                }
+                if (answer.kind === 'failed') {
+                    actions.stopFollowingCredit()
+                    lemonToast.error(answer.failure.message)
+                    return
+                }
+                // The history keeps the credit as pending until the next visit to the page.
+                if (Date.now() - credit.startedAt >= STATUS_READ_CAP_MS) {
+                    actions.stopFollowingCredit()
+                    return
+                }
+                // After a card authentication, billing can answer requires_action or processing until Stripe tells it
+                // about the payment. Both mean that the credit is not added yet.
+                scheduleRead('creditStatusRead', () => actions.readCreditStatus(), credit.startedAt, credit.startedAt)
+            },
+            creditAdded: () => {
+                cache.disposables.dispose('creditStatusRead')
+                actions.loadHistory()
+                actions.loadCurrentSpend()
+            },
+            stopFollowingCredit: () => {
+                cache.disposables.dispose('creditStatusRead')
+            },
+        }
+    }),
+    afterMount(({ actions, values, cache }) => {
         actions.recordPageOrganization(values.currentOrganization?.id ?? null)
         actions.loadSettings()
         actions.loadSpendLimit()
         actions.loadCard()
         actions.loadHistory()
         actions.loadCurrentSpend()
+        actions.checkPendingPurchase()
+        // A hidden page gets no focus, and a paused listener could miss the focus that comes as the page shows again.
+        cache.disposables.add(
+            () => {
+                const onFocus = (): void => actions.checkPendingPurchase()
+                window.addEventListener('focus', onFocus)
+                return () => window.removeEventListener('focus', onFocus)
+            },
+            'pendingPurchaseFocusCheck',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

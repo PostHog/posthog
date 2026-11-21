@@ -14,9 +14,10 @@ import { QuoteSummary } from './QuoteSummary'
 import { ReloadAmountFields } from './ReloadAmountFields'
 
 function AddFundsFooter(): JSX.Element {
-    const { isAddFundsFormSubmitting, quote, card, addFundsConsent, purchaseStatus } = useValues(aiCreditsLogic)
+    const { isAddFundsFormSubmitting, quote, addFundsConsent, purchaseStatus, payDisabledReason } =
+        useValues(aiCreditsLogic)
     const { closeAddFundsModal, submitAddFundsForm } = useActions(aiCreditsLogic)
-    const paying = isAddFundsFormSubmitting || purchaseStatus === 'processing'
+    const paying = isAddFundsFormSubmitting || purchaseStatus === 'processing' || purchaseStatus === 'authenticating'
 
     return (
         <div className="flex w-full flex-col gap-4">
@@ -33,13 +34,7 @@ function AddFundsFooter(): JSX.Element {
                     type="primary"
                     onClick={submitAddFundsForm}
                     loading={paying}
-                    disabledReason={
-                        !card?.card
-                            ? 'Add a card to your billing details first'
-                            : !quote
-                              ? 'Wait for the total'
-                              : undefined
-                    }
+                    disabledReason={payDisabledReason ?? undefined}
                     data-attr="ai-credits-pay"
                 >
                     {quote ? `Pay ${humanFriendlyCurrency(quote.total_usd)}` : 'Pay'}
@@ -80,7 +75,8 @@ function AutomaticReloadChoice(): JSX.Element {
 }
 
 export function AddAICreditsModal(): JSX.Element {
-    const { addFundsModalOpen, purchaseError, purchaseStatus, card, cardLoading, settings } = useValues(aiCreditsLogic)
+    const { addFundsModalOpen, purchaseError, purchaseStatus, unansweredPurchase, card, cardLoading, settings } =
+        useValues(aiCreditsLogic)
     const { closeAddFundsModal } = useActions(aiCreditsLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -126,9 +122,10 @@ export function AddAICreditsModal(): JSX.Element {
                 {purchaseStatus === 'processing' && (
                     <LemonBanner type="info">We're processing your payment. This takes a few seconds.</LemonBanner>
                 )}
-                {purchaseStatus === 'still_processing' && (
+                {purchaseStatus === 'still_processing' && unansweredPurchase && (
                     <LemonBanner type="info">
-                        Your payment is still processing. Pay again to check on it. You won't be charged twice.
+                        We're still confirming your {humanFriendlyCurrency(unansweredPurchase.totalUsd)} payment. You
+                        won't be charged again. You can close this window.
                     </LemonBanner>
                 )}
                 {purchaseError && <LemonBanner type="error">{purchaseError}</LemonBanner>}
