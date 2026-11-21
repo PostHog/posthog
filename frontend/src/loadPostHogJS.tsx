@@ -6,7 +6,7 @@ import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
     dropHandledAuthGateExceptions,
-    dropInjectedScriptReferenceErrors,
+    dropInjectedScriptExceptions,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
 } from 'lib/utils/exceptionFilters'
@@ -168,7 +168,7 @@ export function loadPostHogJS(): void {
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,
                 dropUnactionableNetworkExceptions,
-                dropInjectedScriptReferenceErrors,
+                dropInjectedScriptExceptions,
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
                 redactDestinationSecretsInReplay,
