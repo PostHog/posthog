@@ -5,7 +5,7 @@
     "data": {
       "firstName": "Ben"
     },
-    "liquid": "<p>Hello {{ variables.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "liquid": "<p>Hello {{ variables.firstName }}</p>",
     "expected": "<p>Hello Ben</p>"
   },
   {
@@ -18,7 +18,7 @@
         }
       }
     },
-    "liquid": "<p>{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "liquid": "<p>{{ variables.user.profile.firstName }}</p>",
     "expected": "<p>Ben</p>"
   },
   {
@@ -27,7 +27,7 @@
     "data": {
       "user": {}
     },
-    "liquid": "[{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "liquid": "[{{ variables.user.profile.firstName }}]",
     "expected": "[]"
   },
   {
@@ -36,7 +36,7 @@
     "data": {
       "markup": "<b>Tom & Ann</b>"
     },
-    "liquid": "{{ variables.markup | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.markup }}",
     "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
   },
   {
@@ -45,7 +45,7 @@
     "data": {
       "name": "Björk 日本語 🎉"
     },
-    "liquid": "<p>Grüße {{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🦔</p>",
+    "liquid": "<p>Grüße {{ variables.name }} 🦔</p>",
     "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
   },
   {
@@ -54,7 +54,7 @@
     "data": {
       "count": 0
     },
-    "liquid": "{{ variables.count | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.count }}",
     "expected": "0"
   },
   {
@@ -63,7 +63,7 @@
     "data": {
       "a": null
     },
-    "liquid": "[{{ variables.a | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "liquid": "[{{ variables.a }}]",
     "expected": "[]"
   },
   {
@@ -72,7 +72,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n }}",
     "expected": "{% if x %} 100% y"
   },
   {
@@ -81,7 +81,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n }}",
     "expected": "{{n}} y"
   },
   {
@@ -90,20 +90,8 @@
     "data": {
       "pre": "Your order 🎉"
     },
-    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p></td></tr></table><p>Body</p>",
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre }}</p></td></tr></table><p>Body</p>",
     "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
-  },
-  {
-    "name": "array_prints_with_commas",
-    "source": "<p>{{alternate_emails}}</p>",
-    "data": {
-      "alternate_emails": [
-        "a@example.com",
-        "b@example.com"
-      ]
-    },
-    "liquid": "<p>{{ variables.alternate_emails | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
-    "expected": "<p>a@example.com,b@example.com</p>"
   },
   {
     "name": "escaped_backslash_before_a_tag",
@@ -111,17 +99,331 @@
     "data": {
       "n": "N"
     },
-    "liquid": "<p>\\{{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} and {% raw %}{{n}}{% endraw %}</p>",
+    "liquid": "<p>\\{{ variables.n }} and {% raw %}{{n}}{% endraw %}</p>",
     "expected": "<p>\\N and {{n}}</p>"
   },
   {
-    "name": "subject escapes like html",
-    "source": "Hi {{n}}",
+    "name": "subject prints values as written",
+    "source": "Hi {{{n}}}, {{#if vip}}VIP{{/if}}",
     "data": {
-      "n": "Tom & <Ann> \"q\" =`"
+      "n": "Tom & <Ann> \"q\"",
+      "vip": true
     },
-    "liquid": "Hi {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" }}",
-    "expected": "Hi Tom &amp; &lt;Ann&gt; &quot;q&quot; &#x3D;&#x60;",
-    "text": true
+    "liquid": "Hi {{ variables.n }}, {% if variables.vip != blank and variables.vip != 0 %}VIP{% endif %}",
+    "text": true,
+    "expected": "Hi Tom & <Ann> \"q\", VIP"
+  },
+  {
+    "name": "if and unless read missing like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {},
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read null like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": null
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read false like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": false
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read empty string like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": ""
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read zero like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": 0
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fuz]"
+  },
+  {
+    "name": "if and unless read empty list like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": []
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read text zero like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "0"
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read text false like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "false"
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read one like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": 1
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read text like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "x"
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read list like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": [
+        1
+      ]
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read object like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": {
+        "k": 1
+      }
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read true like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": true
+    },
+    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "else if chain",
+    "source": "{{#if a}}A{{else if b}}B{{else}}C{{/if}}|{{#if c}}A{{else if d}}B{{else}}C{{/if}}",
+    "data": {
+      "b": "yes",
+      "c": 0
+    },
+    "liquid": "{% if variables.a != blank and variables.a != 0 %}A{% elsif variables.b != blank and variables.b != 0 %}B{% else %}C{% endif %}|{% if variables.c != blank and variables.c != 0 %}A{% elsif variables.d != blank and variables.d != 0 %}B{% else %}C{% endif %}",
+    "expected": "B|C"
+  },
+  {
+    "name": "loop over a list",
+    "source": "<ul>{{#each items}}<li class=\"{{#if @first}}first{{/if}}\">{{@index}} {{this.name}} x{{qty}} {{../currency}}{{#if @last}}.{{/if}}</li>{{/each}}</ul>",
+    "data": {
+      "currency": "EUR",
+      "items": [
+        {
+          "name": "Hedgehog mug ☕",
+          "qty": 2
+        },
+        {
+          "name": "Sticker <b>",
+          "qty": 0
+        }
+      ]
+    },
+    "liquid": "<ul>{% for item in variables.items %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 }} {{ item.name }} x{{ item.qty }} {{ variables.currency }}{% if forloop.last %}.{% endif %}</li>{% endfor %}</ul>",
+    "expected": "<ul><li class=\"first\">0 Hedgehog mug ☕ x2 EUR</li><li class=\"\">1 Sticker &lt;b&gt; x0 EUR.</li></ul>"
+  },
+  {
+    "name": "loop over plain values",
+    "source": "{{#each tags}}[{{this}}]{{/each}}",
+    "data": {
+      "tags": [
+        "a",
+        "ünï",
+        "🦔"
+      ]
+    },
+    "liquid": "{% for item in variables.tags %}[{{ item }}]{% endfor %}",
+    "expected": "[a][ünï][🦔]"
+  },
+  {
+    "name": "loop else on an empty list",
+    "source": "{{#each items}}x{{else}}none{{/each}}|{{#each missing}}x{{else}}none{{/each}}",
+    "data": {
+      "items": []
+    },
+    "liquid": "{% for item in variables.items %}x{% else %}none{% endfor %}|{% for item in variables.missing %}x{% else %}none{% endfor %}",
+    "expected": "none|none"
+  },
+  {
+    "name": "nested loops and parent paths",
+    "source": "{{#each orders}}{{id}}:{{#each lines}}{{sku}}@{{../id}}/{{../../shop}};{{/each}}|{{/each}}",
+    "data": {
+      "shop": "S",
+      "orders": [
+        {
+          "id": 1,
+          "lines": [
+            {
+              "sku": "a"
+            },
+            {
+              "sku": "b"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "lines": []
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.orders %}{{ item.id }}:{% for item2 in item.lines %}{{ item2.sku }}@{{ item.id }}/{{ variables.shop }};{% endfor %}|{% endfor %}",
+    "expected": "1:a@1/S;b@1/S;|2:|"
+  },
+  {
+    "name": "loop block params",
+    "source": "{{#each orders as |order i|}}{{i}}={{order.id}} {{/each}}",
+    "data": {
+      "orders": [
+        {
+          "id": "A"
+        },
+        {
+          "id": "B"
+        }
+      ]
+    },
+    "liquid": "{% for order in variables.orders %}{{ forloop.index0 }}={{ order.id }} {% endfor %}",
+    "expected": "0=A 1=B "
+  },
+  {
+    "name": "with block",
+    "source": "{{#with user}}{{name}} in {{address.city}}{{else}}nobody{{/with}}|{{#with missing}}x{{else}}nobody{{/with}}",
+    "data": {
+      "user": {
+        "name": "Ana",
+        "address": {
+          "city": "Zürich"
+        }
+      }
+    },
+    "liquid": "{% if variables.user != blank %}{{ variables.user.name }} in {{ variables.user.address.city }}{% else %}nobody{% endif %}|{% if variables.missing != blank %}x{% else %}nobody{% endif %}",
+    "expected": "Ana in Zürich|nobody"
+  },
+  {
+    "name": "values that look like markup stay escaped",
+    "source": "<p>{{q}}</p><a href=\"https://example.com/?q={{q}}\" title='{{q}}'>{{{safe}}}</a>",
+    "data": {
+      "q": "\"><script>alert('x')</script>&amp; ü 🦔",
+      "safe": "<b>bold</b>"
+    },
+    "liquid": "<p>{{ variables.q }}</p><a href=\"https://example.com/?q={{ variables.q }}\" title='{{ variables.q }}'>{{ variables.safe | raw }}</a>",
+    "expected": "<p>&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔</p><a href=\"https://example.com/?q=&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔\" title='&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔'><b>bold</b></a>"
+  },
+  {
+    "name": "a value after raw html can't add an attribute",
+    "source": "{{{prefix}}}{{x}}>",
+    "data": {
+      "prefix": "<a href",
+      "x": "=https://example.com"
+    },
+    "liquid": "{{ variables.prefix | raw }}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
+    "expected": "<a href&#x3D;https://example.com>"
+  },
+  {
+    "name": "loop separators read the index like Handlebars",
+    "source": "{{#each tags}}{{#if @index}}, {{/if}}{{this}}{{/each}}|{{#each tags}}{{#unless @index}}first:{{/unless}}{{this}}{{/each}}",
+    "data": {
+      "tags": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "liquid": "{% for item in variables.tags %}{% if forloop.index0 != 0 %}, {% endif %}{{ item }}{% endfor %}|{% for item in variables.tags %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item }}{% endfor %}",
+    "expected": "a, b, c|first:abc"
+  },
+  {
+    "name": "values in a loop after raw html stay encoded",
+    "source": "{{#each items}}<p>{{name}}</p>{{{html}}}{{/each}}",
+    "data": {
+      "items": [
+        {
+          "name": "a=b",
+          "html": "<i>x</i>"
+        },
+        {
+          "name": "c`d",
+          "html": "<b>y</b>"
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.items %}<p>{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | raw }}{% endfor %}",
+    "expected": "<p>a&#x3D;b</p><i>x</i><p>c&#x60;d</p><b>y</b>"
+  },
+  {
+    "name": "unicode and hyphen names",
+    "source": "{{user-name}} {{naïve}}",
+    "data": {
+      "user-name": "Zoë",
+      "naïve": "日本"
+    },
+    "liquid": "{{ variables.user-name }} {{ variables.naïve }}",
+    "expected": "Zoë 日本"
+  },
+  {
+    "name": "nested object in a condition",
+    "source": "{{#if user.address.city}}{{user.address.city}}{{else}}no city{{/if}}",
+    "data": {
+      "user": {
+        "address": {
+          "city": "東京"
+        }
+      }
+    },
+    "liquid": "{% if variables.user.address.city != blank and variables.user.address.city != 0 %}{{ variables.user.address.city }}{% else %}no city{% endif %}",
+    "expected": "東京"
+  },
+  {
+    "name": "block tags alone on a line drop their line",
+    "source": "<ul>\n  {{#each xs}}\n  <li>{{this}}</li>\n  {{/each}}\n</ul>\n{{#if a}}\nA\n{{~/if}}",
+    "data": {
+      "xs": [
+        1,
+        2
+      ],
+      "a": true
+    },
+    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item }}</li>\n{% endfor %}</ul>\n{% if variables.a != blank and variables.a != 0 %}A{% endif %}",
+    "expected": "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\nA"
   }
 ]
