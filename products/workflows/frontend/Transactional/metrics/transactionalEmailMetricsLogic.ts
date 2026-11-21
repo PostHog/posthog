@@ -327,7 +327,7 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
                     {
                         title: 'Templates',
                         options: templates.flatMap((template) =>
-                            template.transactional_hog_flow_id
+                            template.transactional_hog_flow_id && template.type !== 'push'
                                 ? [
                                       {
                                           value: template.transactional_hog_flow_id,

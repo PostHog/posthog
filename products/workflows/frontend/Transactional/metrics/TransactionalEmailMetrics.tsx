@@ -5,13 +5,12 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
-export function TransactionalEmailMetrics(): JSX.Element {
+export function TransactionalEmailMetrics({ actions }: { actions: JSX.Element }): JSX.Element {
     const { templateStats, templateStatsLinks, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
@@ -38,7 +37,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
             <SceneSection
                 title="All transactional emails"
                 description="Delivered means the recipient's mail server accepted the email, even if it then put it in spam. Mail providers don't tell senders which emails they put in spam, so spam complaints count only the complaints mail providers pass on, such as when a recipient reports an email as spam. To see where your emails land, send a test to an inbox at each provider."
-                actions={<TransactionalEmailMetricsDateRange />}
+                actions={actions}
             >
                 <TransactionalEmailMetricTiles />
             </SceneSection>

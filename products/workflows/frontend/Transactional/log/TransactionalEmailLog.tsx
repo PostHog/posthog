@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
+import { TransactionalChannelSelect } from '../TransactionalChannelSelect'
 import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import {
@@ -60,7 +61,7 @@ export function TransactionalEmailLog({ workflowId }: { workflowId?: string }): 
 function AllEmailsLogList(): JSX.Element {
     const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
     const emailOptions = transactionalTemplates
-        .filter((template) => template.transactional_hog_flow_id)
+        .filter((template) => template.transactional_hog_flow_id && template.type !== 'push')
         .map((template) => ({
             value: template.transactional_hog_flow_id as string,
             label: template.name || 'Unnamed email',
@@ -90,6 +91,7 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                     emailOptions={emailOptions}
                     statusOptions={STATUS_OPTIONS}
                     reasonOptions={reasonOptions}
+                    channelFilter={!oneEmail}
                 />
             ) : (
                 <div className="flex flex-wrap items-center gap-2 justify-between">
@@ -107,6 +109,7 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
+                        {!oneEmail && <TransactionalChannelSelect dataAttr="transactional-log-channel-filter" />}
                         {emailOptions && (
                             <LemonSelect
                                 size="small"

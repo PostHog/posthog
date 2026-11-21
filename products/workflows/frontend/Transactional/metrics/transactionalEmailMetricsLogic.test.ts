@@ -17,7 +17,10 @@ const EMAIL_ROWS = [
     { ...COUNTS, key: 'flow-3', label: null, template_id: null, code_email_id: null },
 ]
 
-const TEMPLATES = [{ id: 'tpl-1', name: 'Order receipt', transactional_hog_flow_id: 'flow-1' }]
+const TEMPLATES = [
+    { id: 'tpl-1', name: 'Order receipt', type: 'email', transactional_hog_flow_id: 'flow-1' },
+    { id: 'tpl-2', name: 'Order shipped', type: 'push', transactional_hog_flow_id: 'flow-2' },
+]
 const CODE_EMAILS = [{ id: 'code-9', key: 'password-changed', hog_flow_id: 'flow-9' }]
 
 describe('transactionalEmailMetricsLogic', () => {
@@ -82,7 +85,7 @@ describe('transactionalEmailMetricsLogic', () => {
         expect(logic.values.templateStatsLinks).toEqual(links)
     })
 
-    it('offers the templates and every email sent from code, sent in the period or not', async () => {
+    it('offers the email templates and every email sent from code, sent in the period or not', async () => {
         logic = transactionalEmailMetricsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
