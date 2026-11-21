@@ -33,7 +33,7 @@ from products.tasks.backend.facade.profiles import SourceKind, TaskRunOptions, T
 from products.tasks.backend.logic.services.ai_run_defaults import resolve_ai_run_selection
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
-from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
+from products.tasks.backend.logic.services.model_catalogue import served_runtime_adapter_for
 from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
     user_has_current_team_access,
@@ -490,7 +490,7 @@ class _WorkflowRunSelection:
 
 def _workflow_run_selection(team_id: int, owner_id: int, model: str | None) -> _WorkflowRunSelection:
     if model and model_allowed_by_product_pin("workflows", model):
-        return _WorkflowRunSelection(runtime_adapter=runtime_adapter_for(model), model=model)
+        return _WorkflowRunSelection(runtime_adapter=served_runtime_adapter_for(model), model=model)
     default = resolve_ai_run_selection(team_id, owner_id)
     if model_allowed_by_product_pin("workflows", default.model):
         return _WorkflowRunSelection(runtime_adapter=None, model=None)

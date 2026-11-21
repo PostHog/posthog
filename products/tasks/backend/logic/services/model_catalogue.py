@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
+from products.tasks.backend.logic.services.gateway_model_pin import offered_listing
 from products.tasks.backend.logic.services.gateway_models import (
     GatewayModel,
     cached_gateway_models,
@@ -118,9 +118,7 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
 
     by_provider = _runtime_adapter_by_provider()
     choices = []
-    for model in list_gateway_models(product):
-        if not model_allowed_by_product_pin(product, model.id):
-            continue
+    for model in offered_listing(product, list_gateway_models(product)):
         # The catalog names the harness that drives a model; `owned_by` names whoever
         # serves it, which for the vendor-served models is `cloudflare`/`baseten`/the
         # vendor org and says nothing about the harness. Falling back to the provider
@@ -226,6 +224,18 @@ def runtime_adapter_for(model: str | None) -> str | None:
     return adapter.value if adapter else None
 
 
+def served_runtime_adapter_for(model: str | None) -> str | None:
+    cataloged = runtime_adapter_for(model)
+    if cataloged is not None or not model:
+        return cataloged
+    normalized = model_catalog.normalize_model_id(model)
+    by_provider = _runtime_adapter_by_provider()
+    for listed in cached_gateway_models(TASK_RUN_GATEWAY_PRODUCT):
+        if listed.id == normalized:
+            return by_provider.get(listed.owned_by)
+    return None
+
+
 def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, effort: str | None) -> str | None:
     """Drop an effort the given model doesn't support (e.g. a user saved `high` on a
     thinking model and then picked a non-thinking one).
@@ -285,5 +295,6 @@ __all__ = [
     "label_for",
     "list_gateway_models",
     "runtime_adapter_for",
+    "served_runtime_adapter_for",
     "supported_efforts",
 ]

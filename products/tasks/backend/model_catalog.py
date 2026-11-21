@@ -407,10 +407,20 @@ def is_anthropic_served_model(model_id: str | None) -> bool:
     return normalize_model_id(model_id or "").startswith("claude-")
 
 
+_VERSION_SEGMENT = re.compile(r"-\d[\d.]*(?=-|$)")
+
+
+def model_line(model_id: str) -> str:
+    return _VERSION_SEGMENT.sub("", normalize_model_id(model_id))
+
+
 def access_flag_for_model(model_id: str) -> str | None:
     """The feature flag a person needs before a picker offers this model, or ``None``."""
     model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.access_flag if model else None
+    if model:
+        return model.access_flag
+    line = model_line(model_id)
+    return next((entry.access_flag for entry in MODELS if entry.access_flag and model_line(entry.id) == line), None)
 
 
 def is_offered_model(model_id: str) -> bool:
@@ -617,6 +627,7 @@ __all__ = [
     "format_cost_rates",
     "is_offered_model",
     "label_for_model",
+    "model_line",
     "models_for_runtime_adapter",
     "normalize_model_id",
     "display_name_for_model",

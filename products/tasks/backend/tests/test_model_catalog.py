@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import pytest
@@ -393,6 +394,35 @@ def test_every_model_resolves_to_its_catalog_flag() -> None:
     for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gpt-6.2-sol", "tasks-sol-preview"),
+        ("gpt-6.3-sol", "tasks-sol-preview"),
+        ("openai/gpt-6.3-sol", "tasks-sol-preview"),
+        ("gpt-6.1-sol", None),
+        ("gpt-6.3-astra", None),
+    ],
+    ids=[
+        "gated_catalog_row",
+        "newer_version_of_the_gated_line",
+        "provider_qualified_spelling",
+        "ungated_catalog_row_of_the_line",
+        "another_line",
+    ],
+)
+def test_a_version_the_catalog_lacks_takes_the_flag_of_its_line(model: str, expected: str | None) -> None:
+    gated = tuple(
+        dataclasses.replace(entry, access_flag="tasks-sol-preview") if entry.id == "gpt-6.2-sol" else entry
+        for entry in model_catalog.MODELS
+    )
+    with (
+        patch.object(model_catalog, "MODELS", gated),
+        patch.object(model_catalog, "_MODEL_BY_ID", {entry.id: entry for entry in gated}),
+    ):
+        assert get_required_model_flag(model) == expected
 
 
 @parameterized.expand(
