@@ -9,22 +9,16 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { urlForHogFunction } from 'scenes/hog-functions/list/HogFunctionsList'
-import { newNotificationDialogLogic } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+import { DESTINATION_OPTIONS, newNotificationDialogLogic } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
-import { NotificationSlackPreview } from 'scenes/hog-functions/sub-templates/NotificationSlackPreview'
-import {
-    MCP_NOTIFICATION_BUTTON_LABELS,
-    MCPMessageField,
-    MCPNotificationSubTemplateId,
-    mcpNotificationPreviewMessage,
-} from 'scenes/hog-functions/sub-templates/sub-templates'
+import { MCPNotificationSubTemplateId } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
 
 import { mcpAnalyticsNotificationsLogic, MCPNotificationUseCase } from './mcpAnalyticsNotificationsLogic'
-import { mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
-import { countSaved, NotificationTypeRow } from './NotificationTypesTable'
+import { NotificationDetails } from './NotificationDetails'
+import { countSaved, NotificationTypeRow } from './NotificationTypeCards'
 import { SavedNotificationRow } from './SavedNotificationRow'
 
 export interface InstantAlertUseCase {
@@ -34,27 +28,28 @@ export interface InstantAlertUseCase {
     headline: string
     lead: string
     dialogTitle: string
-    /** Shown until the project's own latest event loads; the copy always comes from the template. */
-    sample: Record<MCPMessageField, string>
-    /** Caption for a preview built from the project's own event. */
-    realCaption: string
+    covers: string[]
 }
+
+const ALERT_DESTINATIONS = DESTINATION_OPTIONS.map((option) => ({
+    key: option.templateId,
+    label: option.label,
+    icon: <img src={option.iconUrl} alt="" />,
+}))
 
 export const INSTANT_ALERT_USE_CASES: InstantAlertUseCase[] = [
     {
         useCase: 'tool-error',
         subTemplateId: 'mcp-tool-error',
         icon: <IconWarning />,
-        headline: 'A tool call failed',
-        lead: 'Which tool broke, what the agent wanted, and a link to the detail.',
+        headline: 'Failed tool call alerting',
+        lead: 'An alert that posts a message to your team each time a tool call fails.',
         dialogTitle: 'Notify me about failing tool calls',
-        sample: {
-            clientName: 'Claude Code',
-            serverName: 'acme-mcp',
-            intent: 'find out why signups dropped after Tuesday’s release',
-            toolName: 'query-events',
-        },
-        realCaption: 'Your most recent',
+        covers: [
+            'Which tool failed and which harness called it',
+            'What the agent was trying to do',
+            'A link to the tool in PostHog',
+        ],
     },
 ]
 
@@ -105,10 +100,11 @@ export function useInstantAlertRows(): InstantAlertRows {
         notificationsLoaded,
         notificationsFailed,
         notificationsTruncated,
+        notificationsLoading,
+        pendingToggleIds,
     } = useValues(mcpAnalyticsNotificationsLogic)
-    const { loadNotifications } = useActions(mcpAnalyticsNotificationsLogic)
-    const { examples } = useValues(mcpNotificationExamplesLogic)
-    const { loadExamples } = useActions(mcpNotificationExamplesLogic)
+    const { loadNotifications, toggleNotificationEnabled } = useActions(mcpAnalyticsNotificationsLogic)
+    const { searchParams } = useValues(router)
     const addDisabledReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -116,10 +112,7 @@ export function useInstantAlertRows(): InstantAlertRows {
 
     useEffect(() => {
         loadNotifications()
-        // The previews render sample copy straight away and upgrade to the project's own events when
-        // this lands, so there's deliberately no loading state to wait on.
-        loadExamples()
-    }, [loadNotifications, loadExamples])
+    }, [loadNotifications])
 
     // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
     const { openDialog: openToolErrorDialog } = useActions(
@@ -133,7 +126,7 @@ export function useInstantAlertRows(): InstantAlertRows {
         const saved = notificationsByUseCase[config.useCase] ?? []
         // A cut list may hide a match past the page limit, so it never gets a primary "Set up".
         const mayExist = saved.length > 0 || notificationsTruncated
-        const example = examples[config.useCase]
+        const [first] = saved
         return {
             key: `alert-${config.useCase}`,
             icon: config.icon,
@@ -154,15 +147,26 @@ export function useInstantAlertRows(): InstantAlertRows {
                 </LemonButton>
             ),
             preview: (
-                <NotificationSlackPreview
-                    message={mcpNotificationPreviewMessage(example ?? config.sample)}
-                    buttonLabel={MCP_NOTIFICATION_BUTTON_LABELS[config.subTemplateId]}
-                    caption={example ? config.realCaption : 'Example'}
+                <NotificationDetails
+                    covers={config.covers}
+                    destinations={ALERT_DESTINATIONS}
+                    activeDestination={first?.enabled ? first.template?.id : undefined}
                 />
             ),
-            savedRows: saved.map((notification) => (
-                <NotificationRow key={notification.id} notification={notification} />
-            )),
+            // ponytail: a type holds one alert; older projects with extras toggle them together and edit the newest.
+            setup: first
+                ? {
+                      enabled: saved.some((notification) => notification.enabled),
+                      summary: getNotificationDescription(first),
+                      editTo: urlForHogFunction(first, combineUrl(urls.mcpAnalyticsNotifications(), searchParams).url),
+                      onToggle: (enabled) =>
+                          saved.forEach((notification) => toggleNotificationEnabled(notification.id, enabled)),
+                      toggleLoading: saved.some((notification) => pendingToggleIds[notification.id]),
+                      // A refresh in flight could clobber a toggle started now.
+                      toggleDisabled: notificationsLoading,
+                  }
+                : undefined,
+            savedRows: [],
         }
     })
 

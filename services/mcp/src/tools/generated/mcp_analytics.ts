@@ -98,6 +98,7 @@ const mcpAnalyticsSessionsList = (): ToolBase<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                feedback_only: params.feedback_only,
                 filter_test_accounts: params.filter_test_accounts,
                 has_errors: params.has_errors,
                 limit: params.limit,
@@ -437,6 +438,14 @@ const MCPMissingCapabilitiesQuery = z.object({
         .describe(
             "Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain."
         )
+        .optional(),
+    outcomes: z
+        .array(z.string())
+        .describe('Only reports with one of these outcomes: "blocked", "completed" or "not_reported".')
+        .optional(),
+    properties: z
+        .array(MCPAnalyticsPropertyFilter)
+        .describe('Property filters applied to the report events, such as the shared harness and model filters.')
         .optional(),
     search: z.string().describe('Case-insensitive substring match over the report text.').optional(),
 })

@@ -16,7 +16,7 @@ import { expect, userEvent } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
 import { labMark } from './aiLabs'
-import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
+import { ActivityCards } from './earlyData/ActivityCards'
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
@@ -1078,7 +1078,7 @@ export const ActivityWeeklyReportOfferNarrow: Story = {
     parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
     render: () => (
         <div className="w-[520px]">
-            <ActivityNextSteps />
+            <ActivityCards />
         </div>
     ),
 }

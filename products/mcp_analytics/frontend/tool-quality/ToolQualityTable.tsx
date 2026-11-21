@@ -1,17 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
+import { IconInfo, IconSort } from '@posthog/icons'
 import {
     Badge,
     Button,
     Card,
     CardFooter,
-    CardHeader,
-    CardTitle,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
     Pagination,
     PaginationButton,
     PaginationContent,
@@ -19,7 +13,6 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
-    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -32,8 +25,9 @@ import {
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
@@ -46,15 +40,16 @@ import {
     type ToolQualitySortColumn,
     TOOL_QUALITY_PAGE_SIZE,
     mcpAnalyticsToolQualityLogic,
-    mcpToolReportUrl,
 } from '../mcpAnalyticsToolQualityLogic'
+import { mcpFacetsLogic } from '../mcpFacetsLogic'
 import { errorRateChange, p95Change } from './qualityChange'
 import { QualityChangeMarker } from './QualityChangeMarker'
 import { SessionsCell } from './SessionsCell'
+import { ToolVolumeCell } from './ToolVolumeCell'
 import { TrendCell } from './TrendCell'
 
 const TOOL_BUTTON_CLASS =
-    'cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+    'cursor-pointer rounded-sm text-left font-mono font-semibold text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
 
 interface ColumnSpec {
     key: ToolQualitySortColumn
@@ -93,7 +88,6 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         align: 'right',
         tooltip: 'Unique sessions where this tool was called, and their share of all sessions in the period',
     },
-    { key: 'last_seen', label: 'Last seen' },
 ]
 
 const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%', '60%', '75%', '45%', '65%']
@@ -102,10 +96,30 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
         return <Badge variant="success">0%</Badge>
     }
-    return (
+    const badge = (
         <Badge variant={pct >= DESTRUCTIVE_ERROR_RATE_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
+    )
+    return pct >= DESTRUCTIVE_ERROR_RATE_PCT ? (
+        <Tooltip title={`${DESTRUCTIVE_ERROR_RATE_PCT}% or more of calls failed.`}>
+            <span tabIndex={0}>{badge}</span>
+        </Tooltip>
+    ) : (
+        badge
+    )
+}
+
+function VolumeHead(): JSX.Element {
+    return (
+        <TableHead align="right">
+            <Tooltip title="Calls per interval. Hover a bar for its calls, error rate and p95.">
+                <span tabIndex={0} className="inline-flex items-center gap-1">
+                    Volume
+                    <IconInfo className="size-3" />
+                </span>
+            </Tooltip>
+        </TableHead>
     )
 }
 
@@ -122,23 +136,28 @@ function SortableHead({
 }): JSX.Element {
     const isSorted = sort.column === column.key
     const nextDirection = isSorted && sort.direction === 'DESC' ? 'ASC' : 'DESC'
-    const head = (
-        <button
-            type="button"
-            disabled={loading}
-            onClick={() => onSort(column.key, nextDirection)}
-            className="inline-flex cursor-pointer select-none items-center gap-1"
-        >
-            {column.label}
-            {isSorted ? <span className="text-[9px]">{sort.direction === 'DESC' ? '▼' : '▲'}</span> : null}
-        </button>
-    )
     return (
         <TableHead
             align={column.align}
             aria-sort={isSorted ? (sort.direction === 'DESC' ? 'descending' : 'ascending') : 'none'}
         >
-            {column.tooltip ? <Tooltip title={column.tooltip}>{head}</Tooltip> : head}
+            <Button
+                size="sm"
+                aria-selected={isSorted ? true : undefined}
+                className={cn('gap-1.5', isSorted ? 'text-foreground' : 'hover:bg-fill-hover/50')}
+                tooltip={column.tooltip}
+                disabled={loading}
+                onClick={() => onSort(column.key, nextDirection)}
+            >
+                {column.label}
+                {!isSorted ? (
+                    <IconSort className="size-3 opacity-50" />
+                ) : sort.direction === 'DESC' ? (
+                    <IconArrowDown className="size-3" />
+                ) : (
+                    <IconArrowUp className="size-3" />
+                )}
+            </Button>
         </TableHead>
     )
 }
@@ -149,16 +168,19 @@ function ToolRowsSkeleton(): JSX.Element {
             {SKELETON_ROW_WIDTHS.map((width, i) => (
                 <TableRow key={i}>
                     <TableCell expand>
-                        <SkeletonLine style={{ width }} />
+                        <div className="flex flex-col gap-1.5 py-1">
+                            <SkeletonLine style={{ width }} />
+                            <SkeletonLine className="w-2/3" />
+                        </div>
+                    </TableCell>
+                    <TableCell align="right">
+                        <SkeletonLine className="ml-auto w-40" />
                     </TableCell>
                     {SORTABLE_COLUMNS.map((column) => (
                         <TableCell key={column.key} align={column.align}>
                             <SkeletonLine className={column.align === 'right' ? 'ml-auto w-10' : 'w-16'} />
                         </TableCell>
                     ))}
-                    <TableCell align="right">
-                        <Skeleton className="ml-auto h-6 w-18" />
-                    </TableCell>
                 </TableRow>
             ))}
         </TableBody>
@@ -191,11 +213,13 @@ function ToolRows(): JSX.Element {
         toolRowsPreviousTotalSessions,
         toolRowsPageLoading,
         selectedTool,
-        dateFilter,
-        pinnedInterval,
+        dailyChartData,
+        interval,
     } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
-    const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
+    const { openToolDrawer } = useActions(mcpAnalyticsToolQualityLogic)
+    const { facets } = useValues(mcpFacetsLogic)
+    // The same threshold as the "Slow" filter, so amber means the same thing everywhere.
+    const slowThresholdMs = facets?.p95 ? Math.round(facets.p95) : null
 
     if (toolRows.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
@@ -207,21 +231,42 @@ function ToolRows(): JSX.Element {
                     key={row.tool}
                     data-state={row.tool === selectedTool ? 'selected' : undefined}
                     className="cursor-pointer"
-                    onClick={() => toggleRow(row.tool)}
+                    onClick={() => openToolDrawer(row.tool)}
                     data-attr="mcp-tool-quality-row"
                 >
                     <TableCell expand>
-                        <button
-                            type="button"
-                            className={TOOL_BUTTON_CLASS}
-                            aria-pressed={row.tool === selectedTool}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                toggleRow(row.tool)
-                            }}
-                        >
-                            {row.tool}
-                        </button>
+                        <div className="flex min-w-0 flex-col gap-0.5 py-1">
+                            <button
+                                type="button"
+                                className={TOOL_BUTTON_CLASS}
+                                aria-pressed={row.tool === selectedTool}
+                            >
+                                {row.tool}
+                            </button>
+                            {row.description ? (
+                                <span className="line-clamp-1 text-xs text-primary">{row.description}</span>
+                            ) : null}
+                            <span className="flex flex-wrap items-center gap-x-1.5 text-xs italic text-secondary">
+                                {row.category ? (
+                                    <>
+                                        <span>{row.category}</span>
+                                        <span aria-hidden>·</span>
+                                    </>
+                                ) : null}
+                                <span>First called</span>
+                                <TZLabel time={row.first_seen} />
+                            </span>
+                        </div>
+                    </TableCell>
+                    <TableCell align="right">
+                        <ToolVolumeCell
+                            tool={row.tool}
+                            buckets={row.buckets ?? []}
+                            labels={dailyChartData.labels}
+                            interval={interval}
+                            slowThresholdMs={slowThresholdMs}
+                            lastSeen={row.last_seen}
+                        />
                     </TableCell>
                     <TableCell align="right" className="tabular-nums">
                         {formatNumber(row.total_calls)}
@@ -237,7 +282,17 @@ function ToolRows(): JSX.Element {
                     </TableCell>
                     <TableCell align="right">
                         <span className="inline-flex items-center whitespace-nowrap">
-                            <span className="tabular-nums">{formatMs(row.p95_duration_ms)}</span>
+                            {slowThresholdMs !== null && row.p95_duration_ms > slowThresholdMs ? (
+                                <Tooltip
+                                    title={`Slower than the p95 of all calls (${formatMs(slowThresholdMs)}), the same threshold as the Slow filter.`}
+                                >
+                                    <span tabIndex={0}>
+                                        <Badge variant="warning">{formatMs(row.p95_duration_ms)}</Badge>
+                                    </span>
+                                </Tooltip>
+                            ) : (
+                                <span className="tabular-nums">{formatMs(row.p95_duration_ms)}</span>
+                            )}
                             <QualityChangeMarker change={p95Change(row)} />
                         </span>
                     </TableCell>
@@ -251,20 +306,6 @@ function ToolRows(): JSX.Element {
                             previousSessions={row.previous_sessions}
                             previousTotalSessions={toolRowsPreviousTotalSessions}
                         />
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                        <TZLabel time={row.last_seen} />
-                    </TableCell>
-                    <TableCell align="right">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter, pinnedInterval)} />}
-                            onClick={(e) => e.stopPropagation()}
-                            data-attr="mcp-tool-quality-full-report"
-                        >
-                            Full report
-                        </Button>
                     </TableCell>
                 </TableRow>
             ))}
@@ -282,9 +323,8 @@ export function ToolQualityTable(): JSX.Element {
         toolRowsPageLoading,
         toolRowsLoadFailed,
         toolRowsTotalCount,
-        searchTerm,
     } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setToolQualitySort, setToolQualityPageIndex, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
+    const { setToolQualitySort, setToolQualityPageIndex } = useActions(mcpAnalyticsToolQualityLogic)
     const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
     const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
@@ -292,29 +332,14 @@ export function ToolQualityTable(): JSX.Element {
     const showSkeleton = toolRowsPageLoading && toolRowsPage === null
 
     return (
-        <Card size="sm" className="gap-0">
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
-                <CardTitle>All tools</CardTitle>
-                <InputGroup className="w-[220px]">
-                    <InputGroupAddon align="inline-start">
-                        <InputGroupText>
-                            <IconSearch />
-                        </InputGroupText>
-                    </InputGroupAddon>
-                    <InputGroupInput
-                        type="search"
-                        placeholder="Search tools"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        data-attr="mcp-tool-quality-search"
-                    />
-                </InputGroup>
-            </CardHeader>
+        // pt-0: no card header.
+        <Card size="sm" className="gap-0 overflow-hidden pt-0">
             <div className="relative">
                 <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
                     <TableHeader>
                         <TableRow>
                             <TableHead expand>Tool</TableHead>
+                            <VolumeHead />
                             {SORTABLE_COLUMNS.map((column) => (
                                 <SortableHead
                                     key={column.key}
@@ -324,7 +349,6 @@ export function ToolQualityTable(): JSX.Element {
                                     onSort={setToolQualitySort}
                                 />
                             ))}
-                            <TableHead />
                         </TableRow>
                     </TableHeader>
                     {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}

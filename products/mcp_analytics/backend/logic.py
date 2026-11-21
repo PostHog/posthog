@@ -204,6 +204,16 @@ ORDER BY __ORDER__
 __PAGE__
 """
 
+# A server-side subquery, since a long list of session IDs would not fit in the GET request's URL.
+_FEEDBACK_SESSIONS_EXPR = """$session_id IN (
+    SELECT $session_id
+    FROM events
+    WHERE event IN ('$mcp_feedback', '$mcp_missing_capability')
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
+        AND $session_id != ''
+)"""
+
 _SESSIONS_IN_WINDOW_SQL = """
 SELECT $session_id
 FROM events
@@ -294,12 +304,11 @@ def _sessions_cache_key(
     date_from: str,
     date_to: str,
     has_errors: bool | None,
+    feedback_only: bool,
     filters: str,
     user_id: int | None,
 ) -> str:
-    payload = (
-        f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{has_errors}_{filters}_{user_id}"
-    )
+    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{has_errors}_{feedback_only}_{filters}_{user_id}"
     return generate_cache_key(team_id, payload)
 
 
@@ -312,6 +321,7 @@ def list_mcp_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
     has_errors: bool | None = None,
+    feedback_only: bool = False,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -357,6 +367,7 @@ def list_mcp_sessions(
         effective_date_from,
         date_to or "",
         has_errors,
+        feedback_only,
         _filters_cache_fragment(team, properties, filter_test_accounts),
         # Property-level access control is evaluated per member, so two members can get different
         # rows from the same filters. Key the cache by the caller to keep them apart.
@@ -375,6 +386,7 @@ def list_mcp_sessions(
         date_from=effective_date_from,
         date_to=date_to,
         has_errors=has_errors,
+        feedback_only=feedback_only,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
         user=user,
@@ -395,6 +407,7 @@ def _query_mcp_sessions(
     date_from: str,
     date_to: str | None,
     has_errors: bool | None,
+    feedback_only: bool,
     properties: list[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool,
     user: User | None,
@@ -419,6 +432,19 @@ def _query_mcp_sessions(
     window_to = query_date_range.date_to()
 
     shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
+    if feedback_only:
+        shared_filters = ast.And(
+            exprs=[
+                shared_filters,
+                parse_expr(
+                    _FEEDBACK_SESSIONS_EXPR,
+                    placeholders={
+                        "scan_from": ast.Constant(value=window_from - SESSION_OVERLAP_BUFFER),
+                        "scan_to": ast.Constant(value=window_to + SESSION_OVERLAP_BUFFER),
+                    },
+                ),
+            ]
+        )
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),

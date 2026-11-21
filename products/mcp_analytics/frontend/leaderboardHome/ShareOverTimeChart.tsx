@@ -14,44 +14,32 @@ import {
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { Card, CardState } from '../dashboard/Card'
-import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatNumber } from '../dashboard/formatters'
-import { type ShareSeries } from './leaderboardShares'
-import { LoadErrorMessage } from './LoadErrorMessage'
-import { NoDataMessage } from './NoDataMessage'
+
+export interface ShareOverTimeSeries {
+    key: string
+    label: string
+    color: string | undefined
+    data: number[]
+}
 
 export function ShareOverTimeChart({
-    title,
     labels,
     series,
-    loading,
-    failed,
     theme,
     timezone,
     interval,
-    colorOf,
 }: {
-    title: string
     labels: string[]
-    series: ShareSeries[]
-    loading: boolean
-    failed: boolean
+    series: ShareOverTimeSeries[]
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
-    colorOf: (label: string, index: number) => string | undefined
 }): JSX.Element {
     const chartSeries = useMemo<Series[]>(
         () =>
-            series.map((s, index) => ({
-                key: s.label,
-                label: s.label,
-                color: colorOf(s.label, index),
-                data: s.data,
-                fill: { opacity: 0.85 },
-            })),
-        [series, colorOf]
+            series.map((s) => ({ key: s.key, label: s.label, color: s.color, data: s.data, fill: { opacity: 0.85 } })),
+        [series]
     )
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
@@ -92,27 +80,17 @@ export function ShareOverTimeChart({
     )
 
     return (
-        <Card title={title} className="min-w-0">
-            <CardState
-                loading={loading}
-                isEmpty={series.every((s) => s.data.every((value) => value === 0))}
-                className="min-h-[300px]"
-                skeleton={<ChartSkeleton kind="line" />}
-                empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
-            >
-                <div className="flex min-h-[300px] flex-1 flex-col">
-                    {/* The minimum is on the plot so a wrapping legend grows the card instead of shrinking the plot. `!` beats the chart's min-h-0. */}
-                    <TimeSeriesLineChart
-                        series={chartSeries}
-                        labels={labels}
-                        config={config}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        className="min-h-[276px]!"
-                    />
-                </div>
-            </CardState>
-        </Card>
+        <div className="flex min-h-[300px] flex-1 flex-col">
+            {/* Min height on the plot so a wrapping legend grows the card. */}
+            <TimeSeriesLineChart
+                series={chartSeries}
+                labels={labels}
+                config={config}
+                theme={theme}
+                tooltip={renderTooltip}
+                className="min-h-[276px]!"
+            />
+        </div>
     )
 }
 

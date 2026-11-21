@@ -34,7 +34,7 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     'Claude Agent SDK': { mark: 'Claude', brand: 'Anthropic', shade: 4 },
     'Claude Code': { mark: 'Claude', brand: 'Anthropic', shade: 0 },
     'Claude.ai': { mark: 'Claude', brand: 'Anthropic', shade: 8 },
-    'Anthropic API': { mark: 'Anthropic', brand: 'Anthropic', shade: -12 },
+    'Anthropic API': { mark: 'Claude', brand: 'Anthropic', shade: -12 },
     Cowork: { mark: 'Claude', brand: 'Anthropic', shade: 12 },
     'Claude Design': { mark: 'Claude', brand: 'Anthropic', shade: 16 },
     'Claude Artifacts': { mark: 'Claude', brand: 'Anthropic', shade: 20 },

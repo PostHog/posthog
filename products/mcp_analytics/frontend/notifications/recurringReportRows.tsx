@@ -1,22 +1,35 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCalendar, IconOpenSidebar, IconPlus } from '@posthog/icons'
+import { IconCalendar, IconLetter, IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi, SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
-import { countSaved, NotificationTypeRow } from './NotificationTypesTable'
+import { NotificationDetails, NotificationDestination } from './NotificationDetails'
+import { countSaved, NotificationTypeRow } from './NotificationTypeCards'
 import { MCP_RECURRING_REPORTS, MCPRecurringReport, urlForRecurringReport } from './recurringReportDefinitions'
-import { RecurringReportDetails } from './RecurringReportDetails'
 import { SavedNotificationRow } from './SavedNotificationRow'
+
+const REPORT_DESTINATIONS: NotificationDestination[] = [
+    { key: SubscriptionTargetEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    ...DESTINATION_OPTIONS.filter((option) => option.value === 'slack' || option.value === 'microsoft-teams').map(
+        (option) => ({
+            key: option.value === 'slack' ? SubscriptionTargetEnumApi.Slack : SubscriptionTargetEnumApi.Teams,
+            label: option.label,
+            icon: <img src={option.iconUrl} alt="" />,
+        })
+    ),
+]
 
 function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
     const { pendingToggleIds } = useValues(mcpRecurringReportsLogic)
@@ -99,9 +112,16 @@ export interface RecurringReportRows {
 export function useRecurringReportRows(): RecurringReportRows {
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const { receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { reportsByTemplateTitle, otherReports, reportsLoaded, reportsFailed, reportsTruncated, defaultTargetType } =
-        useValues(mcpRecurringReportsLogic)
-    const { loadReports } = useActions(mcpRecurringReportsLogic)
+    const {
+        reportsByTemplateTitle,
+        otherReports,
+        reportsLoaded,
+        reportsFailed,
+        reportsTruncated,
+        defaultTargetType,
+        pendingToggleIds,
+    } = useValues(mcpRecurringReportsLogic)
+    const { loadReports, toggleReportEnabled } = useActions(mcpRecurringReportsLogic)
     // An unresolved flag reads as off, so the row would offer "Turn on early access" to someone who
     // already has it until the flags land.
     const ready = reportsLoaded && receivedFeatureFlags
@@ -114,6 +134,7 @@ export function useRecurringReportRows(): RecurringReportRows {
 
     const rows: NotificationTypeRow[] = MCP_RECURRING_REPORTS.map((report) => {
         const saved = ready ? (reportsByTemplateTitle[report.title] ?? []) : []
+        const [first] = saved
         return {
             key: `report-${report.key}`,
             icon: <IconCalendar />,
@@ -132,8 +153,35 @@ export function useRecurringReportRows(): RecurringReportRows {
                 aiSubscriptionsEnabled,
                 defaultTargetType
             ),
-            preview: <RecurringReportDetails covers={report.covers} prompt={report.prompt} />,
-            savedRows: saved.map((report) => <SavedReportRow key={report.id} report={report} />),
+            preview: (
+                <NotificationDetails
+                    covers={report.covers}
+                    destinations={REPORT_DESTINATIONS}
+                    activeDestination={first?.enabled ? first.target_type : undefined}
+                    prompt={report.prompt}
+                />
+            ),
+            // ponytail: a type holds one report; older projects with extras toggle them together and edit the newest.
+            setup: first
+                ? {
+                      enabled: saved.some((saved) => saved.enabled),
+                      summary: (
+                          <>
+                              {first.summary}
+                              {first.next_delivery_date && first.enabled ? (
+                                  <>
+                                      {' · next '}
+                                      <TZLabel time={first.next_delivery_date} />
+                                  </>
+                              ) : null}
+                          </>
+                      ),
+                      editTo: urls.subscription(first.id),
+                      onToggle: (enabled) => saved.forEach((saved) => toggleReportEnabled(saved.id, enabled)),
+                      toggleLoading: saved.some((saved) => pendingToggleIds[saved.id]),
+                  }
+                : undefined,
+            savedRows: [],
         }
     })
 

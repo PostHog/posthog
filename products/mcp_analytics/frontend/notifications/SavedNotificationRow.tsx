@@ -32,22 +32,31 @@ export function SavedNotificationRow({
     deleteDataAttr,
 }: SavedNotificationRowProps): JSX.Element {
     return (
-        <div className="flex items-center gap-3 px-4 py-2">
-            {icon}
-            <div className="min-w-0 flex-1">
-                <Link to={to} className="block truncate text-sm font-medium">
+        <div className="flex flex-col gap-1 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+                {icon}
+                <Link to={to} className="block min-w-0 truncate text-sm font-medium">
                     {name}
                 </Link>
-                {summary ? <div className="truncate text-xs text-muted">{summary}</div> : null}
             </div>
-            <LemonSwitch
-                checked={enabled}
-                onChange={() => onToggle(!enabled)}
-                loading={toggleLoading}
-                disabled={toggleDisabled}
-                aria-label={`Enable ${name}`}
-            />
-            <ConfirmDeleteButton onDelete={onDelete} disabledReason={deleteDisabledReason} data-attr={deleteDataAttr} />
+            {summary ? <div className="text-xs text-muted">{summary}</div> : null}
+            <div className="flex items-center justify-between gap-2">
+                <LemonSwitch
+                    checked={enabled}
+                    onChange={() => onToggle(!enabled)}
+                    loading={toggleLoading}
+                    disabled={toggleDisabled}
+                    label={enabled ? 'On' : 'Paused'}
+                    labelClassName="text-xs text-muted"
+                    tooltip={enabled ? 'Pause sending' : 'Resume sending'}
+                    aria-label={`Enable ${name}`}
+                />
+                <ConfirmDeleteButton
+                    onDelete={onDelete}
+                    disabledReason={deleteDisabledReason}
+                    data-attr={deleteDataAttr}
+                />
+            </div>
         </div>
     )
 }

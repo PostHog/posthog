@@ -11,6 +11,7 @@ export interface ShareBarRow<T> {
     label: string
     icon?: ReactNode
     href?: string
+    onClick?: () => void
     value: number
     color?: string
     meta: T
@@ -71,7 +72,15 @@ export function ShareBarChart<T>({
             return (
                 <>
                     {row?.icon}
-                    {row?.href ? (
+                    {row?.onClick ? (
+                        <button
+                            type="button"
+                            onClick={row.onClick}
+                            className="cursor-pointer truncate text-left hover:underline"
+                        >
+                            {s.label}
+                        </button>
+                    ) : row?.href ? (
                         <Link to={row.href} target="_blank" className="truncate">
                             {s.label}
                         </Link>

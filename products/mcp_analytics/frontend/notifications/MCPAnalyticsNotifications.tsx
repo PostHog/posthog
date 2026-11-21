@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { INSTANT_ALERT_USE_CASES, useInstantAlertRows } from './instantAlertRows'
 import { AI_REPORT_LIST_LIMIT } from './mcpRecurringReportsLogic'
-import { NotificationTypesTable } from './NotificationTypesTable'
+import { NotificationTypeCards } from './NotificationTypeCards'
 import { useRecurringReportRows } from './recurringReportRows'
 
 export function MCPAnalyticsNotifications(): JSX.Element {
@@ -34,7 +34,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {rows.length > 0 && <NotificationTypesTable rows={rows} />}
+            {rows.length > 0 && <NotificationTypeCards rows={rows} />}
 
             {/* Say so rather than quietly dropping the tail — an invisible report is the bug this
                 whole section exists to fix. */}

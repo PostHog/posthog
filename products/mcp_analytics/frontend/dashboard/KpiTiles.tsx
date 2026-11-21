@@ -44,6 +44,7 @@ export function retryFailedSources(sources: { failed?: boolean; retry?: () => vo
 
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
+    users: string
     toolQuality: string
     toolQualityByErrorRate: string
     intentClustering: string
@@ -51,6 +52,7 @@ export function kpiTileUrls(searchParams: Record<string, any>): {
     const { landing: _landing, search: _search, ...sharedParams } = searchParams
     return {
         sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
+        users: combineUrl(urls.mcpAnalyticsUsers(), sharedParams).url,
         toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
         toolQualityByErrorRate: combineUrl(urls.mcpAnalyticsToolQuality(), {
             ...sharedParams,
@@ -122,6 +124,7 @@ export function KpiTiles({
     theme,
     interval,
     incompleteTail,
+    usersAreSessions = false,
 }: {
     kpis: KPIData
     intentClusterCount: KPIMetric
@@ -143,6 +146,7 @@ export function KpiTiles({
 }): JSX.Element {
     const {
         sessions: sessionsHref,
+        users: usersHref,
         toolQuality: toolQualityHref,
         toolQualityByErrorRate: toolQualityByErrorRateHref,
         intentClustering: intentClusteringHref,
@@ -153,8 +157,7 @@ export function KpiTiles({
             label: 'Users',
             dataAttr: 'mcp-dashboard-kpi-users',
             metric: kpis.users,
-            // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
-            href: sessionsHref,
+            href: usersHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
@@ -166,6 +169,7 @@ export function KpiTiles({
                     { failed: usersFailed, retry: onRetryUsers },
                 ]),
             summaryLabel: 'Total',
+            subtitle: usersAreSessions ? 'Anonymous sessions, not people' : undefined,
             trend: true,
         },
         {
