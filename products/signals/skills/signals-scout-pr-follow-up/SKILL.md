@@ -114,6 +114,7 @@ Establish that the merge commit is live before you measure anything; `references
 Strongest first: GitHub deployments in the warehouse, `gh` releases (the deployments API needs a `deployments: read` grant the sandbox token does not carry), GIT deploy annotations, then the soak proxy (24h server-side, 72h or more client-side and mobile, named in anything you file).
 Two rules hold on every signal-bearing rung (the first three): only commit containment (`compare` reads `ahead` or `identical`) sets the onset, never ordering, and only a persistent production environment counts.
 The soak proxy is the one exception, because it has no deployment to check: its onset is merge time plus the surface's soak, it is always estimated, and every report built on it says which soak it used.
+The soak is the latest the change can go live, not the earliest, so under the proxy the side-effect sweep starts at merge time; the soak only delays a claim verdict.
 Record which rung this project supports in `pattern:pr_follow_up:deploy-signal` so later runs go straight to it.
 
 The deploy time is your **onset**: every probe compares a post-onset window against a pre-merge window of the same length, with `toDateTime('<ts>', 'UTC')` for timestamp literals.
@@ -175,6 +176,8 @@ This is only the PR-follow-up judgment on top:
 
 - **Author** a fresh report via `scout-emit-report` for a **Not held**, **Impact missing**, or **Side effect** verdict.
   Lead with the PR (`owner/repo#n`, title, author, merge and deploy times, which deploy rung established the onset), then the claim in one line, then before-vs-after numbers per probed entity with the window lengths, then the recommendation (re-fix, roll back, follow up on the missing lift, or watch a named entity).
+  Size the harm in every report, also when a later PR already fixed it: occurrences, failed requests or runs, and the people, teams, or organizations hit, with the first and last occurrence.
+  Attach a chart pinned to that window, so a reader still sees the spike after it stops; when no event query can count the harm (a warehouse table, server exceptions with no real person), put the figures in the summary and say which source counted them.
   Cite the PR URL and every entity id.
   Cross-check `inbox-reports-list {"search": "<PR number or key terms>", "include_all_statuses": true, "ordering": "-updated_at"}` first, and read each hit's status: a report already open on the same problem gets a `scout-edit-report` with the PR linkage appended, not a duplicate, and a dismissed one means the team has already declined it, so record that in `noise:` instead of filing again.
   Set `repository` to the PR's own repository; a **Not held** or **Side effect** with an unambiguous same-entity regression is `immediately_actionable`, an **Impact missing** is usually `requires_human_input` (whether the lift was ever realistic is the author's call).
