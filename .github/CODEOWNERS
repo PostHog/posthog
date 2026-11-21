@@ -113,3 +113,10 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 .github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
 .github/scripts/mobile-rebuild.mjs @PostHog/team-devex
 .github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex
+
+# The hog release approver check decides who may approve a release of the signed hog CLI, and the
+# release workflow is what runs it. The workflow runs the checker as the last release tag has it, so a
+# weakened copy merged here would govern every later release. Both files need a review from the team
+# that owns hog.
+hog/release/check-approvers.sh @PostHog/team-growth
+.github/workflows/release-hog.yml @PostHog/team-growth
