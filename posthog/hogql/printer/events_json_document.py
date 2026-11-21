@@ -5,12 +5,13 @@ The cleaner splits event properties at insert: each `$feature/<key>` value goes 
 which ClickHouse clears 60 days after insertion. A whole-document read puts those parts back so the document matches
 the legacy table while the parts exist. The cleaner also stores every object and array as a string of its JSON text,
 and the builder puts each one back as the object or array. The JSON type cannot store `null`, so the cleaner drops
-every top-level null field and records its key in the column's null-key array. This builder does not read those
-arrays, so a property sent as `null` has no member in the rebuilt document. The HogQL printer and the batch export
-source share this builder so every whole-document reader returns the same document.
+every top-level null field and records its key in the column's null-key array. The HogQL printer and the batch export
+source do not pass those arrays, so a property sent as `null` has no member in the documents they rebuild. They share
+this builder so each of them returns the same document. The cohort seeder passes the arrays, so the document it
+evaluates holds the same top-level members as the legacy table's text.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from posthog.hogql.constants import (
     FEATURE_FLAG_PROPERTY_PREFIX,
@@ -117,31 +118,58 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
     return f"arrayConcat({flag_pairs}, {active_pair})"
 
 
+def null_member_pairs_sql(null_keys_sql: str) -> str:
+    """`"key":null` strings for the top-level keys that a null-keys array lists.
+
+    An entry with a `.` is a nested path. The cleaner also drops a nested null from the container string it stores,
+    so a nested null has no member here either. `%2E` is the stored spelling of a `.` inside one key.
+    """
+    return (
+        f"arrayMap(key -> concat(toJSONString(replaceAll(key, '%2E', '.')), ':null'), "
+        f"arrayFilter(key -> position(key, '.') = 0, {null_keys_sql}))"
+    )
+
+
 def json_document_sql(
-    document_sql: str, *, exclude_empty_key: str | None = None, declared_string_paths: Iterable[str] = ()
+    document_sql: str,
+    *,
+    exclude_empty_key: str | None = None,
+    declared_string_paths: Iterable[str] = (),
+    null_keys_sqls: Sequence[str] = (),
 ) -> str:
-    """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
+    """A JSON column as document text, built from its member pairs so declared defaults can be left out.
+
+    Each of `null_keys_sqls` adds a null member for each top-level key it lists.
+    """
     pairs = json_member_pairs_sql(
         document_sql, exclude_empty_key=exclude_empty_key, declared_string_paths=declared_string_paths
     )
+    if null_keys_sqls:
+        pairs = f"arrayConcat({', '.join([pairs, *map(null_member_pairs_sql, null_keys_sqls)])})"
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
-def person_document_sql(person_properties_sql: str) -> str:
+def person_document_sql(person_properties_sql: str, *, null_keys_sqls: Sequence[str] = ()) -> str:
     """The person properties column as document text, without the declared string defaults."""
-    return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)
+    return json_document_sql(
+        person_properties_sql,
+        declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS,
+        null_keys_sqls=null_keys_sqls,
+    )
 
 
 def event_document_sql(
     properties_sql: str,
     temporary_properties_sql: str,
     feature_flags_sql: str | None,
+    *,
+    null_keys_sqls: Sequence[str] = (),
 ) -> str:
     """The rebuilt document as JSON text. The caller wraps it in any restricted-key masking.
 
     `feature_flags_sql` is the flags map to rebuild from, already filtered of restricted flags, or None when every
     flag is hidden. The `$feature_flags` member of `properties` is left out because its entries come back as
-    `$feature/<key>` pairs.
+    `$feature/<key>` pairs. Each of `null_keys_sqls` adds a null member for each top-level key it lists.
     """
     pairs = [
         json_member_pairs_sql(
@@ -153,4 +181,5 @@ def event_document_sql(
     if feature_flags_sql is not None:
         pairs.append(feature_flag_pairs_sql(feature_flags_sql))
     pairs.append(json_member_pairs_sql(temporary_properties_sql))
+    pairs.extend(map(null_member_pairs_sql, null_keys_sqls))
     return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"

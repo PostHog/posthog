@@ -158,14 +158,17 @@ The creator pins:
 The seeder builds its catalog from these pinned filters with the same `cohort-core` code the processor uses.
 The finalizer later compares the pinned hash, and the pinned filters, with the cohort's current ones.
 
-`flag_calls_table` is `events` or `flag_evaluations`, and `schema_version` stays 1.
+`flag_calls_table` is `events`, `flag_evaluations` or `flag_evaluations_json`, and `schema_version` stays 1.
 The seeder reads a missing key as `events` and fails the run on any other value, so both behavioral creators write the key on every run.
-The creator pins `flag_evaluations` only when every cohort in the run that has a `$feature_flag_called` condition meets both rules:
+The creator pins a flag table only when every cohort in the run that has a `$feature_flag_called` condition meets both rules:
 
-- The batch calculation reads every flag call of that cohort from `flag_evaluations`. The creator compiles the cohort's batch query to check this, so the seeder and the batch calculation read the same table.
+- The batch calculation reads every flag call of that cohort from a flag table. The creator compiles the cohort's batch query to check this, so the seeder and the batch calculation read the same table.
 - Every `$feature_flag_called` window in that cohort is relative and has no end date, so it moves with the run's boundary. `flag_evaluations` drops rows after 90 days. When the seeder scans a day that a relative window still covers, the table still holds that day. The first day of a fixed date range can leave the table before the seeder scans it, while `events` still holds it. This rule does not apply to an organization whose flag calls are only in `flag_evaluations`, because `events` holds none of its new flag calls.
 
 A cohort without a `$feature_flag_called` condition does not affect the choice.
+The flag table is `flag_evaluations_json` when the compiled batch query reads it, which it does for a team on the native JSON events table while the `FLAG_EVALUATIONS_READS_JSON` instance setting is on. Otherwise it is `flag_evaluations`.
+When two cohorts of one run report different flag tables, the setting changed while the creator compiled them, and the creator raises an error so that a retry pins one table.
+Turn the setting on only after `flag_evaluations_json` holds every day a pinned window can reach, the seeder that reads the table runs in every region, and the `cohort_seeder` ClickHouse profile allows the table's read settings. A seeder without support for the table fails every run pinned to it.
 When a cohort's batch query does not compile, the creator refuses the run.
 The save path refuses with reason `flag_calls_table_unresolved`, and the team creator raises an error that names the cohort.
 In an organization whose flag calls are only in `flag_evaluations`, a run that pinned `events` would give the cohort an empty flag-call history that still counts as backfilled.
@@ -229,7 +232,7 @@ Two management commands cover operator work.
   It can narrow the run to chosen cohorts, which is how an operator re-drives one cohort whose trigger was lost.
   It refuses when an attestation is missing or when a target cohort already has an open participation, and it supports a dry run.
   For a behavioral run the creator first counts the team's events on the pinned event names over the last 7 complete UTC days, through the `events` primary key on the offline cluster.
-  When the run will pin `flag_evaluations`, it counts `$feature_flag_called` from `flag_evaluations` instead.
+  When the run will pin a flag table, it counts `$feature_flag_called` from that table instead.
   The creator refuses above the behavioral scan limit, and records the count in the run's `preconditions`.
   A dry run, or a refusal, prints the busiest day and its largest events.
   The count is a recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events.
