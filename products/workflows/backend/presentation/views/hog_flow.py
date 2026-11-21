@@ -5750,14 +5750,16 @@ class HogFlowViewSet(
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
-            data = request.data if isinstance(request.data, dict) else {}
-            filters = data.get("filters")
-            # The serializer coerces a numeric string or float to an index, so any value that is not null sizes groups.
+            # Scopes come from the values the handler validates, so a form or JSON body cannot be read two ways.
+            # A body that fails validation gets the strictest scopes, and the handler then rejects it.
+            serializer = BlastRadiusRequestSerializer(data=request.data)
+            if not serializer.is_valid():
+                return ["hog_flow:read", "person:read", "group:read"]
+            params = serializer.validated_data
             return [
                 "hog_flow:read",
                 *audience_sizing_data_scopes(
-                    filters if isinstance(filters, dict) else None,
-                    is_group_audience=data.get("group_type_index") is not None,
+                    params["filters"], is_group_audience=params.get("group_type_index") is not None
                 ),
             ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
