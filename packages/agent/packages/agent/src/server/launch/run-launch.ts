@@ -5,7 +5,12 @@ import type { Task, TaskRun, TaskRunState } from "../../types";
 import type { JwtPayload } from "../jwt";
 import { claudeCodeConfigSchema } from "../schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "../types";
-import { type RunPolicy, runPolicyFromOrigin } from "./run-policy";
+import {
+  parseServerRunPolicy,
+  RESTRICTIVE_RUN_POLICY,
+  type RunPolicy,
+  runPolicyFromOrigin,
+} from "./run-policy";
 
 export interface RunLaunchSources {
   readonly payload: Pick<JwtPayload, "task_id" | "run_id" | "user_id">;
@@ -14,6 +19,12 @@ export interface RunLaunchSources {
   readonly config: Pick<AgentServerConfig, "apiUrl" | "projectId">;
   readonly env: Readonly<Record<string, string | undefined>>;
 }
+
+export type RunPolicySource =
+  | "server"
+  | "origin"
+  | "invalid_server"
+  | "stale_server";
 
 export interface RunLaunch {
   readonly userId: number | null;
@@ -35,6 +46,7 @@ export interface RunLaunch {
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
   readonly policy: RunPolicy;
+  readonly policySource: RunPolicySource;
   readonly disableRepoHooks: boolean;
   readonly disableSkills: boolean;
   readonly systemPrompt: ClaudeCodeConfig["systemPrompt"];
@@ -49,6 +61,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
   const systemPrompt = claudeCodeConfigSchema.shape.systemPrompt.safeParse(
     runState?.systemPrompt,
   );
+  const { policy, source: policySource } = readRunPolicy(sources);
 
   return {
     userId: sources.payload.user_id || task?.created_by?.id || null,
@@ -69,7 +82,8 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     codexMaxSubagents: runState?.codex_max_subagents ?? null,
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
-    policy: readRunPolicy(sources),
+    policy,
+    policySource,
     disableRepoHooks: runState?.disable_repo_hooks === true,
     disableSkills: runState?.disable_skills === true,
     systemPrompt: systemPrompt.success ? systemPrompt.data : undefined,
@@ -102,18 +116,32 @@ function readInteractionOrigin(
   );
 }
 
-function readRunPolicy({ task, taskRun }: RunLaunchSources): RunPolicy {
-  return runPolicyFromOrigin({
-    originProduct: task?.origin_product,
-    endRunWhenDone: taskRun?.state?.end_run_when_done === true,
-    callerEndsRun: taskRun?.state?.caller_ends_run === true,
-  });
+function readRunPolicy({ payload, task, taskRun, env }: RunLaunchSources): {
+  policy: RunPolicy;
+  source: RunPolicySource;
+} {
+  const raw = env.POSTHOG_TASK_RUN_POLICY;
+  const server = raw ? parseServerRunPolicy(raw) : undefined;
+  if (raw && !server) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
+  }
+  if (server?.runId === payload.run_id) {
+    return { policy: server.policy, source: "server" };
+  }
+  return {
+    policy: runPolicyFromOrigin({
+      originProduct: task?.origin_product,
+      endRunWhenDone: taskRun?.state?.end_run_when_done === true,
+      callerEndsRun: taskRun?.state?.caller_ends_run === true,
+    }),
+    source: server ? "stale_server" : "origin",
+  };
 }
 
 function readClientProvenance(sources: RunLaunchSources): string | undefined {
   return (
     sources.task?.client_provenance ||
-    readRunPolicy(sources).defaultClientProvenance
+    readRunPolicy(sources).policy.defaultClientProvenance
   );
 }
 
@@ -138,7 +166,7 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
       url: `${projectWebUrl}/inbox/${task.signal_report}`,
     };
   }
-  if (!readRunPolicy(sources).threadLink) {
+  if (!readRunPolicy(sources).policy.threadLink) {
     return undefined;
   }
 
