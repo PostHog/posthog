@@ -161,14 +161,13 @@ def _parse_stamp(raw: Optional[str]) -> Optional[datetime]:
     return stamp
 
 
-def is_stale_on_every_route(
+def is_stale_on_some_route(
     *, updated_at: Optional[datetime], draft_updated_at: Optional[datetime], base_updated_at: Optional[str]
 ) -> bool:
     base_stamp = _parse_stamp(base_updated_at)
-    if base_stamp is None or updated_at is None:
+    if base_stamp is None:
         return False
-    oldest_fence = min(updated_at, draft_updated_at) if draft_updated_at else updated_at
-    return oldest_fence > base_stamp
+    return any(stamp is not None and stamp > base_stamp for stamp in (updated_at, draft_updated_at))
 
 
 def _save_live(

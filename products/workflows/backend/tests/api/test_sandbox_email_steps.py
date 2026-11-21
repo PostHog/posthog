@@ -673,9 +673,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 "patch",
                 {},
                 {"status": "active", "sandbox_sender_warned": False},
-                200,
-                ["trigger", "function_email"],
+                409,
+                ["trigger"],
             ),
+            ("a_stale_edit_of_a_newer_staged_draft", "patch", {}, {"stage_draft": True}, 409, ["trigger"]),
         ]
     )
     def test_a_save_the_api_refuses_on_the_test_sender_sets_up_no_test_sender(
@@ -688,6 +689,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             body["actions"].append(deepcopy(step))
         if extra.get("base_updated_at"):
             body["base_updated_at"] = (stored.updated_at - timedelta(minutes=1)).isoformat()
+        if extra.get("stage_draft"):
+            HogFlow.objects.filter(id=stored.id).update(
+                status="active",
+                draft={"actions": [_trigger()], "edges": []},
+                draft_updated_at=stored.updated_at + timedelta(minutes=1),
+            )
+            del body["status"]
+            body["base_updated_at"] = stored.updated_at.isoformat()
         headers = headers or {"HTTP_USER_AGENT": "posthog-cli"}
 
         with _flag(True):

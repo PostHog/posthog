@@ -380,7 +380,7 @@ from products.workflows.backend.facade.writes import (
     destroy_workflow,
     discard_draft,
     edit_workflow_content,
-    is_stale_on_every_route,
+    is_stale_on_some_route,
     publish_confirm_value,
     publish_draft,
     publish_moves_to_sandbox_sender,
@@ -4155,10 +4155,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if not moved:
             return validated
         refuses_save = self.context.get("refuses_save")
+        if refuses_save and refuses_save(self.instance, validated):
+            return validated
         workflow_id = str(self.instance.id) if self.instance else None
-        if not (refuses_save and refuses_save(self.instance, validated)) and _set_up_sandbox_sender_before_the_move(
-            self.context, workflow_id, moved
-        ):
+        if _set_up_sandbox_sender_before_the_move(self.context, workflow_id, moved):
             return validated
         self.context["_materialized_template_bytes"] = materialized_template_bytes
         self.context["default_new_email_steps_to_sandbox"] = False
@@ -6337,7 +6337,7 @@ class HogFlowViewSet(
             return True
         return (
             self._mcp_update_refusal() is not None
-            or is_stale_on_every_route(
+            or is_stale_on_some_route(
                 updated_at=instance.updated_at,
                 draft_updated_at=instance.draft_updated_at,
                 base_updated_at=self.request.data.get("base_updated_at"),
