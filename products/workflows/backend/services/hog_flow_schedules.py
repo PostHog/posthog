@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+import requests
 import structlog
 
 from posthog.dataclasses import frozen
@@ -39,6 +40,7 @@ class ScheduledRun:
     variables: dict[str, Any]
     claimed_run_at: datetime | None
     next_run_at: datetime | None
+    claimed_updated_at: datetime
 
 
 def _to_schedule(schedule: HogFlowSchedule) -> WorkflowSchedule:
@@ -161,14 +163,21 @@ class _ScheduledRunDispatch:
         if len(self._pending) == SCHEDULED_RUNS_PER_DISPATCH:
             self.flush()
 
+    @property
+    def has_pending(self) -> bool:
+        return bool(self._pending)
+
     def flush(self) -> None:
         chunk, self._pending, self._pending_bytes = self._pending, [], 0
         if not chunk:
             return
+        runs = [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
         try:
-            response = create_hog_flow_scheduled_invocations(
-                [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
-            )
+            try:
+                response = create_hog_flow_scheduled_invocations(runs)
+            except requests.ConnectTimeout:
+                _return_to_due(chunk)
+                raise
             if response.status_code in REFUSED_BEFORE_QUEUEING:
                 _return_to_due(chunk)
             response.raise_for_status()
@@ -200,6 +209,7 @@ def _return_to_due(chunk: list[ScheduledRun]) -> None:
             team_id=run.team_id,
             status=HogFlowScheduleStatus.ACTIVE if run.next_run_at else HogFlowScheduleStatus.COMPLETED,
             next_run_at=run.next_run_at,
+            updated_at=run.claimed_updated_at,
         ).update(status=HogFlowScheduleStatus.ACTIVE, next_run_at=run.claimed_run_at, updated_at=timezone.now())
         if not returned:
             logger.warning(
@@ -219,6 +229,7 @@ def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow, claimed_run_at:
         variables=_resolve_variables(hog_flow, schedule),
         claimed_run_at=claimed_run_at,
         next_run_at=schedule.next_run_at,
+        claimed_updated_at=schedule.updated_at,
     )
 
 
@@ -231,13 +242,15 @@ def process_due_schedules() -> ProcessedSchedules:
 
     # 1. Process due schedules (next_run_at <= now)
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
-    due_schedule_ids = list(
+    due_schedules = list(
         HogFlowSchedule.objects.filter(
             status=HogFlowScheduleStatus.ACTIVE, next_run_at__lte=timezone.now()
-        ).values_list("id", flat=True)
+        ).values_list("id", "hog_flow__trigger__type")
     )
 
-    for schedule_id in due_schedule_ids:
+    for schedule_id, trigger_type_at_scan in due_schedules:
+        if trigger_type_at_scan == "batch":
+            dispatch.flush()
         try:
             batch_job_params: dict | None = None
             scheduled_run: ScheduledRun | None = None
@@ -264,6 +277,9 @@ def process_due_schedules() -> ProcessedSchedules:
                     schedule.save(update_fields=["next_run_at", "updated_at"])
                     continue
 
+                if trigger_type == "batch" and dispatch.has_pending:
+                    continue
+
                 claimed_run_at = schedule.next_run_at
                 _advance_next_run(schedule, after=claimed_run_at)
 
@@ -280,7 +296,6 @@ def process_due_schedules() -> ProcessedSchedules:
             if scheduled_run:
                 dispatch.add(scheduled_run)
             if batch_job_params:
-                dispatch.flush()
                 dispatch_error: Exception | None = None
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
