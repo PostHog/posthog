@@ -280,15 +280,22 @@ describe('providerImportLogic', () => {
         expect(logic.values.importForm.api_key).toBe('')
     })
 
-    it('offers the Customer.io automation import from the Workflows page even when Customer.io is the only tool', async () => {
+    it.each(['workflows', 'templates'] as const)(
+        'offers the Customer.io automation import from the %s page even when Customer.io is the only tool',
+        async (entryPoint) => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openImportModal(null, entryPoint)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.showsAutomationImport).toBe(true)
+            expect(logic.values.selectedProvider).toBeNull()
+        }
+    )
+
+    it('opens straight on Customer.io from other pages when it is the only tool', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.openImportModal(null, 'workflows')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.showsAutomationImport).toBe(true)
-        expect(logic.values.selectedProvider).toBeNull()
-
-        logic.actions.openImportModal(null, 'templates')
+        logic.actions.openImportModal(null, 'transactional')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.showsAutomationImport).toBe(false)
         expect(logic.values.selectedProvider?.key).toBe('customerio')

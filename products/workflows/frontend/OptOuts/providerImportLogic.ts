@@ -411,7 +411,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
         showsAutomationImport: [
             (s) => [s.importProviders, s.entryPoint],
             (importProviders: ImportProviderOptionApi[] | null, entryPoint: ImportEntryPoint): boolean =>
-                entryPoint === 'workflows' && !!importProviders?.some((provider) => provider.key === 'customerio'),
+                (entryPoint === 'workflows' || entryPoint === 'templates') &&
+                !!importProviders?.some((provider) => provider.key === 'customerio'),
         ],
         selectedProvider: [
             (s) => [s.importProviders, s.chosenProviderKey, s.showsAutomationImport],

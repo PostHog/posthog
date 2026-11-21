@@ -18,29 +18,32 @@ import { ProviderImportPanel } from './ProviderImportPanel'
 const CUSTOMERIO_PROVIDER = 'customerio'
 
 function ProviderPicker(): JSX.Element {
-    const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport } = useValues(providerImportLogic)
+    const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport, entryPoint } =
+        useValues(providerImportLogic)
     const { selectProvider, closeImportModal } = useActions(providerImportLogic)
     const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
 
+    const automationImport = showsAutomationImport ? (
+        <LemonButton
+            type="secondary"
+            fullWidth
+            sideIcon={<IconChevronRight />}
+            onClick={() => {
+                closeImportModal()
+                openAutomationImport()
+            }}
+            data-attr="import-provider-customerio-automations"
+        >
+            <div className="flex flex-col gap-0.5 py-1 font-normal">
+                <span className="font-semibold">Customer.io automations</span>
+                <span className="text-xs text-secondary">Automations, as draft workflows</span>
+            </div>
+        </LemonButton>
+    ) : null
+
     return (
         <div className="flex flex-col gap-2">
-            {showsAutomationImport && (
-                <LemonButton
-                    type="secondary"
-                    fullWidth
-                    sideIcon={<IconChevronRight />}
-                    onClick={() => {
-                        closeImportModal()
-                        openAutomationImport()
-                    }}
-                    data-attr="import-provider-customerio-automations"
-                >
-                    <div className="flex flex-col gap-0.5 py-1 font-normal">
-                        <span className="font-semibold">Customer.io automations</span>
-                        <span className="text-xs text-secondary">Automations, as draft workflows</span>
-                    </div>
-                </LemonButton>
-            )}
+            {entryPoint === 'workflows' && automationImport}
             {orderedImportProviders.map((provider) => (
                 <LemonButton
                     key={provider.key}
@@ -63,6 +66,7 @@ function ProviderPicker(): JSX.Element {
                     </div>
                 </LemonButton>
             ))}
+            {entryPoint !== 'workflows' && automationImport}
         </div>
     )
 }
