@@ -81,12 +81,14 @@ def _mock_hogql_table(
     value_column: str = "c",
     windows: list[Any] | None = None,
     column_types: list[tuple[str, str]] | None = None,
+    then_raise: Exception | None = None,
 ):
     """Stand in for one run: yields the given batches, ignoring the window.
 
     The window's effect on the generated SQL is covered by the filter-injection tests; what matters
     here is what the write path does with the rows that come back. ``windows`` collects the window
-    each run was given, for tests that assert on the computed lower bound.
+    each run was given, for tests that assert on the computed lower bound. ``then_raise`` cuts the
+    stream after the last batch, the way a ClickHouse failure does partway through a read.
     """
     # DateTime64 so the activity's arrow transform passes an already-typed timestamp
     # through, the way it does for a real ClickHouse DateTime64 column.
@@ -95,11 +97,17 @@ def _mock_hogql_table(
     def factory(*args, **kwargs):
         if windows is not None:
             windows.append(kwargs.get("window"))
+        on_bytes_received = kwargs.get("on_bytes_received")
         del args, kwargs
 
         async def generator():
             for batch in batches:
+                # The real stream reports wire bytes. Any known size will do for a stand-in.
+                if on_bytes_received is not None:
+                    on_bytes_received(batch.nbytes)
                 yield batch, types
+            if then_raise is not None:
+                raise then_raise
 
         return generator()
 
@@ -125,11 +133,14 @@ async def _run(
     value_column: str = "c",
     windows: list[Any] | None = None,
     column_types: list[tuple[str, str]] | None = None,
+    then_raise: Exception | None = None,
 ):
     with (
         unittest.mock.patch(
             "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
-            _mock_hogql_table(*batches, value_column=value_column, windows=windows, column_types=column_types),
+            _mock_hogql_table(
+                *batches, value_column=value_column, windows=windows, column_types=column_types, then_raise=then_raise
+            ),
         ),
     ):
         return await activity_environment.run(
@@ -708,6 +719,76 @@ class TestIncrementalMaterialization:
         assert windows[0] is None, "the first run is a full refresh with no window"
         assert windows[1] is not None
         assert windows[1].since == DAY2 - timedelta(seconds=3600)
+
+
+def _stored_parquet_sizes(table_uri: str) -> dict[str, int]:
+    """Size of every data file object under the table, read from the store and not the Delta log."""
+    files = get_s3_client(skip_instance_cache=True).find(table_uri, detail=True)
+    return {path: details["Size"] for path, details in files.items() if path.endswith(".parquet")}
+
+
+@pytest.mark.usefixtures("minio_client")
+class TestRunUsage:
+    async def test_a_retried_rebuild_carries_the_usage_of_both_attempts(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        first_batch, second_batch = _batch([DAY1], [10]), _batch([DAY2], [20])
+        # The failed attempt returns no table location, so both listings cover the model's folder.
+        table_uri = f"s3://{bucket_name}/{asaved_query.folder_path}"
+
+        with _settings(bucket_name):
+            with pytest.raises(RuntimeError, match="stream cut"):
+                await _run(
+                    activity_environment, ateam, anode, ajob, adag, first_batch, then_raise=RuntimeError("stream cut")
+                )
+            failed_attempt_files = _stored_parquet_sizes(table_uri)
+            await database_sync_to_async(ajob.refresh_from_db)()
+            after_failure = (ajob.delta_files_written, ajob.delta_bytes_written, ajob.result_bytes_received)
+            failed_attempt_seconds = ajob.activity_seconds
+            table_after_failure = (ajob.delta_table_files, ajob.delta_table_bytes)
+
+            result = await _run(activity_environment, ateam, anode, ajob, adag, first_batch, second_batch)
+            # Vacuum keeps replaced files for a day, so the store still holds every file the retry
+            # wrote: one per batch, and the one compaction merged them into.
+            retry_files = _stored_parquet_sizes(table_uri)
+
+        assert after_failure == (1, sum(failed_attempt_files.values()), first_batch.nbytes)
+        assert failed_attempt_seconds > 0
+        assert table_after_failure == (None, None)
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert len(retry_files) == 3
+        assert ajob.delta_files_written == 1 + len(retry_files)
+        assert ajob.delta_bytes_written == sum(failed_attempt_files.values()) + sum(retry_files.values())
+        assert ajob.result_bytes_received == 2 * first_batch.nbytes + second_batch.nbytes
+        assert ajob.activity_seconds > failed_attempt_seconds
+        live_sizes = [size for path, size in retry_files.items() if f"s3://{path}" in result.file_uris]
+        assert (ajob.delta_table_files, ajob.delta_table_bytes) == (len(result.file_uris), sum(live_sizes))
+
+    async def test_an_incremental_run_counts_only_the_files_it_added(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+            files_before = _stored_parquet_sizes(first.table_uri)
+            await database_sync_to_async(ajob.refresh_from_db)()
+            written_before = (ajob.delta_files_written, ajob.delta_bytes_written)
+
+            second = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2], [20]))
+            files_after = _stored_parquet_sizes(first.table_uri)
+
+        added = {path: size for path, size in files_after.items() if path not in files_before}
+        assert added
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "incremental"
+        assert (ajob.delta_files_written, ajob.delta_bytes_written) == (
+            written_before[0] + len(added),
+            written_before[1] + sum(added.values()),
+        )
+        live_sizes = [size for path, size in files_after.items() if f"s3://{path}" in second.file_uris]
+        assert (ajob.delta_table_files, ajob.delta_table_bytes) == (len(second.file_uris), sum(live_sizes))
 
 
 class _RecordingProducer:

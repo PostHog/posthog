@@ -687,12 +687,17 @@ async def test_astream_query_as_arrow_raises_error_appended_to_stream(
         yield mock_response
 
     batches = []
+    received: list[int] = []
     with patch.object(clickhouse_client, "apost_query", mock_post):
         with pytest.raises(expected_exception) as exc_info:
-            async for record_batch in clickhouse_client.astream_query_as_arrow("SELECT 1", query_id="test-query"):
+            async for record_batch in clickhouse_client.astream_query_as_arrow(
+                "SELECT 1", query_id="test-query", on_bytes_received=received.append
+            ):
                 batches.append(record_batch)
 
     assert batches == [batch]
+    # A failed response was still sent over the network, so its bytes count in full.
+    assert sum(received) == len(data)
     if expected_message is not None:
         assert str(exc_info.value) == expected_message
         assert exc_info.value.query_id == "test-query"

@@ -2254,6 +2254,7 @@ class _EmptyArrowClient:
         query_id: str | None = None,
         on_schema: Callable[[pa.Schema], None] | None = None,
         external_tables: list[Any] | None = None,
+        on_bytes_received: Callable[[int], None] | None = None,
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
@@ -2650,6 +2651,27 @@ class TestHogqlTableEmptyResults:
         assert batches[0][0].num_rows == 0
         assert client.arrow_query_calls == 1
         assert client.schema_query_calls == 0
+
+
+class TestHogqlTableBytesReceived:
+    async def test_the_response_size_reaches_the_caller(self, ateam: Team, clickhouse_client: ClickHouseClient) -> None:
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        received: list[int] = []
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [
+                batch
+                async for batch in hogql_table(
+                    "SELECT number AS n FROM numbers(1000)", ateam, LOGGER.bind(), on_bytes_received=received.append
+                )
+            ]
+
+        assert sum(table.num_rows for table, _ in batches) == 1000
+        assert sum(received) > 0
 
 
 class TestHogqlTableDescribeSettings:
