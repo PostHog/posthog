@@ -1,4 +1,4 @@
-import { closeSync, openSync, renameSync, rmSync, writeFileSync, writeSync } from 'fs'
+import { closeSync, openSync, renameSync, rmSync, writeFileSync } from 'fs'
 import path from 'path'
 
 // A full ladder's journal or truth can outgrow the longest string the engine holds, so an array is written one
@@ -6,12 +6,12 @@ import path from 'path'
 function writeArray(file: string, items: unknown[]): void {
     const fd = openSync(file, 'w')
     try {
-        writeSync(fd, '[')
-        items.forEach((item, index) => {
-            const element = (JSON.stringify(item, null, 2) ?? 'null').replaceAll('\n', '\n  ')
-            writeSync(fd, `${index === 0 ? '' : ','}\n  ${element}`)
-        })
-        writeSync(fd, items.length === 0 ? ']' : '\n]')
+        writeFileSync(fd, '[')
+        for (let index = 0; index < items.length; index++) {
+            const element = (JSON.stringify(items[index], null, 2) ?? 'null').replaceAll('\n', '\n  ')
+            writeFileSync(fd, `${index === 0 ? '' : ','}\n  ${element}`)
+        }
+        writeFileSync(fd, items.length === 0 ? ']' : '\n]')
     } finally {
         closeSync(fd)
     }

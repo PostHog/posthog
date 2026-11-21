@@ -24,7 +24,8 @@ describe('writeJson', () => {
                 { unitId: 'u-2', error: 'line one\nline two', status: null },
             ],
         ],
-        ['an array with holes JSON writes as null', [1, undefined, () => 2, 'three']],
+        ['an array whose undefined and function elements JSON writes as null', [undefined, 1, () => 2, 'three']],
+        ['an array with empty slots first and between entries', Object.assign([], { 1: 'b', 3: 'd' })],
         ['an array of arrays', [[], [[1], { a: [2] }]]],
         ['an object', { steps: [{ index: 0 }], verdict: 'sustained' }],
     ])('writes %s in the bytes JSON.stringify gives', (_, value) => {
