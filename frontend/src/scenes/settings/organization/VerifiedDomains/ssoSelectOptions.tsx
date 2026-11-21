@@ -1,15 +1,21 @@
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { PreflightStatus, SSOProvider } from '~/types'
 
 export function ssoSelectOptions(
     preflight: PreflightStatus,
     samlAvailable: boolean,
-    oidcAvailable: boolean | undefined
+    oidcAvailable: boolean | undefined,
+    value: SSOProvider | '',
+    featureFlags: FeatureFlagsSet
 ): LemonSelectOptionLeaf<SSOProvider | ''>[] {
-    const authProviders = Object.keys(preflight.available_social_auth_providers) as SSOProvider[]
+    const authProviders = (Object.keys(preflight.available_social_auth_providers) as SSOProvider[]).filter(
+        (provider) => provider === value || !isSocialProviderHeldBack(provider, featureFlags)
+    )
     const options: LemonSelectOptionLeaf<SSOProvider | ''>[] = [{ value: '', label: "Don't enforce" }]
 
     authProviders.forEach((key) => {

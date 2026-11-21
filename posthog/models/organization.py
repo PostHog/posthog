@@ -271,6 +271,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also checked by agents before they query production data, see
     # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_data_processing_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.",
+    )
     is_ai_training_opted_in = models.BooleanField(
         default=True,
         null=True,

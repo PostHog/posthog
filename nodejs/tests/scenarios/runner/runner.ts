@@ -38,7 +38,7 @@ import {
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
-import { DriveSummary, DrivenStep, SeedState, drive, seed } from '../generator/generator'
+import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
@@ -79,6 +79,7 @@ export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentB
     seed(signal: AbortSignal): Promise<SeedState>
     probes(teams: number[]): Promise<Probes>
     offers(): Promise<OfferContext>
+    limit?(window: StepWindow): Promise<string | undefined>
     writeLogTails(evidenceDir: string): Promise<void>
     close(): Promise<void>
 }
@@ -617,6 +618,7 @@ export function createRunner(
                               queue: () => sampling.probes.queue(),
                               profile,
                               writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                              targetLimit: opened.limit,
                           },
                           liveSignal
                       )
@@ -753,7 +755,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
-                ...(recorded ? { topologyHash: recorded.hash } : {}),
+                ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),

@@ -684,14 +684,12 @@ export const AnomalyGroupByEnumApi = {
 /**
  * * `unusual` - Unusual
  * * `recent` - Recent
- * * `rate` - Rate
  */
 export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
 
 export const AnomalyOrderEnumApi = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
 } as const
 
 export interface AnomalyFlaggedPointApi {
@@ -866,17 +864,12 @@ export interface AnomalySearchResponseApi {
     /** The applied order.
      *
      * * `unusual` - Unusual
-     * * `recent` - Recent
-     * * `rate` - Rate */
+     * * `recent` - Recent */
     order: AnomalyOrderEnumApi
     /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
     /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
-    /** The applied noise filter limit. 1 means the filter is off. */
-    max_anomaly_rate: number
-    /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
-    hidden_series: number
     /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
     has_more: boolean
     /** True when `limit` or a read cap left rows out. */
@@ -888,6 +881,11 @@ export interface AnomalySearchResponseApi {
      * @nullable
      */
     message: string | null
+    /**
+     * The newest scored bucket of any series that matches the filters, in the project timezone. It does not depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored.
+     * @nullable
+     */
+    scored_through: string | null
 }
 
 /**
@@ -13794,12 +13792,6 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
-     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
-     * @minimum 0
-     * @maximum 1
-     */
-    max_anomaly_rate?: number
-    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -13810,11 +13802,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder
@@ -13849,7 +13840,6 @@ export type SignalsAnomaliesSearchRetrieveOrder =
 export const SignalsAnomaliesSearchRetrieveOrder = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
 } as const
 
 export type SignalsProcessingListParams = {
@@ -14004,7 +13994,7 @@ export type SignalsReportsListParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean
     /**
@@ -14302,7 +14292,7 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean
     /**

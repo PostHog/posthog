@@ -133,8 +133,9 @@ def _spec(
         model=model,
         validate=validate,
         check_in_team=check_in_team,
-        # No `remove_destinations`, so the platform owns the destinations from the start.
-        native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
+        native=NativeAlertLifecycle(
+            check_interval_minutes=CHECK_INTERVAL_MINUTES, platform_destinations=True, max_per_team=MAX_ALERTS_PER_TEAM
+        ),
         incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION[source_kind],
         alert_url=alert_url,
         access_flag=WAREHOUSE_ALERTS_FLAG,

@@ -5,12 +5,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils/strings'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { ANOMALY_RATE_FILTER_OFF, SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { AnomalyChartLegend } from './AnomalyChartLegend'
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
@@ -32,7 +31,6 @@ export function AnomaliesTab(): JSX.Element {
         toggleInsightExpanded,
         rateSeries,
         reportCreateAlertOpened,
-        setMaxAnomalyRate,
     } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
@@ -85,27 +83,19 @@ export function AnomaliesTab(): JSX.Element {
                             </LemonBanner>
                         </div>
                     )}
-                    <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
-                        <span>
-                            {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
-                        </span>
-                        {scoredThrough && (
-                            <>
-                                <span> · Checked through </span>
-                                <TZLabel time={scoredThrough} />
-                            </>
-                        )}
-                        {anomalies.hidden_series > 0 && (
-                            <>
-                                <span>{` · ${pluralize(anomalies.hidden_series, 'noisy series', 'noisy series')} hidden. `}</span>
-                                <Link
-                                    onClick={() => setMaxAnomalyRate(ANOMALY_RATE_FILTER_OFF)}
-                                    data-attr="anomalies-tab-show-hidden"
-                                >
-                                    Show them
-                                </Link>
-                            </>
-                        )}
+                    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-secondary text-sm">
+                        <div data-attr="anomalies-tab-coverage">
+                            <span>
+                                {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
+                            </span>
+                            {scoredThrough && (
+                                <>
+                                    <span> · Checked through </span>
+                                    <TZLabel time={scoredThrough} />
+                                </>
+                            )}
+                        </div>
+                        <AnomalyChartLegend />
                     </div>
                     <div className="flex flex-col gap-2">
                         {insightGroups.map((group, index) => (
