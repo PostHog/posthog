@@ -39,6 +39,7 @@ from products.cohorts.backend.models.util import (
     delete_cohort_member,
     insert_cohort_members,
     insert_cohort_people_into_pg,
+    static_cohort_membership_filter,
 )
 
 logger = structlog.get_logger(__name__)
@@ -273,12 +274,13 @@ def _clickhouse_row_counts(candidates: list[_Candidate]) -> dict[int, int]:
     return {int(cohort_id): int(row_count) for cohort_id, row_count in rows}
 
 
-def _clickhouse_members(cohort: StaticCohortToReconcile) -> _ClickHouseMembers:
+def _clickhouse_members(row: Cohort) -> _ClickHouseMembers:
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    kept, kept_params = static_cohort_membership_filter(row.last_replace_marker, row.last_replace_floor)
+    # nosemgrep: clickhouse-fstring-param-audit - table name and kept filter from constants, values parameterized
     [(row_count, people)] = sync_execute(
-        f"SELECT count(), uniqExact(person_id) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-        {"team_id": cohort.team_id, "cohort_id": cohort.cohort_id},
+        f"SELECT count(), uniqExactIf(person_id, {kept}) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"team_id": row.team_id, "cohort_id": row.pk, **kept_params},
         workload=Workload.OFFLINE,  # background repair, no person waits for it
         ch_user=ClickHouseUser.COHORTS,
     )
@@ -397,7 +399,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     _delete_recently_removed_members(row)
     # Count again instead of reusing the selection's count. A member removed since then would leave `min_rows` above
     # what ClickHouse holds, so the copy would repeat after every read-back wait and then fail.
-    members = _clickhouse_members(cohort)
+    members = _clickhouse_members(row)
     postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     decision = decide(stored_count=postgres_count, clickhouse_count=members.people)
     if decision == ReconcileDecision.IN_SYNC:

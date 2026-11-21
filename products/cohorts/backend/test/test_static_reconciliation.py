@@ -15,7 +15,9 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from posthog.redis import get_client
 from posthog.tasks.calculate_cohort import (
     dispatch_static_cohort_reconciliations,
@@ -529,3 +531,27 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
         self.assertEqual(cohort.count, 2)
+
+    def test_a_repair_finishes_on_a_cohort_holding_unkept_failed_replace_rows(self) -> None:
+        kept = create_person(team=self.team, distinct_ids=["kept"])
+        abandoned = create_person(team=self.team, distinct_ids=["abandoned"])
+        cohort = self._static_cohort(person_uuids=(kept.uuid,))
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "person_id": str(abandoned.uuid),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": self.now - timedelta(days=6),
+                    "_offset": cohort_util.REPLACE_OFFSET,
+                }
+            ],
+        )
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+        self.assertEqual(cohort.count, 1)
