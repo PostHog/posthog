@@ -14,6 +14,11 @@
             This key was also your identity verification secret for the support widget. We replaced it, and identity verification requests fail until your server uses the new secret from <a href="{{ conversations_settings_url }}">Conversations settings</a>.
         </p>
     {% endif %}
+    {% if grace_window_ended %}
+        <p>
+            This key was still accepted as the previous identity verification secret for the support widget after a recent rotation. We removed it immediately, so requests signed with it now fail. Make sure your server uses the current secret from <a href="{{ conversations_settings_url }}">Conversations settings</a>.
+        </p>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{{ url }}">Go to project settings</a>
     </div>

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { HighlightedRange, type Series, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { type Series, TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
@@ -14,17 +14,15 @@ import type { AnomalySeriesApi } from 'products/signals/frontend/generated/api.s
 
 import { anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
 import { AnomalyBucketShading } from './AnomalyBucketShading'
-import { anomalyChartData } from './anomalyChartData'
+import { anomalyAxisTickFormatter, anomalyChartData } from './anomalyChartData'
+import { ANOMALY_FILL_COLOR_VAR, EARLIER_ANOMALY_FILL_OPACITY } from './anomalyChartStyle'
+import { AnomalyRangeStartLine } from './AnomalyRangeStartLine'
 
 const handleChartError = makeChartErrorHandler('anomalies-tab-row-chart')
 
-const FLAG_WINDOW_OPACITY = 0.1
-// Flags before the flag window did not put the series in the list, so they draw fainter.
-const EARLIER_FLAG_OPACITY = 0.08
-
 export interface AnomalyRowChartProps {
     series: AnomalySeriesApi
-    // The flag window, which ends at the right edge of the chart.
+    // The flag window. The chart ends at the last checked bucket in it.
     dateFrom: string
     dateTo: string
 }
@@ -48,12 +46,10 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                 : null,
         [series, loaded, dateFrom, dateTo, timezone]
     )
-    const flagWindowIndices = useMemo(() => {
-        const start = data?.flagWindowStartIndex
-        return data && start != null
-            ? Array.from({ length: data.labels.length - start }, (_, index) => start + index)
-            : []
-    }, [data])
+    const tickFormatter = useMemo(
+        () => anomalyAxisTickFormatter(series.interval, timezone),
+        [series.interval, timezone]
+    )
     const chartSeries = useMemo<Series[]>(
         () => (data ? [{ key: series.series_key, label: series.series_label || 'Value', data: data.values }] : []),
         [data, series.series_key, series.series_label]
@@ -82,7 +78,9 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                 labels={data.labels}
                 theme={theme}
                 config={{
-                    xAxis: { timezone, interval: series.interval },
+                    xAxis: { timezone, interval: series.interval, tickFormatter },
+                    xScale: 'time',
+                    xDomain: data.xDomain,
                     yAxis: { tickFormatter: (value) => humanFriendlyNumber(value) },
                     showGrid: true,
                     tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
@@ -90,25 +88,12 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                 onError={handleChartError}
             >
                 <AnomalyBucketShading
-                    dataIndices={flagWindowIndices}
-                    color={getColorVar('muted')}
-                    opacity={FLAG_WINDOW_OPACITY}
-                />
-                <AnomalyBucketShading
                     dataIndices={data.earlierFlaggedIndices}
-                    color={getColorVar('danger')}
-                    opacity={EARLIER_FLAG_OPACITY}
+                    color={getColorVar(ANOMALY_FILL_COLOR_VAR)}
+                    opacity={EARLIER_ANOMALY_FILL_OPACITY}
                 />
-                <AnomalyBucketShading dataIndices={data.flaggedIndices} color={getColorVar('danger')} />
-                {data.firstUncheckedIndex != null && (
-                    <HighlightedRange
-                        // From the last checked bucket, so a single unchecked bucket still shows as a band.
-                        start={Math.max(0, data.firstUncheckedIndex - 1)}
-                        end={data.labels.length - 1}
-                        fillOpacity={0.15}
-                        borderOpacity={0}
-                    />
-                )}
+                <AnomalyBucketShading dataIndices={data.flaggedIndices} color={getColorVar(ANOMALY_FILL_COLOR_VAR)} />
+                {data.flagWindowStartIndex != null && <AnomalyRangeStartLine dataIndex={data.flagWindowStartIndex} />}
             </TimeSeriesLineChart>
         </div>
     )

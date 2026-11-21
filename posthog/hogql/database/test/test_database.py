@@ -1207,6 +1207,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
         assert serialized["self_managed"].id == str(table.id)
 
+    def test_table_with_another_teams_credential_does_not_print(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        credential = DataWarehouseCredential.objects.create(team=other_team, access_key="k", access_secret="s")
+        self._create_warehouse_table(
+            name="self_managed", url_pattern="https://bucket.example.com/data/*", credential=credential
+        )
+
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        with self.assertRaises(ExposedHogQLError):
+            database.get_table("self_managed").to_printed_clickhouse(context)
+
+    def test_view_does_not_resolve_to_another_teams_backing_table(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        backing_table = DataWarehouseTable.objects.create(
+            name="backing_table",
+            format="Parquet",
+            team=other_team,
+            url_pattern="https://bucket.example.com/other/*",
+            columns={"id": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="a_view",
+            query={"query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+            table=backing_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+        )
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("a_view"), SavedQuery)
+
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")

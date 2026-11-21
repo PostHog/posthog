@@ -8,8 +8,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
-import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
-import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -24,19 +22,11 @@ import { InsightShortId } from '~/types'
 import { CustomizedSidebar, SidebarNavigationItem } from 'products/ui_customization/frontend/CustomizedSidebar'
 import type { AnalyticsListSourceApi } from 'products/ui_customization/frontend/generated/api.schemas'
 
+import { AnalyticsItemIcon } from './AnalyticsItemIcon'
 import { ANALYTICS_SIDEBAR_CONFIGURATION } from './analyticsSidebarConfiguration'
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
-
-function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <span style={{ color: ANALYTICS_TYPE_INFO[type].color }}>
-            <AnalyticsTypeIcon type={type} />
-        </span>
-    )
-}
 
 /**
  * The Analytics sub-nav, drawn from the person's layout: sections of links, buttons, metrics and the lists PostHog

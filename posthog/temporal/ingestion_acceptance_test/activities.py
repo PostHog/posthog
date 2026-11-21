@@ -75,6 +75,8 @@ async def run_ingestion_acceptance_tests(inputs: IngestionAcceptanceTestInput) -
         host=config.api_host,
         debug=True,
         sync_mode=True,
+        # One attempt, so a capture failure fails the run and a retry does not hide it.
+        max_retries=0,
     )
 
     run_context = _current_run_context()

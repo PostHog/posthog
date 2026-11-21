@@ -27,7 +27,7 @@ type BrokeAt = {
 }
 
 export type Broke = BrokeAt &
-    ({ kind: 'harness'; by: 'generator' | 'run_host' } | { kind: Exclude<BreakKind, 'harness'>; by: string })
+    ({ kind: 'harness'; by: 'generator' | 'run_host' | 'target' } | { kind: Exclude<BreakKind, 'harness'>; by: string })
 
 export type RampStop = { index: number; end: Exclude<RampEnd, 'ceiling'>; reason: string; broke?: Broke }
 
@@ -46,6 +46,7 @@ export type LiveRamp = {
     queue(): readonly QueueSample[]
     host(): readonly HostSample[]
     writerCpu(window: DriveWindow): Promise<WriterCpu>
+    targetLimit?(window: StepWindow): Promise<string | undefined>
 }
 
 export type RampWatch = {
@@ -75,7 +76,7 @@ const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
-const harness = (step: DrivenStep, by: 'generator' | 'run_host'): Broke => ({
+const harness = (step: DrivenStep, by: 'generator' | 'run_host' | 'target'): Broke => ({
     scale: step.scale,
     offeredPerSecond: perSecond(step.offeredUnits, step),
     by,
@@ -102,6 +103,10 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
     const shortfall = shortfallOf(step, live.minOffered)
     if (shortfall) {
         return { stop: { end: 'harness_limit', reason: shortfall, broke: harness(step, 'generator') } }
+    }
+    const limited = await live.targetLimit?.(window)
+    if (limited) {
+        return { stop: { end: 'harness_limit', reason: limited, broke: harness(step, 'target') } }
     }
     const span = { startedAt: step.startedAt, endedAt: step.endedAt }
     const admitted =
@@ -286,7 +291,7 @@ export type RampEvidence = {
 
 type Candidate = { index: number; rank: number; broke: Broke; reason: string }
 
-const RANK = { generator: 0, bar: 1, gate: 2, invariant: 2, run_host: 3 } as const
+const RANK = { generator: 0, bar: 1, gate: 2, invariant: 2, run_host: 3, target: 3 } as const
 
 const rankOf = (broke: Broke): number => (broke.kind === 'harness' ? RANK[broke.by] : RANK[broke.kind])
 
@@ -355,7 +360,7 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
                 at: iso(step.startedAt),
                 part: null,
             },
-            `${name} broke at the ${step.scale}x step`
+            `${name} broke at the ${step.scale}x step${name === REFUSED_AT_INTAKE ? '' : ', found after the drive'}`
         )
     }
     return { placed, unplaced }

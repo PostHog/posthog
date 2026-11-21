@@ -112,28 +112,47 @@ export function RemoveAllSharesButton({
             size="small"
             loading={agentServerAccessLoadingKeys.has(agentServerAccessKey(accountId, serverId))}
             onClick={() =>
-                LemonDialog.open({
-                    title: `Remove all shares of ${serverName}?`,
-                    description: (
-                        <div className="max-w-120">
-                            {shareCount} {shareCount === 1 ? 'member has' : 'members have'} shared a {serverName}{' '}
-                            connection with {accountName}. Removing them stops {accountName} using {serverName} for
-                            everyone in this project, and clears its tool settings for this server.
-                        </div>
-                    ),
-                    secondaryButton: { type: 'secondary', children: 'Cancel' },
-                    primaryButton: {
-                        type: 'primary',
-                        status: 'danger',
-                        children: 'Remove all shares',
-                        onClick: () => removeAllAgentServerShares(accountId, serverId),
-                    },
+                openRemoveAllSharesDialog({
+                    accountName,
+                    serverName,
+                    shareCount,
+                    onConfirm: () => removeAllAgentServerShares(accountId, serverId),
                 })
             }
         >
             Remove all shares
         </LemonButton>
     )
+}
+
+export function openRemoveAllSharesDialog({
+    accountName,
+    serverName,
+    shareCount,
+    onConfirm,
+}: {
+    accountName: string
+    serverName: string
+    shareCount: number
+    onConfirm: () => void
+}): void {
+    LemonDialog.open({
+        title: `Remove all shares of ${serverName}?`,
+        description: (
+            <div className="max-w-120">
+                {shareCount} {shareCount === 1 ? 'member has' : 'members have'} shared a {serverName} connection with{' '}
+                {accountName}. Removing them stops {accountName} using {serverName} for everyone in this project, and
+                clears its tool settings for this server.
+            </div>
+        ),
+        secondaryButton: { type: 'secondary', children: 'Cancel' },
+        primaryButton: {
+            type: 'primary',
+            status: 'danger',
+            children: 'Remove all shares',
+            onClick: onConfirm,
+        },
+    })
 }
 
 export const POLICY_LABELS: Record<MCPToolApprovalStateEnumApi, string> = {
