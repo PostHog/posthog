@@ -20,7 +20,10 @@ class Package {
     return download(this.url)
       .then(() => {
         const tempFile = this.tempFile;
-        const result = spawnSync("powershell.exe", [
+        let result;
+                  // Windows does not have "unzip" by default on many installations, instead
+                  // we use Expand-Archive from powershell
+                  result = spawnSync("powershell.exe", [
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
@@ -116,18 +119,15 @@ test('patches the cargo-dist download call', () => {
     assert.match(patched, /DOWNLOAD_RETRY_BASE_DELAY_MS = 1000/)
 })
 
-test('passes the Windows unzip paths through the env, not as PowerShell arguments', async () => {
+test('extracts the Windows zip with tar.exe, passing each path as one argument', async () => {
     const { pkg, calls } = loadPatchedPackage({ binaryExists: true })
 
     await pkg.install(true)
 
     assert.equal(calls.length, 1)
-    for (const arg of calls[0].args) {
-        assert.doesNotMatch(arg, /First Last/)
-    }
-    assert.match(calls[0].args.at(-1), /-LiteralPath \$env:POSTHOG_CLI_ZIP -DestinationPath \$env:POSTHOG_CLI_DEST/)
-    assert.equal(calls[0].options.env.POSTHOG_CLI_ZIP, pkg.tempFile)
-    assert.equal(calls[0].options.env.POSTHOG_CLI_DEST, pkg.installDirectory)
+    assert.equal(calls[0].command, 'tar.exe')
+    assert.deepEqual(calls[0].args, ['-xf', pkg.tempFile, '-C', pkg.installDirectory])
+    assert.doesNotMatch(patchBinaryInstaller(GENERATED_INSTALLER), /powershell\.exe|Expand-Archive/)
 })
 
 test('fails the install when the binary is missing after extraction', async () => {
