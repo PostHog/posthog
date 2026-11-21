@@ -480,10 +480,10 @@ jobs:
             # background steps and waits for the longest one at the end, so the six short
             # checks stop adding to the scan's wall.
             #
-            # A step in a `parallel:` block cannot carry `if:`, so the three behind a path
-            # filter read it from the environment and exit early. Every step here is a `run:`
-            # step: an action inside the block that writes `$GITHUB_PATH` races the others and
-            # crashes the runner.
+            # Every step here is a `run:` step. An action inside the block that writes
+            # `$GITHUB_PATH` or `$GITHUB_ENV` races its neighbours and crashes the runner.
+            # The three checks behind a path filter keep their step-level `if:` and read the same
+            # output from the environment as a fallback.
             - parallel:
                   - name: Check formatting with oxfmt
                     run: pnpm run format:frontend:check
@@ -501,15 +501,19 @@ jobs:
                     run: pnpm exec oxlint --quiet
 
                   - name: Check markdown formatting with oxfmt
+                    if: needs.changes.outputs.markdown_format != 'false'
                     env:
-                        # A step inside a `parallel:` block cannot carry `if:`, so the filter
-                        # result is read here and the check exits early instead.
+                        # The `if:` above is what the pinned run plans assert. No workflow in this
+                        # repo has yet relied on a step-level `if:` inside a `parallel:` block, so
+                        # the same value is read again here and the check exits early if the
+                        # runner ignores it, which would cost a full oxfmt run and nothing else.
                         RUN_MARKDOWN_FORMAT: ${{ needs.changes.outputs.markdown_format }}
                     run: |
                         [ "$RUN_MARKDOWN_FORMAT" != "false" ] || { echo "no markdown the formatter reads changed — skipping"; exit 0; }
                         pnpm exec oxfmt --check "**/*.{md,mdx}"
 
                   - name: Check YAML formatting with oxfmt
+                    if: needs.changes.outputs.yaml_format != 'false'
                     env:
                         RUN_YAML_FORMAT: ${{ needs.changes.outputs.yaml_format }}
                     run: |
@@ -517,6 +521,7 @@ jobs:
                         pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
                   - name: Lint markdown files
+                    if: needs.changes.outputs.markdown != 'false'
                     env:
                         RUN_MARKDOWN: ${{ needs.changes.outputs.markdown }}
                     run: |
