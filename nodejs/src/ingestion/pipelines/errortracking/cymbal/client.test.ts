@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { ItemResult } from '~/ingestion/common/service-response'
 
 import { CymbalClient, DnsResolveFunction, FetchFunction } from './client'
 import { CymbalRequest, CymbalResponse } from './types'
@@ -40,6 +41,12 @@ describe('CymbalClient', () => {
         },
         ...overrides,
     })
+
+    const okResult = (value: CymbalResponse): ItemResult<CymbalResponse> => ({ result: 'ok', value })
+
+    const suppressed: ItemResult<CymbalResponse> = { result: 'drop', reason: 'suppressed' }
+
+    const uuidOf = (result: ItemResult<CymbalResponse>) => (result.result === 'ok' ? result.value.uuid : result.result)
 
     /** Create a client with a single-IP DNS response (no sticky routing). */
     const createClient = (fetchMock: jest.Mock = mockFetch) => {
@@ -97,17 +104,42 @@ describe('CymbalClient', () => {
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results).toEqual(responses)
+            expect(results).toEqual(responses.map(okResult))
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(mockFetch).toHaveBeenCalledWith(
                 'http://1.2.3.4:8080/process',
                 expect.objectContaining({
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-posthog-ingestion-response': '1' },
                     body: JSON.stringify(requests),
                     timeoutMs: 5000,
                 })
             )
+        })
+
+        it('reads item results when Cymbal answers with them', async () => {
+            const client = createClient()
+            const requests = ['ok', 'drop', 'retry', 'fail'].map((uuid) => createRequest({ uuid }))
+            const withErrors = createResponse({
+                uuid: 'ok',
+                properties: { $exception_list: [], $cymbal_errors: ['No sourcemap found'] },
+            })
+            const itemResults = [
+                { result: 'ok', value: withErrors },
+                { result: 'drop', reason: 'suppressed' },
+                { result: 'retry', error: { code: 'deadline_exceeded', message: 'slow' } },
+                { result: 'fail', error: { code: 'invalid_input', message: 'bad' } },
+            ]
+
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                headers: { 'x-posthog-ingestion-response': '1' },
+                json: () => Promise.resolve({ results: itemResults }),
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            expect(results).toEqual(itemResults)
         })
 
         it('handles null responses (suppressed events)', async () => {
@@ -122,7 +154,31 @@ describe('CymbalClient', () => {
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results).toEqual([null])
+            expect(results).toEqual([suppressed])
+        })
+
+        it.each([
+            ['reports $cymbal_errors as a warning', ['No sourcemap found', 'Invalid source map'], 1],
+            ['adds no warning for empty $cymbal_errors', [], 0],
+            ['adds no warning without $cymbal_errors', undefined, 0],
+        ])('%s from a Cymbal without item results', async (_case, errors, warningCount) => {
+            const client = createClient()
+            const response = createResponse({
+                uuid: 'event-with-errors',
+                properties: { $exception_list: [], ...(errors && { $cymbal_errors: errors }) },
+            })
+            mockFetch.mockResolvedValueOnce({ status: 200, json: () => Promise.resolve([response]) })
+
+            const [result] = await client.processExceptions(toItems([createRequest()]))
+
+            expect(result.warnings ?? []).toHaveLength(warningCount)
+            if (warningCount > 0) {
+                expect(result.warnings![0]).toEqual({
+                    type: 'error_tracking_exception_processing_errors',
+                    details: { eventUuid: 'event-with-errors', errors },
+                    key: 'event-with-errors',
+                })
+            }
         })
 
         it('throws retriable error on 5xx errors', async () => {
@@ -185,6 +241,19 @@ describe('CymbalClient', () => {
             )
         })
 
+        it('throws a non-retriable error when item results do not match the request', async () => {
+            const client = createClient()
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                headers: { 'x-posthog-ingestion-response': '1' },
+                json: () => Promise.resolve({ results: [] }),
+            })
+
+            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toMatchObject({
+                isRetriable: false,
+            })
+        })
+
         it('throws when response is not an array', async () => {
             const client = createClient()
             mockFetch.mockResolvedValueOnce({
@@ -220,8 +289,7 @@ describe('CymbalClient', () => {
             })
 
             const results = await client.processExceptions(toItems(requests))
-            expect(results).toEqual(responses)
-            expect(results[1]).toBeNull()
+            expect(results).toEqual([okResult(createResponse()), suppressed])
         })
 
         it('throws retriable error on network errors', async () => {
@@ -278,7 +346,7 @@ describe('CymbalClient', () => {
             })
 
             const results = await client.processExceptions(toItems(requests))
-            expect(results).toEqual(responses)
+            expect(results).toEqual(responses.map(okResult))
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
@@ -308,7 +376,7 @@ describe('CymbalClient', () => {
 
             const results = await smallClient.processExceptions(toItems(requests, 100))
             expect(results).toHaveLength(3)
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-1', 'uuid-2', 'uuid-3'])
+            expect(results.map(uuidOf)).toEqual(['uuid-1', 'uuid-2', 'uuid-3'])
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
@@ -332,7 +400,7 @@ describe('CymbalClient', () => {
             })
 
             const results = await smallClient.processExceptions(toItems(requests, 200))
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-0', 'uuid-1', 'uuid-2', 'uuid-3', 'uuid-4'])
+            expect(results.map(uuidOf)).toEqual(['uuid-0', 'uuid-1', 'uuid-2', 'uuid-3', 'uuid-4'])
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
@@ -448,7 +516,7 @@ describe('CymbalClient', () => {
             expect(twoEventCall!.map((r: CymbalRequest) => r.team_id)).toEqual([1, 3])
 
             // Results still maintain 1:1 position correspondence
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c'])
+            expect(results.map(uuidOf)).toEqual(['uuid-a', 'uuid-b', 'uuid-c'])
         })
 
         it('routes events from different teams to potentially different pods in parallel', async () => {
@@ -496,8 +564,8 @@ describe('CymbalClient', () => {
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c', 'uuid-d', 'uuid-e'])
-            expect(results.map((r) => r!.team_id)).toEqual([1, 2, 1, 3, 2])
+            expect(results.map(uuidOf)).toEqual(['uuid-a', 'uuid-b', 'uuid-c', 'uuid-d', 'uuid-e'])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.team_id : r.result))).toEqual([1, 2, 1, 3, 2])
         })
 
         it('routes consistently for the same team_id', async () => {
@@ -576,7 +644,7 @@ describe('CymbalClient', () => {
             return error
         }
 
-        it('fans out to individual events on timeout and drops the poison pill', async () => {
+        it('fans out to individual events on timeout and fails the poison pill', async () => {
             const client = createClient()
             const requests = [
                 createRequest({ uuid: 'good-1' }),
@@ -600,10 +668,13 @@ describe('CymbalClient', () => {
             const results = await client.processExceptions(toItems(requests))
 
             expect(results).toHaveLength(4)
-            expect(results[0]).toMatchObject({ uuid: 'good-1' })
-            expect(results[1]).toMatchObject({ uuid: 'good-2' })
-            expect(results[2]).toBeNull() // poison pill dropped
-            expect(results[3]).toMatchObject({ uuid: 'good-3' })
+            expect(results[0]).toMatchObject({ result: 'ok', value: { uuid: 'good-1' } })
+            expect(results[1]).toMatchObject({ result: 'ok', value: { uuid: 'good-2' } })
+            expect(results[2]).toStrictEqual({
+                result: 'fail',
+                error: { code: 'timeout', message: expect.any(String) },
+            })
+            expect(results[3]).toMatchObject({ result: 'ok', value: { uuid: 'good-3' } })
         })
 
         it('throws 5xx errors during fan-out to let retry wrapper handle them', async () => {
@@ -645,9 +716,9 @@ describe('CymbalClient', () => {
             expect(results).toHaveLength(5)
             for (let i = 0; i < inputs.length; i++) {
                 if (inputs[i] === 'POISON') {
-                    expect(results[i]).toBeNull()
+                    expect(results[i]).toMatchObject({ result: 'fail', error: { code: 'timeout' } })
                 } else {
-                    expect(results[i]).toMatchObject({ uuid: inputs[i] })
+                    expect(results[i]).toMatchObject({ result: 'ok', value: { uuid: inputs[i] } })
                 }
             }
         })
