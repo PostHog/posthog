@@ -163,6 +163,18 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
 
 
+def insights_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return list(Insight.objects.filter(team__project_id=project_id, id__in=insight_ids))
+
+
+def insights_including_soft_deleted_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return list(Insight.objects_including_soft_deleted.filter(team__project_id=project_id, id__in=insight_ids))
+
+
+def live_insights_in_team_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> list[Insight]:
+    return list(Insight.objects.filter(team_id=team_id, short_id__in=short_ids, deleted=False))
+
+
 def saved_trends_insights(
     *,
     team_ids: Collection[int],
