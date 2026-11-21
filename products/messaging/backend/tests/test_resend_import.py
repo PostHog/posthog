@@ -1,10 +1,11 @@
 import re
+import copy
 import json
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
@@ -36,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportCredentialsInvalid,
     ImportProviderUnavailable,
     ImportStepBlocked,
+    ImportStepError,
 )
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
@@ -85,6 +87,9 @@ class FakeResend:
         if self.failures.get(path):
             status, headers = self.failures[path].pop(0)
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
+        if match := re.fullmatch(r"/segments/([^/]+)/contacts", path):
+            members = set(self.data["segment_contacts"].get(match.group(1), []))
+            return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
         if match := re.fullmatch(r"/contacts/([^/]+)", path):
@@ -94,7 +99,7 @@ class FakeResend:
             return self._response(404, {"name": "not_found", "message": "Not found"})
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
-                if match.group(2) in (row["id"], row.get("alias")):
+                if unquote(match.group(2)) in (row["id"], row.get("alias")):
                     return self._response(200, row)
             return self._response(404, {"name": "not_found", "message": "Not found"})
         return self._page(self.data[path.strip("/")], params)
@@ -729,11 +734,175 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         runs.close_stale_runs()
 
         run.refresh_from_db()
-        [plan] = run.progress["contacts"]["people_imports"]
-        cohort = Cohort.objects.get(id=plan["cohort_id"])
+        plans = run.progress["contacts"]["people_imports"]
+        cohorts = Cohort.objects.filter(id__in=[plan["cohort_id"] for plan in plans])
         assert (run.status, run.progress["contacts"]["status"]) == ("failed", "failed")
-        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+        assert len(plans) == 2
+        assert {(cohort.is_calculating, cohort.errors_calculating) for cohort in cohorts} == {(False, 1)}
         assert self.people.stored == {}
+
+    def test_every_cohort_shares_one_set_of_unsubscribed_contacts(self) -> None:
+        self.resend.data["segments"] = [
+            {**self.resend.data["segments"][0], "id": f"seg-{n}", "name": f"Segment {n}"} for n in range(3)
+        ]
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with (
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert len(lists) == 4 and lists[0].non_members
+        assert len({id(contact_list.non_members) for contact_list in lists}) == 1
+
+    def test_a_contact_only_a_segment_lists_waits_for_the_next_import(self) -> None:
+        late = {**self.resend.data["contacts"][0], "id": "c-late", "email": "late@example.com", "unsubscribed": True}
+        listed = list(self.resend.data["contacts"])
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        def get(url: str, params: dict | None = None, **kwargs: Any) -> Any:
+            # The contact joins after the contact list was read, and unsubscribes too.
+            self.resend.data["contacts"] = [*listed, late] if "/segments/" in url else listed
+            return FakeResend.get(self.resend, url, params=params, **kwargs)
+
+        self.resend.data["segment_contacts"] = {"seg-1": [*self.resend.data["segment_contacts"]["seg-1"], "c-late"]}
+        self.resend.data["contacts"] = [*listed]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        with (
+            patch("products.messaging.backend.services.resend_client.requests.get", side_effect=get),
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        everyone, segment = lists
+        assert segment.rows
+        assert "late@example.com" not in {row["email"] for row in [*everyone.rows, *segment.rows]}
+
+    def test_a_segment_id_cannot_reach_another_resend_endpoint(self) -> None:
+        self.resend.data["segments"] = [{**self.resend.data["segments"][0], "id": "s/../../api-keys"}]
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
+
+    def test_automation_references_cannot_reach_another_resend_endpoint(self) -> None:
+        automations = copy.deepcopy(self.resend.data["automations"])
+        for automation in automations:
+            for step in automation["steps"]:
+                if step["type"] == "add_to_segment":
+                    step["config"]["segment_id"] = "s/../../api-keys"
+                if step["type"] == "send_email":
+                    step["config"]["template"]["id"] = "t/../../api-keys"
+        self.resend.data["automations"] = automations
+
+        run = runs.start_run(self.team.id, "resend", ["automations"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/templates/t%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert not any("/api-keys" in call and "%2F" not in call for call in self.resend.calls)
+
+    def test_listed_ids_cannot_reach_another_resend_endpoint(self) -> None:
+        for key, bad_id in (("templates", ".."), ("automations", "a/../../api-keys"), ("domains", ".")):
+            self.resend.data[key] = [{**self.resend.data[key][0], "id": bad_id}]
+
+        run = runs.start_run(self.team.id, "resend", ["templates", "automations", "domains"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/templates/%2E%2E" in self.resend.calls
+        assert "/automations/a%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/domains/%2E" in self.resend.calls
+        assert not {"/templates/..", "/domains/."} & set(self.resend.calls)
+
+    def test_an_account_with_too_many_segments_fills_no_cohort(self) -> None:
+        segment = self.resend.data["segments"][0]
+        self.resend.data["segments"] = [segment, {**segment, "id": "seg-2", "name": "Second"}]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+
+        with patch.object(resend, "MAX_SEGMENTS", 1), self.captureOnCommitCallbacks(execute=True):
+            for step in OPT_OUT_STEPS:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+            with self.assertRaises(ImportStepError):
+                runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+
+        assert "segments" in run.progress["contacts"]["last_error"]
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
+
+    @parameterized.expand([("contacts_completed", False, True), ("contacts_blocked", True, False)])
+    def test_an_automation_says_its_segment_was_filled_only_when_contacts_completed(
+        self, _name: str, opt_outs_fail: bool, filled: bool
+    ) -> None:
+        if opt_outs_fail:
+            self.resend.failures["/contacts"] = [(500, {})] * 10
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "automations"], API_KEY, self.user.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except (ImportProviderUnavailable, ImportStepBlocked):
+                    pass
+        run.refresh_from_db()
+
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        expected = (
+            "This import also added the segment's contacts to it."
+            if filled
+            else "Import Contacts too to add the people already in the segment."
+        )
+        assert any(expected in note for note in notes)
+
+    def test_a_contacts_cohort_that_cannot_be_imported_fills_no_segment_but_still_carries_opt_outs(self) -> None:
+        Cohort.objects.create(
+            team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
+        )
+        # Stored by an earlier import under another spelling of a Resend contact's address.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="HAPPY@example.com", preferences={"$all": "OPTED_OUT"}
+        )
+
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people", "automations"]
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except ImportStepError:
+                    assert step == "contacts"
+        run.refresh_from_db()
+
+        assert not run.progress["contacts"].get("people_imports") and self.people.events == []
+        assert run.progress["contacts"]["status"] != "completed"
+        assert "Resend contacts couldn't be imported" in run.progress["contacts"]["last_error"]
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        assert notes and not any("added the segment's contacts" in note for note in notes)
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["happy@example.com"] == {"$all": "OPTED_OUT"}
 
     @parameterized.expand(
         [
@@ -765,8 +934,9 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         run.refresh_from_db()
         # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
         # stays out of the cohort.
-        [plan] = run.progress["contacts"]["people_imports"]
+        plan, segment_plan = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
+        segment_people = self.people.people(segment_plan)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
@@ -775,6 +945,9 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert run.progress["contacts"]["counts"] == counts
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1
+        # The segment's list only sets its cohort's members, so its contacts' events go out once, with the list above.
+        assert (segment_plan["cohort_id"], segment_plan["send_events"]) == (segment_cohorts.get().id, False)
+        assert [person["distinct_id"] for person in segment_people] == ["user-hal"]
         workflow = get_workflow(
             team_id=self.team.id,
             workflow_id=next(

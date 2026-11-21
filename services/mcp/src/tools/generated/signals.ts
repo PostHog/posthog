@@ -143,6 +143,7 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
+                max_anomaly_rate: params.max_anomaly_rate,
                 offset: params.offset,
                 only_flagged: params.only_flagged,
                 order: params.order,
@@ -881,6 +882,7 @@ const inboxReportsList = (): ToolBase<
                 needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
+                plan: params.plan,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
@@ -968,7 +970,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1006,6 +1008,112 @@ const inboxReportsMerge = (): ToolBase<
     },
 })
 
+const InboxReportsPlanStepDependenciesUpdateSchema = () => {
+    const SignalsReportsPlanStepsDependsOnUpdateBody = orvalSchemas.SignalsReportsPlanStepsDependsOnUpdateBody()
+    const SignalsReportsPlanStepsDependsOnUpdateParams = orvalSchemas.SignalsReportsPlanStepsDependsOnUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsDependsOnUpdateParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsDependsOnUpdateBody.shape)
+            .extend({ id: SignalsReportsPlanStepsDependsOnUpdateParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepDependenciesUpdate = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepDependenciesUpdateSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-step-dependencies-update',
+    schema: InboxReportsPlanStepDependenciesUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof InboxReportsPlanStepDependenciesUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.depends_on !== undefined) {
+            body['depends_on'] = params.depends_on
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/${encodeURIComponent(String(params.step_id))}/depends_on/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsPlanStepsAddSchema = () => {
+    const SignalsReportsPlanStepsCreateBody = orvalSchemas.SignalsReportsPlanStepsCreateBody()
+    const SignalsReportsPlanStepsCreateParams = orvalSchemas.SignalsReportsPlanStepsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsCreateParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsCreateBody.shape)
+            .extend({ id: SignalsReportsPlanStepsCreateParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepsAdd = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepsAddSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-steps-add',
+    schema: InboxReportsPlanStepsAddSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsPlanStepsAddSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.depends_on !== undefined) {
+            body['depends_on'] = params.depends_on
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsPlanStepsRemoveSchema = () => {
+    const SignalsReportsPlanStepsDestroyParams = orvalSchemas.SignalsReportsPlanStepsDestroyParams()
+    const SignalsReportsPlanStepsDestroyQueryParams = orvalSchemas.SignalsReportsPlanStepsDestroyQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsDestroyParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsDestroyQueryParams.shape)
+            .extend({ id: SignalsReportsPlanStepsDestroyParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepsRemove = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepsRemoveSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-steps-remove',
+    schema: InboxReportsPlanStepsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsPlanStepsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/${encodeURIComponent(String(params.step_id))}/`,
+            query: {
+                reason: params.reason,
+            },
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
 const InboxReportsRetrieveSchema = () => {
     const SignalsReportsRetrieveParams = orvalSchemas.SignalsReportsRetrieveParams()
     return z.preprocess(
@@ -1028,7 +1136,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -4109,6 +4217,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
+    'inbox-reports-plan-step-dependencies-update': inboxReportsPlanStepDependenciesUpdate,
+    'inbox-reports-plan-steps-add': inboxReportsPlanStepsAdd,
+    'inbox-reports-plan-steps-remove': inboxReportsPlanStepsRemove,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,

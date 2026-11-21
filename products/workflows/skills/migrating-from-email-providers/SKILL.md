@@ -13,15 +13,15 @@ The sections below use Resend as the example. For Postmark, also read [Postmark]
 
 ## What moves
 
-| Data                     | In PostHog                                      | What the team does                                  |
-| ------------------------ | ----------------------------------------------- | --------------------------------------------------- |
-| Suppression list         | Suppression list                                | Reads the summary                                   |
-| Contacts                 | People, matched by email, and one static cohort | Checks the people and the cohort                    |
-| Unsubscribed contacts    | Opted out of all marketing email                | Nothing                                             |
-| Topics and topic choices | Marketing categories and opt-outs               | Checks topics that only send to people who opted in |
-| Templates                | Library templates, keyed by alias               | Fixes what the notes mention, then sends a test     |
-| Automations              | Draft workflows                                 | Sends trigger events to PostHog, reviews, enables   |
-| Domains                  | A list only                                     | Adds each domain and publishes new DNS records      |
+| Data                     | In PostHog                                                | What the team does                                  |
+| ------------------------ | --------------------------------------------------------- | --------------------------------------------------- |
+| Suppression list         | Suppression list                                          | Reads the summary                                   |
+| Contacts and segments    | People, matched by email, and a static cohort per segment | Checks the people and cohorts                       |
+| Unsubscribed contacts    | Opted out of all marketing email                          | Nothing                                             |
+| Topics and topic choices | Marketing categories and opt-outs                         | Checks topics that only send to people who opted in |
+| Templates                | Library templates, keyed by alias                         | Fixes what the notes mention, then sends a test     |
+| Automations              | Draft workflows                                           | Sends trigger events to PostHog, reviews, enables   |
+| Domains                  | A list only                                               | Adds each domain and publishes new DNS records      |
 
 API keys, webhooks, send history and stats stay with the old provider. The `contacts` step fills in what the person whose email matches each contact lacks, without changing values PostHog already has, and `new_people` creates a person for each contact no one matches, with the email as the ID. Resend's `contact_properties` copies custom contact properties the same way. Each person written counts as one billable event.
 

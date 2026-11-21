@@ -4,10 +4,12 @@ import { useRef, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { userLogic } from 'scenes/userLogic'
 
 import { serializeToMarkdown, SupportEditor } from '../Editor'
+import { QuillMacroFormDialog } from './QuillMacroFormDialog'
 import { unescapeMacroTokens } from './renderMacro'
 import { shortcutError, supportMacrosLogic } from './supportMacrosLogic'
 
@@ -31,6 +33,7 @@ export function MacroFormModal(): JSX.Element | null {
         updateMacro,
     } = useActions(supportMacrosLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editorRef = useRef<RichContentEditorType | null>(null)
     const draftKey = macroDraft ? (macroDraft.id ?? 'new') : ''
     const bodyEmptyDefault = !(macroDraft?.body ?? '').trim()
@@ -75,6 +78,44 @@ export function MacroFormModal(): JSX.Element | null {
         }
     }
 
+    const handleEditorCreate = (editor: RichContentEditorType): void => {
+        editorRef.current = editor
+        if (macroDraft.body) {
+            editor.setContent(markdownToHtml(macroDraft.body))
+        }
+    }
+
+    const insertVariable = (token: string): void => {
+        editorRef.current?.insertContent(token)
+    }
+
+    const saveDisabledReason = !macroDraft.name.trim()
+        ? 'Add a name'
+        : shortcutError(macroDraft.shortcut) ||
+          (bodyEmpty ? 'Write the reply' : undefined) ||
+          (isUploading ? 'Wait for the image to finish uploading' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <QuillMacroFormDialog
+                macroDraft={macroDraft}
+                variables={VARIABLES}
+                macroSaving={macroSaving}
+                isSomeoneElses={isSomeoneElses}
+                saveDisabledReason={saveDisabledReason}
+                onEditorCreate={handleEditorCreate}
+                onInsertVariable={insertVariable}
+                onSave={save}
+                onClose={closeMacroDraft}
+                onNameChange={setMacroDraftName}
+                onShortcutChange={setMacroDraftShortcut}
+                onVisibilityChange={setMacroDraftVisibility}
+                onBodyEmptyChange={setBodyEmpty}
+                onUploadingChange={setIsUploading}
+            />
+        )
+    }
+
     return (
         <LemonModal
             title={macroDraft.id ? 'Edit macro' : 'New macro'}
@@ -89,13 +130,7 @@ export function MacroFormModal(): JSX.Element | null {
                         type="primary"
                         onClick={save}
                         loading={macroSaving}
-                        disabledReason={
-                            !macroDraft.name.trim()
-                                ? 'Add a name'
-                                : shortcutError(macroDraft.shortcut) ||
-                                  (bodyEmpty ? 'Write the reply' : undefined) ||
-                                  (isUploading ? 'Wait for the image to finish uploading' : undefined)
-                        }
+                        disabledReason={saveDisabledReason}
                         data-attr="support-macro-save"
                     >
                         Save
@@ -148,12 +183,7 @@ export function MacroFormModal(): JSX.Element | null {
                     placeholder="Hi {{customer.first_name}}"
                     onUpdate={setBodyEmpty}
                     onUploadingChange={setIsUploading}
-                    onCreate={(editor) => {
-                        editorRef.current = editor
-                        if (macroDraft.body) {
-                            editor.setContent(markdownToHtml(macroDraft.body))
-                        }
-                    }}
+                    onCreate={handleEditorCreate}
                 />
                 <div className="flex flex-wrap gap-1">
                     {VARIABLES.map((variable) => (
@@ -161,7 +191,7 @@ export function MacroFormModal(): JSX.Element | null {
                             key={variable.token}
                             size="xsmall"
                             type="secondary"
-                            onClick={() => editorRef.current?.insertContent(variable.token)}
+                            onClick={() => insertVariable(variable.token)}
                         >
                             {variable.label}
                         </LemonButton>
