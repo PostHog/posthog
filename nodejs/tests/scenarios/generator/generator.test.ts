@@ -399,7 +399,7 @@ describe('drive', () => {
             )
 
             await jest.advanceTimersByTimeAsync(100)
-            await answered
+            await Promise.race([answered, driving])
             await jest.advanceTimersByTimeAsync(100)
             expect({ summary: await driving, journal }).toMatchObject({
                 summary: { offeredUnits: 1, sendRetries: 1 },
