@@ -659,8 +659,9 @@ def _refuse_property_removal_unsweepable(
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
         # A typed column keeps a removed value after its JSON key is gone, so the count reads it too.
-        mat_cols, person_mat_cols = cluster.any_host(
-            partial(_affected_typed_columns, deletion_request=deletion_request, target=target)
+        # Discovery reads a data node, as the count does. A host without the read table finds no columns.
+        mat_cols, person_mat_cols = cluster.any_host_by_role(
+            partial(_affected_typed_columns, deletion_request=deletion_request, target=target), NodeRole.DATA
         ).result()
         return _property_removal_where(
             deletion_request,

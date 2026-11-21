@@ -4357,7 +4357,9 @@ def test_shard_predicate_resets_the_typed_columns_derived_from_removed_propertie
 def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
     request = _flag_call_removal_request(["$feature_flag_request_id"], hogql_predicate="properties.plan = 'pro'")
     cluster = Mock()
-    cluster.any_host.side_effect = lambda fn: Mock(result=lambda: fn(_ColumnCommentClient()))
+    cluster.any_host_by_role.side_effect = lambda fn, role: Mock(
+        result=lambda: fn(_ColumnCommentClient()) if role is NodeRole.DATA else ([], [])
+    )
 
     with patch("posthog.dags.data_deletion_requests._refuse_unsweepable") as refuse:
         _refuse_property_removal_unsweepable(
