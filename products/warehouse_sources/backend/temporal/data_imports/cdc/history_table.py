@@ -345,7 +345,7 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     """
     if not schema.keeps_history:
         return None
-    if schema.is_incremental:
+    if schema.is_incremental or schema.is_webhook:
         naming = HISTORY_NAMING
     else:
         naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)

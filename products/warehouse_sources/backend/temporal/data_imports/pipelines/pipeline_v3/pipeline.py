@@ -138,6 +138,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     ResumableData,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    WEBHOOK_EVENT_COLUMNS,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -1218,6 +1221,7 @@ class PipelineV3(Generic[ResumableData]):
                     *(self._resource.partition_keys or []),
                     # The loader deletes by this column, so a row without it could never be replaced.
                     *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
+                    *(WEBHOOK_EVENT_COLUMNS if self._schema.is_webhook else ()),
                 ],
                 self._observed_columns,
                 self._logger,

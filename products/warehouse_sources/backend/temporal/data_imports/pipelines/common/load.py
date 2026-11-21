@@ -552,7 +552,7 @@ async def _run_cdc_post_load(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
                 live_size_mib=await delta_table_ref.get_live_size_mib(),
-                # An incremental history table keeps the past values of a column the user stopped syncing.
+                # A history table keeps the past values of a column the user stopped syncing, seeded ones too.
                 project_columns=(
                     functools.partial(
                         registered_history_columns,
@@ -560,7 +560,7 @@ async def _run_cdc_post_load(
                         primary_keys=schema.primary_key_columns,
                         incremental_field=schema.incremental_field,
                     )
-                    if schema.is_incremental and schema.keeps_history
+                    if (schema.is_incremental or schema.is_webhook) and schema.keeps_history
                     else None
                 ),
             )

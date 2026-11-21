@@ -154,3 +154,10 @@ LOADED_PREFIX_PROMOTION_TOTAL = Counter(
     "Watermark promotions after a loaded prefix of an incremental run, by outcome",
     labelnames=["outcome"],
 )
+
+# outcome: late | versions_split | redelivered | order_mismatch | older_than_main (deltalite's stats of the same names).
+WEBHOOK_HISTORY_ROWS_TOTAL = Counter(
+    "warehouse_load_webhook_history_rows_total",
+    "Webhook history rows by what the history or main-table write did with them",
+    labelnames=["source_type", "object_type", "outcome"],
+)
