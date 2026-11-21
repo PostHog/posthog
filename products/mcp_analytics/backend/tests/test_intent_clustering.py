@@ -472,18 +472,23 @@ class TestBuildSnapshot:
 
 
 class TestExcludeRecurringSessions:
-    def test_drops_whole_sessions_that_open_with_a_recurring_text(self) -> None:
+    def test_drops_sessions_opened_by_a_recurring_text_and_later_recurring_intents(self) -> None:
         rows = [
             ("scout-1", "query_trends", "", False),
             ("scout-1", "execute_sql", "  nightly scout  ", False),
             ("scout-1", "execute_sql", "follow-up step", False),
             ("human-1", "execute_sql", "why did signups drop", False),
             ("human-1", "execute_sql", "nightly scout", False),
+            ("human-1", "query_trends", "", False),
+            ("human-1", "execute_sql", "break down by country", False),
         ]
 
         kept = exclude_recurring_sessions(rows, {"nightly scout"})
 
-        assert [row[0] for row in kept] == ["human-1", "human-1"]
+        assert [(row[0], row[2]) for row in kept] == [
+            ("human-1", "why did signups drop"),
+            ("human-1", "break down by country"),
+        ]
 
     @parameterized.expand(
         [

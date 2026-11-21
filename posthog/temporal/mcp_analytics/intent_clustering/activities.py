@@ -160,7 +160,8 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 call_rows = await database_sync_to_async_pool(intent_clustering.fetch_session_calls)(
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
-                # Backstop for whitespace the SQL trim doesn't cover.
+                # Backstop for whitespace the SQL trim doesn't cover, and the only
+                # exclusion for recurring intents that appear after a session's first.
                 call_rows = intent_clustering.exclude_recurring_sessions(call_rows, recurring_texts)
                 # Cap dominant tools so they can't occupy the whole intent corpus.
                 cap_result = intent_clustering.cap_per_tool_call_volume(
