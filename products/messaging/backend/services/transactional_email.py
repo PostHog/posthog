@@ -794,7 +794,7 @@ def send_email_batch(
 def send_code_email_batch(team: Team, email: CodeEmail, recipients: Sequence[BatchRecipient]) -> EmailBatchSent:
     with transactional_email_stage("workflow_lookup"):
         accepted_send, fallback_warning = _accepted_send(team, email)
-        hog_flow_id = _code_template_workflow_id(team.id, email) or _key_workflow_id(team.id, email.key)
+        hog_flow_id = _code_workflow_id(team.id, email.key, email.sensitive)
     return _queue_batch(
         team.id,
         hog_flow_id,
@@ -803,11 +803,6 @@ def send_code_email_batch(team: Team, email: CodeEmail, recipients: Sequence[Bat
         send_accepted_transactional_email_batch,
         sandbox_ignored=_fields_the_sandbox_ignores(email) if fallback_warning is not None else (),
     )
-
-
-def _code_template_workflow_id(team_id: int, email: CodeEmail) -> UUID | None:
-    template = _template_for_key(team_id, email.key)
-    return None if template is None else _template_workflow_id(team_id, template, email.sensitive)
 
 
 def _within_batch_shared_limit(shared: dict[str, Any] | CodeEmail | None) -> bool:
