@@ -23,8 +23,9 @@
             ],
             "outputs": [],
             "cache": true,
-            // PERSON_ON_EVENTS_V2_ENABLED and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA belong in
-            // `env`, not passThroughEnv: each changes the SQL a query runner builds, so a
+            // PERSON_ON_EVENTS_V2_ENABLED, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and
+            // BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE belong in `env`, not
+            // passThroughEnv: each changes the SQL a query runner or a batch export builds, so a
             // result cached under one mode must not satisfy a run in the other.
             "env": [
                 "DATABASE_URL",
@@ -32,7 +33,8 @@
                 "CLICKHOUSE_HOST",
                 "TEST",
                 "PERSON_ON_EVENTS_V2_ENABLED",
-                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
+                "BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE"
             ],
             // Job env that pytest reads. Turbo strips undeclared env vars, so a var set on
             // the CI job never reaches pytest unless listed here, and nothing fails when one

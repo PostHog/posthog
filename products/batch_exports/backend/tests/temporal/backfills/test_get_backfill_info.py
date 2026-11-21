@@ -267,7 +267,7 @@ class TestGetBackfillInfoForEvents:
         batch_export.filters = [{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}]
         await batch_export.asave()
 
-        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_new_events_schema else 0):
             await run_get_backfill_info(
                 batch_export,
                 start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),

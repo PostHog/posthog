@@ -517,7 +517,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     # Build filters clause if filters are configured
     filters_str = ""
     extra_query_parameters: dict[str, typing.Any] = {}
-    reads_native_events = model == "events" and batch_exports_read_new_events_table()
+    reads_native_events = model == "events" and batch_exports_read_new_events_table(inputs.team_id)
     if batch_export.filters:
         filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
             batch_export.filters, team_id=inputs.team_id, use_new_events_schema=reads_native_events

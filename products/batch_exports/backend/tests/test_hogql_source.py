@@ -166,27 +166,38 @@ def test_context_without_hogql_defaults_keeps_the_project_timezone(team) -> None
 
 
 @pytest.mark.parametrize(
-    "instance_setting,flag_on,export_modifiers,expected",
+    "instance_setting,flag_on,export_modifiers,rollout_percentage,expected",
     [
-        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", None, None, False),
-        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", None, None, False),
-        (None, EVENTS_TABLE_ROLLOUT_FLAG, None, False),
-        (None, EVENTS_TABLE_SELF_SERVE_FLAG, None, False),
-        (None, None, {"useNewEventsSchema": True}, True),
+        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", None, None, 0, False),
+        ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", None, None, 0, False),
+        (None, EVENTS_TABLE_ROLLOUT_FLAG, None, 0, False),
+        (None, EVENTS_TABLE_SELF_SERVE_FLAG, None, 0, False),
+        (None, None, {"useNewEventsSchema": True}, 0, True),
+        (None, None, None, 100, True),
+        (None, None, {"useNewEventsSchema": False}, 100, False),
     ],
-    ids=["global-setting", "staff-list", "rollout-flag", "project-opt-in", "export-modifier"],
+    ids=[
+        "global-setting",
+        "staff-list",
+        "rollout-flag",
+        "project-opt-in",
+        "export-modifier",
+        "batch-exports-rollout",
+        "export-modifier-beats-batch-exports-rollout",
+    ],
 )
-def test_only_the_export_modifier_moves_an_export_to_the_new_events_table(
+def test_only_batch_exports_switches_move_an_export_to_the_new_events_table(
     team,
     instance_setting: str | None,
     flag_on: str | None,
     export_modifiers: dict[str, typing.Any] | None,
+    rollout_percentage: int,
     expected: bool,
 ) -> None:
     team.modifiers = {"useNewEventsSchema": True}
     setting_value = True if instance_setting == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" else str(team.pk)
     with (
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+        override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=rollout_percentage),
         override_instance_config(instance_setting, setting_value) if instance_setting else nullcontext(),
         patch("posthog.models.event.new_events_schema.is_cloud", return_value=True),
         patch(
