@@ -252,7 +252,7 @@ export const bounceFollowup: TrafficKind = {
 const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
 const REAL_CLOCK: SendClock = {
-    now: () => Date.now(),
+    now: () => performance.now(),
     wait: async (ms, signal) => {
         await sleep(ms, undefined, { signal })
     },

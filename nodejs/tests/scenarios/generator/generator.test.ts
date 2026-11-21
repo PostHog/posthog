@@ -374,12 +374,14 @@ describe('drive', () => {
     })
 
     it('sums the retries of transactional sends that cdp-api answered with a 5xx', async () => {
-        jest.useRealTimers()
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         let answers = 0
+        let retried = (): void => undefined
+        const answered = new Promise<void>((resolve) => (retried = resolve))
         const server = http.createServer((request, response) => {
             request.resume()
             answers += 1
-            response.writeHead(answers === 1 ? 503 : 202).end('{}')
+            response.writeHead(answers === 1 ? 503 : 202).end('{}', answers === 2 ? retried : undefined)
         })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
@@ -396,6 +398,9 @@ describe('drive', () => {
                 }
             )
 
+            await jest.advanceTimersByTimeAsync(100)
+            await answered
+            await jest.advanceTimersByTimeAsync(100)
             expect({ summary: await driving, journal }).toMatchObject({
                 summary: { offeredUnits: 1, sendRetries: 1 },
                 journal: [{ answer: { accepted: true, retries: 1 } }],
