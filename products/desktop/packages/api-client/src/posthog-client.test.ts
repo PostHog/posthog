@@ -3374,19 +3374,15 @@ describe("PostHogAPIClient", () => {
       }));
     }
 
-    function page(
-      entries: unknown[],
-      hasMore: boolean,
-      matchingCount?: number,
-    ) {
-      const headers = new Headers({ "X-Has-More": String(hasMore) });
-      if (matchingCount !== undefined) {
-        headers.set("X-Matching-Count", String(matchingCount));
-      }
+    function page(entries: unknown[], offset: number, count: number) {
       return {
         ok: true,
-        json: async () => entries,
-        headers,
+        text: async () =>
+          entries.map((entry) => JSON.stringify(entry)).join("\n"),
+        headers: new Headers({
+          "X-Log-Offset": String(offset),
+          "X-Log-Count": String(count),
+        }),
       };
     }
 
@@ -3411,7 +3407,7 @@ describe("PostHogAPIClient", () => {
         expectedLimit: "100",
       },
     ])("$name", async ({ options, expectedLimit }) => {
-      const fetch = vi.fn().mockResolvedValue(page(makeEntries(3, "a"), false));
+      const fetch = vi.fn().mockResolvedValue(page(makeEntries(3, "a"), 0, 3));
       const client = makeClient(fetch);
 
       const result = (
@@ -3420,17 +3416,21 @@ describe("PostHogAPIClient", () => {
 
       expect(result).toHaveLength(3);
       expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][0].path).toBe(
+        "/api/projects/123/tasks/task-1/runs/run-1/log_entries/",
+      );
       expect(requestedParams(fetch.mock.calls[0][0])).toEqual({
         limit: expectedLimit,
+        start: "0",
       });
     });
 
-    it("paginates until X-Has-More is false, advancing offset by entries actually returned", async () => {
+    it("paginates until the matching count is read, advancing start by entries actually returned", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(120, "a"), true))
-        .mockResolvedValueOnce(page(makeEntries(80, "b"), true))
-        .mockResolvedValueOnce(page(makeEntries(10, "c"), false));
+        .mockResolvedValueOnce(page(makeEntries(120, "a"), 0, 210))
+        .mockResolvedValueOnce(page(makeEntries(80, "b"), 120, 210))
+        .mockResolvedValueOnce(page(makeEntries(10, "c"), 200, 210));
       const client = makeClient(fetch);
 
       const result = (
@@ -3443,19 +3443,19 @@ describe("PostHogAPIClient", () => {
       expect(fetch).toHaveBeenCalledTimes(3);
       expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
         limit: "5000",
-        offset: "120",
+        start: "120",
       });
       expect(requestedParams(fetch.mock.calls[2][0])).toEqual({
         limit: "5000",
-        offset: "200",
+        start: "200",
       });
     });
 
     it("stops at the requested total limit even when more pages remain", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(5000, "a"), true))
-        .mockResolvedValueOnce(page(makeEntries(1000, "b"), true));
+        .mockResolvedValueOnce(page(makeEntries(5000, "a"), 0, 6000))
+        .mockResolvedValueOnce(page(makeEntries(1000, "b"), 5000, 7000));
       const client = makeClient(fetch);
 
       const result = (
@@ -3468,15 +3468,15 @@ describe("PostHogAPIClient", () => {
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
         limit: "1000",
-        offset: "5000",
+        start: "5000",
       });
     });
 
     it("forwards the after cursor on every page", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(10, "a"), true))
-        .mockResolvedValueOnce(page(makeEntries(5, "b"), false));
+        .mockResolvedValueOnce(page(makeEntries(10, "a"), 0, 15))
+        .mockResolvedValueOnce(page(makeEntries(5, "b"), 10, 15));
       const client = makeClient(fetch);
 
       await client.getTaskRunSessionLogsResult("task-1", "run-1", {
@@ -3486,11 +3486,12 @@ describe("PostHogAPIClient", () => {
 
       expect(requestedParams(fetch.mock.calls[0][0])).toEqual({
         limit: "5000",
+        start: "0",
         after: "2026-07-01T00:00:00Z",
       });
       expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
         limit: "5000",
-        offset: "10",
+        start: "10",
         after: "2026-07-01T00:00:00Z",
       });
     });
@@ -3498,9 +3499,9 @@ describe("PostHogAPIClient", () => {
     it("fetches the newest entries when the log exceeds the requested cap", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(5000, "head"), true, 9000))
-        .mockResolvedValueOnce(page(makeEntries(5000, "tail-a"), true, 9000))
-        .mockResolvedValueOnce(page(makeEntries(1000, "tail-b"), false, 9000));
+        .mockResolvedValueOnce(page(makeEntries(5000, "head"), 0, 9000))
+        .mockResolvedValueOnce(page(makeEntries(5000, "tail-a"), 3000, 9000))
+        .mockResolvedValueOnce(page(makeEntries(1000, "tail-b"), 8000, 9000));
       const client = makeClient(fetch);
 
       const result = await client.getTaskRunSessionLogsResult(
@@ -3519,18 +3520,18 @@ describe("PostHogAPIClient", () => {
       expect(fetch).toHaveBeenCalledTimes(3);
       expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
         limit: "5000",
-        offset: "3000",
+        start: "3000",
       });
       expect(requestedParams(fetch.mock.calls[2][0])).toEqual({
         limit: "1000",
-        offset: "8000",
+        start: "8000",
       });
     });
 
     it("does not refetch when the matching count equals the cap", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValue(page(makeEntries(5000, "a"), false, 5000));
+        .mockResolvedValue(page(makeEntries(5000, "a"), 0, 5000));
       const client = makeClient(fetch);
 
       const result = await client.getTaskRunSessionLogsResult(
@@ -3547,9 +3548,9 @@ describe("PostHogAPIClient", () => {
     it("retries a rejected page fetch once and keeps paginating", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), 0, 60))
         .mockRejectedValueOnce(new Error("socket hang up"))
-        .mockResolvedValueOnce(page(makeEntries(10, "b"), false));
+        .mockResolvedValueOnce(page(makeEntries(10, "b"), 50, 60));
       const client = makeClient(fetch);
 
       const result = await client.getTaskRunSessionLogsResult(
@@ -3567,11 +3568,10 @@ describe("PostHogAPIClient", () => {
       ).toBeInstanceOf(AbortSignal);
     });
 
-    it("reports a null matching count when the header is absent", async () => {
+    it("treats a page without a matching count as the final page", async () => {
       const fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => makeEntries(10, "a"),
-        headers: new Headers({ "X-Has-More": "true" }),
+        ...page(makeEntries(10, "a"), 0, 0),
+        headers: new Headers({ "X-Log-Offset": "0" }),
       });
       const client = makeClient(fetch);
 
@@ -3579,8 +3579,23 @@ describe("PostHogAPIClient", () => {
         limit: 10,
       });
 
-      expect(result.matchingCount).toBeNull();
-      expect(result.hasMore).toBe(true);
+      expect(result).toEqual({
+        entries: makeEntries(10, "a"),
+        hasMore: false,
+        matchingCount: null,
+      });
+    });
+
+    it("rejects a page that has no offset", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ...page(makeEntries(10, "a"), 0, 10),
+        headers: new Headers(),
+      });
+      const client = makeClient(fetch);
+
+      await expect(
+        client.getTaskRunSessionLogsPage("task-1", "run-1", { limit: 1 }),
+      ).rejects.toThrow();
     });
 
     it("does not retry a definite client error", async () => {
@@ -3600,7 +3615,7 @@ describe("PostHogAPIClient", () => {
     it("gives up after a second rejection on the same page", async () => {
       const fetch = vi
         .fn()
-        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), 0, 100))
         .mockRejectedValue(new Error("socket hang up"));
       const client = makeClient(fetch);
 
@@ -3620,12 +3635,12 @@ describe("PostHogAPIClient", () => {
         .fn()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => {
+          text: async () => {
             throw new Error("terminated");
           },
-          headers: new Headers({ "X-Has-More": "true" }),
+          headers: new Headers(),
         })
-        .mockResolvedValueOnce(page(makeEntries(10, "a"), false));
+        .mockResolvedValueOnce(page(makeEntries(10, "a"), 0, 10));
       const client = makeClient(fetch);
 
       const result = await client.getTaskRunSessionLogsResult(
@@ -3647,13 +3662,13 @@ describe("PostHogAPIClient", () => {
           .mockImplementation((call: { overrides: { signal: AbortSignal } }) =>
             Promise.resolve({
               ok: true,
-              json: () =>
+              text: () =>
                 new Promise((_resolve, reject) => {
                   call.overrides.signal.addEventListener("abort", () =>
                     reject(call.overrides.signal.reason),
                   );
                 }),
-              headers: new Headers({ "X-Has-More": "false" }),
+              headers: new Headers(),
             }),
           );
         const client = makeClient(fetch);
@@ -3674,53 +3689,51 @@ describe("PostHogAPIClient", () => {
       }
     });
 
-    it("marks entries collected before a failed page as incomplete", async () => {
-      const fetch = vi
-        .fn()
-        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
-        .mockResolvedValueOnce({
+    it.each([
+      {
+        name: "a server error",
+        response: {
           ok: false,
           status: 500,
           statusText: "Internal Server Error",
           headers: new Headers(),
+        },
+      },
+      {
+        name: "a page that does not start where it was asked to",
+        response: page(makeEntries(100, "a"), 0, 100),
+      },
+      {
+        name: "a page with a line that is not JSON",
+        response: { ...page([], 50, 100), text: async () => '{"type":' },
+      },
+    ])(
+      "marks entries collected before $name as incomplete",
+      async ({ response }) => {
+        const fetch = vi
+          .fn()
+          .mockResolvedValueOnce(page(makeEntries(50, "a"), 0, 100))
+          .mockResolvedValueOnce(response);
+        const client = makeClient(fetch);
+
+        const result = await client.getTaskRunSessionLogsResult(
+          "task-1",
+          "run-1",
+          { limit: 100000 },
+        );
+
+        expect(result).toEqual({
+          entries: expect.any(Array),
+          complete: false,
+          truncatedHeadCount: 0,
         });
-      const client = makeClient(fetch);
-
-      const result = await client.getTaskRunSessionLogsResult(
-        "task-1",
-        "run-1",
-        { limit: 100000 },
-      );
-
-      expect(result).toEqual({
-        entries: expect.any(Array),
-        complete: false,
-        truncatedHeadCount: 0,
-      });
-      expect(result.entries).toHaveLength(50);
-      expect(fetch).toHaveBeenCalledTimes(2);
-    });
-
-    it("treats a missing X-Has-More header as the final page", async () => {
-      const fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => makeEntries(10, "a"),
-        headers: new Headers(),
-      });
-      const client = makeClient(fetch);
-
-      const result = (
-        await client.getTaskRunSessionLogsResult("task-1", "run-1", {
-          limit: 100000,
-        })
-      ).entries;
-
-      expect(result).toHaveLength(10);
-      expect(fetch).toHaveBeenCalledTimes(1);
-    });
+        expect(result.entries).toHaveLength(50);
+        expect(fetch).toHaveBeenCalledTimes(2);
+      },
+    );
 
     it("stops on an empty page even if the server claims more", async () => {
-      const fetch = vi.fn().mockResolvedValue(page([], true));
+      const fetch = vi.fn().mockResolvedValue(page([], 0, 5));
       const client = makeClient(fetch);
 
       const result = (
