@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { isAccessDeniedError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,6 +28,7 @@ const ALERT_POLL_INTERVAL_MS = 30_000
 export interface logsAlertingLogicValues {
     currentTeamId: number | null // teamLogic
     alerts: LogsAlertConfigurationApi[]
+    alertsAccessDenied: boolean
     alertsLoaded: boolean
     alertsLoading: boolean
     createdByFilter: string | null
@@ -150,6 +152,13 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             {
                 setCreatedByFilter: () => false,
                 loadAlertsSuccess: () => true,
+            },
+        ],
+        alertsAccessDenied: [
+            false,
+            {
+                loadAlerts: () => false,
+                loadAlertsFailure: (_, { errorObject }) => isAccessDeniedError(errorObject ?? {}),
             },
         ],
         createdByFilter: [
@@ -311,11 +320,13 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         },
     })),
 
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadAlerts()
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => {
-                actions.loadAlerts()
+                if (!values.alertsAccessDenied) {
+                    actions.loadAlerts()
+                }
             }, ALERT_POLL_INTERVAL_MS)
             return () => clearInterval(intervalId)
         }, 'pollAlerts')
