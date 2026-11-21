@@ -3102,7 +3102,7 @@ export const getTasksSlackThreadContextRetrieveUrl = (
 }
 
 /**
- * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and run log API URLs.
  * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
  */
 export const tasksSlackThreadContextRetrieve = async (

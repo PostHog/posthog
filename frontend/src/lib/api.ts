@@ -5154,19 +5154,6 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id'], params: Record<string, any> = {}): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).withQueryString(params).get()
             },
-            async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
-                const run = await new ApiRequest().taskRun(taskId, runId).get()
-                if (run.log_url) {
-                    const response = await fetch(run.log_url, {
-                        cache: 'no-store',
-                        headers: {
-                            'Cache-Control': 'no-cache',
-                        },
-                    })
-                    return await response.text()
-                }
-                return ''
-            },
             /**
              * Fetch the assembled resume-chain ACP log for a run (the products/tasks `logs/`
              * endpoint returns JSONL — one `StoredLogEntry` per line, concatenated server-side
