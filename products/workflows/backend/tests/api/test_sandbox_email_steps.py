@@ -655,6 +655,56 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
 
+    @parameterized.expand(
+        [
+            ("a_stale_edit", "patch", {}, {"base_updated_at": "stale"}, 409, ["trigger"]),
+            (
+                "an_active_create_over_mcp",
+                "post",
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                {"status": "active"},
+                400,
+                ["trigger"],
+            ),
+            ("duplicate_step_ids", "post", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, {"duplicate": True}, 400, ["trigger"]),
+            ("a_graph_replacement_over_mcp", "patch", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, {}, 400, ["trigger"]),
+            (
+                "an_enable_without_the_test_sender_warning",
+                "patch",
+                {},
+                {"status": "active", "sandbox_sender_warned": False},
+                200,
+                ["trigger", "function_email"],
+            ),
+        ]
+    )
+    def test_a_save_the_api_refuses_on_the_test_sender_sets_up_no_test_sender(
+        self, _name: str, method: str, headers: dict, extra: dict, expected_status: int, stored_types: list[str]
+    ) -> None:
+        stored = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
+        step = _own_email_step(None)
+        body = _flow(step, **{key: value for key, value in extra.items() if key != "duplicate"})
+        if extra.get("duplicate"):
+            body["actions"].append(deepcopy(step))
+        if extra.get("base_updated_at"):
+            body["base_updated_at"] = (stored.updated_at - timedelta(minutes=1)).isoformat()
+        headers = headers or {"HTTP_USER_AGENT": "posthog-cli"}
+
+        with _flag(True):
+            if method == "post":
+                response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", body, format="json", **headers)
+            else:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{stored.id}", body, format="json", **headers
+                )
+
+        assert response.status_code == expected_status, response.json()
+        assert not self._sandbox_sender_is_set_up()
+        assert [
+            (flow_id, [action["type"] for action in actions])
+            for flow_id, actions in HogFlow.objects.filter(team=self.team).values_list("id", "actions")
+        ] == [(stored.id, stored_types)]
+
     def _sender(self, domain: str, stopped: bool) -> Integration:
         config: dict[str, Any] = {"domain": domain, "provider": "ses", "verified": True}
         if stopped:
