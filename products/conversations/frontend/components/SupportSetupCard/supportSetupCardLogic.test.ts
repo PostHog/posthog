@@ -16,6 +16,9 @@ describe('supportSetupCardLogic', () => {
 
     beforeEach(() => {
         useMocks({
+            post: {
+                '/api/projects/:id/conversations/tickets/send_test/': [201, { id: 'ticket-uuid', ticket_number: 7 }],
+            },
             patch: {
                 '/api/projects/:id': async ({ request }) => [
                     200,
@@ -46,6 +49,37 @@ describe('supportSetupCardLogic', () => {
         expect(router.values.location.pathname).toContain('/support/settings')
         expect(router.values.hashParams).toEqual({ channel: 'email' })
         expect(logic.values.pendingChannel).toBeNull()
+    })
+
+    it('turns Support and the widget on in place, without leaving the setup screen', async () => {
+        logic.actions.pickChannel('widget', 'needs-setup', false)
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(teamLogic.values.currentTeam?.conversations_enabled).toBe(true)
+        expect(teamLogic.values.currentTeam?.conversations_settings?.widget_enabled).toBe(true)
+        expect(router.values.location.pathname).not.toContain('/support/settings')
+        expect(logic.values.pendingChannel).toBeNull()
+    })
+
+    it('turns Support on, then opens the picked import in Support settings', async () => {
+        logic.actions.pickImport('zendesk', 'needs-setup', false)
+        expect(logic.values.pendingReason).toBe('Turning Support on…')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(teamLogic.values.currentTeam?.conversations_enabled).toBe(true)
+        expect(router.values.location.pathname).toContain('/support/settings')
+        expect(router.values.hashParams).toEqual({ selectedSetting: 'conversations-imports', import: 'zendesk' })
+        expect(logic.values.pendingImport).toBeNull()
+    })
+
+    it('opens the test ticket after it is created', async () => {
+        logic.actions.sendTestTicket()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/support/tickets/7')
     })
 
     it('unlocks the card when a later team update replaces the enable request', async () => {

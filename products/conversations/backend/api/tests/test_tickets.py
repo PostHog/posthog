@@ -1013,6 +1013,32 @@ class TestTicketAPI(APIBaseTest):
                     self.assertIn("assignee", ticket_data)
                     self.assertIn("person", ticket_data)
 
+    def test_send_test_creates_a_tagged_ticket_with_a_customer_message(self, mock_on_commit):
+        self.team.conversations_enabled = True
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/send_test/",
+            {"message": "Does this work?"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/").json()
+        assert ticket["channel_source"] == "widget"
+        assert ticket["tags"] == ["test"]
+        assert ticket["last_message_text"] == "Does this work?"
+        assert ticket["anonymous_traits"]["email"] == self.user.email
+        assert ActivityLog.objects.filter(
+            scope="Ticket", activity="created", item_id=ticket["id"], user=self.user
+        ).exists()
+
+    def test_send_test_is_rejected_while_support_is_off(self, mock_on_commit):
+        response = self.client.post(f"/api/projects/{self.team.id}/conversations/tickets/send_test/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Ticket.objects.filter(team=self.team).count() == 1
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestBulkUpdateStatus(APIBaseTest):
@@ -3741,6 +3767,32 @@ class TestTicketAccessControl(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
             {"message": "A reply"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand(
+        [
+            ("none", status.HTTP_403_FORBIDDEN),
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_send_test_needs_resource_level_editor(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.post(f"/api/projects/{self.team.id}/conversations/tickets/send_test/")
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 2 if expected_status == 201 else 1)
+
+    # This team has no email channel, so a request that passes the permission check stops at the 400.
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_400_BAD_REQUEST)])
+    def test_compose_needs_resource_level_editor(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/compose/",
+            {"recipient_email": "customer@example.com", "message": "Hello"},
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.json())

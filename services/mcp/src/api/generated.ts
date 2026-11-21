@@ -118969,6 +118969,14 @@ export namespace Schemas {
       FirstWorkflow: 'first-workflow',
     } as const;
 
+    export interface SetupTestTicket {
+      /**
+         * First customer message of the test ticket. Defaults to a short sample message.
+         * @maxLength 5000
+         */
+      message?: string;
+    }
+
     /**
      * * `covered` - Covered
      * * `slice` - Slice

@@ -58,7 +58,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission, is_scout_sandbox_request
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request, is_service_auth
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -113,6 +113,10 @@ from products.conversations.backend.services.attachments import (
 )
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
+from products.conversations.backend.services.setup_test_ticket import (
+    DEFAULT_SETUP_TEST_MESSAGE,
+    create_setup_test_ticket,
+)
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
 from .. import reply_dedupe
@@ -364,6 +368,20 @@ class ComposeTicketSerializer(serializers.Serializer):
 class ComposeTicketResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Created ticket UUID.")
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
+
+
+class SetupTestTicketSerializer(serializers.Serializer):
+    message = serializers.CharField(
+        required=False,
+        max_length=5000,
+        default=DEFAULT_SETUP_TEST_MESSAGE,
+        help_text="First customer message of the test ticket. Defaults to a short sample message.",
+    )
+
+    def validate_message(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("Message content is required.")
+        return value.strip()
 
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
@@ -823,6 +841,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "partial_update",
         "patch",
         "compose",
+        "send_test",
         "reply",
         "attachments",
         "ai_feedback",
@@ -850,8 +869,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 raise PermissionDenied(
                     "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
+            if self.action == "send_test":
+                raise PermissionDenied("Scouts cannot create test tickets.")
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
+
+    def _require_editor_access_to_all_tickets(self, request: Request) -> None:
+        # The viewset permission also admits a person whose only editor grant is on one existing
+        # ticket. A new ticket belongs to no such grant, so creating one needs editor access to all tickets.
+        if not is_service_auth(request) and not self.user_access_control.check_access_level_for_resource(
+            "ticket", "editor"
+        ):
+            raise PermissionDenied("You do not have editor access to tickets.")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -2172,6 +2201,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         team = self.team
+        self._require_editor_access_to_all_tickets(request)
 
         if not team.conversations_enabled:
             return Response(
@@ -2300,6 +2330,66 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             ComposeTicketResponseSerializer(ticket).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        request=SetupTestTicketSerializer,
+        responses={
+            201: OpenApiResponse(response=ComposeTicketResponseSerializer, description="Test ticket created."),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        pagination_class=None,
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def send_test(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a test ticket from the requesting team member, so a new team can see a ticket before a customer writes in.
+
+        The ticket arrives on the widget channel with the tag "test". A reply to it is stored and is not delivered anywhere.
+        """
+        serializer = SetupTestTicketSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        team = self.team
+
+        self._require_editor_access_to_all_tickets(request)
+
+        if not team.conversations_enabled:
+            return Response({"detail": "Support is not enabled."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        ticket = create_setup_test_ticket(
+            team=team, user=cast("User", request.user), message=serializer.validated_data["message"]
+        )
+
+        # The first message is stored as a customer message with no author, so this entry is the
+        # record of which team member created the ticket.
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast("User", request.user),
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="created",
+                detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            report_user_action(
+                request.user,
+                "support test ticket created",
+                {"ticket_number": ticket.ticket_number},
+                team=team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        return Response(ComposeTicketResponseSerializer(ticket).data, status=drf_status.HTTP_201_CREATED)
 
 
 def validate_assignee(assignee: object) -> TicketAssignee | None:

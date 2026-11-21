@@ -477,6 +477,22 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Create a test ticket from the requesting team member, so a new team can see a ticket before a customer writes in.
+ *
+ * The ticket arrives on the widget channel with the tag "test". A reply to it is stored and is not delivered anywhere.
+ */
+export const conversationsTicketsSendTestCreateBodyMessageDefault = `Hi! This is a test ticket. I sent it from the Support setup screen to see how tickets look.`
+export const conversationsTicketsSendTestCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsSendTestCreateBody = /* @__PURE__ */ zod.object({
+    message: zod
+        .string()
+        .max(conversationsTicketsSendTestCreateBodyMessageMax)
+        .default(conversationsTicketsSendTestCreateBodyMessageDefault)
+        .describe('First customer message of the test ticket. Defaults to a short sample message.'),
+})
+
 export const conversationsViewsCreateBodyNameMax = 400
 
 export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
