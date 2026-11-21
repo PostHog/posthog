@@ -28,7 +28,7 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
         return (
             <EmptyMessage
                 title="Anomaly scoring is still building history"
-                description={`Scoring needs ${SCORED_HISTORY_READY_DAYS} days of history before its flags are reliable. This project has ${anomalies.scored_days} so far.`}
+                description={`Scoring needs ${SCORED_HISTORY_READY_DAYS} days of history before its anomaly results are reliable. This project has ${anomalies.scored_days} so far.`}
             />
         )
     }
@@ -37,7 +37,7 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
     if (filters.search.trim() || filters.dashboardId != null) {
         return (
             <EmptyMessage
-                title="No flagged series match these filters"
+                title="No anomalous series match these filters"
                 description={checked}
                 buttonText="Clear filters"
                 buttonOnClick={resetFilters}
@@ -49,7 +49,7 @@ export function AnomaliesEmptyState({ anomalies }: AnomaliesEmptyStateProps): JS
     const longerRange = longerAnomaliesDateRange(filters.dateFrom)
     return (
         <EmptyMessage
-            title={`Nothing unusual in the ${anomaliesDateRangeLabel(filters.dateFrom).toLowerCase()}`}
+            title={`No anomalies in the ${anomaliesDateRangeLabel(filters.dateFrom).toLowerCase()}`}
             description={checked}
             buttonText={longerRange ? 'Try a longer range' : undefined}
             buttonOnClick={longerRange ? () => setFilters({ dateFrom: longerRange.dateFrom }) : undefined}
