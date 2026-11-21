@@ -39,12 +39,17 @@ from products.batch_exports.backend import (
     destination_tests,
     filters as batch_export_filters,
 )
-from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.billing import (
+    UNIFIED_PIPELINES_PRICING_START,
+    exclude_non_billable_runs,
+    exports_bill_as_rows_synced,
+)
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
+    BatchExportOnDemand,
     BatchExportRun,
     get_batch_exports_using_integration,
 )
@@ -58,11 +63,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FAILED_BACKFILL_STATUSES",
     "MultipleBatchExportsError",
+    "UNIFIED_PIPELINES_PRICING_START",
     "backfill_batch_export",
     "cancel_batch_export_backfill",
     "cancel_batch_export_run",
     "cancel_file_download",
     "count_batch_exports_for_teams",
+    "count_billable_rows_exported",
     "count_hogql_rows",
     "create_batch_export",
     "create_batch_export_backfill",
@@ -72,6 +79,7 @@ __all__ = [
     "delete_batch_exports_for_teams",
     "describe_destination_test",
     "drop_unknown_hogql_modifiers",
+    "exports_bill_as_rows_synced",
     "find_hogql_interval_placeholders",
     "get_batch_export",
     "get_batch_export_backfill",
@@ -333,6 +341,29 @@ def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) 
         .annotate(total=Coalesce(Sum("records_completed"), 0))
     )
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
+
+
+def count_billable_rows_exported(team_ids: Sequence[int], since: dt.datetime) -> int:
+    """Sum the rows the teams exported through billable runs that finished at or after `since`."""
+    # Runs are only indexed on their parent foreign keys, so narrow each parent through its own
+    # export ids. One OR across both parents' team_id would scan the whole run history instead.
+    by_parent = (
+        Q(batch_export_id__in=BatchExport.objects.filter(team_id__in=team_ids).values("id")),
+        Q(
+            batch_export_on_demand_id__in=BatchExportOnDemand.objects.unscoped()
+            .filter(team_id__in=team_ids)
+            .values("id")
+        ),
+    )
+    total = 0
+    for parent in by_parent:
+        completed_runs = BatchExportRun.objects.filter(
+            parent, finished_at__gte=since, status=BatchExportRun.Status.COMPLETED
+        )
+        total += exclude_non_billable_runs(completed_runs).aggregate(total=Coalesce(Sum("records_completed"), 0))[
+            "total"
+        ]
+    return total
 
 
 def get_teams_with_active_batch_exports() -> list[contracts.TeamTotal]:

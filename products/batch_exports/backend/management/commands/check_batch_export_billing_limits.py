@@ -10,15 +10,16 @@ from posthog.redis import get_client
 
 from products.batch_exports.backend.billing import NON_BILLABLE_DESTINATIONS
 from products.batch_exports.backend.models.batch_export import BatchExport
-from products.batch_exports.backend.temporal.batch_exports import check_is_over_limit
+from products.batch_exports.backend.temporal.batch_exports import billed_quota_resource, check_is_over_limit
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+from ee.billing.quota_limiting import QuotaLimitingCaches, list_limited_team_attributes
 
 
 class Command(BaseCommand):
     help = (
         "Check which teams would have their batch exports fail due to being over "
-        "the rows exported billing limit. Runs the same check batch export workflows run."
+        "the rows exported billing limit, or the rows synced limit from the unified pricing cutover. "
+        "Runs the same check batch export workflows run."
     )
 
     def add_arguments(self, parser):
@@ -55,7 +56,7 @@ class Command(BaseCommand):
     def _teams_with_limited_billable_exports(self) -> list[Team]:
         """Return teams in the quota-limit zset that have active billable batch exports."""
         limited_tokens = list_limited_team_attributes(
-            QuotaResource.ROWS_EXPORTED,
+            billed_quota_resource(dt.datetime.now(dt.UTC)),
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             use_cache=False,
         )
@@ -77,11 +78,12 @@ class Command(BaseCommand):
         else:
             is_over_limit = True
 
-        zset_key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.ROWS_EXPORTED.value}"
+        resource = billed_quota_resource(dt.datetime.now(dt.UTC))
+        zset_key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}"
         score = get_client().zscore(zset_key, team.api_token)
         limited_until = dt.datetime.fromtimestamp(score, tz=dt.UTC).isoformat() if score else None
 
-        usage_summary = (team.organization.usage or {}).get(QuotaResource.ROWS_EXPORTED.value) or {}
+        usage_summary = (team.organization.usage or {}).get(resource.value) or {}
         trust_scores = team.organization.customer_trust_scores or {}
 
         active_exports = (
@@ -98,7 +100,7 @@ class Command(BaseCommand):
             "usage": usage_summary.get("usage"),
             "todays_usage": usage_summary.get("todays_usage"),
             "limit": usage_summary.get("limit"),
-            "trust_score": trust_scores.get(QuotaResource.ROWS_EXPORTED.value),
+            "trust_score": trust_scores.get(resource.value),
             "never_drop_data": team.organization.never_drop_data,
             "active_billable_exports": sorted(active_exports),
         }

@@ -14,10 +14,11 @@ from datetime import UTC, datetime, timedelta
 
 from django.db.models import F, Q, QuerySet, Sum
 
+from posthog.usage_ingestion.usage_keys import ROWS_SYNCED_USAGE_KEY
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
-ROWS_SYNCED_USAGE_KEY = "warehouse_rows_synced"
 FREE_HISTORICAL_ROWS_SYNCED_USAGE_KEY = "warehouse_free_historical_rows_synced"
 
 # A source's first week of syncing is free, so its jobs bill on the free historical meter.
