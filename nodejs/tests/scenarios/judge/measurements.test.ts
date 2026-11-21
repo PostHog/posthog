@@ -424,6 +424,13 @@ describe('measurements', () => {
             [{ value: 40 }],
         ],
         [
+            'times the first commit from the valve inside the drive, not from a failover applied after it ended',
+            'seconds_to_first_probe_commit',
+            (second) => between(710, 714)(second) || between(750, 751)(second),
+            [VALVE, { ...FAILOVER, intentAt: isoAt(1600) }],
+            [{ value: 15 }],
+        ],
+        [
             'censors a recovery stage the failover never observed',
             'seconds_to_sql_writer',
             () => false,

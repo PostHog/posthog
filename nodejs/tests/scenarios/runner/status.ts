@@ -274,7 +274,13 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
+        ...timeline.flatMap((entry) =>
+            entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+                ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
+                : entry.observedAt === undefined
+                  ? [unobservedReasonOf(entry)]
+                  : []
+        ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),

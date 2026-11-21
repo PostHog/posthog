@@ -141,6 +141,23 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
         ],
         [
+            'a valve applied only after the drive ended',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        observedAt: at(53),
+                        releaseIntentAt: at(54),
+                        releasedAt: at(55),
+                    },
+                ],
+            },
+            'invalid',
+            'pg.failover on cyclotron was not observed: applied after the drive ended',
+        ],
+        [
             'an invariant failed while a valve was never observed',
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
