@@ -8,6 +8,10 @@ export interface BulkUpdateTagsModalProps {
     isOpen: boolean
     onClose: () => void
     onSuccess?: (result: BulkUpdateTagsResult) => void
+    /** Overrides the item-count title, for hosts that edit one named item. */
+    title?: string
+    /** The item's current tags, for hosts that edit one item. See `BulkUpdateTagsForm`. */
+    initialTags?: string[]
 }
 
 /** Modal host for the bulk tag editing form, for surfaces that trigger it from a menu. */
@@ -17,21 +21,26 @@ export function BulkUpdateTagsModal({
     isOpen,
     onClose,
     onSuccess,
+    title,
+    initialTags,
 }: BulkUpdateTagsModalProps): JSX.Element {
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title={`Update tags for ${selectedIds.length} item${selectedIds.length === 1 ? '' : 's'}`}
+            title={title ?? `Update tags for ${selectedIds.length} item${selectedIds.length === 1 ? '' : 's'}`}
             width={480}
             data-attr="bulk-update-tags-modal"
         >
             <BulkUpdateTagsForm
+                // Remount per selection so the form starts from the new item's tags.
+                key={selectedIds.join(',')}
                 resource={resource}
                 selectedIds={selectedIds}
                 onSuccess={onSuccess}
                 onClose={onClose}
                 showHeader={false}
+                initialTags={initialTags}
             />
         </LemonModal>
     )
