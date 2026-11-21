@@ -581,6 +581,8 @@ The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.git
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
 Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
+The macOS sandbox self-test also needs `package.json`, `.husky/`, and `.flox/env/` alongside its three scripts.
+Keep the hooks and activation scripts in its sparse checkout so the conditional write-denial checks still run.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
