@@ -1,4 +1,7 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { NodeKind, type AccountsTableRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -63,6 +66,27 @@ describe('ProductUsageQueryEditor metadata bindings', () => {
         expect(() => buildProductUsageHogQLQuery(logic.values.queryDraft, [], {}, null)).toThrow(
             'Choose an account group type'
         )
+        logic.unmount()
+    })
+})
+describe('ProductUsageQueryEditor source kind', () => {
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE]: true })
+    })
+    afterEach(cleanup)
+    it('lets a saved product usage source switch to a custom HogQL query', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.setSource({ kind: 'product_usage' })
+        logic.actions.openEditor('product_usage')
+        render(<ProductUsageQueryEditor />)
+        expect(screen.queryByTestId('book-code-editor')).toBeNull()
+        fireEvent.click(screen.getByText('Custom HogQL'))
+        await screen.findByTestId('book-code-editor')
+        expect(logic.values.queryDraft).toContain('FROM events')
+        expect(logic.values.source).toEqual({ kind: 'product_usage' })
         logic.unmount()
     })
 })
