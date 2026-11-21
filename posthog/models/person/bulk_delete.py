@@ -26,6 +26,11 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
+from posthog.models.person.deletion import (
+    find_orphaned_ch_persons,
+    live_ch_distinct_ids_for_persons,
+    tombstone_orphaned_ch_persons,
+)
 from posthog.models.person.util import (
     LIFECYCLE_DELETE_PERSONS_PER_RPC,
     DistinctIdForPerson,
@@ -83,6 +88,14 @@ PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "posthog_person_deletion_distinct_ids_per_person",
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
     buckets=(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, float("inf")),
+)
+
+
+# outcome: "orphan" when ClickHouse still held the person and the deletion ran there, "not_found" when nothing held it.
+PERSON_DELETION_UNRESOLVED_IDS_COUNTER = Counter(
+    "posthog_person_deletion_unresolved_ids_total",
+    "Requested person UUIDs that matched no person in the persons DB, by what the ClickHouse fallback found.",
+    labelnames=["outcome"],
 )
 
 
@@ -176,6 +189,70 @@ def resolve_persons_for_deletion(
         )
 
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
+
+
+@frozen
+class OrphanedPersonDeletion:
+    # Requested UUIDs found only in ClickHouse, whose deletion this request ran or queued.
+    orphaned_uuids: builtins.list[str]
+    # Requested UUIDs that neither the persons DB nor ClickHouse holds as a live person.
+    not_found_uuids: builtins.list[str]
+
+
+def delete_orphaned_ch_persons(
+    team_id: int,
+    requested_uuids: builtins.list[str],
+    resolved: builtins.list[Person],
+    *,
+    delete_profile: bool,
+    delete_events: bool,
+    delete_recordings: bool,
+    actor: User | None,
+) -> OrphanedPersonDeletion:
+    """Delete the requested persons that are live in ClickHouse but absent from the persons DB.
+
+    The persons-DB lookup cannot see these orphans, so without this step a deletion request for them
+    does nothing. Event deletion is keyed by the UUID, and recording deletion by the distinct IDs that
+    ClickHouse still maps to the orphan. The tombstone runs last, so a failure before it leaves the orphan
+    findable for a retry, and every queued step is idempotent.
+    """
+    resolved_uuids = {str(person.uuid) for person in resolved}
+    unresolved: builtins.list[str] = []
+    not_found: builtins.list[str] = []
+    for requested in requested_uuids:
+        try:
+            normalized = str(uuid_lib.UUID(str(requested)))
+        except ValueError:
+            not_found.append(str(requested))
+            continue
+        if normalized not in resolved_uuids and normalized not in unresolved:
+            unresolved.append(normalized)
+
+    orphans = find_orphaned_ch_persons(team_id, unresolved) if unresolved else []
+    orphan_uuids = {orphan.uuid for orphan in orphans}
+    not_found.extend(u for u in unresolved if u not in orphan_uuids)
+    PERSON_DELETION_UNRESOLVED_IDS_COUNTER.labels(outcome="orphan").inc(len(orphans))
+    PERSON_DELETION_UNRESOLVED_IDS_COUNTER.labels(outcome="not_found").inc(len(not_found))
+    if not orphans:
+        return OrphanedPersonDeletion(orphaned_uuids=[], not_found_uuids=not_found)
+
+    logger.info("person_deletion.orphaned_ch_persons", team_id=team_id, orphan_count=len(orphans))
+    distinct_ids_by_uuid = live_ch_distinct_ids_for_persons(team_id, [orphan.uuid for orphan in orphans])
+    orphan_persons: builtins.list[Person] = []
+    for orphan in orphans:
+        # Never saved: it only carries the UUID and distinct IDs the queue helpers read.
+        person = Person(team_id=team_id, uuid=uuid_lib.UUID(orphan.uuid))
+        person._distinct_ids = distinct_ids_by_uuid[orphan.uuid]
+        orphan_persons.append(person)
+    if delete_events:
+        queue_person_event_deletion(team_id, orphan_persons, actor=actor)
+    if delete_recordings:
+        queue_person_recording_deletion(team_id, orphan_persons, actor=actor)
+    elif delete_profile:
+        queue_person_training_deletion(team_id, [d for person in orphan_persons for d in person.distinct_ids])
+    if delete_profile:
+        tombstone_orphaned_ch_persons(team_id, orphans, dry_run=False)
+    return OrphanedPersonDeletion(orphaned_uuids=sorted(orphan_uuids), not_found_uuids=not_found)
 
 
 @frozen
