@@ -1,15 +1,20 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from langchain_core.agents import AgentAction
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_openai import ChatOpenAI
 
 from posthog.schema import (
     ArtifactContentType,
@@ -29,6 +34,7 @@ from ee.hogai.chat_agent.schema_generator.nodes import (
 )
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.chat_agent.trends.toolkit import TRENDS_SCHEMA
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, IntermediateStep
 
@@ -38,7 +44,7 @@ DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     INSIGHT_NAME = "Test"
     OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
-    OUTPUT_SCHEMA = {}
+    OUTPUT_SCHEMA = TRENDS_SCHEMA
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
@@ -359,6 +365,24 @@ class TestSchemaGeneratorNode(BaseTest):
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             assert new_state is not None
             self.assertEqual(len(new_state.intermediate_steps or []), 1)
+
+    @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key"})
+    async def test_model_sends_conversation_start_time_on_every_call(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        state = AssistantState(messages=[], start_dt=datetime(2026, 1, 5, 9, 0, tzinfo=UTC))
+        sent_instructions: list[str] = []
+
+        async def agenerate(llm: ChatOpenAI, *args: Any, **kwargs: Any) -> LLMResult:
+            sent_instructions.append(llm.model_kwargs["instructions"])
+            return LLMResult(generations=[[ChatGeneration(message=AIMessage(content="{}"))]])
+
+        with patch("langchain_openai.ChatOpenAI.agenerate", autospec=True, side_effect=agenerate):
+            for call_time in ("2026-01-05T09:00:30Z", "2026-01-05T09:04:10Z"):
+                with time_machine.travel(call_time, tick=False):
+                    await node._model(state).ainvoke("Plan")
+
+        self.assertEqual(sent_instructions[0], sent_instructions[1])
+        self.assertIn("2026-01-05 09:00:00", sent_instructions[0])
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):
