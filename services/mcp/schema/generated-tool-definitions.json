@@ -4608,7 +4608,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "customer-tasks-create": {
-        "description": "Create a Customer analytics task with a name and optional description, account UUID, project member assignee ID, ISO 8601 deadline, and initial status. This is a customer follow-up task, not an AI coding task.",
+        "description": "Create a Customer analytics task with a name and optional description, account UUID, project member assignee ID, ISO 8601 deadline, initial status, and tags. This is a customer follow-up task, not an AI coding task.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create customer task",
@@ -4624,7 +4624,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "customer-tasks-list": {
-        "description": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses, deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.",
+        "description": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses, deadline, archive state, or `tags` (JSON-encoded array such as `[\"renewal\",\"urgent\"]`, matching tasks with any of the tags). Active tasks are returned by default. Use roles-list to find role UUIDs.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List customer tasks",
@@ -4640,7 +4640,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "customer-tasks-partial-update": {
-        "description": "Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account, assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a completed or canceled task before moving it to another status. Restore archived tasks before editing.",
+        "description": "Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account, assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a completed or canceled task before moving it to another status. `tags` replaces every tag on the task, and an empty list removes them all. Restore archived tasks before editing.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update customer task",
@@ -4672,7 +4672,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "customer-tasks-retrieve": {
-        "description": "Retrieve one accessible Customer analytics task by ID, including its linked account, assignee, deadline, status, and archive state.",
+        "description": "Retrieve one accessible Customer analytics task by ID, including its linked account, assignee, deadline, status, tags, and archive state.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get customer task",
