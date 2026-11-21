@@ -14,6 +14,7 @@ import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMovers } from './ContentAutopilotMovers'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
@@ -174,6 +175,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 description="One line per engine, one point per day. Failed checks are left out."
                 data-attr="content-autopilot-prompts-overview-visibility"
             />
+
+            <ContentAutopilotMovers />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
