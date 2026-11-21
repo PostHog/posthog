@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum, StrEnum
 from http.cookiejar import DefaultCookiePolicy
 from typing import Any, Literal, Optional, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
@@ -1169,6 +1170,11 @@ class BillingManager:
             body=data,
             timeout=BILLING_AI_CREDITS_CHARGE_TIMEOUT,
             valid_codes=(200, 202),
+        )
+
+    def ai_credit_purchase_status(self, organization: Organization, idempotency_key: str) -> dict[str, Any]:
+        return self._ai_credits_request(
+            organization, "GET", f"purchase/{quote(idempotency_key, safe='')}", valid_codes=(200, 202)
         )
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):

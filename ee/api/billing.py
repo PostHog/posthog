@@ -19,7 +19,8 @@ import requests
 import structlog
 import posthoganalytics
 from dateutil.relativedelta import relativedelta
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -718,6 +719,14 @@ class AICreditsPurchaseUnfinished(APIException):
     default_detail = "The purchase didn't finish. Try again. You won't be charged twice."
 
 
+class AICreditsPurchaseNotFound(APIException):
+    """Billing has no purchase with this idempotency key for the organization, so it charged nothing for it."""
+
+    status_code = status.HTTP_404_NOT_FOUND
+    default_code = "ai_credits_purchase_not_found"
+    default_detail = "We can't find this purchase. Look at your history before you pay again."
+
+
 class AICreditsSettingsRejected(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_code = "ai_credits_settings_rejected"
@@ -734,6 +743,10 @@ class AIReloadDisabledReason(models.TextChoices):
 class AICreditPurchaseStatus(models.TextChoices):
     PAID = "paid", "Paid"
     REQUIRES_ACTION = "requires_action", "Requires action"
+    PROCESSING = "processing", "Processing"
+
+
+class AICreditInProgressStatus(models.TextChoices):
     PROCESSING = "processing", "Processing"
 
 
@@ -842,7 +855,21 @@ class AICreditHistoryEntrySerializer(serializers.Serializer):
     )
 
 
+class AICreditInProgressEntrySerializer(serializers.Serializer):
+    created_at = serializers.DateTimeField(help_text="When the person paid for the purchase.")
+    amount_usd = _usd_field("The AI credit to buy, in USD.")
+    tax_usd = _usd_field("The tax on it, in USD.")
+    total_usd = _usd_field("The amount to charge to the card, in USD.")
+    status = serializers.ChoiceField(
+        choices=AICreditInProgressStatus.choices, help_text="Processing until billing has a final answer."
+    )
+    idempotency_key = serializers.CharField(help_text="The idempotency key that the purchase sent.")
+
+
 class AICreditHistoryResponseSerializer(serializers.Serializer):
+    in_progress = AICreditInProgressEntrySerializer(
+        many=True, help_text="Purchases that are not paid and not finished yet, newest first."
+    )
     results = AICreditHistoryEntrySerializer(many=True, help_text="Purchases and automatic reloads, newest first.")
     has_more = serializers.BooleanField(help_text="Whether older entries follow.")
 
@@ -890,7 +917,7 @@ class AICreditPurchaseResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=AICreditPurchaseStatus.choices,
         help_text="Paid, waiting for the person to finish card authentication, or still processing. "
-        "A purchase that is still processing finishes on its own. Send it again with the same idempotency key "
+        "A purchase that is still processing finishes on its own. Read its status with the same idempotency key "
         "to get its final answer.",
     )
     total_usd = _usd_field("What the card is charged, in USD. Absent while the purchase is processing.", required=False)
@@ -904,6 +931,15 @@ class AICreditPurchaseResponseSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Confirm this with Stripe.js when the status is requires_action.",
+    )
+
+
+class AICreditPurchaseStatusResponseSerializer(AICreditPurchaseResponseSerializer):
+    credit_status = serializers.ChoiceField(
+        choices=AICreditHistoryStatus.choices,
+        required=False,
+        help_text="For a paid purchase, pending until billing sends the credit to the AI gateway. "
+        "Absent when the purchase is not paid.",
     )
 
 
@@ -1009,6 +1045,7 @@ def _ai_credits_error(
     organization: Organization,
     bad_request: type[APIException],
     unavailable: type[APIException],
+    not_found: type[APIException],
 ) -> APIException:
     """The named error for billing's answer to an AI credits call. Billing's own words never reach the page."""
     logger.warning("ai_credits_billing_error", organization_id=str(organization.id), status=error.status_code)
@@ -1019,6 +1056,8 @@ def _ai_credits_error(
         return AICreditsCardDeclined()
     if error.status_code == status.HTTP_403_FORBIDDEN:
         return AICreditsUnavailable()
+    if error.status_code == status.HTTP_404_NOT_FOUND:
+        return not_found()
     if error.status_code == status.HTTP_409_CONFLICT:
         return AICreditsTotalChanged() if body.get("status") == "total_changed" else AICreditsPurchaseEnded()
     if error.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
@@ -1048,7 +1087,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "ai_automatic_reload",
     }
     # A GET has no body, so these actions name the organization in the query string.
-    payment_query_actions = {"ai_credit_quote"}
+    payment_query_actions = {"ai_credit_quote", "ai_credit_purchase_status"}
 
     def _organization_in_query(self, request: Request) -> bool:
         return self.action in self.payment_query_actions or (
@@ -1584,6 +1623,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         *,
         bad_request: type[APIException] = AICreditsSettingsRejected,
         unavailable: type[APIException] = BillingServiceError,
+        not_found: type[APIException] = BillingServiceError,
     ) -> dict[str, Any]:
         if not get_cached_instance_license():
             raise NotFound("AI credits need PostHog Cloud.")
@@ -1591,7 +1631,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             return call(self.get_billing_manager(), organization)
         except BillingServiceResponseError as error:
-            raise _ai_credits_error(error, organization, bad_request, unavailable) from error
+            raise _ai_credits_error(error, organization, bad_request, unavailable, not_found) from error
         except requests.RequestException as error:
             logger.warning("ai_credits_billing_unreachable", organization_id=str(organization.id))
             raise unavailable() from error
@@ -1784,7 +1824,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=AICreditPurchaseResponseSerializer),
             202: OpenApiResponse(
                 response=AICreditPurchaseResponseSerializer,
-                description="The purchase is still processing. Send it again with the same idempotency key to get "
+                description="The purchase is still processing. Read its status with the same idempotency key to get "
                 "its final answer.",
             ),
         },
@@ -1810,6 +1850,46 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         processing = answer.get("status") == AICreditPurchaseStatus.PROCESSING
         return Response(
             AICreditPurchaseResponseSerializer(answer).data,
+            status=status.HTTP_202_ACCEPTED if processing else status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        query_serializer=BillingPaymentOrganizationSerializer,
+        parameters=[
+            OpenApiParameter(
+                "idempotency_key",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                description="The idempotency key that the purchase sent.",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(response=AICreditPurchaseStatusResponseSerializer),
+            202: OpenApiResponse(
+                response=AICreditPurchaseStatusResponseSerializer,
+                description="The purchase is still processing. Read its status again later.",
+            ),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"ai_credits/purchase/(?P<idempotency_key>[^/.]+)",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_credit_purchase_status(
+        self, request: ValidatedRequest, idempotency_key: str, *args: Any, **kwargs: Any
+    ) -> Response:
+        """Billing's answer for a purchase as it stands now. Reading it starts no purchase and charges nothing."""
+        answer = self._ai_credits(
+            lambda manager, organization: manager.ai_credit_purchase_status(organization, idempotency_key),
+            bad_request=AICreditsNoCard,
+            unavailable=AICreditsPurchaseUnfinished,
+            not_found=AICreditsPurchaseNotFound,
+        )
+        processing = answer.get("status") == AICreditPurchaseStatus.PROCESSING
+        return Response(
+            AICreditPurchaseStatusResponseSerializer(answer).data,
             status=status.HTTP_202_ACCEPTED if processing else status.HTTP_200_OK,
         )
 
