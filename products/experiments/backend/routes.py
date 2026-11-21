@@ -13,16 +13,16 @@ def register_routes(routers: RouterRegistry) -> None:
     # The web experiments API does not need EE, so it registers before the EE gate.
     routers.projects.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 
-    # The other experiments viewsets live in `ee/clickhouse/views/` and
-    # `products/experiments/backend/presentation/views.py`. Both are unavailable
-    # without EE installed, so these routes are EE-gated.
+    # The holdout viewset lives in `ee/clickhouse/views/`, and the experiments and saved metric
+    # viewsets live in `products/experiments/backend/presentation/`. All three are EE-only, so
+    # these routes register only when EE is installed.
     if not EE_AVAILABLE:
         return
 
+    from products.experiments.backend.presentation.saved_metrics import ExperimentSavedMetricViewSet
     from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
-    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
 
     routers.projects.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     routers.projects.register(

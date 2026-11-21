@@ -126,6 +126,7 @@ from products.experiments.backend.models.experiment import (
     experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.presentation.saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
@@ -169,8 +170,6 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.tasks.backend.facade import api as tasks_facade
-
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 logger = structlog.get_logger(__name__)
 

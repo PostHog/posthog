@@ -78,6 +78,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
     get_experiment_rule,
 )
+from products.experiments.backend.presentation.saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import (
     MAX_BUCKET_SCAN_DAYS,
@@ -108,7 +109,6 @@ from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
 
