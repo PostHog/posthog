@@ -7,12 +7,13 @@ import {
 } from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
 import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
-import type {
-  Adapter,
-  AgentRuntime,
-  ExecutionMode,
-  ModelAccess,
-  WorkspaceMode,
+import {
+  type Adapter,
+  type AgentRuntime,
+  BRANCH_PREFIX,
+  type ExecutionMode,
+  type ModelAccess,
+  type WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
@@ -237,6 +238,12 @@ export interface SettingsStore {
   setSpokenNotifications: (enabled: boolean) => void;
   setSpokenNotifyNeedsInput: (enabled: boolean) => void;
   setSpokenNotifyCompletion: (enabled: boolean) => void;
+  // Git
+  // Prefix prepended to branch names derived from task titles. Stored raw;
+  // deriveBranchName normalizes it, and an empty value means no prefix.
+  branchPrefix: string;
+  setBranchPrefix: (prefix: string) => void;
+
   setSpokenNotifyProgress: (enabled: boolean) => void;
   setSpokenFocusMode: (mode: SpokenFocusMode) => void;
   setElevenLabsVoiceId: (voiceId: string) => void;
@@ -610,6 +617,10 @@ export const useSettingsStore = create<SettingsStore>()(
             : { costChecklistDone: [...state.costChecklistDone, kind] },
         ),
 
+      // Git
+      branchPrefix: BRANCH_PREFIX,
+      setBranchPrefix: (prefix) => set({ branchPrefix: prefix }),
+
       // System / power / permissions
       allowBypassPermissions: false,
       preventSleepWhileRunning: false,
@@ -780,6 +791,9 @@ export const useSettingsStore = create<SettingsStore>()(
         warnOnMidSessionModelSwitch: state.warnOnMidSessionModelSwitch,
         costChecklistDone: state.costChecklistDone,
         autoCompactPercent: state.autoCompactPercent,
+
+        // Git
+        branchPrefix: state.branchPrefix,
 
         // System / power / permissions
         allowBypassPermissions: state.allowBypassPermissions,

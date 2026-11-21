@@ -1,5 +1,5 @@
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Switch } from "@posthog/quill";
+import { Input, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
@@ -53,6 +53,7 @@ export function GeneralSettings() {
   const { localWorkspaces } = useHostCapabilities();
   const { preventSleepWhileRunning, setPreventSleepWhileRunning } =
     useSettingsStore();
+  const { branchPrefix, setBranchPrefix } = useSettingsStore();
   const { data: serverPreventSleep } = useQuery(
     hostTRPC.sleep.getEnabled.queryOptions(undefined, {
       enabled: localWorkspaces,
@@ -364,6 +365,26 @@ export function GeneralSettings() {
               />
             </SettingsCardRow>
           )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        label="Git"
+        description="How branches are named when a task creates one"
+      >
+        <SettingsCard>
+          <SettingsCardRow
+            label="Branch prefix"
+            description="Put in front of branch names created from tasks. Leave it empty for no prefix"
+          >
+            <Input
+              aria-label="Branch prefix"
+              placeholder="No prefix"
+              value={branchPrefix}
+              onChange={(e) => setBranchPrefix(e.currentTarget.value)}
+              className="w-[160px]"
+            />
+          </SettingsCardRow>
         </SettingsCard>
       </SettingsSection>
 

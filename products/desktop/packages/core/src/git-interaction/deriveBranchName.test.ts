@@ -44,4 +44,18 @@ describe("deriveBranchName", () => {
   it("falls back to task ID when title is only special characters", () => {
     expect(deriveBranchName("!@#$%", "abc123")).toBe("posthog/task-abc123");
   });
+
+  it.each([
+    ["abdullah/", "abdullah/fix-bug"],
+    ["abdullah", "abdullah/fix-bug"],
+    ["/abdullah/", "abdullah/fix-bug"],
+    ["  abdullah/  ", "abdullah/fix-bug"],
+  ])("uses the custom prefix %j", (prefix, expected) => {
+    expect(deriveBranchName("Fix bug", "abc123", prefix)).toBe(expected);
+  });
+
+  it("uses no prefix when the prefix is empty", () => {
+    expect(deriveBranchName("Fix bug", "abc123", "")).toBe("fix-bug");
+    expect(deriveBranchName("", "abc123", "")).toBe("task-abc123");
+  });
 });
