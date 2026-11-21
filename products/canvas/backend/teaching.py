@@ -52,7 +52,7 @@ import {
 } from "@posthog/quill";
 import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard, PartyPopper, Radar } from "lucide-react";
 import dayjs from "dayjs";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { TimeSeriesLineChart, useChartTheme } from "@posthog/quill-charts";
 
 const TOPICS = [
   {
@@ -210,13 +210,10 @@ function LiveUsersCard() {
       cancelled = true;
     };
   }, [nonce]);
-  const data = state.series
-    ? state.series.data.map((value, index) => ({
-        day: state.series.days && state.series.days[index] ? dayjs(state.series.days[index]).format("MMM D") : "",
-        value,
-      }))
-    : [];
-  const empty = !state.loading && !state.error && (!data.length || data.every((point) => !point.value));
+  const theme = useChartTheme();
+  const days = (state.series && state.series.days) || [];
+  const values = (state.series && state.series.data) || [];
+  const empty = !state.loading && !state.error && (!values.length || values.every((value) => !value));
   return (
     <Card>
       <CardHeader>
@@ -245,16 +242,13 @@ function LiveUsersCard() {
             No events yet. Once your project sends data to PostHog, this chart fills in on its own.
           </Text>
         ) : (
-          <div className="h-[160px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="day" stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} minTickGap={24} />
-                <YAxis stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
-                <Line type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="flex h-[160px] flex-col">
+            <TimeSeriesLineChart
+              theme={theme}
+              labels={days}
+              series={[{ key: "users", label: "Unique users", data: values }]}
+              config={{ xAxis: { interval: "day", tickFormatter: (day) => dayjs(day).format("MMM D") } }}
+            />
           </div>
         )}
       </CardContent>

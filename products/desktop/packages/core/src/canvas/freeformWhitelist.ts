@@ -52,7 +52,12 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
     // text/html and the whole quill module graph fails to load.
     esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom&deps=@base-ui/react@1.6.0`,
   },
-  // One charting library (the conventional React pick).
+  {
+    name: "@posthog/quill-charts",
+    version: "0.3.0-beta.31",
+    esm: `${ESM}/@posthog/quill-charts@0.3.0-beta.31?external=react,react-dom&deps=@floating-ui/react@0.27.20`,
+  },
+  // Kept so canvases written before quill-charts still resolve.
   {
     name: "recharts",
     version: "2.15.0",
