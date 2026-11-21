@@ -214,3 +214,100 @@ async def test_concurrent_publishes_run_their_blocking_reads_at_the_same_time(te
         (1, 3.0),
         (1, 3.0),
     ]
+
+
+async def _materialized_table_with_size(team: Team, name: str, queryable_folder: str) -> DataWarehouseSavedQuery:
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=team,
+        name=name,
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+    )
+    [table] = await DataWarehouseTable.objects.abulk_create(
+        [
+            DataWarehouseTable(
+                team=team,
+                name=saved_query.name,
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern=saved_query.url_pattern,
+                queryable_folder=queryable_folder,
+                created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
+                row_count=10,
+                size_in_s3_mib=10.0,
+            )
+        ]
+    )
+    saved_query.table = table
+    await saved_query.asave(update_fields=["table", "updated_at"])
+    return saved_query
+
+
+async def _running_job(team: Team, saved_query: DataWarehouseSavedQuery, workflow_id: str) -> DataModelingJob:
+    return await DataModelingJob.objects.acreate(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id=workflow_id,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_concurrent_publishes_count_the_storage_growth_once(team: Team) -> None:
+    saved_query = await _materialized_table_with_size(team, "growing_model", "baseline-folder")
+    first_job = await _running_job(team, saved_query, "first-workflow")
+    second_job = await _running_job(team, saved_query, "second-workflow")
+    both_publishes_listing = threading.Barrier(2, timeout=5)
+
+    def list_alongside_the_other_publish(*args: object) -> float:
+        both_publishes_listing.wait()
+        return 25.0
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.get_size_of_folder",
+            side_effect=list_alongside_the_other_publish,
+        ),
+    ):
+        results = await asyncio.gather(
+            create_table_from_saved_query(str(first_job.id), str(saved_query.id), team.pk, "first-folder", row_count=1),
+            create_table_from_saved_query(
+                str(second_job.id), str(saved_query.id), team.pk, "second-folder", row_count=1
+            ),
+        )
+
+    assert sum(result.storage_delta_mib or 0 for result in results) == 15.0
+
+
+OWN_STAGED_FOLDER = "staged_model__query_1700000000_bbbbbbbb"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "published_folder,expected_folder,expected_row_count",
+    [
+        ("staged_model__query_1800000000_aaaaaaaa", "staged_model__query_1800000000_aaaaaaaa", 10),
+        ("staged_model__query_1600000000_aaaaaaaa", OWN_STAGED_FOLDER, 20),
+    ],
+)
+async def test_a_publish_keeps_a_folder_staged_after_its_own(
+    team: Team, published_folder: str, expected_folder: str, expected_row_count: int
+) -> None:
+    saved_query = await _materialized_table_with_size(team, "staged_model", published_folder)
+    job = await _running_job(team, saved_query, "late-workflow")
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.calculate_table_size",
+            new_callable=AsyncMock,
+            return_value=20.0,
+        ),
+    ):
+        await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, OWN_STAGED_FOLDER, row_count=20)
+
+    table = saved_query.table
+    assert table is not None
+    await table.arefresh_from_db()
+    assert (table.queryable_folder, table.row_count) == (expected_folder, expected_row_count)

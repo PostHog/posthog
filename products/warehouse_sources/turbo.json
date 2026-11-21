@@ -14,6 +14,7 @@
                 "backend/migrations/**",
                 "backend/tasks/**",
                 "backend/temporal/data_imports/naming_convention.py",
+                "backend/temporal/data_imports/query_folder_state.py",
                 "backend/temporal/data_imports/pipelines/core/account_property_row_sink.py",
                 "backend/temporal/data_imports/pipelines/core/consts.py",
                 "backend/temporal/data_imports/pipelines/core/person_property_row_sink.py",

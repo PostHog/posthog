@@ -78,7 +78,6 @@ from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
-    asave_datawarehousetable,
     create_datawarehousetable,
 )
 from products.warehouse_sources.backend.models.util import (
@@ -125,7 +124,6 @@ __all__ = [
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
-    "asave_datawarehousetable",
     "auto_enable_new_schemas",
     "discovered_schema_finder",
     "is_pinned_schema",
