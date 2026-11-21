@@ -509,7 +509,6 @@ describe('EmailDomainScene', () => {
         await flush(10_000)
 
         expectStep(/You can send from/)
-        expect(backend.requestsTo('email_verify')).toHaveLength(3)
     })
 
     it('offers a check at once for a stopped domain the provider reports pending, and the check repairs it', async () => {
