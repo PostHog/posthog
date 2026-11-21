@@ -1172,22 +1172,25 @@ describe('dashboardLogic', () => {
                     groups: { target: { collapsed: false }, other: { collapsed: false } },
                     groupDisplay: undefined,
                     expected: { group_display: 'sections', group_count: 2, collapsed_group_count: 0 },
+                    tiles: { tiles_deferred_count: 0, tiles_collapsed_count: 0 },
                 },
                 {
                     name: 'a closed group',
                     groups: { target: { collapsed: true }, other: { collapsed: false } },
                     groupDisplay: undefined,
                     expected: { group_display: 'sections', group_count: 2, collapsed_group_count: 1 },
+                    tiles: { tiles_deferred_count: 0, tiles_collapsed_count: 1 },
                 },
                 {
                     name: 'tabs',
                     groups: { target: { collapsed: false }, other: { collapsed: false } },
                     groupDisplay: 'tabs',
                     expected: { group_display: 'tabs', group_count: 2, collapsed_group_count: 1 },
+                    tiles: { tiles_deferred_count: 0, tiles_collapsed_count: 1 },
                 },
             ])(
                 'reports $name on dashboard refreshed and time to see data',
-                async ({ groups, groupDisplay, expected }) => {
+                async ({ groups, groupDisplay, expected, tiles }) => {
                     groupTiles(groups)
                     if (groupDisplay) {
                         dashboards[5] = {
@@ -1203,7 +1206,7 @@ describe('dashboardLogic', () => {
                         () =>
                             expect(capture).toHaveBeenCalledWith(
                                 'dashboard refreshed',
-                                expect.objectContaining(expected)
+                                expect.objectContaining({ ...expected, ...tiles })
                             ),
                         { timeout: 5000 }
                     )
