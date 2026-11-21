@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -55,6 +56,7 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
             "com.iterable:iterableplayutils_2.13",
         ),
         swiftpm=("github.com/iterable/iterable-swift-sdk",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

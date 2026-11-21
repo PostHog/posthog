@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -64,6 +65,7 @@ class MailJetSource(
         go=("github.com/mailjet/mailjet-apiv3-go",),
         maven=("com.mailjet:mailjet-client",),
         rubygems=("mailjet",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

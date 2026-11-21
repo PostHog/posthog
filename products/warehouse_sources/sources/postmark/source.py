@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -49,6 +50,7 @@ class PostmarkSource(
         composer=("wildbit/postmark-php", "wildbit/laravel-postmark-provider", "wildbit/swiftmailer-postmark"),
         maven=("com.postmarkapp:postmark",),
         rubygems=("postmark", "postmark-rails"),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     api_docs_url = "https://postmarkapp.com/developer"

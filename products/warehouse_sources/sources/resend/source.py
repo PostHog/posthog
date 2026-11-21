@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     OAuthMixin,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -62,6 +63,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
         maven=("com.resend:resend-java", "com.resend.api:sdk"),
         pub=("dart_resend",),
         rubygems=("resend",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

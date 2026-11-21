@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -36,6 +37,7 @@ class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeC
         go=("github.com/mailersend/mailersend-go",),
         maven=("com.mailersend:java-sdk",),
         rubygems=("mailersend-ruby",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     api_docs_url = "https://developers.mailersend.com/api/v1/"

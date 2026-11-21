@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -31,7 +32,9 @@ from products.warehouse_sources.sources.sdk import (
 
 @SourceRegistry.register
 class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
-    codebase_detection = detect(env=("^PLUNK_", "^PLUNK_SECRET_KEY$"), npm=("@plunk/node",))
+    codebase_detection = detect(
+        env=("^PLUNK_", "^PLUNK_SECRET_KEY$"), npm=("@plunk/node",), alternative_to=(ProductKey.WORKFLOWS,)
+    )
 
     # Plunk's data endpoints carry no version prefix (only the public send/track endpoints
     # are versioned), so the source is unversioned.

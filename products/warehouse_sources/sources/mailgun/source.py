@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -62,6 +63,7 @@ class MailgunSource(
         go=("github.com/mailgun/mailgun-go",),
         maven=("com.mailgun:mailgun-java",),
         rubygems=("mailgun-ruby",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
