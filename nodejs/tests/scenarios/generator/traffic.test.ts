@@ -177,7 +177,10 @@ describe('traffic', () => {
 
             it('backs off from half a second to five, retries until a minute after the first send, then journals the last refusal', async () => {
                 const clock = controlledClock()
-                const cdpApi = await startCdpApi([UNAVAILABLE], clock)
+                const cdpApi = await startCdpApi(
+                    [{ status: 500, body: { error: 'internal_error' } }, UNAVAILABLE],
+                    clock
+                )
                 const backoffs = [500, 1000, 2000, 4000, ...Array.from({ length: 10 }, () => 5000)]
                 try {
                     expect(
@@ -211,21 +214,35 @@ describe('traffic', () => {
                     await cdpApi.close()
                 }
             })
-        })
 
-        it('stops waiting to retry when the run aborts', async () => {
-            const cdpApi = await startCdpApi([UNAVAILABLE])
-            const abort = new AbortController()
-            try {
-                const offered = transactionalEmail.offer(UNIT, contextFor(cdpApi.url), abort.signal)
-                await cdpApi.answered
-                abort.abort()
+            it('stops waiting to retry when the run aborts during its backoff', async () => {
+                let waiting = (): void => undefined
+                const backingOff = new Promise<void>((resolve) => (waiting = resolve))
+                const clock: SendClock = {
+                    now: () => 0,
+                    wait: (_ms, signal) =>
+                        new Promise((_resolve, reject) => {
+                            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+                            waiting()
+                        }),
+                }
+                const cdpApi = await startCdpApi([UNAVAILABLE])
+                const abort = new AbortController()
+                try {
+                    const offered = transactionalEmail.offer(
+                        UNIT,
+                        contextFor(cdpApi.url, undefined, clock),
+                        abort.signal
+                    )
+                    await backingOff
+                    abort.abort()
 
-                await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
-                expect(cdpApi.received).toHaveLength(1)
-            } finally {
-                await cdpApi.close()
-            }
+                    await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
+                    expect(cdpApi.received).toHaveLength(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
         })
     })
 })
