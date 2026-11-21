@@ -27231,6 +27231,22 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface PendingReviewCounts {
+      /** Proposed metrics you can see that wait for approval. */
+      metrics: number;
+      /** Proposed joins that wait to be accepted or rejected. */
+      relationships: number;
+      /** Proposed certifications that wait for review. */
+      certifications: number;
+    }
+
+    export interface CatalogAttention {
+      /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+      pending_review: PendingReviewCounts | null;
+      /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+      failing_models: number;
+    }
+
     export interface CatalogUser {
       /** ID of the user. */
       id: number;
@@ -100784,15 +100800,6 @@ export namespace Schemas {
     export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
-    }
-
-    export interface PendingReviewCounts {
-      /** Proposed metrics you can see that wait for approval. */
-      metrics: number;
-      /** Proposed joins that wait to be accepted or rejected. */
-      relationships: number;
-      /** Proposed certifications that wait for review. */
-      certifications: number;
     }
 
     export interface PeopleImport {
