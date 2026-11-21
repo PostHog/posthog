@@ -111,7 +111,7 @@ class V2PipelineRemovedError(NonReportableError):
     """
 
 
-def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None, schema_id: uuid.UUID | None = None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
     child that would immediately no-op on every sync."""
@@ -120,6 +120,7 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
         return True
     # Lazy: compute_table_statistics drags deltalake/pyarrow; keep it off this activity's import path.
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
+        MAX_RECOMPUTE_INTERVAL,
         MIN_RECOMPUTE_INTERVAL,
     )
 
@@ -128,7 +129,21 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
         .filter(table_id=table.id)
         .aggregate(latest=Max("computed_at"))["latest"]
     )
-    return latest is None or (timezone.now() - latest) >= MIN_RECOMPUTE_INTERVAL
+    if latest is None:
+        return True
+    age = timezone.now() - latest
+    if age < MIN_RECOMPUTE_INTERVAL:
+        return False
+    if schema_id is None or age >= MAX_RECOMPUTE_INTERVAL:
+        return True
+    # With no rows written since the last computation the Delta version is unchanged, and the
+    # activity's version_unchanged skip records nothing, so only the maximum interval gives it work.
+    # A `None` row count predates row counting, so it counts as written.
+    return (
+        ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id, created_at__gte=latest)
+        .exclude(rows_synced=0)
+        .exists()
+    )
 
 
 def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
@@ -139,9 +154,15 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     if table is None:
         # First-ever sync — nothing is annotated yet, so there is work to do.
         return True
-    # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
-    # show up perpetually in `columns - annotated` and keep this returning True on every sync.
-    columns = set((table.columns or {}).keys()) - table.hidden_columns()
+    # Lazy: enrich_table_semantics pulls in the LLM client; keep it off this activity's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
+        enrichable_column_names,
+    )
+
+    # Annotations use the HogQL-renamed names, so raw names would leave a renamed column pending forever.
+    columns = enrichable_column_names(table)
+    if not columns:
+        return False
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)
