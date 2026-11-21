@@ -344,6 +344,7 @@ export type SettingId =
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-utm-defaults'
+    | 'workflows-email-run-link-tag'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 

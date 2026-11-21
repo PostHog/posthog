@@ -96,6 +96,7 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -1967,6 +1968,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
                 component: <WorkflowsUtmDefaultsSettings />,
                 keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
+            },
+            {
+                id: 'workflows-email-run-link-tag',
+                title: 'Connect email clicks to sessions',
+                description:
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the domain you send email from, including its subdomains, and your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
+                component: <WorkflowsRunLinkTagSettings />,
+                keywords: [
+                    'workflows',
+                    'broadcasts',
+                    'email',
+                    'links',
+                    'clicks',
+                    'session',
+                    'replay',
+                    'ph_workflow_run',
+                ],
             },
             {
                 id: 'workflows-email-tracking-consent',
