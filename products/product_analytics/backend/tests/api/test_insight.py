@@ -4485,6 +4485,22 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
 
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_shared_retrieve_shows_an_errors_public_message(self, mock_calculate: mock.MagicMock) -> None:
+        error = RuntimeError("The `internal-flag-key` feature flag is not enabled")
+        error.public_message = "Access control failure."  # type: ignore[attr-defined]
+        mock_calculate.side_effect = error
+        insight = Insight.objects.create(team=self.team, query=default_pageview_query())
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True, access_token="shared")
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=shared&refresh=force_blocking"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["query_status"]["error_message"], "Access control failure.")
+
     @parameterized.expand(
         [
             ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),

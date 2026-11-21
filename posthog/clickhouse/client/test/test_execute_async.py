@@ -414,7 +414,7 @@ class TestExecuteProcessQuery(TestCase):
     )
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
-    def test_a_killed_run_stores_its_scan_only_for_a_real_user(
+    def test_a_failed_run_stores_its_scan_and_full_message_only_for_a_real_user(
         self, _name, real_user, expect_scan, mock_process_query_dict, mock_redis_client
     ):
         mock_redis = MagicMock()
@@ -425,6 +425,7 @@ class TestExecuteProcessQuery(TestCase):
         error = ExposedCHQueryError("query timed out")
         error.cache_key = "cache_key_1"
         error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+        error.public_message = "query failed"
         mock_process_query_dict.side_effect = error
         sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
 
@@ -440,6 +441,8 @@ class TestExecuteProcessQuery(TestCase):
         stored = json.loads(mock_redis.set.call_args.args[1])
         assert (stored.get("cache_key") == "cache_key_1") is expect_scan
         assert (stored.get("query_scan") is not None) is expect_scan
+        # Signed-in detail an error carries, such as a feature flag key, is kept from a shared link viewer.
+        assert stored["error_message"] == ("query timed out" if real_user else "query failed")
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

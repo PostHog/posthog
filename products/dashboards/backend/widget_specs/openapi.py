@@ -8,7 +8,7 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
-from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
+from posthog.schema import BreakdownFilter, CompareFilter, IntervalType, MetricsDashboardVariable
 
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
@@ -390,6 +390,11 @@ class DashboardCompareFilterField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(MetricsDashboardVariable)  # type: ignore[arg-type]
+class DashboardMetricVariableField(serializers.JSONField):
+    pass
+
+
 class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
 
@@ -436,6 +441,15 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.",
+    )
+    metricVariables = serializers.ListField(
+        child=DashboardMetricVariableField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variables for PromQL metrics tiles, referenced in a query as `$name`. Each has a name, a source and "
+            "a current value. Replaces the stored list; null clears it."
+        ),
     )
 
 

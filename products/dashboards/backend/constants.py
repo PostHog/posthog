@@ -86,6 +86,9 @@ RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS = 2000
 # Ceiling on the whole `optimized` run_insights response. Tiles past it are not run.
 RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
 
+# A failed tile's error message is held to this, so a long query error cannot crowd out other tiles.
+RUN_INSIGHTS_MAX_ERROR_CHARS = 500
+
 # Below this, a tile can only carry a sliced header, so it is reported as not run instead.
 RUN_INSIGHTS_MIN_TILE_CHARS = 200
 

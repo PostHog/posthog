@@ -5,6 +5,7 @@ from rest_framework import exceptions
 
 from products.dashboards.backend.constants import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_ERROR_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MAX_UNRUN_TILES,
     RUN_INSIGHTS_MIN_TILE_CHARS,
@@ -75,6 +76,14 @@ def tile_budget(max_result_chars: int, used_chars: int) -> int:
     if max_result_chars <= 0:
         return 0
     return min(max_result_chars, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
+
+
+def bound_error_message(message: str, used_chars: int) -> str:
+    """Hold a failed tile's error message to its own cap and to what the response has left."""
+    max_chars = min(RUN_INSIGHTS_MAX_ERROR_CHARS, RUN_INSIGHTS_MAX_TOTAL_CHARS - used_chars)
+    if len(message) <= max_chars:
+        return message
+    return message[: max(max_chars - 1, 0)] + "…"
 
 
 def bound_formatted_result(formatted: str, *, tile_id: int, max_chars: int) -> str:
