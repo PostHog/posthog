@@ -140,7 +140,6 @@ class TestFanout:
     @parameterized.expand(
         [
             ("integrations", "/api/v1/app", "/app/{}/integration", "app_id", {"name": "Acme"}, {"name": "Acme"}, {}),
-            # The sink config can carry connection secrets, so it never reaches the table or a sample.
             (
                 "stream_sinks",
                 "/api/v1/stream",
@@ -182,7 +181,6 @@ class TestFanout:
             {"id": "c_3", id_column: "p_2", **kept},
         ]
         assert result.params("iterator") == [None, None, "c_1", None]
-        # One session for the parent walk and one for the child walk.
         assert result.session_options == [{"redact_values": ("sk-key",), **capture_option}] * 2
 
 

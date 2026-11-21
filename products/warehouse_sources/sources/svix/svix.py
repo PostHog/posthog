@@ -134,7 +134,6 @@ def _app_id_param() -> dict[str, Any]:
     return {"app_id": {"type": "resolve", "resource": "applications", "field": "id"}}
 
 
-# The path placeholder (and table column) that carries the id of each one-level fan-out parent.
 _PARENT_ID_FIELDS: dict[str, str] = {"applications": "app_id", "streams": "stream_id"}
 
 
