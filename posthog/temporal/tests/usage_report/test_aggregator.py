@@ -30,6 +30,7 @@ from posthog.temporal.usage_report.aggregator import (
     add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
     add_pre_mcp_event_count_patch_defaults,
+    add_pre_pipelines_egress_bytes_patch_defaults,
     add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     add_pre_signals_spend_patch_defaults,
@@ -186,6 +187,7 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
             "teams_with_local_evaluation_not_modified_requests_count_in_period",
         ),
         (add_pre_ai_overage_bytes_patch_defaults, "teams_with_ai_overage_bytes_in_period"),
+        (add_pre_pipelines_egress_bytes_patch_defaults, "teams_with_pipelines_egress_bytes_in_period"),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
