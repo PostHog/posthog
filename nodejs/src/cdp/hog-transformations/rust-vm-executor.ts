@@ -6,7 +6,7 @@ import { MmdbSource } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, redactSensitiveValues, sanitizeLogMessage } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import {
     HogvmNodeModule,
@@ -248,8 +248,11 @@ export class RustVmExecutor {
 
         if (rust.error) {
             rustVmExecution.inc({ outcome: 'error' })
-            addLog('error', `Error executing function on event ${eventId}: ${rust.error}`)
-            result.error = rust.error
+            addLog(
+                'error',
+                sanitizeLogMessage([`Error executing function on event ${eventId}: ${rust.error}`], sensitiveValues)
+            )
+            result.error = redactSensitiveValues(rust.error, sensitiveValues)
             return result
         }
 

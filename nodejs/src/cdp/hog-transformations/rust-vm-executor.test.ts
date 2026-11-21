@@ -75,6 +75,7 @@ const PRINT_30_TIMES = [
     35,
 ]
 const DIVIDE_BY_ZERO = ['_H', 1, 33, 0, 33, 1, 9, 38]
+const throwing = (message: string): unknown[] => ['_H', 1, 32, message, 2, 'Error', 1, 49]
 const CALL_MESSAGING_PREFERENCES_URL = ['_H', 1, 2, 'generateMessagingPreferencesUrl', 0, 38]
 
 const outcomeCount = async (outcome: string): Promise<number> =>
@@ -190,16 +191,30 @@ describe('RustVmExecutor', () => {
         expect(second!.logs[0].message).toEqual('token is secret-a and ***REDACTED***')
     })
 
-    it('a rust execution error becomes the result error with an error log, without falling back', () => {
-        const result = executor.execute(createExampleInvocation({ bytecode: DIVIDE_BY_ZERO }), [])
+    it.each([
+        ['a vm fault', DIVIDE_BY_ZERO, 'Division by zero'],
+        [
+            'an uncaught throw, with sensitive values redacted',
+            throwing('token is secret-token'),
+            'Uncaught exception: Error: token is ***REDACTED***',
+        ],
+    ])(
+        'a rust execution error from %s becomes the result error with an error log, without falling back',
+        (_name, bytecode, expectedError) => {
+            const invocation = createExampleInvocation({ bytecode })
+            invocation.state.globals.event.uuid = 'event-1'
 
-        expect(result).not.toBeNull()
-        expect(result!.error).toEqual('Division by zero')
-        expect(result!.finished).toEqual(true)
-        expect(result!.execResult).toBeUndefined()
-        expect(result!.logs.map((log) => log.level)).toEqual(['error'])
-        expect(result!.logs[0].message).toContain('Division by zero')
-    })
+            const result = executor.execute(invocation, ['secret-token'])
+
+            expect(result).not.toBeNull()
+            expect(result!.error).toEqual(expectedError)
+            expect(result!.finished).toEqual(true)
+            expect(result!.execResult).toBeUndefined()
+            expect(result!.logs.map((log) => [log.level, log.message])).toEqual([
+                ['error', `Error executing function on event event-1: ${expectedError}`],
+            ])
+        }
+    )
 
     it.each([
         ['unsupported host function', CALL_MESSAGING_PREFERENCES_URL],
