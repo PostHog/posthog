@@ -1155,14 +1155,22 @@ def _steps_moved_to_sandbox_sender(data: Any, defaulted: Any) -> list[str]:
     ]
 
 
-def _set_up_sandbox_sender_before_the_move(context: dict, step_ids: list[str]) -> bool:
+def _set_up_sandbox_sender_before_the_move(context: dict, workflow_id: Optional[str], step_ids: list[str]) -> bool:
     team = context["get_team"]()
     user = context["request"].user
     try:
         with transaction.atomic():
             provision_sandbox_sender(team, user)
     except Exception as error:
-        logger.warning("sandbox_sender_setup_kept_steps_off", team_id=team.id, action_ids=step_ids, exc_info=True)
+        SANDBOX_SENDER_SETUP_FAILURES.labels(path="move").inc()
+        logger.warning(
+            "sandbox_sender_setup_failed",
+            team_id=team.id,
+            workflow_id=workflow_id,
+            action_ids=step_ids,
+            path="move",
+            exc_info=True,
+        )
         capture_exception(error)
         return False
     return True
@@ -4126,10 +4134,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
+        materialized_template_bytes = self.context.get("_materialized_template_bytes", 0)
         defaulted = _with_default_senders_on_new_email_steps(data, instance, self.context)
         validated = super().to_internal_value(defaulted)
         moved = _steps_moved_to_sandbox_sender(data, defaulted)
-        if moved and not _set_up_sandbox_sender_before_the_move(self.context, moved):
+        workflow_id = str(instance.id) if instance else None
+        if moved and not _set_up_sandbox_sender_before_the_move(self.context, workflow_id, moved):
+            self.context["_materialized_template_bytes"] = materialized_template_bytes
             return super().to_internal_value(data)
         return validated
 

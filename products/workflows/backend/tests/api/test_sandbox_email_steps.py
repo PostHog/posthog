@@ -852,21 +852,46 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 / 0")
 
-    @parameterized.expand([("only_stopped_senders", True), ("no_sender", False)])
-    def test_a_new_api_step_stays_off_the_test_sender_when_its_setup_fails(self, _name: str, stopped: bool) -> None:
+    @parameterized.expand(
+        [
+            ("only_stopped_senders", True, False),
+            ("no_sender", False, False),
+            ("no_sender_with_a_saved_template_under_the_size_cap", False, True),
+        ]
+    )
+    def test_a_new_api_step_stays_off_the_test_sender_when_its_setup_fails(
+        self, _name: str, stopped: bool, from_template: bool
+    ) -> None:
         if stopped:
             self._sender("mail0.example.com", stopped=True)
+        step = _own_email_step(None)
+        if from_template:
+            template_id = create_message_template_for_test(
+                team_id=self.team.id,
+                name="Welcome",
+                content={"email": {"subject": "Welcome", "text": "Welcome", "html": "<p>" + "x" * 5000 + "</p>"}},
+            )
+            step = _own_email_step(None, subject="", text="", html="")
+            step["config"]["template_uuid"] = str(template_id)
         fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
+        cap = patch(
+            "products.workflows.backend.presentation.views.hog_flow.MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES", 8000
+        )
 
-        with _flag(True), fault:
+        with _flag(True), fault, cap, capture_logs() as logs:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
-                _flow(_own_email_step(None)),
+                _flow(step),
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
         assert response.status_code == 201, response.json()
+        assert [
+            (log["path"], log["workflow_id"], log["action_ids"])
+            for log in logs
+            if log["event"] == "sandbox_sender_setup_failed"
+        ] == [("move", None, [OWN_EMAIL_STEP_ID])]
         stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
         assert (stored["type"], stored["config"]["inputs"]["email"]["value"]["from"]) == (
             "function_email",
