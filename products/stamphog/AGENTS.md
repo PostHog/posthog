@@ -224,7 +224,8 @@ A change to the verification keeps these true:
 - The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
 - A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
 - A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
-- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- Both review paths, the context fetch and `_attest_gates`, and reviewer routing's proof build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- The review re-run and reviewer routing parse a pending check with `attestation_check` and poll it with `all_reported` (`logic/attestation_checks.py`), so both wait on a workflow entry until `verified_result` returns a result.
 
 ## The manual trigger (the one exception to label mode)
 

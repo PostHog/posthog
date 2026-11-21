@@ -11,7 +11,7 @@ from typing import Any
 
 import structlog
 
-from products.stamphog.backend.logic.attestation_checks import PendingCheck
+from products.stamphog.backend.logic.attestation_checks import AttestationCheck
 from products.stamphog.backend.logic.engine_pregate import (
     AttestationProof,
     EnginePregateError,
@@ -68,7 +68,7 @@ def _run_proof(
 
 def attestation_checks_to_wait_for(
     client: StamphogGitHubClient, repository: str, pr: Mapping[str, Any]
-) -> tuple[PendingCheck, ...]:
+) -> tuple[AttestationCheck, ...]:
     """The checks of the attestations that cover every changed file of the live pull request ``pr``.
 
     It reads no check run, so the engine only names the checks and proves nothing.
