@@ -332,7 +332,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 actions.schedulePoll()
                 return
             }
-            if (!values.sender) {
+            if (status?.verified && !values.sender) {
                 cache.statusAwaitingSender = true
                 return
             }
@@ -365,7 +365,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         loadSenderSuccess: ({ sender }) => {
             if (cache.statusAwaitingSender && sender) {
                 cache.statusAwaitingSender = false
-                actions.actOnStatus(values.status)
+                actions.loadStatus()
             }
         },
         recordVerification: async () => {

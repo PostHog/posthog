@@ -12,12 +12,14 @@ const DOMAIN = 'mail.acme.com'
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
+const TEAM_ID = 997
+
 const LIVE_ON_TEST_SENDER: HogFlow = {
-    id: 'flow-1',
+    id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
     name: 'Welcome',
     version: 1,
     status: 'active',
-    team_id: 1,
+    team_id: TEAM_ID,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     exit_condition: 'exit_only_at_end',
@@ -183,7 +185,13 @@ describe('email domain setup started', () => {
         const mocks = backend.mocks()
         useMocks({
             ...mocks,
-            get: { ...mocks.get, '/api/projects/:team_id/hog_flows/:id/': LIVE_ON_TEST_SENDER },
+            get: {
+                ...mocks.get,
+                '/api/projects/:team_id/hog_flows/:id/': ({ params }: MockResolverInfo) =>
+                    params.team_id === String(TEAM_ID) && params.id === LIVE_ON_TEST_SENDER.id
+                        ? [200, LIVE_ON_TEST_SENDER]
+                        : [404, { detail: 'Not found.' }],
+            },
             post: {
                 ...mocks.post,
                 [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {

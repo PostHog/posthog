@@ -508,6 +508,27 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('email_verify')).toHaveLength(verifyCalls)
     })
 
+    it('checks the status again before it repairs a stopped domain whose sender loaded on a retry', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        const releaseSender = backend.hold('integration_get')
+        backend.failOnce('integration_get', { status: 500, body: { detail: 'Could not reach the email provider' } })
+        silenceKeaLoadersErrors()
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        backend.sesReports(DOMAIN, 'failed')
+        releaseSender()
+        await flush()
+        resumeKeaLoadersErrors()
+        expectStep('We could not load your sending domain')
+
+        click('email-domain-retry')
+        await flush()
+
+        expectStep('Verification stopped')
+        expect(backend.requestsTo('email_verify')).toHaveLength(0)
+    })
+
     it('lets the person restart a stopped verification again after the first restart fails', async () => {
         seedSender()
         backend.sesReports(DOMAIN, 'failed')
