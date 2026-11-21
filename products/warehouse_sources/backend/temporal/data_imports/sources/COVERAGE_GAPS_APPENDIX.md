@@ -6150,10 +6150,10 @@ Diffed against: <https://developers.freshdesk.com/api/>
 - [x] `/api/v2/custom_objects/schemas (+ /schemas/{id}/records)` — customer-defined objects linked to tickets; schemas act as the lookup for the records (medium)
 - [x] `/api/v2/customer-satisfaction/surveys/{survey_id}/responses` — new-style CSAT responses; only legacy satisfaction_ratings are synced (medium)
 - [x] `/api/v2/ticket-forms` — lookup resolving the form ID on tickets in multi-form portals (medium)
-- [ ] `/api/v2/collaboration/threads (+ /collaboration/messages)` — internal discussion threads attached to tickets - collaboration effort per ticket (medium)
-- [ ] `/api/v2/discussions/categories (+ /forums, /topics, /comments)` — community forum activity, another deflection surface (low)
-- [ ] `/api/v2/tickets/{id}/watchers` — who is following each ticket - escalation/involvement signal (low)
-- [ ] `/api/v2/channels/outbound-messages` — proactive outbound messages sent from the helpdesk (low)
+- [ ] `/api/v2/collaboration/threads (+ /collaboration/messages)` — internal discussion threads attached to tickets - collaboration effort per ticket (medium). Skipped: the API reference documents only create, view by id, update and delete for threads and messages; there is no list endpoint.
+- [x] `/api/v2/discussions/categories (+ /forums, /topics, /comments)` — community forum activity, another deflection surface (low). Added as `discussion_categories`, `discussion_forums`, `discussion_topics` and `discussion_comments`.
+- [x] `/api/v2/tickets/{id}/watchers` — who is following each ticket - escalation/involvement signal (low). Added as `ticket_watchers` (one row per ticket with its `watcher_ids`).
+- [ ] `/api/v2/channels/outbound-messages` — proactive outbound messages sent from the helpdesk (low). Skipped: the API reference documents only send and view by message id; there is no list endpoint.
 
 Note: Ticket conversations and canned responses are per-parent sub-resources, so they need a fan-out over the tickets / canned_response_folders tables already synced. Search endpoints (/api/v2/search/\*), automations, email mailbox config and account settings excluded as plumbing.
 
