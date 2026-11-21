@@ -146,6 +146,7 @@ class ResendImportProvider(ImportProvider):
             description="Creates a marketing message category for each Resend topic.",
             count_labels=(
                 ("created", "New categories"),
+                ("matched", "Matched an existing category"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("private", "Private topics, left in Resend"),
             ),
@@ -351,7 +352,12 @@ def _save_topics(context: ImportContext, topics: list[dict[str, Any]]) -> SavedP
     result = import_categories(context.team_id, categories, context.created_by_id)
     return SavedPage(
         imported=result.created,
-        counts={"created": result.created, "already_present": result.already_present, "private": len(private)},
+        counts={
+            "created": result.created,
+            "matched": result.matched,
+            "already_present": result.already_present,
+            "private": len(private),
+        },
         warnings=(
             *(
                 f"{topic.get('name') or topic.get('id')}: Resend only sends this topic to people who opted in. "
