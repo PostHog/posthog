@@ -33,6 +33,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
     MCP_USER_AGENT_MARKER,
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -43,7 +44,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
-from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
+from posthog.permissions import DenyIDJagAccessToken, DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback
 
@@ -383,11 +384,18 @@ class PostHogConnectionTargetErrorSerializer(serializers.Serializer):
 class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Replay requests against another PostHog project via a `posthog` connection you created."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    # ID-JAG runs first so that DenyIDJagAccessToken refuses it with a clear message. Otherwise
+    # PersonalAPIKeyAuthentication reads the token as a personal API key and rejects it as invalid.
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
-    # A connection replays requests with its creator's own grant, which a workload token must not borrow.
-    permission_classes = [DenyWorkloadAccessToken]
+    # A connection replays requests with its creator's own grant, which a workload or ID-JAG token must not borrow.
+    permission_classes = [DenyWorkloadAccessToken, DenyIDJagAccessToken]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("forward", "target"):

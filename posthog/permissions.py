@@ -1709,3 +1709,17 @@ class DenyWorkloadAccessToken(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
+class DenyIDJagAccessToken(BasePermission):
+    """For views that forward requests to another PostHog organization or region with a person's own grant. The
+    organization's identity provider mints an ID-JAG token without the person approving it, and confines it to one
+    organization, so the token must not borrow that grant."""
+
+    message = (
+        "ID-JAG tokens can't use PostHog connections, because a connection reaches past the token's organization. "
+        "Sign in to PostHog with OAuth to use them."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication)
