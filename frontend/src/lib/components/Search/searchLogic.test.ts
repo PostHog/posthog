@@ -294,6 +294,30 @@ describe('searchLogic', () => {
         ])
     })
 
+    it.each([
+        ['shows canvases when the Today navigation flag is on', true, [urls.canvasDetail('canvas-id')]],
+        ['hides canvases when the Today navigation flag is off', false, undefined],
+    ])('%s', async (_name, flagOn, expectedHrefs) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/search/': {
+                    results: [
+                        { result_id: 'canvas-id', type: 'canvas', rank: 1, extra_fields: { name: 'Revenue board' } },
+                    ],
+                    counts: {},
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('revenue')).toDispatchActions([
+            'loadUnifiedSearchResultsSuccess',
+        ])
+
+        const canvasCategory = logic.values.allCategories.find((category) => category.key === 'canvas')
+        expect(canvasCategory?.items.map((item) => item.href)).toEqual(expectedHrefs)
+    })
+
     // A Slack or widget ticket has no email subject, so the first message stands in as the title.
     it('falls back to the last message when a ticket has no subject', async () => {
         useMocks({

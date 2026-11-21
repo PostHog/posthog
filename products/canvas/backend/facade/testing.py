@@ -21,6 +21,7 @@ def create_canvas(
     created_by_id: int | None = None,
     generation_task_id: UUID | None = None,
     source_policy: str = Canvas.SOURCE_POLICY_STANDARD,
+    kind: str = Canvas.KIND_FREEFORM,
     deleted: bool = False,
     canvas_id: UUID | None = None,
 ) -> UUID:
@@ -33,6 +34,7 @@ def create_canvas(
             created_by_id=created_by_id,
             generation_task_id=generation_task_id,
             source_policy=source_policy,
+            kind=kind,
             deleted=deleted,
             **fields,
         )
