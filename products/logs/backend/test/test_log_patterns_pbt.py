@@ -13,7 +13,7 @@ from hypothesis import (
     strategies as st,
 )
 
-from products.logs.backend.log_patterns import LogSample, _prepare_json_body, mine_patterns
+from products.logs.backend.log_patterns import DEFAULT_MESSAGE_KEYS, LogSample, _prepare_json_body, mine_patterns
 
 # PostHog CI runs the backend suite with pytest-rerunfailures (--reruns 2). A rerun
 # re-instantiates the TestCase, so a genuinely-failing @given method is re-invoked from a
@@ -93,4 +93,4 @@ class TestLogPatternsProperties(TestCase):
     def test_message_extraction_returns_the_message_verbatim(self, obj: dict, message: str) -> None:
         obj["message"] = message
 
-        assert _prepare_json_body(json.dumps(obj)) == message
+        assert _prepare_json_body(json.dumps(obj), DEFAULT_MESSAGE_KEYS) == message

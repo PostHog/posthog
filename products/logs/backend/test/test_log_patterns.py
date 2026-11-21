@@ -19,6 +19,7 @@ from products.logs.backend.log_patterns import (
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
     _WHITESPACE_RE,
+    DEFAULT_MESSAGE_KEYS,
     LogSample,
     MinedPattern,
     _prepare_body,
@@ -682,7 +683,42 @@ class TestPrepareJsonBody(TestCase):
         ]
     )
     def test_json_body_reduction(self, _name: str, body: str, expected: str | None) -> None:
-        assert _prepare_json_body(body) == expected
+        assert _prepare_json_body(body, DEFAULT_MESSAGE_KEYS) == expected
+
+    @parameterized.expand(
+        [
+            ("custom_key_replaces_the_defaults", ["text"], '{"text": "custom", "message": "default"}', "custom"),
+            ("list_order_decides", ["msg", "fields.message"], '{"fields": {"message": "nested"}, "msg": "top"}', "top"),
+            (
+                "literal_dotted_key_wins_over_the_path",
+                ["fields.message"],
+                '{"fields.message": "flat", "fields": {"message": "nested"}}',
+                "flat",
+            ),
+            ("path_when_no_literal_key", ["fields.message"], '{"fields": {"message": "nested"}}', "nested"),
+            (
+                "non_string_literal_falls_back_to_the_path",
+                ["fields.message"],
+                '{"fields.message": 7, "fields": {"message": "nested"}}',
+                "nested",
+            ),
+            (
+                "blank_literal_falls_back_to_the_path",
+                ["fields.message"],
+                '{"fields.message": " ", "fields": {"message": "nested"}}',
+                "nested",
+            ),
+            ("deep_path", ["a.b.c"], '{"a": {"b": {"c": "deep"}}}', "deep"),
+            ("path_through_a_non_object", ["a.b"], '{"a": "b"}', None),
+            ("path_ending_at_a_non_string", ["a.b"], '{"a": {"b": {"c": "deep"}}}', None),
+            ("key_without_a_dot_never_descends", ["message"], '{"fields": {"message": "nested"}}', None),
+            ("empty_list_extracts_nothing", [], '{"message": "anything"}', None),
+        ]
+    )
+    def test_message_keys_match_the_literal_key_first_then_the_dot_path(
+        self, _name: str, keys: list[str], body: str, expected: str | None
+    ) -> None:
+        assert _prepare_json_body(body, keys) == expected
 
 
 class TestJsonBodyMining(TestCase):
@@ -1172,9 +1208,9 @@ class TestTruncationProperties(TestCase):
     def test_prepared_body_holds_only_whole_tokens(self, body: str, cap: int) -> None:
         # A JSON body is reduced to its message-like field before collapsing, so the baseline
         # the prefix is measured against is the reduced body, not the raw line.
-        collapsed = _WHITESPACE_RE.sub(" ", _prepare_json_body(body) or body).strip()
+        collapsed = _WHITESPACE_RE.sub(" ", _prepare_json_body(body, DEFAULT_MESSAGE_KEYS) or body).strip()
 
-        prepared = _prepare_body(body, cap)
+        prepared = _prepare_body(body, cap, DEFAULT_MESSAGE_KEYS)
 
         assert len(prepared.text) <= cap
         # the flag has to mean "text is a prefix, not the whole line" for every input, since
