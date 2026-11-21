@@ -191,6 +191,7 @@ from products.feature_flags.backend.session_recording_links import (
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import (
+    blast_radius_data_scopes,
     get_person_blast_radius_v2,
     get_user_blast_radius,
     use_blast_radius_query_v2,
@@ -6041,7 +6042,9 @@ class FeatureFlagViewSet(
         # the scope that reads them.
         if self.action == "user_blast_radius":
             data = request.data if isinstance(request.data, dict) else {}
-            return ["feature_flag:read", "person:read" if data.get("group_type_index") is None else "group:read"]
+            condition = data.get("condition")
+            properties = condition.get("properties") if isinstance(condition, dict) else None
+            return ["feature_flag:read", *blast_radius_data_scopes(properties, data.get("group_type_index"))]
         return super().dangerously_get_required_scopes(request, view)
 
     @extend_schema(

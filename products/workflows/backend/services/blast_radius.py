@@ -15,7 +15,11 @@ from posthog.models.user import User
 from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import (
+    BlastRadiusResult,
+    blast_radius_data_scopes,
+    get_user_blast_radius,
+)
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
@@ -41,6 +45,12 @@ REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
 # again within minutes, and each count reads the team's whole person table. The preview is a sampled estimate, so a
 # few minutes of staleness doesn't change what it tells the user.
 AUDIENCE_COUNT_CACHE_SECONDS = 600
+
+
+def audience_sizing_data_scopes(filters: dict[str, Any] | None, group_type_index: int | None) -> list[str]:
+    """The API scopes, beyond workflow read, that sizing an audience needs for the data its filters read."""
+    properties = filters.get("properties") if filters else None
+    return blast_radius_data_scopes(properties, group_type_index)
 
 
 def _realtime_audience_total(team: Team) -> int:

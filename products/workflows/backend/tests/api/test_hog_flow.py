@@ -5768,9 +5768,16 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("person_read_cannot_size_groups", ["hog_flow:read", "person:read"], 403),
             ("group_read_can_size_groups", ["hog_flow:read", "group:read"], 200),
+            ("group_read_cannot_run_a_hogql_filter", ["hog_flow:read", "group:read"], 403),
+            ("both_scopes_can_run_a_hogql_filter", ["hog_flow:read", "group:read", "person:read"], 200),
         ]
     )
-    def test_user_blast_radius_group_audience_requires_group_read_scope(self, _name, scopes, expected_status):
+    def test_user_blast_radius_group_audience_requires_group_read_scope(self, name, scopes, expected_status):
+        prop = (
+            {"type": "hogql", "key": "1 IN (SELECT 1 FROM persons)", "group_type_index": 0}
+            if "hogql" in name
+            else {"type": "group", "key": "industry", "value": "tech", "operator": "exact", "group_type_index": 0}
+        )
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="sizing", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
         with patch(
@@ -5779,7 +5786,7 @@ class TestHogFlowAPI(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": []}, "group_type_index": 0},
+                {"filters": {"properties": [prop]}, "group_type_index": 0},
                 headers={"authorization": f"Bearer {key}"},
             )
 

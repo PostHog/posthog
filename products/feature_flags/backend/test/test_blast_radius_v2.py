@@ -10,6 +10,7 @@ from posthog.models.team.team import Team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
+    blast_radius_data_scopes,
     get_person_blast_radius_v2,
     get_user_blast_radius,
     use_blast_radius_query_v2,
@@ -148,3 +149,19 @@ class TestBlastRadiusGate(SimpleTestCase):
         # for every team, whatever the rollout says.
         assert kwargs["groups"] == {"project": "42"}
         assert kwargs["group_properties"] == {"project": {"id": "42"}}
+
+
+class TestBlastRadiusDataScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_count", [], None, ["person:read"]),
+            ("plain_group_filters", [{"type": "group", "key": "industry"}], 0, ["group:read"]),
+            ("no_filters", None, 0, ["group:read"]),
+            ("hogql_filter_can_read_persons", [{"type": "hogql", "key": "1"}], 0, ["person:read", "group:read"]),
+            ("cohort_filter_can_read_persons", [{"type": "cohort", "value": 1}], 0, ["person:read", "group:read"]),
+            ("nested_filters_are_not_classified", {"type": "AND", "values": []}, 0, ["person:read", "group:read"]),
+            ("malformed_filter", ["group"], 0, ["person:read", "group:read"]),
+        ]
+    )
+    def test_scopes_follow_what_the_filters_can_read(self, _name, properties, group_type_index, expected):
+        assert blast_radius_data_scopes(properties, group_type_index) == expected

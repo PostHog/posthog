@@ -182,6 +182,7 @@ from products.workflows.backend.facade.batch_jobs import (
 )
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
+    audience_sizing_data_scopes,
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
@@ -5750,7 +5751,15 @@ class HogFlowViewSet(
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
             data = request.data if isinstance(request.data, dict) else {}
-            return ["hog_flow:read", "person:read" if data.get("group_type_index") is None else "group:read"]
+            filters = data.get("filters")
+            group_type_index = data.get("group_type_index")
+            return [
+                "hog_flow:read",
+                *audience_sizing_data_scopes(
+                    filters if isinstance(filters, dict) else None,
+                    group_type_index if isinstance(group_type_index, int) else None,
+                ),
+            ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
