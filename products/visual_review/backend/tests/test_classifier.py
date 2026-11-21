@@ -2,9 +2,12 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from products.visual_review.backend.classifier import SnapshotClassifier, ToleratedKey
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import (
     ClassificationReason,
     ReviewState,
@@ -541,7 +544,13 @@ class TestMixedClassification:
         run = _make_run(repo, [{"identifier": f"snap_{i}", "current_hash": f"hash_{i}"} for i in range(count)])
         baseline = {f"snap_{i}": f"hash_{i}" for i in range(count)}
 
-        result = _classify(run, baseline)
+        with CaptureQueriesContext(connections[WRITER_DB]) as ctx:
+            result = _classify(run, baseline)
 
+        snapshot_updates = [
+            q for q in ctx.captured_queries if q["sql"].startswith('UPDATE "visual_review_runsnapshot"')
+        ]
+        assert len(snapshot_updates) == 1
         assert len(result) == count
         assert all(s.result == SnapshotResult.UNCHANGED for s in result.values())
+        assert all(s.current_artifact_id is not None for s in result.values())
