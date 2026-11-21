@@ -287,6 +287,7 @@ from products.workflows.backend.facade.sandbox_email import (
     check_sandbox_sender_available,
     deliverable_own_sender_domains,
     has_sandbox_sender,
+    has_verified_own_sender,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -1122,8 +1123,10 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
         sender_id = pick_default_email_sender(team.id, frozenset(deliverable))
         if sender_id is None:
             return data
-        on_its_domain = [index for index in new_steps if _custom_address_fits(actions[index], deliverable[sender_id])]
-        return _with_own_sender(data, actions, on_its_domain, sender_id)
+        without_address = [index for index in new_steps if not _has_custom_address(actions[index])]
+        return _with_own_sender(data, actions, without_address, sender_id)
+    if has_verified_own_sender(team.id):
+        return data
     new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
     if not new_steps or not _can_set_up_sandbox_sender(team, user):
         return data
@@ -1201,15 +1204,9 @@ def _email_value(config: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _custom_address_fits(action: dict, sender_domain: str) -> bool:
+def _has_custom_address(action: dict) -> bool:
     sender = _email_value(action["config"]).get("from")
-    address = sender.get("email") if isinstance(sender, dict) else None
-    if not isinstance(address, str):
-        return not address
-    if "{" in address:
-        return False
-    _, at, domain = address.strip().lower().rpartition("@")
-    return domain == sender_domain if at else not domain
+    return isinstance(sender, dict) and bool(sender.get("email"))
 
 
 def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
@@ -1223,9 +1220,10 @@ def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id:
         email: dict = inputs["email"] if isinstance(inputs.get("email"), dict) else {}
         value = _email_value(config)
         sender: dict = value["from"] if isinstance(value.get("from"), dict) else {}
+        kept = {key: field for key, field in sender.items() if field not in (None, "", [])}
         config["inputs"] = {
             **inputs,
-            "email": {**email, "value": {**value, "from": {**sender, "integrationId": sender_id}}},
+            "email": {**email, "value": {**value, "from": {**kept, "integrationId": sender_id}}},
         }
         converted[index] = step
     return {**data, "actions": converted}

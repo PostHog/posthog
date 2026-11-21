@@ -667,47 +667,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("the_project_default_of_several", [False, False], 1, "function_email", 1),
             ("several_senders_and_no_default", [False, False], None, "function_email", None),
             ("a_stopped_default_and_one_that_delivers", [True, False], 0, "function_email", 1),
-            ("only_stopped_senders", [True], None, "email_sandbox", None),
+            ("only_stopped_senders", [True], None, "function_email", None),
+            ("null_sender_fields", [False], None, "function_email", 0, True, None, True),
             ("without_the_adoption_flag", [False], None, "function_email", None, False),
-            ("a_custom_address_on_the_sender_domain", [False], None, "function_email", 0, True, "hi@mail0.example.com"),
-            ("a_custom_address_on_another_domain", [False], None, "function_email", None, True, "hi@other.example.com"),
-            ("a_custom_address_on_a_unicode_domain", [False], None, "function_email", None, True, "hi@bücher.example"),
             (
-                "a_templated_name_on_another_domain",
+                "a_custom_address_on_the_sender_domain",
                 [False],
                 None,
                 "function_email",
                 None,
                 True,
-                "{{ person.properties.team }}@other.example.com",
-            ),
-            ("a_templated_address", [False], None, "function_email", None, True, "{{ person.properties.sender }}"),
-            (
-                "an_address_built_by_a_filter",
-                [False],
-                None,
-                "function_email",
-                None,
-                True,
-                "{{ 'hi' | append: '@mail0.example.com' }}",
-            ),
-            (
-                "a_comment_inside_an_address_on_another_domain",
-                [False],
-                None,
-                "function_email",
-                None,
-                True,
-                "hi@other.example{% comment %}x{% endcomment %}",
-            ),
-            (
-                "a_closing_brace_in_an_address_on_the_sender_domain",
-                [False],
-                None,
-                "function_email",
-                0,
-                True,
-                "ops}hi@mail0.example.com",
+                "hi@mail0.example.com",
             ),
         ]
     )
@@ -720,11 +690,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         expected_index: int | None,
         enabled: bool = True,
         custom_address: str | None = None,
+        null_fields: bool = False,
     ) -> None:
         senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
         if default_index is not None:
             set_default_email_sender_if_unset(self.team.id, senders[default_index].id)
         sender = {"integrationId": None, "email": custom_address} if custom_address else {"integrationId": None}
+        if null_fields:
+            sender = {"integrationId": None, "email": None, "name": None, "integrationIds": None}
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
 
@@ -741,7 +714,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["type"] == expected_type
         if expected_type == "function_email":
             expected_id = senders[expected_index].id if expected_index is not None else None
-            assert stored["config"]["inputs"]["email"]["value"]["from"] == {**sender, "integrationId": expected_id}
+            expected_from = {"integrationId": expected_id} if null_fields else {**sender, "integrationId": expected_id}
+            assert stored["config"]["inputs"]["email"]["value"]["from"] == expected_from
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
 
     @parameterized.expand(
@@ -862,18 +836,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 / 0")
 
-    @parameterized.expand(
-        [
-            ("only_stopped_senders", True, False),
-            ("no_sender", False, False),
-            ("no_sender_with_a_saved_template_under_the_size_cap", False, True),
-        ]
-    )
+    @parameterized.expand([("no_sender", False), ("no_sender_with_a_saved_template_under_the_size_cap", True)])
     def test_a_new_api_step_stays_off_the_test_sender_when_its_setup_fails(
-        self, _name: str, stopped: bool, from_template: bool
+        self, _name: str, from_template: bool
     ) -> None:
-        if stopped:
-            self._sender("mail0.example.com", stopped=True)
         step = _own_email_step(None)
         if from_template:
             template_id = create_message_template_for_test(
