@@ -535,6 +535,12 @@ html[data-today-transition]::view-transition-new(root) {
     line-height: 20px;
     color: var(--today-muted);
     text-wrap: pretty;
+
+    &[data-single-line] {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 }
 
 .TodayRow__end {
@@ -601,6 +607,15 @@ html[data-today-transition]::view-transition-new(root) {
     font-size: 14px;
     line-height: 21px;
     color: var(--today-body-text);
+    text-wrap: pretty;
+}
+
+.TodayRow__detailReason {
+    max-width: 62ch;
+    margin: 0;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--today-muted);
     text-wrap: pretty;
 }
 

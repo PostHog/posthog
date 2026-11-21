@@ -14,13 +14,35 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
-import { LOCKED_BY_ORGANIZATION, lockedValueFor } from '../shared/notificationLocks'
+import { LOCKED_BY_ORGANIZATION, lockedDisabledReason, lockedValueFor } from '../shared/notificationLocks'
+import {
+    APPROVALS_TOOLTIP,
+    DATA_PIPELINE_THRESHOLD_DESCRIPTION,
+    ET_DIGEST_AUTO_PICK_NOTICE,
+    MEMBER_JOIN_DESCRIPTION,
+    MEMBER_JOIN_HINT,
+    PIPELINE_HINT,
+    SECURITY_ALERTS_DESCRIPTION,
+    WA_DIGEST_AUTO_PICK_NOTICE,
+} from './emailPreferencesCopy'
+import { NotificationCard } from './NotificationCard'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
+import { QuillApprovalsHeading } from './QuillApprovalsHeading'
+import { QuillDataPipelineErrorThreshold } from './QuillDataPipelineErrorThreshold'
+import { QuillInfoNotice } from './QuillInfoNotice'
+import { QuillMemberJoinHeading } from './QuillMemberJoinHeading'
+import { QuillNotificationSwitch } from './QuillNotificationSwitch'
+import { QuillOrganizationMemberJoinSelector } from './QuillOrganizationMemberJoinSelector'
+import { QuillPipelineNotificationSelector } from './QuillPipelineNotificationSelector'
+import { QuillProjectDigestSelector } from './QuillProjectDigestSelector'
+import { QuillSecurityAlertsSwitch } from './QuillSecurityAlertsSwitch'
+import { QuillUpdateEmailPreferences } from './QuillUpdateEmailPreferences'
 
 enum NotificationBlock {
     Security = 'security',
@@ -91,11 +113,35 @@ function ProjectDigestSelector({
     const { user, userLoading } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const [expanded, setExpanded] = useState(true)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const teams = currentOrganization?.teams ?? []
     const ownTeamIds = teams
         .filter((team: TeamBasicType) => lockedValueFor(user?.notification_locks, setting, team.id) === null)
         .map((team: TeamBasicType) => team.id)
+
+    const isTeamChecked = (teamId: number, enforced: boolean | null): boolean =>
+        enforced !== null ? (inverse ? !enforced : enforced) : !isTeamDisabled(teamId)
+
+    if (todayRailNav) {
+        return (
+            <QuillProjectDigestSelector
+                teams={teams}
+                keyPrefix={keyPrefix}
+                dataAttrPrefix={dataAttrPrefix}
+                expanded={expanded}
+                onExpandedChange={setExpanded}
+                hint={hint}
+                enforcedFor={(teamId) => lockedValueFor(user?.notification_locks, setting, teamId)}
+                isTeamChecked={isTeamChecked}
+                userLoading={userLoading}
+                onToggleTeam={onToggleTeam}
+                onEnableAll={() => onToggleAllTeams(ownTeamIds, true)}
+                onDisableAll={() => onToggleAllTeams(ownTeamIds, false)}
+                bulkDisabledReason={ownTeamIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
+            />
+        )
+    }
 
     return (
         <div>
@@ -140,16 +186,8 @@ function ProjectDigestSelector({
                                     id={`${keyPrefix}-${team.id}`}
                                     data-attr={`${dataAttrPrefix}_${team.id}`}
                                     onChange={(checked) => onToggleTeam(team.id, checked)}
-                                    checked={
-                                        enforced !== null ? (inverse ? !enforced : enforced) : !isTeamDisabled(team.id)
-                                    }
-                                    disabledReason={
-                                        enforced !== null
-                                            ? LOCKED_BY_ORGANIZATION
-                                            : userLoading
-                                              ? 'Loading...'
-                                              : undefined
-                                    }
+                                    checked={isTeamChecked(team.id, enforced)}
+                                    disabledReason={lockedDisabledReason(enforced, userLoading)}
                                     label={
                                         <div className="flex items-center gap-2">
                                             <span>{team.name}</span>
@@ -173,6 +211,7 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateMemberJoinEmailForOrganization, updateMemberJoinEmailForAllOrganizations } = useActions(userLogic)
     const [expanded, setExpanded] = useState(true)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const organizations = [...(user?.organizations || [])].sort((a, b) => a.name.localeCompare(b.name))
 
@@ -181,6 +220,25 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     const enforcedFor = (orgId: string): boolean | null =>
         lockedValueFor(user?.notification_locks, 'organization_member_join_email_disabled', orgId)
     const ownOrgIds = organizations.filter((o: OrganizationBasicType) => enforcedFor(o.id) === null).map((o) => o.id)
+    const isOrgChecked = (orgId: string, enforced: boolean | null): boolean =>
+        enforced !== null ? !enforced : !isOrgDisabled(orgId)
+
+    if (todayRailNav) {
+        return (
+            <QuillOrganizationMemberJoinSelector
+                organizations={organizations}
+                expanded={expanded}
+                onExpandedChange={setExpanded}
+                enforcedFor={enforcedFor}
+                isOrgChecked={isOrgChecked}
+                userLoading={userLoading}
+                onToggleOrganization={updateMemberJoinEmailForOrganization}
+                onEnableAll={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, true)}
+                onDisableAll={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, false)}
+                bulkDisabledReason={ownOrgIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
+            />
+        )
+    }
 
     return (
         <div>
@@ -196,10 +254,7 @@ function OrganizationMemberJoinSelector(): JSX.Element {
 
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
-                    <span className="text-muted text-xs">
-                        You receive these emails by default for every organization you belong to. Turn off any
-                        organization you do not want them for.
-                    </span>
+                    <span className="text-muted text-xs">{MEMBER_JOIN_HINT}</span>
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-row items-center gap-4">
                             <LemonButton
@@ -228,14 +283,8 @@ function OrganizationMemberJoinSelector(): JSX.Element {
                                     id={`member-join-org-${org.id}`}
                                     data-attr={`member_join_email_org_${org.id}`}
                                     onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
-                                    checked={enforced !== null ? !enforced : !isOrgDisabled(org.id)}
-                                    disabledReason={
-                                        enforced !== null
-                                            ? LOCKED_BY_ORGANIZATION
-                                            : userLoading
-                                              ? 'Loading...'
-                                              : undefined
-                                    }
+                                    checked={isOrgChecked(org.id, enforced)}
+                                    disabledReason={lockedDisabledReason(enforced, userLoading)}
                                     label={
                                         <span className="flex items-center gap-2">
                                             {org.name}
@@ -260,6 +309,30 @@ function PipelineNotificationSelector(): JSX.Element {
     const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
         useValues(pipelineNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const isPipelineChecked = (pipelineId: string, enforced: boolean | null): boolean =>
+        enforced !== null ? !enforced : !isPipelineDisabled(pipelineId)
+
+    if (todayRailNav) {
+        return (
+            <QuillPipelineNotificationSelector
+                expanded={expanded}
+                onExpandedChange={setExpanded}
+                pipelines={pipelines}
+                pipelinesLoading={pipelinesLoading}
+                pipelinesByTeam={pipelinesByTeam}
+                enforcedFor={(teamId) =>
+                    lockedValueFor(user?.notification_locks, 'pipeline_notifications_disabled', teamId)
+                }
+                isPipelineChecked={isPipelineChecked}
+                userLoading={userLoading}
+                onTogglePipeline={updatePipelineNotification}
+                onEnableAll={() => updatePipelineNotificationForAll(allPipelineIds, true)}
+                onDisableAll={() => updatePipelineNotificationForAll(allPipelineIds, false)}
+            />
+        )
+    }
 
     return (
         <div>
@@ -275,9 +348,7 @@ function PipelineNotificationSelector(): JSX.Element {
 
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
-                    <p className="text-muted text-xs">
-                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.
-                    </p>
+                    <p className="text-muted text-xs">{PIPELINE_HINT}</p>
                     {pipelinesLoading ? (
                         <div className="flex items-center gap-2 py-2">
                             <Spinner className="text-lg" />
@@ -328,16 +399,8 @@ function PipelineNotificationSelector(): JSX.Element {
                                                     onChange={(checked) =>
                                                         updatePipelineNotification(pipeline.id, checked)
                                                     }
-                                                    checked={
-                                                        enforced !== null ? !enforced : !isPipelineDisabled(pipeline.id)
-                                                    }
-                                                    disabledReason={
-                                                        enforced !== null
-                                                            ? LOCKED_BY_ORGANIZATION
-                                                            : userLoading
-                                                              ? 'Loading...'
-                                                              : undefined
-                                                    }
+                                                    checked={isPipelineChecked(pipeline.id, enforced)}
+                                                    disabledReason={lockedDisabledReason(enforced, userLoading)}
                                                     label={
                                                         <div className="flex items-center gap-2">
                                                             <span>{pipeline.name}</span>
@@ -384,6 +447,13 @@ export function UpdateEmailPreferences(): JSX.Element {
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
         dataPipelineErrorThresholdValue
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleDataPipelineErrorThresholdChange = (value: number | undefined): void => {
+        const numValue = value != null && !isNaN(value) ? value : 0
+        setLocalDataPipelineErrorThreshold(numValue)
+        updateDataPipelineErrorThreshold(numValue)
+    }
 
     const dataPipelineErrorThresholdError =
         !isNaN(localDataPipelineErrorThreshold) &&
@@ -394,23 +464,24 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const blocks: Record<NotificationBlock, JSX.Element> = {
         [NotificationBlock.Security]: (
-            <div className="border rounded p-4">
-                <div className="space-y-2">
-                    <LemonSwitch
-                        data-attr="security_alerts_enabled"
-                        checked={true}
-                        disabled={true}
-                        label="Security alerts"
-                    />
-                    <span className="text-muted text-sm">
-                        Account security notifications including password changes, 2FA, login activity, and personal API
-                        key exposure. These notifications cannot be disabled.
-                    </span>
-                </div>
-            </div>
+            <NotificationCard lemonClassName="border rounded p-4">
+                {todayRailNav ? (
+                    <QuillSecurityAlertsSwitch />
+                ) : (
+                    <div className="space-y-2">
+                        <LemonSwitch
+                            data-attr="security_alerts_enabled"
+                            checked={true}
+                            disabled={true}
+                            label="Security alerts"
+                        />
+                        <span className="text-muted text-sm">{SECURITY_ALERTS_DESCRIPTION}</span>
+                    </div>
+                )}
+            </NotificationCard>
         ),
         [NotificationBlock.WeeklyDigest]: (
-            <div className="border rounded p-4 space-y-3">
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="all_weekly_digest_disabled"
                     label="Weekly digest"
@@ -431,76 +502,78 @@ export function UpdateEmailPreferences(): JSX.Element {
                         onToggleAllTeams={updateWeeklyDigestForAllTeams}
                     />
                 )}
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.MemberJoin]: (
-            <div className="border rounded p-4 space-y-3">
-                <div className="space-y-2">
-                    <span className="font-medium">New member joined</span>
-                    <span className="text-muted text-sm block">
-                        When someone joins an organization you belong to, we email existing members. Choose which
-                        organizations you want these notifications for.
-                    </span>
-                </div>
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
+                {todayRailNav ? (
+                    <QuillMemberJoinHeading />
+                ) : (
+                    <div className="space-y-2">
+                        <span className="font-medium">New member joined</span>
+                        <span className="text-muted text-sm block">{MEMBER_JOIN_DESCRIPTION}</span>
+                    </div>
+                )}
                 <OrganizationMemberJoinSelector />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.DataPipelineErrors]: (
-            <div className="border rounded p-4 space-y-3">
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="plugin_disabled"
                     label="Data pipeline errors"
                     description="Get notified when data pipeline components (destinations, batch exports, data warehouse sources) encounter errors for all projects"
                     dataAttr="pipeline_errors_enabled"
                 />
-                {user?.notification_settings?.plugin_disabled !== false && (
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Failure rate threshold</label>
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                                <LemonInput
-                                    type="number"
-                                    size="xsmall"
-                                    min={0}
-                                    max={100}
-                                    step={0.1}
-                                    value={localDataPipelineErrorThreshold}
-                                    onChange={(value) => {
-                                        const numValue = value != null && !isNaN(value) ? value : 0
-                                        setLocalDataPipelineErrorThreshold(numValue)
-                                        updateDataPipelineErrorThreshold(numValue)
-                                    }}
-                                    disabledReason={userLoading ? 'Loading...' : undefined}
-                                    status={dataPipelineErrorThresholdError ? 'danger' : 'default'}
-                                    suffix={<span>%</span>}
-                                    className="w-32"
-                                />
-                                <span className="text-muted text-sm">
-                                    Only notify if failure rate exceeds this threshold. Set to 0% to notify on any
-                                    failure.
-                                </span>
+                {user?.notification_settings?.plugin_disabled !== false &&
+                    (todayRailNav ? (
+                        <QuillDataPipelineErrorThreshold
+                            value={localDataPipelineErrorThreshold}
+                            onChange={handleDataPipelineErrorThresholdChange}
+                            error={dataPipelineErrorThresholdError}
+                            disabled={userLoading}
+                        />
+                    ) : (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Failure rate threshold</label>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <LemonInput
+                                        type="number"
+                                        size="xsmall"
+                                        min={0}
+                                        max={100}
+                                        step={0.1}
+                                        value={localDataPipelineErrorThreshold}
+                                        onChange={handleDataPipelineErrorThresholdChange}
+                                        disabledReason={userLoading ? 'Loading...' : undefined}
+                                        status={dataPipelineErrorThresholdError ? 'danger' : 'default'}
+                                        suffix={<span>%</span>}
+                                        className="w-32"
+                                    />
+                                    <span className="text-muted text-sm">{DATA_PIPELINE_THRESHOLD_DESCRIPTION}</span>
+                                </div>
+                                {dataPipelineErrorThresholdError && (
+                                    <div className="text-danger text-sm">{dataPipelineErrorThresholdError}</div>
+                                )}
                             </div>
-                            {dataPipelineErrorThresholdError && (
-                                <div className="text-danger text-sm">{dataPipelineErrorThresholdError}</div>
-                            )}
                         </div>
-                    </div>
-                )}
+                    ))}
                 {user?.notification_settings?.plugin_disabled !== false && <PipelineNotificationSelector />}
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.IssueAssigned]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="error_tracking_issue_assigned"
                     label="Issue assigned"
                     description="Stay on top of your bugs with a notification every time an issue is assigned to you or your role"
                     dataAttr="error_tracking_issue_assigned_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.EtWeeklyDigest]: (
-            <div className="border rounded p-4 space-y-3">
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="error_tracking_weekly_digest"
                     label="Error tracking weekly digest"
@@ -509,13 +582,12 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
                 {etDigestEnabled && (
                     <>
-                        {!user?.notification_settings.error_tracking_weekly_digest_project_enabled && (
-                            <LemonBanner type="info">
-                                You haven't selected any projects yet, so on the first digest run we'll automatically
-                                pick the one with the most exceptions. If you'd prefer to choose yourself, just select
-                                your projects below and we won't override your choice.
-                            </LemonBanner>
-                        )}
+                        {!user?.notification_settings.error_tracking_weekly_digest_project_enabled &&
+                            (todayRailNav ? (
+                                <QuillInfoNotice>{ET_DIGEST_AUTO_PICK_NOTICE}</QuillInfoNotice>
+                            ) : (
+                                <LemonBanner type="info">{ET_DIGEST_AUTO_PICK_NOTICE}</LemonBanner>
+                            ))}
                         <ProjectDigestSelector
                             keyPrefix="et-digest"
                             dataAttrPrefix="et_weekly_digest"
@@ -528,10 +600,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                         />
                     </>
                 )}
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.WaWeeklyDigest]: (
-            <div className="border rounded p-4 space-y-3">
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="web_analytics_weekly_digest"
                     label="Web analytics weekly digest"
@@ -540,13 +612,12 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
                 {waDigestEnabled && (
                     <>
-                        {!user?.notification_settings.web_analytics_weekly_digest_project_enabled && (
-                            <LemonBanner type="info">
-                                You haven't selected any projects yet, so on the first digest run we'll automatically
-                                pick the one with the most visitors. If you'd prefer to choose yourself, just select
-                                your projects below and we won't override your choice.
-                            </LemonBanner>
-                        )}
+                        {!user?.notification_settings.web_analytics_weekly_digest_project_enabled &&
+                            (todayRailNav ? (
+                                <QuillInfoNotice>{WA_DIGEST_AUTO_PICK_NOTICE}</QuillInfoNotice>
+                            ) : (
+                                <LemonBanner type="info">{WA_DIGEST_AUTO_PICK_NOTICE}</LemonBanner>
+                            ))}
                         <ProjectDigestSelector
                             keyPrefix="wa-digest"
                             dataAttrPrefix="wa_weekly_digest"
@@ -559,36 +630,40 @@ export function UpdateEmailPreferences(): JSX.Element {
                         />
                     </>
                 )}
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.DataCatalogWeeklyDigest]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="data_catalog_weekly_digest"
                     label="Data catalog weekly digest"
                     description="Get a weekly summary of the metrics, relationships, and certifications waiting for review in your projects"
                     dataAttr="data_catalog_weekly_digest_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.CommentMentions]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="discussions_mentioned"
                     label="Comment mentions"
                     description="Get notified when someone mentions you in a discussion on any project"
                     dataAttr="discussions_mentioned_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.Approvals]: (
-            <div className="border rounded p-4 space-y-3">
-                <div className="flex items-center gap-1 font-semibold">
-                    <span>Approvals</span>
-                    <Tooltip title="These switches apply to approval emails from all your organizations.">
-                        <IconQuestion className="text-secondary text-base" />
-                    </Tooltip>
-                </div>
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
+                {todayRailNav ? (
+                    <QuillApprovalsHeading />
+                ) : (
+                    <div className="flex items-center gap-1 font-semibold">
+                        <span>Approvals</span>
+                        <Tooltip title={APPROVALS_TOOLTIP}>
+                            <IconQuestion className="text-secondary text-base" />
+                        </Tooltip>
+                    </div>
+                )}
                 <SimpleSwitch
                     setting="approval_requested"
                     label="Approval requests"
@@ -601,40 +676,40 @@ export function UpdateEmailPreferences(): JSX.Element {
                     description="Get an email when your change request is approved, declined, expires, or goes live"
                     dataAttr="approval_resolved_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.ApiKeyExposure]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="project_api_key_exposed"
                     label="Private API key exposure"
                     description="Get notified when private API keys are publicly exposed"
                     dataAttr="project_api_key_exposure_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.AiEvaluationDisabled]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="ai_evaluation_disabled"
                     label="Disabled AI evaluations"
                     description="Get notified when an AI observability evaluation stops because of an error"
                     dataAttr="ai_evaluation_disabled_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.WorkflowSuggestions]: (
-            <div className="border rounded p-4">
+            <NotificationCard lemonClassName="border rounded p-4">
                 <SimpleSwitch
                     setting="workflow_suggestions"
                     label="Workflow suggestions"
                     description="Get an email when PostHog suggests a change to a workflow you set up"
                     dataAttr="workflow_suggestions_enabled"
                 />
-            </div>
+            </NotificationCard>
         ),
         [NotificationBlock.MaterializedViewSync]: (
-            <div className="border rounded p-4 space-y-3">
+            <NotificationCard lemonClassName="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="materialized_view_sync_failed"
                     label="Materialized view sync failures"
@@ -642,7 +717,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
                 <MatviewFailureEmailOptions />
-            </div>
+            </NotificationCard>
         ),
     }
 
@@ -657,6 +732,17 @@ export function UpdateEmailPreferences(): JSX.Element {
             highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
     }, [dataLoaded, highlightedBlock])
+
+    if (todayRailNav) {
+        return (
+            <QuillUpdateEmailPreferences
+                blocks={blocks}
+                visibleBlocks={visibleBlocks}
+                highlightedBlock={highlightedBlock}
+                highlightRef={highlightRef}
+            />
+        )
+    }
 
     return (
         <div className="space-y-3">
@@ -675,13 +761,14 @@ export function UpdateEmailPreferences(): JSX.Element {
 
 const MatviewFailureEmailOptions = (): JSX.Element | null => {
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!user?.notification_settings?.materialized_view_sync_failed) {
         return null
     }
 
     return (
-        <div className="pl-6 space-y-3">
+        <div className={todayRailNav ? 'flex flex-col gap-3 ps-9' : 'pl-6 space-y-3'}>
             <SimpleSwitch
                 setting="materialized_view_sync_failed_daily"
                 label="Daily digest"
@@ -725,21 +812,39 @@ const SimpleSwitch = ({
         checked = !checked
     }
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleChange = (newChecked: boolean): void => {
+        user?.notification_settings &&
+            updateUser({
+                notification_settings: {
+                    ...user?.notification_settings,
+                    [setting]: inverse ? !newChecked : newChecked,
+                },
+            })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillNotificationSwitch
+                dataAttr={dataAttr}
+                label={label}
+                description={description}
+                checked={checked}
+                onCheckedChange={handleChange}
+                disabledReason={lockedDisabledReason(enforced, userLoading)}
+                lockedByAdmin={enforced !== null}
+            />
+        )
+    }
+
     return (
         <div className="space-y-2">
             <LemonSwitch
                 data-attr={dataAttr}
-                onChange={(newChecked) => {
-                    user?.notification_settings &&
-                        updateUser({
-                            notification_settings: {
-                                ...user?.notification_settings,
-                                [setting]: inverse ? !newChecked : newChecked,
-                            },
-                        })
-                }}
+                onChange={handleChange}
                 checked={checked}
-                disabledReason={enforced !== null ? LOCKED_BY_ORGANIZATION : userLoading ? 'Loading...' : undefined}
+                disabledReason={lockedDisabledReason(enforced, userLoading)}
                 label={
                     <span className="flex items-center gap-2">
                         {label}

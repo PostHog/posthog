@@ -1,5 +1,6 @@
 import Chance from 'chance'
 import { once } from 'events'
+import { monitorEventLoopDelay } from 'perf_hooks'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
@@ -23,6 +24,8 @@ export type DrivenStep = {
     dueUnits: number
     offeredUnits: number
     waitedFor?: number
+    loopLagP99Ms?: number
+    runnerCpuMs?: number
 }
 
 export type DriveSummary = { targetUnits: number; offeredUnits: number; steps: DrivenStep[] }
@@ -113,6 +116,11 @@ export async function drive(
     signal: AbortSignal,
     context: DriveContext
 ): Promise<DriveSummary> {
+    const needsLocal = card.drive.traffic.map(({ name }) => trafficKind(name)).filter((kind) => kind.needsLocal)
+    if (needsLocal.length > 0 && (context.cdpApi === undefined || context.sesFeedback === undefined)) {
+        const names = needsLocal.map(({ name }) => name).join(', ')
+        throw new Error(`${names} needs the local CDP API and SES feedback, which this run target does not offer`)
+    }
     const planned = stepsOf(card.drive)
     const schedules = stepScheduleOf({ card, profile })
     const chance = new Chance(card.seed)
@@ -217,6 +225,9 @@ export async function drive(
         const lastsMs = toMs - fromMs
         const step: DrivenStep = { index, scale, startedAt, endedAt: startedAt + lastsMs, dueUnits: 0, offeredUnits: 0 }
         steps.push(step)
+        const loopDelay = monitorEventLoopDelay({ resolution: 10 })
+        loopDelay.enable()
+        const cpuAtStart = process.cpuUsage()
         if (context.gate !== undefined) {
             answeredAts.set(step, [])
         }
@@ -244,6 +255,10 @@ export async function drive(
             step.endedAt = Date.now()
             stretchedMs += step.endedAt - (startedAt + lastsMs)
         }
+        loopDelay.disable()
+        const cpu = process.cpuUsage(cpuAtStart)
+        step.runnerCpuMs = Math.round((cpu.user + cpu.system) / 1000)
+        step.loopLagP99Ms = Math.round(loopDelay.percentile(99) / 1e6)
         const cycles = Math.max(1, Math.ceil((step.endedAt - startedAt) / lastsMs))
         step.dueUnits = Math.max(
             sentAt.length,
@@ -255,7 +270,15 @@ export async function drive(
         if (halted.aborted || context.gate === undefined || index === planned.length - 1) {
             continue
         }
-        const window = { index, scale, startedAt, endedAt: step.endedAt, dueUnits: step.dueUnits }
+        const window = {
+            index,
+            scale,
+            startedAt,
+            endedAt: step.endedAt,
+            dueUnits: step.dueUnits,
+            loopLagP99Ms: step.loopLagP99Ms,
+            runnerCpuMs: step.runnerCpuMs,
+        }
         const entry = { settled: false, done: Promise.resolve() }
         entry.done = context
             .gate(window, () => answeredAts.get(step)!.filter((answeredAt) => answeredAt <= step.endedAt).length)

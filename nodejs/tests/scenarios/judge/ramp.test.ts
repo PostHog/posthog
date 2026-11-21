@@ -183,6 +183,24 @@ describe('ramp', () => {
             },
         ],
         [
+            'ends at a step the target says to halt at, before its bars are read',
+            {
+                targetLimit: ({ scale }) => Promise.resolve(`dev quota limited 3 runs at the ${scale}x step`),
+                writerCpu: () => Promise.reject(new Error('read after the target halted')),
+            },
+            1,
+            UNITS_PER_STEP[1],
+            {
+                advance: false,
+                stop: expect.objectContaining({
+                    index: 1,
+                    end: 'harness_limit',
+                    reason: 'dev quota limited 3 runs at the 2x step',
+                    broke: expect.objectContaining({ by: 'target', kind: 'harness', scale: 2 }),
+                }),
+            },
+        ],
+        [
             'passes a first step whose workers claimed at the profile load',
             {
                 profile: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2 } },
@@ -209,6 +227,16 @@ describe('ramp', () => {
                     broke: expect.objectContaining({ by: 'run_host', kind: 'harness', scale: 2 }),
                 }),
             },
+        ],
+        [
+            'goes on past a step whose bar has no source on this stack',
+            {
+                writerCpu: () =>
+                    Promise.resolve({ unsourced: 'the local stack has no Aurora writer to read CPU from' }),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            { advance: true, stop: undefined },
         ],
         [
             'ends at a step whose bar the run host could not read',
@@ -287,6 +315,40 @@ describe('ramp', () => {
         await verdict
 
         expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual(expected)
+    })
+
+    it('stops at a step whose runner lagged and so offered short, naming the runner', async () => {
+        jest.setSystemTime(windowOf(1).endedAt)
+        const watch = watchRamp(live(), NEVER)
+
+        const verdict = watch.gate({ ...windowOf(1), loopLagP99Ms: 900 }, () => 200)
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        await verdict
+
+        expect(watch.stopped()).toMatchObject({
+            index: 1,
+            end: 'harness_limit',
+            reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
+            broke: { by: 'runner', kind: 'harness', scale: 2 },
+        })
+    })
+
+    it('admits a first step at 5x whose workers claimed five times the 1x load target', async () => {
+        const opener = { ...windowOf(0), scale: 5 }
+        jest.setSystemTime(opener.endedAt)
+        const watch = watchRamp(
+            live({
+                profile: { load: { targets: { claimsPerSecond: { hogflow: 1 } }, tolerance: 0.2 } },
+                samples: () => scrapedEvery5s(135, claiming(5)),
+            }),
+            NEVER
+        )
+
+        const verdict = watch.gate(opener, () => UNITS_PER_STEP[0])
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        await verdict
+
+        expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual({ advance: true, stop: undefined })
     })
 
     it('takes no refusal recorded after the run was cancelled', () => {
@@ -400,16 +462,17 @@ describe('ramp', () => {
         })
     })
 
-    it('keeps the break a pending read finds at a lower step after a refusal in a later step halted the drive', async () => {
+    it('waits for a pending read and keeps the break it finds at a lower step after a refusal in a later step halted the drive', async () => {
         jest.setSystemTime(windowOf(0).endedAt)
         let read: ((points: CpuPoint[]) => void) | undefined
         const watch = watchRamp(live({ writerCpu: () => new Promise((resolve) => (read = resolve)) }), NEVER)
 
-        const verdict = watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
+        void watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
         await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
         watch.record(unit(1, 3, false))
+        const pending = watch.pending()
         read!(cpuByMinute([90, 90]))
-        await verdict
+        await pending
 
         expect(watch.stopped()).toMatchObject({
             index: 0,
@@ -443,7 +506,11 @@ describe('ramp', () => {
         unitIds: crossedBy ? [crossedBy] : [],
         ...(crossedBy && { crossedBy }),
     })
-    const harnessAt = (index: number, by: 'generator' | 'run_host', offeredUnits = UNITS_PER_STEP[index]): Broke => ({
+    const harnessAt = (
+        index: number,
+        by: 'generator' | 'run_host' | 'runner',
+        offeredUnits = UNITS_PER_STEP[index]
+    ): Broke => ({
         scale: STEPS[index].scale,
         offeredPerSecond: offeredUnits / 120,
         by,
@@ -492,7 +559,7 @@ describe('ramp', () => {
                     at: iso(T + 2 * MINUTE),
                     part: null,
                 },
-                reason: 'at_least_once broke at the 2x step',
+                reason: 'at_least_once broke at the 2x step, found after the drive',
             },
         ],
         [
@@ -502,7 +569,7 @@ describe('ramp', () => {
                 end: 'broke',
                 sustainedScale: null,
                 broke: { scale: 1, offeredPerSecond: 1, by: 'duplicate_sends', kind: 'gate', at: iso(T), part: null },
-                reason: 'duplicate_sends broke at the 1x step',
+                reason: 'duplicate_sends broke at the 1x step, found after the drive',
             },
         ],
         [
@@ -582,6 +649,26 @@ describe('ramp', () => {
             },
         ],
         [
+            "a step where the runner's event loop lagged, below the step where a bar broke",
+            { steps: [driven(0), { ...driven(1), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
+            {
+                end: 'harness_limit',
+                sustainedScale: 1,
+                broke: harnessAt(1, 'runner'),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
+            },
+        ],
+        [
+            'a step whose runner lagged and so offered short, which the runner outranks',
+            { steps: [driven(0), { ...driven(1, 200), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
+            {
+                end: 'harness_limit',
+                sustainedScale: 1,
+                broke: harnessAt(1, 'runner', 200),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
+            },
+        ],
+        [
             'a last step whose bar the run host could not read',
             { bars: [unreadAt(5)] },
             {
@@ -611,6 +698,19 @@ describe('ramp', () => {
                 sustainedScale: null,
                 broke: harnessAt(0, 'generator'),
                 reason: 'the load admission failed at the 1x step: hogflow claims ran at 1/s, under 5/s',
+            },
+        ],
+        [
+            'a first step whose runner lagged while its load admission failed, which the runner outranks',
+            {
+                steps: [{ ...driven(0), loopLagP99Ms: 900 }, driven(1), driven(2)],
+                admissions: [{ name: 'load', passed: false, reason: 'hogflow claims ran at 1/s, under 5/s' }],
+            },
+            {
+                end: 'harness_limit',
+                sustainedScale: null,
+                broke: harnessAt(0, 'runner'),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 1x step, over 250 ms",
             },
         ],
         [
@@ -690,6 +790,25 @@ describe('ramp', () => {
             },
         ],
         [
+            'a refusal that halted the drive early in a step whose runner lagged, which the runner outranks',
+            {
+                steps: [
+                    driven(0),
+                    driven(1),
+                    { ...driven(2, 10), endedAt: T + 4 * MINUTE + 5000, dueUnits: 25, loopLagP99Ms: 900 },
+                ],
+                stop: { index: 2, end: 'broke', reason: 'refused_at_intake went over its gate of 0 with 1 refused' },
+                invariants: [failed('refused_at_intake', 'u-2-3')],
+                gates: { refused_at_intake: 0 },
+            },
+            {
+                end: 'harness_limit',
+                sustainedScale: 2,
+                broke: { ...harnessAt(2, 'runner'), offeredPerSecond: 2 },
+                reason: "the runner's event loop lagged 900 ms at p99 in the 5x step, over 250 ms",
+            },
+        ],
+        [
             'a refusal answered after its step ran its full length, which the generator offered short',
             {
                 steps: [driven(0), driven(1), driven(2, 510)],
@@ -705,6 +824,23 @@ describe('ramp', () => {
             },
         ],
         [
+            'every step held up to the last, but a job stayed unfinished past the convergence deadline',
+            { converged: false },
+            {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        ],
+        [
             'a step offered exactly its minOffered share, which is no shortfall',
             { minOffered: 0.14, steps: [driven(0), driven(1), { ...driven(2, 14), dueUnits: 100 }] },
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
@@ -713,6 +849,15 @@ describe('ramp', () => {
             'every step held up to the last',
             {},
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+        ],
+        [
+            'every step held up to the last, with a bar the stack has no source for',
+            { bars: [{ ...held(), passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }] },
+            {
+                end: 'ceiling',
+                sustainedScale: 5,
+                reason: 'every judged bar held up to the 5x ceiling; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+            },
         ],
     ])('reads %s', (_story, evidence, expected) => {
         expect(
@@ -726,6 +871,7 @@ describe('ramp', () => {
                 gates: {},
                 journal: JOURNAL,
                 admissions: [],
+                converged: true,
                 ...evidence,
             })
         ).toEqual(expected)
@@ -763,6 +909,7 @@ describe('ramp', () => {
             gates: {},
             journal: JOURNAL,
             admissions: [],
+            converged: true,
         })
 
         expect({ bar: bars[0].breakingPoint?.offeredPerSecond, ramp: ramp.broke?.offeredPerSecond }).toEqual({

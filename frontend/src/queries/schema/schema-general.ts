@@ -1646,6 +1646,8 @@ export interface ChartSettings {
     stackBars100?: boolean
     /** Color each X-axis category in single-series bar charts. */
     colorBarsByCategory?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean

@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "depends_on": {
+            "description": "Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "id": {
+            "description": "Id of the plan report.",
+            "type": "string"
+        },
+        "reason": {
+            "description": "Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "report_id": {
+            "description": "Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "report_id"],
+    "type": "object"
+}

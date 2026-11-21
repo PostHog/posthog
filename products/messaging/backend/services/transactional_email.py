@@ -11,7 +11,7 @@ from email.utils import parseaddr
 from typing import Any, Literal, NoReturn, Protocol
 from uuid import UUID
 
-from django.db import connection, transaction
+from django.db import transaction
 
 import requests
 import structlog
@@ -72,6 +72,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.models.transactional_email_key import lock_team_keys as _lock_team_keys
 from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
 from products.messaging.backend.tasks import detect_code_email_source_task
@@ -276,7 +277,6 @@ FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
-TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -535,6 +535,12 @@ class TransactionalTemplate(Protocol):
 
 
 def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
+    hog_flow_id = _sendable_workflow_id(team_id, template)
+    _require_active(team_id, hog_flow_id)
+    return hog_flow_id
+
+
+def _sendable_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
     if template.type != "email":
         raise TemplateNotSendable("The template isn't an email template. Send it with the push API instead.")
     if not template.transactional_hog_flow_id:
@@ -546,7 +552,6 @@ def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) ->
         content=template.content,
         message_category_id=template.message_category_id,
     )
-    _require_active(team_id, template.transactional_hog_flow_id)
     return template.transactional_hog_flow_id
 
 
@@ -560,17 +565,30 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
 
 
 def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
-    template = _template_for_key(team_id, key)
-    if template is not None:
-        if sensitive is False and template.sensitive:
-            raise SensitiveTemplate(
-                "This email's template is marked sensitive, so `sensitive` can't be false. "
-                "Leave `sensitive` out, or unmark the template."
-            )
-        return _transactional_workflow_id(team_id, template)
-    hog_flow_id = _key_workflow_id(team_id, key)
+    hog_flow_id = _code_workflow_id(team_id, key, sensitive)
     _require_active(team_id, hog_flow_id)
     return hog_flow_id
+
+
+def _code_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
+    template = _template_for_key(team_id, key)
+    if template is None:
+        hog_flow_id = _key_workflow_id(team_id, key)
+        if hog_flow_id is not None:
+            return hog_flow_id
+        template = _template_for_key(team_id, key)
+    if template is None:
+        raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
+    return _template_workflow_id(team_id, template, sensitive)
+
+
+def _template_workflow_id(team_id: int, template: MessageTemplate, sensitive: bool | None) -> UUID:
+    if sensitive is False and template.sensitive:
+        raise SensitiveTemplate(
+            "This email's template is marked sensitive, so `sensitive` can't be false. "
+            "Leave `sensitive` out, or unmark the template."
+        )
+    return _sendable_workflow_id(team_id, template)
 
 
 def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -581,7 +599,9 @@ def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
     return TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(key=key).first()
 
 
-def _key_workflow_id(team_id: int, key: str) -> UUID:
+def _key_workflow_id(team_id: int, key: str) -> UUID | None:
+    """The code email workflow for `key`, made on its first send. None when a template took the key while this send
+    waited for the lock, such as one a template import created."""
     known = known_key(team_id, key)
     if known is not None and _workflow_exists(team_id, known.hog_flow_id):
         return known.hog_flow_id
@@ -592,6 +612,8 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             if _workflow_exists(team_id, known.hog_flow_id):
                 return known.hog_flow_id
             known.delete()
+        if _template_for_key(team_id, key) is not None:
+            return None
         keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
         if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
             raise TooManyKeys(
@@ -610,13 +632,6 @@ def _queue_source_detection(team_id: int, key_id: str) -> None:
     # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
     if source_detection_enabled(team_id, only_locally=True):
         detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
-
-
-def _lock_team_keys(team_id: int) -> None:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
-        )
 
 
 def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
@@ -732,9 +747,7 @@ def _send_payload(
 def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
     sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
-        "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
-        ),
+        "content": _accepted_content(email),
         "from": _without_empty(sender),
         "tracking": _accepted_tracking(email.tracking),
     }
@@ -749,6 +762,12 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted, sandbox_warning
+
+
+def _accepted_content(email: CodeEmail) -> dict[str, str]:
+    return _without_empty(
+        {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+    )
 
 
 def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:

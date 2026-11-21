@@ -334,6 +334,43 @@ class ProviderContactsResult:
     notes: tuple[str, ...] = ()
     # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
     person_emails: tuple[str, ...] = ()
+    # Where the people wait to be sent, in `chunks` parts, for `import_contact_chunk` and `fill_contacts_cohort`.
+    storage_prefix: str = ""
+    chunks: int = 0
+
+
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
+@frozen
+class ContactChunkOutcome:
+    """What sending one stored part of a provider list did."""
+
+    people: int
+    # Of them, the people PostHog had once ingestion caught up.
+    found: int
+
+
+@frozen
+class ContactsCohortFilled:
+    """How a provider list's cohort changed once every part was in."""
+
+    members: int
+    # Members not on the list anymore, such as contacts who left it or unsubscribed.
+    removed: int
 
 
 @frozen

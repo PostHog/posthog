@@ -4,11 +4,13 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
+import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile } from './schema'
+import { Card, Named, Profile, stepsOf } from './schema'
+import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
@@ -17,7 +19,7 @@ export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
-export type LoadOptions = { profilePath?: string }
+export type LoadOptions = { profilePath?: string; target?: Target }
 
 export class CardError extends Error {
     constructor(
@@ -132,6 +134,44 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
     ]
 }
 
+// The event pipeline rate limits each workflow, and each seeded team runs one workflow per traffic kind, so a kind's
+// load splits over setup.teams workflows. A card that brings any of them near the limit would measure the limit, not
+// the queue.
+const RATE_LIMIT_SHARE = 0.8
+
+// The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
+function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
+    const key = 'CDP_RATE_LIMITER_REFILL_RATE'
+    const fallback = Number(defaults[key])
+    const raw = profile.settings[key]
+    const limit = raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
+    const ceiling = limit * RATE_LIMIT_SHARE
+    const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+    return card.drive.traffic.flatMap(({ name }) => {
+        const kind = TRAFFIC.find((traffic) => traffic.name === name)
+        const shape = kind?.profile.safeParse(profile.traffic[name])
+        if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
+            return []
+        }
+        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
+        return perWorkflow <= ceiling
+            ? []
+            : [
+                  `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
+              ]
+    })
+}
+
+// Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
+function checkTrafficOnce(card: Card): string[] {
+    const listed = card.drive.traffic.map(({ name }) => name)
+    return [...new Set(listed)]
+        .filter((name) => TRAFFIC.find((traffic) => traffic.name === name)?.intake === 'event')
+        .map((name) => ({ name, times: listed.filter((listedName) => listedName === name).length }))
+        .filter(({ times }) => times > 1)
+        .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
+}
+
 type ProfileRead = { profile: Profile } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
@@ -155,7 +195,7 @@ export function readProfile(file: string): ProfileRead {
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath))
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
 }
 
 export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
@@ -166,7 +206,12 @@ export function loadText(label: string, { card, profile }: { card: string; profi
     )
 }
 
-function check(cardPath: string, read: Read, profileFor: (card: Card) => ProfileRead): LoadedCard {
+function check(
+    cardPath: string,
+    read: Read,
+    profileFor: (card: Card) => ProfileRead,
+    target: Target = 'local'
+): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -181,8 +226,15 @@ function check(cardPath: string, read: Read, profileFor: (card: Card) => Profile
     const problems = [
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
+        ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, DEFINITIONS, defaults) : loaded.problems),
+        ...('profile' in loaded
+            ? [
+                  ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
+                  ...checkWorkflowRate(card, loaded.profile, defaults),
+                  ...targetProblems(card, loaded.profile, target),
+              ]
+            : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)

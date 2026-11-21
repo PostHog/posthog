@@ -283,6 +283,34 @@ class TestCandidateChainsQuery(ClickhouseTestMixin, BaseTest):
                 chain_limit=100,
             )
 
+    @parameterized.expand(
+        [
+            (
+                "learn",
+                {"exec_verb": "learn", "exec_learn_kind": "load", "exec_learn_target": "metric-skill"},
+                "learn load metric-skill",
+            ),
+            ("search", {"exec_verb": "search", "exec_search_query": "signups"}, "search signups"),
+            ("info", {"exec_verb": "info", "$mcp_exec_target_tool": "execute-sql"}, "info execute-sql"),
+        ]
+    )
+    def test_an_exec_call_records_its_command_and_target(
+        self, _name: str, properties: dict[str, str], detail: str
+    ) -> None:
+        self._call("s1", AT, tool="exec", **properties)
+        self._call("s1", AT + timedelta(minutes=1))
+        flush_persons_and_events()
+
+        chains = fetch_candidate_chains(
+            team=self.team,
+            telemetry_team=self.team,
+            window_start=AT - timedelta(hours=1),
+            window_end=AT + timedelta(days=1),
+            chain_limit=100,
+        )
+
+        assert [(call.tool, call.detail) for call in chains[0][0].calls] == [("exec", detail), ("execute-sql", "")]
+
     def test_the_sample_keeps_every_chain_of_a_conversation(self) -> None:
         self._call("described", AT, tool="metric-describe", **{"$mcp_conversation_id": "t2"})
         self._call("answered", AT + timedelta(hours=2), **{"$mcp_conversation_id": "t2"})

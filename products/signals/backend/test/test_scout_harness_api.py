@@ -2609,6 +2609,18 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == expected_status
         assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
+    def test_key_search_returns_an_expired_marker_and_remember_reports_the_revived_expiry(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        SignalScratchpad.objects.filter(team=self.team, key="k1").update(expires_at=timezone.now() - timedelta(days=1))
+
+        [marker] = self.client.get(self._list_url(), {"key": "k1"}).json()
+        prefix_search = self.client.get(self._list_url(), {"key_prefix": "k"}).json()
+        revived = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json").json()
+
+        assert (marker["content"], marker["expired"], marker["last_changed_by_skill"]) == ("", True, None)
+        assert prefix_search == []
+        assert revived["revived_expiry"]["expires_at"] == marker["expires_at"]
+
     def test_search_filters_by_creating_skill(self) -> None:
         errors_run = _make_run(self.team, skill_name="signals-scout-errors")
         flags_run = _make_run(self.team, skill_name="signals-scout-flags")
@@ -5976,6 +5988,87 @@ def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHub
     return GitHubTeamMembership(
         member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
     )
+
+
+_CANCEL = "products.tasks.backend.facade.cancellation.cancel_task_run"
+
+
+class TestScoutHarnessConfigStopAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+    def _stop(self, config_id: str | None = None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/{config_id or self.config.id}/stop/"
+        )
+
+    @parameterized.expand(
+        [
+            ("accepted", "accepted", status.HTTP_202_ACCEPTED),
+            ("already_terminal", "already_terminal", status.HTTP_200_OK),
+            ("workflow_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("not_cloud", "not_cloud", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stop_cancels_the_lane_live_run(self, _name: str, outcome: str, expected_status: int) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        _make_run(self.team, skill_name="signals-scout-foo", task_run_status=TaskRun.Status.COMPLETED)
+        _make_run(self.team, skill_name="signals-scout-bar")
+        live = _make_run(self.team, skill_name="signals-scout-foo")
+
+        with patch(_CANCEL, return_value=(outcome, None)) as cancel:
+            response = self._stop()
+
+        assert response.status_code == expected_status, response.content
+        cancel.assert_called_once_with(
+            live.task_run_id,
+            live.task_run.task_id,
+            self.team.id,
+            source="scout_stop",
+            requested_by_user_id=self.user.id,
+            requested_by_distinct_id=self.user.distinct_id,
+        )
+        if expected_status < 300:
+            assert response.json()["run_id"] == str(live.id)
+
+    @parameterized.expand(
+        [
+            ("finished", {"task_run_status": "cancelled"}, False),
+            ("stale", {}, True),
+            ("trial", {"metadata": {"scout_trial": {"version": 1}}}, False),
+            ("other_scout", {"skill_name": "signals-scout-bar"}, False),
+        ]
+    )
+    def test_stop_without_a_live_run_returns_404_without_cancelling(
+        self, _name: str, run_overrides: dict, stale: bool
+    ) -> None:
+        run = _make_run(self.team, **{"skill_name": "signals-scout-foo", **run_overrides})
+        if stale:
+            old = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60)
+            apps.get_model("tasks", "TaskRun").objects.filter(id=run.task_run_id).update(created_at=old)
+
+        with patch(_CANCEL) as cancel:
+            response = self._stop()
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_config", "00000000-0000-0000-0000-000000000000", set()),
+            ("withheld_scout", None, {"signals-scout-foo"}),
+        ]
+    )
+    def test_stop_hidden_config_returns_404_without_cancelling(
+        self, _name: str, config_id: str | None, withheld: set[str]
+    ) -> None:
+        _make_run(self.team, skill_name="signals-scout-foo")
+        with patch(_WITHHELD, return_value=withheld), patch(_CANCEL) as cancel:
+            response = self._stop(config_id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
 
 
 class TestScoutHarnessMembersAPI(APIBaseTest):
