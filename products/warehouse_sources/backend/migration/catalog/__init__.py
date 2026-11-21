@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.facade.source_config import SourceFieldI
 from products.warehouse_sources.backend.migration.catalog import fivetran
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -116,6 +117,20 @@ def posthog_tables(source_type: ExternalDataSourceType) -> PostHogTables | None:
     # tables it always has, but it can discover more in the user's account.
     described = frozenset(source.get_canonical_descriptions())
     return PostHogTables(names=described, complete=False) if described else None
+
+
+def default_sync_types(source_type: ExternalDataSourceType) -> Mapping[str, str]:
+    """Table name to the sync type apply picks for it, for a source that lists its tables without credentials.
+
+    Empty when only discovery can tell, as for a database.
+    """
+    try:
+        schemas = SourceRegistry.get_source(source_type).get_schemas_without_credentials()
+    except Exception:
+        # A listing that needs config the placeholder lacks must not fail the caller.
+        logger.exception("warehouse_migration_default_sync_types_failed", source_type=str(source_type))
+        return {}
+    return {schema.name: build_default_sync_settings(schema)["sync_type"] for schema in schemas}
 
 
 def _inferred_keys(vendor_table: str, rewrites: tuple[tuple[str, str], ...]) -> list[str]:
