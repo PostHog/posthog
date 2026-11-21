@@ -30,6 +30,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
+import { BillingHelpCta } from './BillingHelpCta'
 import { BillingHero } from './BillingHero'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
@@ -226,6 +227,8 @@ export function Billing(): JSX.Element {
             )}
 
             {!showBillingSummary && <StripePortalButton />}
+
+            {featureFlags[FEATURE_FLAGS.BILLING_OPTIMIZE_SPEND] && <BillingHelpCta />}
 
             {!couponsOverviewLoading && activeCoupons.length > 0 && (
                 <div className="mt-6 max-w-300">
