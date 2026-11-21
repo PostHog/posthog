@@ -28,7 +28,7 @@ from posthog.models.team import Team
 
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     set_organizations_flag_evaluations_mode,
@@ -55,6 +55,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
             .values_list("flag_evaluations_mode", flat=True)
             .first()
         )
+
+    def _keeps_events_writes(self, organization: Organization) -> bool:
+        return OrganizationFeatureFlagsConfig.objects.get(organization=organization).keep_writing_flag_calls_to_events
 
     def _store_mode(self, organization: Organization, mode: FlagEvaluationsMode) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -104,6 +107,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             ("flag_evaluations_only", "2", (), True, True),
             ("read_flag_evaluations", "1", (), True, False),
             ("skipped_count", "2", ("--skip-experiment-count",), False, False),
+            ("events_writes_kept", "2", ("--keep-writing-flag-calls-to-events",), False, False),
         ]
     )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
@@ -121,6 +125,21 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertEqual("1 experiment(s) reading $feature_flag_called from events" in output, expects_count)
         self.assertEqual("1 running experiment(s) read $feature_flag_called from events" in output, expects_warning)
+
+    def test_keep_writing_flag_calls_to_events_applies_to_mode_2_and_clears_when_the_mode_moves(self) -> None:
+        organization_id = str(self.organization.id)
+        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+        self._run("--mode", "2", "--keep-writing-flag-calls-to-events", "--organization-id", organization_id)
+        self.assertTrue(self._keeps_events_writes(self.organization))
+
+        self._run("--mode", "2", "--organization-id", organization_id)
+        self.assertFalse(self._keeps_events_writes(self.organization))
+
+        self._run("--mode", "2", "--keep-writing-flag-calls-to-events", "--organization-id", organization_id)
+        self._run("--mode", "1", "--allow-downgrade", "--organization-id", organization_id)
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self.assertFalse(self._keeps_events_writes(self.organization))
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_created_after_selects_only_newer_organizations(self) -> None:
@@ -175,8 +194,10 @@ class TestSetFlagEvaluationsMode(BaseTest):
         # The stale read stands in for a staff write that raises the organization between the
         # helper's read and its write.
         with patch(
-            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_modes",
-            return_value={self.organization.id: FlagEvaluationsMode.EVENTS},
+            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_configs",
+            return_value={
+                self.organization.id: FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
+            },
         ):
             [change] = set_organizations_flag_evaluations_mode(
                 [self.organization], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, allow_downgrade=False, dry_run=False

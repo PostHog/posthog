@@ -830,6 +830,29 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ).generate_clickhouse_sql()
         return substitute_params(sql, context.values)
 
+    @parameterized.expand(
+        [
+            ("without_key_or_date", FLAG_CALLS),
+            ("mixed_with_other_events", f"SELECT count() FROM events WHERE {MIXED}"),
+            ("select_star", f"SELECT * {FLAG_CALLS_FROM}"),
+        ]
+    )
+    def test_flag_evaluations_only_reads_the_same_when_it_keeps_writing_flag_calls_to_events(
+        self, _name: str, query: str
+    ):
+        def compiled() -> str:
+            try:
+                return self._sql(query, mode=ONLY, new_events_schema=False)
+            except QueryError as error:
+                return f"QueryError: {error}"
+
+        without_kept_writes = compiled()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            keep_writing_flag_calls_to_events=True
+        )
+
+        assert compiled() == without_kept_writes
+
     @staticmethod
     def _branches(sql: str) -> list[str]:
         start = sql.index("UNION ALL")

@@ -10,7 +10,7 @@ again. --write-changed-ids appends the ids of each committed chunk's changed org
 a file. A rollback passes that file to --organization-ids-file.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
-copies to flag_evaluations.
+copies to flag_evaluations, unless --keep-writing-flag-calls-to-events is set.
 """
 
 import os
@@ -32,7 +32,7 @@ from django.db import DatabaseError, transaction
 from posthog.models import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_modes
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_configs
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -130,6 +130,14 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--keep-writing-flag-calls-to-events",
+            action="store_true",
+            help=(
+                "Only with --mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every "
+                "reader behaves as on mode 2. A run that omits it on an organization that has it turns it off."
+            ),
+        )
+        parser.add_argument(
             "--skip-experiment-count",
             action="store_true",
             help=(
@@ -212,7 +220,7 @@ class Command(BaseCommand):
                     .order_by("created_at", "id")
                 )
                 chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
-                modes_before_chunk: dict[UUID, int] = {}
+                configs_before_chunk: dict[UUID, FlagEvaluationsConfig] = {}
                 try:
                     with transaction.atomic():
                         changes = set_organizations_flag_evaluations_mode(
@@ -221,21 +229,26 @@ class Command(BaseCommand):
                             allow_downgrade=allow_downgrade,
                             dry_run=dry_run,
                             count_experiments=count_experiments,
+                            keep_writing_flag_calls_to_events=options["keep_writing_flag_calls_to_events"],
                         )
                         # The ids reach the disk before the chunk commits. A rerun reports a committed
                         # organization as unchanged, so it could not list an id that a crash after the
                         # commit lost.
                         if changed_ids_file is not None:
-                            modes_before_chunk = {
-                                change.organization_id: change.current_mode for change in changes if change.changed
+                            configs_before_chunk = {
+                                change.organization_id: FlagEvaluationsConfig(
+                                    mode=change.current_mode, keeps_events_writes=change.current_keeps_events_writes
+                                )
+                                for change in changes
+                                if change.changed
                             }
                             changed_ids_file.writelines(
-                                f"{organization_id}\n" for organization_id in modes_before_chunk
+                                f"{organization_id}\n" for organization_id in configs_before_chunk
                             )
                             _sync(changed_ids_file)
                 except BaseException:
                     if changed_ids_file is not None:
-                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, modes_before_chunk)
+                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, configs_before_chunk)
                     raise
 
                 done_count += len(chunk_ids)
@@ -308,26 +321,26 @@ class Command(BaseCommand):
         return file
 
     def _drop_ids_of_rolled_back_chunk(
-        self, file: TextIO, chunk_start: int, modes_before_chunk: dict[UUID, int]
+        self, file: TextIO, chunk_start: int, configs_before_chunk: dict[UUID, FlagEvaluationsConfig]
     ) -> None:
         """Remove the failed chunk's ids from the file when the chunk rolled back.
 
         A commit can apply on the server and still raise. The chunk commits or rolls back as a whole, so
-        the chunk rolled back only when every organization still reads the mode it had before the chunk.
+        the chunk rolled back only when every organization still reads the mode and kept events writes it had before the chunk.
         In any other case the file keeps the ids, because another writer can move an organization after
         the commit.
         """
-        if not modes_before_chunk:
+        if not configs_before_chunk:
             return
         try:
-            stored_modes = get_organization_flag_evaluations_modes(list(modes_before_chunk))
+            stored_configs = get_organization_flag_evaluations_configs(list(configs_before_chunk))
         except DatabaseError:
             self.stderr.write(
                 f"Could not read back the modes of the failed chunk, so {file.name} keeps its "
-                f"{len(modes_before_chunk)} id(s) unverified."
+                f"{len(configs_before_chunk)} id(s) unverified."
             )
             return
-        if stored_modes == modes_before_chunk:
+        if stored_configs == configs_before_chunk:
             file.truncate(chunk_start)
             _sync(file)
 
@@ -337,6 +350,10 @@ class Command(BaseCommand):
             if change.changed
             else f"mode {change.current_mode}, unchanged"
         )
+        if change.changed and change.current_keeps_events_writes != change.target_keeps_events_writes:
+            outcome += (
+                f", events writes kept: {change.current_keeps_events_writes} -> {change.target_keeps_events_writes}"
+            )
         experiments = (
             f", {change.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
             "from events"

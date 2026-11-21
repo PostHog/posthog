@@ -10,8 +10,9 @@
 # Three kinds of code can:
 #   - code that reads event properties, through HogQL or through its own SQL
 #   - code that branches on use_new_events_schema() or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-#   - callers of flag_calls_only_in_flag_evaluations() and reads_flag_calls_from_flag_evaluations()
-#     in products/feature_flags/backend/facade/flags.py. Both return True on every flag evaluations
+#   - callers of events_lack_new_flag_calls(), reads_flag_calls_from_flag_evaluations() and
+#     reads_flag_calls_without_events_fallback() in products/feature_flags/backend/facade/flags.py,
+#     and of HogQLContext.flag_calls_only_in_flag_evaluations(). Each returns True on every flag evaluations
 #     mode for a team that reads the native JSON events table and has the flag_evaluations table
 #     enabled, because the JSON events table holds no flag calls.
 # The list also holds the modules that own a *.new_events_schema.ambr snapshot. A module outside
