@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use cymbal::error::{ResolveError, UnhandledError};
+use cymbal::error::{EventError, EventFailure, ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
@@ -447,6 +447,23 @@ pub async fn process_one(
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
     Ok(items.remove(0).expect("event must not be EventError"))
+}
+
+pub async fn event_failures(
+    stage: ResolutionStage,
+    events: Vec<ExceptionEvent<Parsed>>,
+) -> Result<Vec<Option<EventFailure>>, UnhandledError> {
+    let batch: Batch<ParsedPipelineItem> =
+        Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>());
+    let result = stage.process(batch).await?;
+    Ok(result
+        .into_iter()
+        .map(|item| match item {
+            Ok(_) => None,
+            Err(EventError::Failed(_, failure)) => Some(failure),
+            Err(err) => panic!("unexpected event error {err}"),
+        })
+        .collect())
 }
 
 pub fn build_event(num_exceptions: usize) -> ExceptionEvent<Parsed> {

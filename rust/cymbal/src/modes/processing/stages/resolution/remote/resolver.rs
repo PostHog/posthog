@@ -8,7 +8,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::{
-    error::UnhandledError,
+    error::{EventError, EventFailure, UnhandledError},
     stages::{pipeline::ParsedPipelineItem, resolution::remote::pool::EndpointPool},
     types::{
         batch::Batch,
@@ -25,7 +25,7 @@ mod retry;
 
 use chunk::routing_keys_for_event;
 use partition::partition_batch;
-use retry::resolve_work_item;
+use retry::{resolve_work_item, WorkItemError};
 
 /// Context handed to the remote orchestration layer. Cheap to clone because
 /// both the pool handle and config are `Arc`/`Clone`-friendly.
@@ -191,15 +191,36 @@ async fn resolve_remote_events(
         .checked_add(ctx.config.request_deadline)
         .unwrap_or_else(Instant::now);
 
-    let resolved = join_all(
-        work_items
-            .into_iter()
-            .map(|work_item| resolve_work_item(ctx, work_item, deadline)),
-    )
+    let resolved = join_all(work_items.into_iter().map(|work_item| {
+        let event_slot = work_item.event_slot;
+        async move {
+            (
+                event_slot,
+                resolve_work_item(ctx, work_item, deadline).await,
+            )
+        }
+    }))
     .await;
 
-    for result in resolved {
-        let item = result?;
+    let mut failures: Vec<Option<EventFailure>> = (0..event_slots.len()).map(|_| None).collect();
+    for (event_slot_index, result) in resolved {
+        let item = match result {
+            Ok(item) => item,
+            Err(WorkItemError::Batch(err)) => return Err(err),
+            Err(WorkItemError::Item(failure)) => {
+                let Some(recorded) = failures.get_mut(event_slot_index) else {
+                    return Err(UnhandledError::Other(format!(
+                        "remote resolution failed invalid event slot {event_slot_index}"
+                    )));
+                };
+                // One failed exception fails its event. A failure that can never succeed
+                // wins over one that might, so the event is not retried for nothing.
+                if recorded.as_ref().is_none_or(|existing| existing.retriable) {
+                    *recorded = Some(failure);
+                }
+                continue;
+            }
+        };
         let Some(event_slot) = event_slots.get_mut(item.event_slot) else {
             return Err(UnhandledError::Other(format!(
                 "remote resolution returned invalid event slot {}",
@@ -236,7 +257,14 @@ async fn resolve_remote_events(
 
     event_slots
         .into_iter()
-        .map(|mut event| {
+        .zip(failures)
+        .map(|(mut event, failure)| {
+            if let Some(failure) = failure {
+                return Ok((
+                    event.batch_index,
+                    Err(EventError::Failed(event.evt.uuid(), failure)),
+                ));
+            }
             let exceptions = event
                 .resolved
                 .into_iter()

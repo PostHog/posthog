@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use common_ingestion_response::codes;
+
 use crate::{
     app_context::AppContext,
-    error::{EventError, UnhandledError},
+    error::{EventError, EventFailure, UnhandledError},
     metric_consts::HTTP_EXCEPTION_PIPELINE,
     stages::pipeline::{create_pre_post_processing, ExceptionEventPipeline, HandledError},
     types::{
@@ -15,17 +17,28 @@ use crate::{
 
 pub struct HttpEventPipeline {
     app_context: Arc<AppContext>,
+    isolate_event_failures: bool,
 }
 
 impl HttpEventPipeline {
-    pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { app_context }
+    pub fn new(app_context: Arc<AppContext>, isolate_event_failures: bool) -> Self {
+        Self {
+            app_context,
+            isolate_event_failures,
+        }
     }
+}
+
+#[derive(Debug)]
+pub enum ProcessedEvent {
+    Event(AnyEvent),
+    Dropped(&'static str),
+    Failed(EventFailure),
 }
 
 impl Stage for HttpEventPipeline {
     type Input = AnyEvent;
-    type Output = Option<AnyEvent>;
+    type Output = ProcessedEvent;
 
     fn name(&self) -> &'static str {
         HTTP_EXCEPTION_PIPELINE
@@ -51,7 +64,10 @@ impl Stage for HttpEventPipeline {
         batch
             .apply_stage(preprocess)
             .await?
-            .apply_stage(ExceptionEventPipeline::new(self.app_context.clone()))
+            .apply_stage(ExceptionEventPipeline::new(
+                self.app_context.clone(),
+                self.isolate_event_failures,
+            ))
             .await?
             .apply_stage(postprocess)
             .await
@@ -61,21 +77,27 @@ impl Stage for HttpEventPipeline {
 fn handle_result(
     mut original: AnyEvent,
     processed: Result<ExceptionEvent<Finalized>, HandledError>,
-) -> Result<Option<AnyEvent>, UnhandledError> {
-    let item: Option<AnyEvent> = match processed {
+) -> Result<ProcessedEvent, UnhandledError> {
+    let err = match processed {
         Ok(props) => {
             original.set_properties(props.into_clickhouse_properties())?;
-            Some(original)
+            return Ok(ProcessedEvent::Event(original));
         }
-        Err(err) => match err {
-            EventError::Suppressed(_)
-            | EventError::SuppressedByRule(_)
-            | EventError::RateLimitedPerIssue(_)
-            | EventError::RateLimitedProject(_) => None,
-            err => {
-                original.attach_error(err.to_string())?;
-                Some(original)
-            }
+        Err(err) => err,
+    };
+    let item = match err {
+        EventError::Suppressed(_) => ProcessedEvent::Dropped("suppressed"),
+        EventError::SuppressedByRule(_) => ProcessedEvent::Dropped("suppressed_by_rule"),
+        EventError::RateLimitedPerIssue(_) => ProcessedEvent::Dropped("rate_limited_per_issue"),
+        EventError::RateLimitedProject(_) => ProcessedEvent::Dropped("rate_limited_project"),
+        EventError::Failed(_, failure) => ProcessedEvent::Failed(failure),
+        err => match original.attach_error(err.to_string()) {
+            Ok(()) => ProcessedEvent::Event(original),
+            // `properties` that are not an object cannot carry `$cymbal_errors`.
+            Err(attach_err) => ProcessedEvent::Failed(EventFailure::fail(
+                codes::INVALID_INPUT,
+                format!("{err}; cannot attach the error: {attach_err}"),
+            )),
         },
     };
     Ok(item)

@@ -236,6 +236,34 @@ pub enum EventError {
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
+    #[error("Failed to process event {0}: {1}")]
+    Failed(Uuid, EventFailure),
+}
+
+#[derive(Debug, Error, Clone, Serialize, PartialEq)]
+#[error("{code}: {message}")]
+pub struct EventFailure {
+    pub code: &'static str,
+    pub message: String,
+    pub retriable: bool,
+}
+
+impl EventFailure {
+    pub fn retry(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            retriable: true,
+        }
+    }
+
+    pub fn fail(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            retriable: false,
+        }
+    }
 }
 
 impl JsResolveErr {

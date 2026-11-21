@@ -13,9 +13,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, make_config, make_ctx, process_one, remote_stage, spawn_stub_server, unbound_addr,
-    wait_until_routable, ServerBehavior,
+    build_event, event_failures, make_config, make_ctx, process_one, remote_stage,
+    spawn_stub_server, unbound_addr, wait_until_routable, ServerBehavior,
 };
+use common_ingestion_response::codes;
 use cymbal::stages::resolution::remote::dns::DnsResolver;
 use cymbal::stages::resolution::remote::resolver::RemoteResolutionContext;
 use cymbal_proto::cymbal::resolution::v1::ErrorKind;
@@ -64,21 +65,22 @@ async fn stream_interruption_reroutes_in_flight_items() {
 }
 
 #[tokio::test]
-async fn server_per_item_terminal_error_fails_batch_under_all_or_nothing_policy() {
+async fn server_per_item_terminal_error_fails_only_its_event() {
     let (lossy, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
         kind: ErrorKind::InvalidPayload,
     })
     .await;
     let ctx = make_ctx(&[lossy], 1, Duration::from_secs(2)).await;
-    let evt = build_event(3);
 
-    let err = process_one(remote_stage(ctx), evt)
+    let failures = event_failures(remote_stage(ctx), vec![build_event(1), build_event(1)])
         .await
-        .expect_err("server per-item Error must fail the batch");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("items_failed") || msg.contains("failed terminally"),
-        "expected per-item-error failure surface, got: {msg}"
+        .expect("an item error must not fail the batch");
+
+    let failed: Vec<_> = failures.iter().flatten().collect();
+    assert_eq!(failed.len(), 1, "exactly one event fails: {failures:?}");
+    assert_eq!(
+        (failed[0].code, failed[0].retriable),
+        (codes::INVALID_INPUT, false)
     );
 }
 
