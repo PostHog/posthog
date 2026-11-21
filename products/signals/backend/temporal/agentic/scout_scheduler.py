@@ -488,6 +488,16 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     finally:
         if claimed.count and not run_started:
             await _requeue_unrun_triggers(input, claimed)
+    if claimed.count and result.status == "cancelled":
+        # Dropped on purpose, not requeued: a person stopped the work these fires asked for, and a
+        # requeue would start it again on the next tick, after every stop.
+        logger.info(
+            "signals_scout: dropped the workflow triggers a stopped run claimed",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+            run_id=result.run_id,
+            dropped_count=claimed.count,
+        )
     metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",

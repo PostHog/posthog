@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 
@@ -19,7 +20,7 @@ class CustomerTaskActivityType(models.TextChoices):
     RESTORED = "restored", "Restored"
 
 
-class CustomerTask(TeamScopedRootMixin, UUIDModel):
+class CustomerTask(Taggable, TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     account = models.ForeignKey(
         "customer_analytics.Account",

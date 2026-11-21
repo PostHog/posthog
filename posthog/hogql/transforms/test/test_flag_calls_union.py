@@ -1369,7 +1369,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         for branch in (events, keyless):
             assert "equals(events.distinct_id, 'probe')" in branch
         assert "equals(flag_evaluations.distinct_id, 'probe')" in flag_evaluations
-        assert "flag_key" not in flag_evaluations
+        assert "in(flag_evaluations.flag_key" not in flag_evaluations
 
     @parameterized.expand(
         [

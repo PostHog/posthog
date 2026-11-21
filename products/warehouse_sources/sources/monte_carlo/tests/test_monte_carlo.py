@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 import time_machine
@@ -117,6 +117,7 @@ class TestValidateCredentials:
 class TestRelayEndpoints:
     @parameterized.expand(
         [
+            ("authorization_groups", "getAuthorizationGroupsPaginated"),
             ("dbt_runs", "getDbtRuns"),
             ("domains", "getDomainsV2"),
             ("tables", "getTables"),
@@ -223,12 +224,20 @@ class TestOffsetEndpoint:
 
 
 class TestUnpaginatedEndpoint:
-    def test_warehouses_single_query(self) -> None:
-        responses = [{"getWarehouses": [{"uuid": "w-1"}, {"uuid": "w-2"}]}]
-        result = _driver().run("warehouses", [_response(data) for data in responses])
+    @parameterized.expand(
+        [
+            ("data_products", "getDataProductsV2", "uuid"),
+            ("roles", "getAccountRoles", "name"),
+            ("warehouses", "getWarehouses", "uuid"),
+        ]
+    )
+    def test_single_query(self, endpoint: str, data_path: str, key: str) -> None:
+        responses = [{data_path: [{key: "r-1"}, {key: "r-2"}]}]
+        result = _driver().run(endpoint, [_response(data) for data in responses])
         assert result.raised is None
-        assert [row["uuid"] for row in result.rows] == ["w-1", "w-2"]
+        assert [row[key] for row in result.rows] == ["r-1", "r-2"]
         assert len(result.requests) == 1
+        assert result.requests[0].json()["variables"] == {}
         assert result.saved_states == []
 
 
@@ -397,6 +406,70 @@ class TestDbtTestResultsWindowing:
         assert variables[1]["runStartTime"] == "2026-07-01T00:00:00Z"
 
 
+class TestBillingMonitorUsageWindowing:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
+    @parameterized.expand(
+        [
+            ("first_sync", True, None, 13, "2025-07-15T00:00:00Z"),
+            # Re-reads two days before the watermark, since a day's credits grow until it ends.
+            ("incremental_date", True, date(2026, 7, 10), 1, "2026-07-08T00:00:00Z"),
+            ("incremental_iso_string", True, "2026-06-01", 2, "2026-05-30T00:00:00Z"),
+            ("full_refresh_ignores_watermark", False, date(2026, 7, 10), 13, "2025-07-15T00:00:00Z"),
+        ]
+    )
+    def test_walks_whole_day_windows_through_today(
+        self,
+        _label: str,
+        use_incremental: bool,
+        watermark: date | str | None,
+        expected_windows: int,
+        expected_first_start: str,
+    ) -> None:
+        result = _driver().run(
+            "billing_monitor_usage",
+            always(_response({"getBillingMonitorUsage": {"usages": []}})),
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        variables = [request.json()["variables"] for request in result.requests]
+        assert len(variables) == expected_windows
+        assert variables[0]["startOn"] == expected_first_start
+        # endBefore is exclusive, so the last window ends at tomorrow's midnight to include today.
+        assert variables[-1]["endBefore"] == "2026-07-16T00:00:00Z"
+        for previous, current in zip(variables, variables[1:]):
+            assert current["startOn"] == previous["endBefore"]
+
+    def test_yields_usages_and_resumes_from_saved_window(self) -> None:
+        usages = [{"date": "2026-07-14", "tableMonitorCredits": 1.5}, None, {"date": "2026-07-15"}]
+        first = _driver().run(
+            "billing_monitor_usage",
+            [_response({"getBillingMonitorUsage": {"usages": usages}})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 7, 14),
+        )
+
+        assert first.raised is None
+        assert [row["date"] for row in first.rows] == ["2026-07-14", "2026-07-15"]
+        assert first.saved_states == [MonteCarloResumeConfig(window_after="2026-07-12T00:00:00Z")]
+
+        resumed = _driver().run(
+            "billing_monitor_usage",
+            always(_response({"getBillingMonitorUsage": {"usages": []}})),
+            resume_state=MonteCarloResumeConfig(window_after="2026-06-01T00:00:00Z"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 7, 14),
+        )
+
+        assert resumed.raised is None
+        assert resumed.requests[0].json()["variables"]["startOn"] == "2026-06-01T00:00:00Z"
+
+
 class TestMonitorFanOut:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
@@ -516,6 +589,73 @@ class TestMonitorFanOut:
         ]
         assert monitor_offsets == [0, MONITOR_PAGE_SIZE]
         assert len(result.requests) == MONITOR_PAGE_SIZE + 2
+
+    @parameterized.expand(
+        [
+            (
+                "monitor_audit_logs",
+                "PostHogGetMonitorUuids",
+                # getMonitors pages by offset on the server, so a resume asks for the later monitors only.
+                lambda variables: {"getMonitors": [{"uuid": "p-1"}, {"uuid": "p-2"}][variables["offset"] :]},
+                "PostHogGetMonitorAuditLogs",
+                "getMonitorAuditLogs",
+                lambda variables: variables["monitorUuid"],
+                "monitorUuid",
+            ),
+            (
+                "authorization_group_members",
+                "PostHogGetAuthorizationGroups",
+                lambda _: _relay_page("getAuthorizationGroupsPaginated", [{"name": "p-1"}, {"name": "p-2"}], None),
+                "PostHogGetAuthorizationGroupMembers",
+                "getUsersInAccount",
+                lambda variables: variables["authorizationGroups"][0],
+                "authorizationGroupName",
+            ),
+        ]
+    )
+    def test_fan_out_pages_each_parent_and_tags_rows(
+        self,
+        endpoint: str,
+        parent_operation: str,
+        parents: Callable[[dict], dict],
+        child_operation: str,
+        data_path: str,
+        parent_of: Callable[[dict], str],
+        parent_column: str,
+    ) -> None:
+        def children(variables: dict) -> dict:
+            parent = parent_of(variables)
+            if parent == "p-1" and variables["after"] is None:
+                return _relay_page(data_path, [{"id": "c-1"}], "cursor-1")
+            if parent == "p-1":
+                return _relay_page(data_path, [{"id": "c-2"}], None)
+            # Children ids repeat across parents, so the parent column keeps the primary key unique.
+            return _relay_page(data_path, [{"id": "c-1"}], None)
+
+        result = _driver().run(endpoint, _by_operation({parent_operation: parents, child_operation: children}))
+
+        assert result.raised is None
+        assert [(row[parent_column], row["id"]) for row in result.rows] == [
+            ("p-1", "c-1"),
+            ("p-1", "c-2"),
+            ("p-2", "c-1"),
+        ]
+        child_requests = [r.json()["variables"] for r in result.requests if child_operation in r.json()["query"]]
+        assert [(parent_of(v), v["after"]) for v in child_requests] == [
+            ("p-1", None),
+            ("p-1", "cursor-1"),
+            ("p-2", None),
+        ]
+        assert result.saved_states[-1] == MonteCarloResumeConfig(offset=1)
+
+        resumed = _driver().run(
+            endpoint,
+            _by_operation({parent_operation: parents, child_operation: children}),
+            resume_state=MonteCarloResumeConfig(offset=1),
+        )
+
+        assert resumed.raised is None
+        assert [(row[parent_column], row["id"]) for row in resumed.rows] == [("p-2", "c-1")]
 
     def test_job_schedules_reads_each_warehouse(self) -> None:
         result = _driver().run(

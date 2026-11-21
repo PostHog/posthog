@@ -18,7 +18,7 @@ export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional'
     teamId: number
     offeredAt: number
     step?: number

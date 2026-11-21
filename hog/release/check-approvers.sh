@@ -1,21 +1,84 @@
 #!/usr/bin/env bash
-# Usage: check-approvers.sh <first commit> <last commit> <approver>...
-#        check-approvers.sh --report <first commit> <last commit>
+# Usage: check-approvers.sh [--extra-paths <file>] <first commit> <last commit> <approver>...
+#        check-approvers.sh --report [--extra-paths <file>] <first commit> <last commit>
+#        check-approvers.sh --list-paths
 #
 # The owners of a release are the people who opened, merged or wrote commits in a pull request that
-# added, renamed or edited a hog changeset between the two commits. The check fails when an approver is one of them, and
-# writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT. --report checks nobody and writes the
-# pull requests and their owners as Slack mrkdwn instead, as `prs_mrkdwn` and `owners_mrkdwn`. Every
-# lookup that fails stops the script, because a check that can't run can't clear anyone.
+# changed anything under RELEASE_PATHS between the two commits: the hog changesets, and the trees hog
+# compiles in, whose changes ship whether or not a changeset names them. --extra-paths names more
+# paths, one plain path per line, whose pull requests also own the release. The release workflow passes
+# what it builds from, which can grow before a release tag carries a longer RELEASE_PATHS. The extra
+# paths only add owners, so the caller can't use them to clear anyone. The check fails when an
+# approver is one of the owners, and writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT.
+# --report checks nobody and writes the pull requests and their owners as Slack mrkdwn instead, as
+# `prs_mrkdwn` and `owners_mrkdwn`. --list-paths prints RELEASE_PATHS, one per line, and changes nothing:
+# the release workflow only warns when they miss something the release builds, because the extra paths
+# it passes already make those pull requests owners. Every lookup that fails stops the
+# script, because a check that can't run can't clear anyone.
 #
 # Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
 set -euo pipefail
 
-report=false
-if [ "${1:-}" = --report ]; then
-    report=true
-    shift
+# Everything the release build reads from the release commit: every tree the hog and CLI library builds
+# compile in, the workspace packages and dependency files pnpm installs from, the local actions and the
+# workflow that run the build, and more. All of hog/ counts, which holds the changesets, this script and
+# catalog-gap.ts. The list lives here rather than coming from a build, because the release workflow runs
+# this script as the last release tag has it, so a pull request can't narrow it for its own release.
+# Counting too much only blocks more approvers: many people change pnpm-lock.yaml each week, and each of
+# them is one more person who can't approve that week's release.
+RELEASE_PATHS=(
+    'hog'
+    'services/mcp'
+    ':(glob)products/*/mcp/**'
+    'products/notebooks'
+    'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
+    'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+    'tools/openapi-codegen'
+    'packages/llm-normalizer'
+    'packages/quill'
+    'package.json'
+    'pnpm-lock.yaml'
+    'pnpm-workspace.yaml'
+    '.npmrc'
+    '.pnpmfile.cjs'
+    '.nvmrc'
+    'patches'
+    '.husky'
+    'bin/fix-rdkafka-paths'
+    '.github/actions/pnpm-install'
+    '.github/actions/setup-pnpm'
+    '.github/workflows/release-hog.yml'
+)
+
+if [ "${1:-}" = --list-paths ]; then
+    printf '%s\n' "${RELEASE_PATHS[@]}"
+    exit 0
 fi
+
+report=false
+paths=("${RELEASE_PATHS[@]}")
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --report)
+            report=true
+            shift
+            ;;
+        --extra-paths)
+            # Each line names a path literally, so a glob or a pathspec magic word in it matches nothing
+            # else. Anything but a plain relative path stops the check.
+            while IFS= read -r path || [ -n "$path" ]; do
+                [ -z "$path" ] && continue
+                if ! [[ "$path" =~ ^[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]*$ ]] || [[ "/$path/" == */../* ]]; then
+                    echo "::error::$2 holds a line that isn't a plain relative path: $path"
+                    exit 1
+                fi
+                paths+=(":(literal)$path")
+            done <"$2"
+            shift 2
+            ;;
+        *) break ;;
+    esac
+done
 base=$1
 head=$2
 shift 2
@@ -24,9 +87,19 @@ if [ "$report" = false ] && [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-# Without rename detection, a rename is an add, so a pull request that renames a changeset to change
-# when it releases, or edits its text, owns the release too.
-commits=$(git log --no-renames --diff-filter=AM --format=%H "$base..$head" -- 'hog/.sampo/changesets/*.md')
+for approver in "$@"; do
+    if [ -z "$approver" ]; then
+        echo "::error::An approver login is empty"
+        exit 1
+    fi
+done
+if ! git merge-base --is-ancestor "$base" "$head"; then
+    echo "::error::$base isn't an ancestor of $head, so the range of released commits is unknown"
+    exit 1
+fi
+
+# Without rename detection, a file that moves into one of the paths counts as added there.
+commits=$(git log --no-renames --format=%H "$base..$head" -- "${paths[@]}")
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
@@ -152,6 +225,6 @@ for approver in "$@"; do
 done
 if [ -n "$blocked" ]; then
     echo "violations=$blocked" >>"$GITHUB_OUTPUT"
-    echo "::error::These approvers opened, merged or wrote commits in a pull request whose changeset this release ships: $blocked"
+    echo "::error::These approvers opened, merged or wrote commits in a pull request this release ships: $blocked"
     exit 1
 fi
