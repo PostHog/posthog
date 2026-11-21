@@ -207,7 +207,7 @@ class PostmarkImportProvider(ImportProvider):
             key="webhooks",
             label="Webhooks",
             description="Lists each webhook so you can set it up again. Nothing changes in Postmark.",
-            count_labels=(("listed", "Webhooks to rebuild"),),
+            count_labels=(("listed", "Webhooks to set up again"),),
         ),
     )
 
