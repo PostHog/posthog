@@ -50,7 +50,7 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
         state: { options: hedgehogConfig.actor_options },
         platforms: {
             selector:
-                '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
+                '.HedgehogPlatform, .border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
             viewportPadding: {
                 top: 100,
             },
