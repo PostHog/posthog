@@ -36,6 +36,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -598,6 +599,55 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         unrestricted = self._print_select(f"SELECT {expression} FROM events")
         assert "JSONDropKeys" not in unrestricted, unrestricted
         assert "events.properties" in unrestricted or "events.person_properties" in unrestricted, unrestricted
+
+    @parameterized.expand(
+        [
+            ("bare_document", "SELECT count() FROM events WHERE properties ILIKE '%pricing%'"),
+            ("document_text", "SELECT count() FROM events WHERE toString(properties) ILIKE '%pricing%'"),
+            (
+                "position_search",
+                "SELECT count() FROM events WHERE positionCaseInsensitive(toString(properties), 'pricing') > 0",
+            ),
+            ("serialized_document", "SELECT count() FROM events WHERE toJSONString(properties) LIKE '%pricing%'"),
+            ("person_document", "SELECT count() FROM events WHERE toString(poe.properties) ILIKE '%pricing%'"),
+            (
+                "having",
+                "SELECT event FROM events GROUP BY event HAVING any(toString(properties)) ILIKE '%pricing%'",
+            ),
+            (
+                "conditional_aggregate",
+                "SELECT countIf(match(toString(properties), 'pricing')) FROM events",
+            ),
+            ("aggregate_of_document_text", "SELECT max(length(toString(properties))) FROM events"),
+        ]
+    )
+    def test_native_events_table_rejects_whole_document_searches(self, _name: str, select: str) -> None:
+        with pytest.raises(QueryError, match="Can't search the whole properties column"):
+            self._print_select(select, use_new_events_schema=True)
+
+        legacy = self._print_select(select, use_new_events_schema=False)
+        assert "properties" in legacy, legacy
+
+    @parameterized.expand(
+        [
+            ("select_list", "SELECT properties FROM events WHERE event = 'signup'"),
+            ("key_read", "SELECT count() FROM events WHERE properties.plan = 'free'"),
+            ("json_function", "SELECT count() FROM events WHERE JSONExtractString(properties, 'plan') = 'free'"),
+            ("document_keys", "SELECT count() FROM events WHERE has(JSONExtractKeys(properties), 'plan')"),
+            (
+                "subquery_select_list",
+                "SELECT count() FROM events WHERE distinct_id IN (SELECT toString(properties) FROM events)",
+            ),
+            ("aggregated_document", "SELECT argMax(properties, timestamp) FROM events"),
+            ("aggregated_document_text", "SELECT any(toString(properties)) FROM events"),
+            ("aggregated_document_in_tuple", "SELECT groupArray((uuid, properties)) FROM events"),
+            ("aggregated_key_read", "SELECT countIf(properties.plan = 'free') FROM events"),
+        ]
+    )
+    def test_native_events_table_keeps_key_reads_and_selected_documents(self, _name: str, select: str) -> None:
+        printed = self._print_select(select, use_new_events_schema=True)
+
+        assert "events.properties" in printed, printed
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)

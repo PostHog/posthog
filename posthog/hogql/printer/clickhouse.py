@@ -34,7 +34,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS, find_hogql_aggregation
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
@@ -170,6 +170,11 @@ _JSON_KEY_PATH_FUNCTIONS = frozenset(
 _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
 
 
+WHOLE_DOCUMENT_SEARCH_ERROR = (
+    "Can't search the whole properties column. Use the properties you need, like properties.$current_url."
+)
+
+
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
@@ -179,6 +184,7 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
+    _in_filter_condition: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -520,7 +526,22 @@ class ClickHousePrinter(BasePrinter):
         if not self.context.team_id:
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        return super().visit_select_query(node)
+        # A subquery inside a filter starts outside any filter: its select list runs for the rows its own filter keeps.
+        with self._filter_condition(False):
+            return super().visit_select_query(node)
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        with self._filter_condition(True):
+            return super()._visit_filter_condition(node)
+
+    @contextmanager
+    def _filter_condition(self, in_filter_condition: bool) -> Iterator[None]:
+        previous = self._in_filter_condition
+        self._in_filter_condition = in_filter_condition
+        try:
+            yield
+        finally:
+            self._in_filter_condition = previous
 
     def _collect_table_top_level_settings(self, table: Table) -> None:
         super()._collect_table_top_level_settings(table)
@@ -689,6 +710,8 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
             return None
+        if not self._document_read_is_allowed():
+            raise QueryError(WHOLE_DOCUMENT_SEARCH_ERROR)
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
@@ -702,6 +725,67 @@ class ClickHousePrinter(BasePrinter):
         else:
             serialized = json_document_sql(field_sql)
         return serialized
+
+    def _document_read_is_allowed(self) -> bool:
+        """Whether the document being printed may be rebuilt where the query reads it.
+
+        The native events table has no stored document, so the printer rebuilds one for every row the expression runs
+        on. A filter and the arguments of an aggregate run on every row the query scans, so a search or a comparison
+        of the document text there is rejected. A key read that no subcolumn answers, such as a restricted key or a
+        JSON function with a computed key, still needs the rebuilt document and stays allowed. So does an aggregate
+        that takes the document itself, such as `argMax(properties, timestamp)`, because no key can replace it.
+        """
+        index = len(self.stack) - 1
+        if index >= 0 and isinstance(self.stack[index], ast.FieldType):
+            index -= 1
+        if index < 0:
+            return True
+        if isinstance(self.stack[index], ast.PropertyType):
+            return True
+        document = self.stack[index]
+        reader, index = self._reader_of(index)
+        if isinstance(reader, ast.Call) and reader.name == "toString" and len(reader.args) == 1:
+            # On the legacy table `toString(properties)` is the stored document, so queries pass it to JSON functions.
+            document = reader
+            reader, index = self._reader_of(index)
+        if isinstance(reader, ast.PropertyAccess):
+            return True
+        if isinstance(reader, ast.Call) and reader.name.startswith("JSON") and reader.args:
+            first_arg = reader.args[0]
+            while isinstance(first_arg, ast.Alias) and first_arg.hidden:
+                first_arg = first_arg.expr
+            if first_arg is document:
+                return True
+        if self._in_filter_condition:
+            return False
+        aggregate = self._enclosing_aggregate()
+        if aggregate is None:
+            return True
+        # A tuple or an array only carries the document to the aggregate, as in `groupArray((uuid, properties))`.
+        while isinstance(reader, (ast.Tuple, ast.Array)) or (
+            isinstance(reader, ast.Call) and reader.name in ("tuple", "array")
+        ):
+            reader, index = self._reader_of(index)
+        return reader is aggregate
+
+    def _enclosing_aggregate(self) -> ast.Call | None:
+        """The innermost aggregate whose arguments are being printed, within the query being printed."""
+        for node in reversed(self.stack):
+            if isinstance(node, ast.SelectQuery):
+                return None
+            if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
+                return node
+        return None
+
+    def _reader_of(self, index: int) -> tuple[AST | None, int]:
+        """The node that consumes `self.stack[index]`, and its index, past the hidden aliases in between."""
+        index -= 1
+        while index >= 0:
+            node = self.stack[index]
+            if not (isinstance(node, ast.Alias) and node.hidden):
+                return node, index
+            index -= 1
+        return None, index
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
         """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""
