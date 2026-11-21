@@ -16,7 +16,8 @@ import { InsightAsScene } from 'products/product_analytics/frontend/insights/ins
 import { InsightSkeleton } from 'products/product_analytics/frontend/insights/insightScene/InsightSkeleton'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const { insightId, insight, insightLoading, insightMode, dashboardId, reloadingForDashboardEdit } =
+        useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -40,6 +41,10 @@ export function InsightScene(): JSX.Element {
             )
         }
     }, [insightId, insight?.query, insightMode, dashboardId])
+
+    if (reloadingForDashboardEdit) {
+        return <InsightSkeleton />
+    }
 
     if (
         insightId === 'new' ||

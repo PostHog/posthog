@@ -529,7 +529,12 @@ function InsightMetaBody({
                           ? urls.sqlEditor({ insightShortId: short_id, dashboard: dashboardId ?? undefined })
                           : urls.insightEdit(short_id, dashboardId)
                   ),
-                  overrideWarning: getOverrideWarningPropsForButton(insight.query, filtersOverride, variablesOverride),
+                  overrideWarning: getOverrideWarningPropsForButton(
+                      insight.query,
+                      filtersOverride,
+                      variablesOverride,
+                      tileFiltersOverride
+                  ),
               }
             : null,
         rename: canEditInsight && rename ? rename : null,
