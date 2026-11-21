@@ -181,6 +181,7 @@ function IdleInput(): JSX.Element {
 export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { dataProcessingLocked } = useValues(aiConsentLogic)
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
@@ -188,6 +189,14 @@ export function HomepageAiInput(): JSX.Element {
         panelId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || fallbackConversationId,
         conversation,
+    }
+
+    if (!dataProcessingAccepted && dataProcessingLocked) {
+        return (
+            <div className="border border-primary rounded-lg bg-surface-primary p-4">
+                <AIAccessRequest size="small" />
+            </div>
+        )
     }
 
     if (!dataProcessingAccepted) {

@@ -16,10 +16,10 @@ import { urls } from 'scenes/urls'
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
+import { TagsFilter } from '../TagsFilter'
 import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
 import { AccountNotesViewSelector } from './AccountNotesViewSelector'
 import { NotesCreatedByFilter } from './NotesCreatedByFilter'
-import { NotesTagsFilter } from './NotesTagsFilter'
 
 export function AccountNotesTabContent(): JSX.Element {
     const {
@@ -173,7 +173,7 @@ export function AccountNotesTabContent(): JSX.Element {
                 />
                 <AccountNotesViewSelector />
                 <AccountPicker />
-                <NotesTagsFilter
+                <TagsFilter
                     value={tagsFilter}
                     onChange={(tags) => {
                         setTagsFilter(tags)

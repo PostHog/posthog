@@ -51,7 +51,7 @@ function makeSeries(
     const inFlagWindow = points.filter((point) => Date.parse(point.bucket_start) >= FLAG_FROM)
     const flagged = inFlagWindow.filter((point) => point.flag)
     return {
-        chartFrom: iso(NOW - (interval === 'hour' ? 7 : 14) * DAY_MS),
+        chartFrom: iso(NOW - (interval === 'hour' ? 7 : 28) * DAY_MS),
         points,
         row: {
             insight_id: id,
@@ -101,33 +101,28 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
     }
 }
 
+// 28 days with lower weekend values. `overrides` sets a value by how many days ago its bucket is.
+function dailyValues(weekday: number, weekend: number, overrides: Record<number, number> = {}): number[] {
+    return Array.from({ length: 28 }, (_, index) => {
+        const ago = 28 - index
+        const day = new Date(NOW - ago * DAY_MS).getUTCDay()
+        return overrides[ago] ?? (day === 0 || day === 6 ? weekend : weekday)
+    })
+}
+
 const FLAGGED_SERIES = [
     makeSeries(
         1,
         'Signups by referrer',
         'Organic search',
         'day',
-        [42, 40, 45, 43, 79, 44, 46, 43, 42, 45, 44, 88, 97, 46],
+        dailyValues(44, 30, { 10: 79, 3: 88, 2: 97 }),
         [10, 3, 2]
     ),
-    makeSeries(
-        1,
-        'Signups by referrer',
-        'Paid social',
-        'day',
-        [20, 22, 19, 21, 20, 23, 22, 21, 20, 22, 21, 60, 64, 20],
-        [3, 2]
-    ),
-    makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', [8, 9, 8, 7, 9, 8, 8, 9, 8, 7, 8, 9, 30, 7], [2]),
-    makeSeries(
-        1,
-        'Signups by referrer',
-        'Direct',
-        'day',
-        [64, 66, 61, 65, 63, 62, 64, 66, 63, 65, 64, 30, 28, 62],
-        [3, 2]
-    ),
-    makeSeries(1, 'Signups by referrer', 'Partners', 'day', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 5, 18, 6], [2]),
+    makeSeries(1, 'Signups by referrer', 'Paid social', 'day', dailyValues(21, 15, { 3: 60, 2: 64 }), [3, 2]),
+    makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', dailyValues(8, 5, { 2: 30 }), [2]),
+    makeSeries(1, 'Signups by referrer', 'Direct', 'day', dailyValues(64, 50, { 17: 20, 3: 30, 2: 28 }), [17, 3, 2]),
+    makeSeries(1, 'Signups by referrer', 'Partners', 'day', dailyValues(5, 3, { 2: 18 }), [2]),
     makeSeries(
         2,
         'Checkout started',

@@ -1,0 +1,31 @@
+id: dev-ramp
+version: 1
+clock: real
+profile: dev
+seed: 1
+setup:
+    teams: 1
+drive:
+    for: 8m
+    traffic:
+        - name: capture_webhook
+    ramp:
+        - scale: 1
+          for: 2m
+        - scale: 2
+          for: 2m
+        - scale: 4
+          for: 2m
+        - scale: 8
+          for: 2m
+    stopOnBreak: true
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: delivery_latency_ms

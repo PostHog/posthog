@@ -229,6 +229,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             content_type="MIME type of the media, for example image/jpeg.",
         ),
     },
+    "recording_add_on_results": {
+        "description": "The result of a Marketplace add-on that analyzed a call recording.",
+        "docs_url": "https://www.twilio.com/docs/marketplace/api/recording-add-on-results",
+        "columns": _columns(
+            status="Status of the add-on result (e.g. queued, processing, completed, failed, canceled).",
+            add_on_sid="SID of the add-on that produced the result.",
+            add_on_configuration_sid="SID of the add-on configuration that produced the result.",
+            date_completed="Time at which the add-on finished (RFC 2822 format).",
+            reference_sid="SID of the recording that the result belongs to.",
+            subresource_uris="Relative URIs of the related resources, such as the result payloads.",
+        ),
+    },
+    "short_codes": {
+        "description": "A short code on the account, used to send and receive SMS messages.",
+        "docs_url": "https://www.twilio.com/docs/messaging/api/short-code-resource",
+        "columns": _columns(
+            friendly_name="User-provided name of the short code.",
+            short_code="The short code, a 5 or 6 digit number.",
+            api_version="API version used to start a new TwiML session for the short code.",
+            sms_url="URL that Twilio requests when the short code receives an incoming SMS message.",
+            sms_method="HTTP method that Twilio uses to call sms_url.",
+            sms_fallback_url="URL that Twilio requests when an error occurs while it retrieves or runs the TwiML at sms_url.",
+            sms_fallback_method="HTTP method that Twilio uses to call sms_fallback_url.",
+        ),
+    },
+    "balance": {
+        "description": "The current balance of the Twilio account.",
+        "docs_url": "https://www.twilio.com/docs/usage/api",
+        "columns": {
+            "account_sid": "SID of the account that the balance belongs to.",
+            "balance": "Current account balance, as a decimal string.",
+            "currency": "Currency of the balance, as an ISO 4217 code.",
+        },
+    },
     "alerts": {
         "description": "An error or warning that the Twilio Debugger logged for the account.",
         "docs_url": "https://www.twilio.com/docs/usage/monitor-alert",

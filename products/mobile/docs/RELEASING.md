@@ -73,6 +73,7 @@ Keep the EAS credentials and store setup below. Also:
 - Read-only Expo environment queries retry network failures and temporary HTTP errors up to three times, with a fresh 30-second timeout and bounded backoff. Authentication, GraphQL and malformed-response errors stop publication immediately. Retries never rebuild or resubmit artifacts, and the environment comparison still blocks publication if values change.
 - The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
 - Complete the initial Play Console app/signing/internal-tester setup before requesting the first Android submission. Confirm the production iOS App Store Connect record and stored API key.
+- Keep `submit.production.ios.ascAppId` in `eas.json` aligned with the approved App Store Connect app ID in `releases/config.json`. The publisher stops before claiming a release if they differ.
 - Stop using the older Desktop Mobile Build/Promote workflows for this iOS store identity. The release request flow does not retire those separate workflows.
 
 ### OTA signing setup and rotation
