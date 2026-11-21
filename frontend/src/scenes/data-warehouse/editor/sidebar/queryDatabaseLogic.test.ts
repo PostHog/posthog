@@ -25,6 +25,7 @@ import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -227,6 +228,7 @@ describe('queryDatabaseLogic', () => {
         // A child environment: its id differs from its project's, and saved queries belong to the environment.
         const environment = { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.project_id + 1 }
         let renameTeamIds: string[] = []
+        let joinSourceNames: string[] = []
 
         function useRenamePlanMocks(
             plans: { dependents: (typeof dependent)[]; joins?: (typeof join)[]; plan_token: string }[],
@@ -234,9 +236,14 @@ describe('queryDatabaseLogic', () => {
         ): unknown[] {
             const renameBodies: unknown[] = []
             renameTeamIds = []
+            joinSourceNames = ['orders_by_day']
             useMocks({
                 get: {
                     '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
+                    '/api/projects/:team_id/warehouse_view_link/': () => [
+                        200,
+                        { results: joinSourceNames.map((source_table_name) => ({ ...join, source_table_name })) },
+                    ],
                     '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
                 },
                 post: {
@@ -248,6 +255,7 @@ describe('queryDatabaseLogic', () => {
                     '/api/projects/:team_id/warehouse_saved_queries/:id/rename/': async ({ request, params }) => {
                         renameTeamIds.push(String(params.team_id))
                         renameBodies.push(await request.json())
+                        joinSourceNames = ['orders_by_week']
                         return renameResponses.length > 1 ? renameResponses.shift()! : renameResponses[0]
                     },
                 },
@@ -295,6 +303,9 @@ describe('queryDatabaseLogic', () => {
             await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
             expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
             expect(logic.values.renameView).toBeNull()
+            // The rename moved the saved joins, so the sidebar's copy of them is reloaded too.
+            await expectLogic(joinsDataLogic).toFinishAllListeners()
+            expect(joinsDataLogic.values.joins.map((item) => item.source_table_name)).toEqual(['orders_by_week'])
             logic.unmount()
         })
 

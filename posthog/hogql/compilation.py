@@ -4,16 +4,12 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import CompilationBudgetExceededError, QueryError
 
 MAX_VIEW_DEPTH = 100
 MAX_VIEW_EXPANSIONS = 1000
 MAX_EXPANDED_VIEW_SQL_BYTES = 4 * 1024 * 1024
 COMPILATION_TIMEOUT_SECONDS = 60.0
-
-
-class CompilationBudgetExceededError(QueryError):
-    pass
 
 
 class CompilationBudget:

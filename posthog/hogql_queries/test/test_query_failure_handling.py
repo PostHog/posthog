@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
+    CompilationBudgetExceededError,
     QueryError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
@@ -89,6 +90,10 @@ class TestSharedFailures(SimpleTestCase):
             ("unreadable_result_type", _unreadable_result_type_error),
             ("hogql_query_error", lambda: QueryError("Unknown field: nope", start=7, end=11)),
             ("hogql_syntax_error", lambda: HogQLSyntaxError("Unexpected token", start=0, end=3, fix="select")),
+            (
+                "compilation_budget_exceeded",
+                lambda: CompilationBudgetExceededError("Query exceeds the limit of 1000 saved view expansions."),
+            ),
         ]
     )
     def test_shared_failure_rebuilds_the_same_exception(self, _name, make_error):

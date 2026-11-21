@@ -9,9 +9,9 @@ from django.db.models import Q, QuerySet
 
 from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql.compilation import CompilationBudget, CompilationBudgetExceededError, compilation_budget
+from posthog.hogql.compilation import CompilationBudget, compilation_budget
 from posthog.hogql.database.database import Database, is_authored_model
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -30,11 +30,12 @@ from products.data_modeling.backend.logic.incremental import carry_definition_fi
 from products.data_modeling.backend.logic.model_bindings import QueryBindings, binding_change, query_bindings
 from products.data_modeling.backend.logic.model_references import (
     PARSE_CHECK_FAILED,
+    Chain,
     ModelReferenceRewriteError,
-    cte_names,
     model_spellings,
-    reads_model,
     rename_model_references,
+    renamed_chain,
+    table_reads,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
@@ -100,25 +101,33 @@ class _ComputedRename:
     joins: list[DataWarehouseJoin]
 
 
-def _load_joins(team: Team, name: str, *, lock: bool) -> list[DataWarehouseJoin]:
-    """The saved joins that name the model on either side, ordered by id."""
+def _load_joins(team: Team, spellings: set[Chain], *, lock: bool) -> list[DataWarehouseJoin]:
+    """The saved joins with a side whose name binds to the model, ordered by id.
+
+    By spelling, not stored name: a synced table can hold the model's bare name, and its joins are its own.
+    """
+    names = [".".join(chain) for chain in spellings]
     joins = (
         DataWarehouseJoin.objects.filter(team_id=team.pk)
-        .filter(Q(source_table_name=name) | Q(joining_table_name=name))
+        .filter(Q(source_table_name__in=names) | Q(joining_table_name__in=names))
         .exclude(deleted=True)
         .order_by("pk")
     )
     return list(joins.select_for_update(no_key=True) if lock else joins)
 
 
-def _renamed_join(join: DataWarehouseJoin, old_name: str, new_name: str) -> ModelRenameJoin:
+def _renamed_join(join: DataWarehouseJoin, spellings: set[Chain], new_chain: list[str]) -> ModelRenameJoin:
+    def renamed(name: str) -> str:
+        chain = tuple(name.split("."))
+        return ".".join(renamed_chain(chain, new_chain)) if chain in spellings else name
+
     return ModelRenameJoin(
         join_id=join.id,
         field_name=join.field_name,
         source_table_name_before=join.source_table_name,
-        source_table_name_after=new_name if join.source_table_name == old_name else join.source_table_name,
+        source_table_name_after=renamed(join.source_table_name),
         joining_table_name_before=join.joining_table_name,
-        joining_table_name_after=new_name if join.joining_table_name == old_name else join.joining_table_name,
+        joining_table_name_after=renamed(join.joining_table_name),
     )
 
 
@@ -129,41 +138,42 @@ def _readers_hiding_the_new_name(
     dependents: list[DataWarehouseSavedQuery],
     name: str,
 ) -> list[ModelRenameBlocked]:
-    """The models that read a rewritten model, directly or through others, and define a CTE called `name`.
+    """The models that read a rewritten model, directly or through others, with a CTE called `name` in scope there.
 
-    A model's expanded body sees the CTEs of the query that reads it, so such a CTE would stand in for the
+    A model's expanded body sees the CTEs in scope where it is read, so such a CTE would stand in for the
     renamed model inside the rewritten body. The binding check sees only a query's own references, not those.
     """
-    models = [
-        (model, text)
-        for model in live_queries
-        if is_authored_model(model) and isinstance(text := (model.query or {}).get("query"), str)
-    ]
-    reached = {renamed.pk}
-    walked: set[uuid.UUID] = set()
-    frontier = list(dependents)
-    blocked: list[ModelRenameBlocked] = []
-    while frontier:
-        read = frontier.pop()
-        if read.pk in walked:
+    budget = compilation_budget.get()
+    # Every model is parsed once, into the readers of each table name it reads.
+    readers_of: dict[Chain, list[tuple[DataWarehouseSavedQuery, frozenset[str]]]] = {}
+    for model in live_queries:
+        text = (model.query or {}).get("query")
+        if not is_authored_model(model) or not isinstance(text, str):
             continue
-        walked.add(read.pk)
-        spellings = model_spellings(read, database)
-        leaf = read.name_chain[-1].lower()
-        for reader, text in models:
-            if reader.pk in reached or leaf not in text.lower() or not reads_model(text, spellings):
-                continue
-            reached.add(reader.pk)
-            frontier.append(reader)
-            if name in cte_names(text):
-                blocked.append(
-                    ModelRenameBlocked(
+        if budget is not None:
+            budget.check_time()
+        for chain, ctes in table_reads(text):
+            readers_of.setdefault(chain, []).append((model, ctes))
+
+    reached = {renamed.pk, *(dependent.pk for dependent in dependents)}
+    frontier = list(dependents)
+    blocked: dict[uuid.UUID, ModelRenameBlocked] = {}
+    while frontier:
+        if budget is not None:
+            budget.check_time()
+        read = frontier.pop()
+        for spelling in model_spellings(read, database):
+            for reader, ctes in readers_of.get(spelling, []):
+                if name in ctes and reader.pk not in blocked:
+                    blocked[reader.pk] = ModelRenameBlocked(
                         saved_query_id=reader.id,
                         name=reader.name,
                         reason=f"It defines a CTE named {name}, which would hide the renamed view.",
                     )
-                )
-    return blocked
+                if reader.pk not in reached:
+                    reached.add(reader.pk)
+                    frontier.append(reader)
+    return list(blocked.values())
 
 
 def _compute(team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool) -> _ComputedRename:
@@ -190,8 +200,8 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
     )
     spellings = model_spellings(renamed, database)
     new_chain = new_name.split(".")
-    joins = _load_joins(team, renamed.name, lock=lock)
-    renamed_joins = [_renamed_join(join, renamed.name, new_name) for join in joins]
+    joins = _load_joins(team, spellings, lock=lock)
+    renamed_joins = [_renamed_join(join, spellings, new_chain) for join in joins]
 
     spliced: list[_Rewrite] = []
     blocked: list[ModelRenameBlocked] = []
@@ -251,10 +261,13 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
                 )
 
     if rewrites:
+        already_blocked = {entry.saved_query_id for entry in blocked}
         blocked.extend(
-            _readers_hiding_the_new_name(
+            entry
+            for entry in _readers_hiding_the_new_name(
                 live_queries, database, renamed, [rewrite.dependent for rewrite in rewrites], new_chain[0]
             )
+            if entry.saved_query_id not in already_blocked
         )
 
     join_fingerprint = [

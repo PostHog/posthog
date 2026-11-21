@@ -1935,6 +1935,7 @@ export interface queryDatabaseLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // joinsDataLogic
+    loadJoins: () => any // joinsDataLogic
     loadMetrics: () => any // metricsLogic
     loadMetricsFailure: (
         error: string,
@@ -2473,7 +2474,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
             joinsDataLogic,
-            ['deleteJoin'],
+            ['deleteJoin', 'loadJoins'],
             dataWarehouseViewsLogic,
             [
                 'createDataWarehouseSavedQuerySuccess',
@@ -2796,6 +2797,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
                 await warehouseSavedQueriesRenameCreate(environmentId, view.id, { name, plan_token: plan.plan_token })
                 actions.loadDataWarehouseSavedQueries()
+                actions.loadJoins()
                 actions.refreshDatabaseSchema()
                 lemonToast.success('View renamed')
                 actions.closeRenameView()

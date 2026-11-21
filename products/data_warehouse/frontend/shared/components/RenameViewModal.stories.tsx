@@ -54,6 +54,16 @@ export const WithRenamePlan: Story = {
                 },
             ],
             blocked: [{ id: 'revenue-report', name: 'revenue_report', reason: 'The query does not parse.' }],
+            joins: [
+                {
+                    id: 'orders-customer',
+                    field_name: 'customer',
+                    source_table_name_before: 'orders_by_day',
+                    source_table_name_after: 'orders_by_week',
+                    joining_table_name_before: 'customers',
+                    joining_table_name_after: 'customers',
+                },
+            ],
             plan_token: 'token',
         },
     },

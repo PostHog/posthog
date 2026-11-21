@@ -17,6 +17,7 @@ from products.data_modeling.backend.logic.model_references import (
     DOES_NOT_PARSE,
     PARSE_CHECK_FAILED,
     ModelReferenceRewriteError,
+    _qualifier_binding,
     model_spellings,
     rename_model_references,
 )
@@ -512,8 +513,30 @@ class TestRenameModelReferences(BaseTest):
             top.id: f"select m.id from {middle_name} as m join income on m.id = income.id",
         }
 
-    @parameterized.expand([("reads_through_middle", "middle", True), ("reads_something_else", "other", False)])
-    def test_plan_blocks_a_reader_whose_cte_would_hide_the_renamed_model(self, _case: str, reads: str, blocks: bool):
+    @parameterized.expand(
+        [
+            (
+                "cte_around_the_read",
+                "with target as (select 999 as id) select id from middle",
+                "It defines a CTE named target, which would hide the renamed view.",
+            ),
+            ("reads_something_else", "with target as (select 999 as id) select id from other", None),
+            (
+                "cte_only_inside_a_subquery",
+                "select id from middle where id in (with target as (select 999 as id) select id from target)",
+                None,
+            ),
+            # Its own rewrite already fails, and the walk from `middle` reaches it too: it is listed once.
+            (
+                "also_reads_the_model_under_the_cte",
+                "with target as (select 999 as id) select middle.id from middle join source on middle.id = source.id",
+                READS_ANOTHER_TABLE,
+            ),
+        ]
+    )
+    def test_plan_blocks_a_reader_whose_cte_would_hide_the_renamed_model(
+        self, _case: str, top_query: str, reason: str | None
+    ):
         columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
         renamed = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="source", query={"query": "select 1 as id"}, columns=columns
@@ -524,19 +547,13 @@ class TestRenameModelReferences(BaseTest):
         top = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="top",
-            query={"query": f"with target as (select 999 as id) select id from {reads}"},
+            query={"query": top_query},
         )
 
         plan = plan_model_rename(self.team, renamed.id, "target")
 
-        expected = (
-            ModelRenameBlocked(
-                saved_query_id=top.id,
-                name="top",
-                reason="It defines a CTE named target, which would hide the renamed view.",
-            ),
-        )
-        assert plan.blocked == (expected if blocks else ())
+        expected = () if reason is None else (ModelRenameBlocked(saved_query_id=top.id, name="top", reason=reason),)
+        assert plan.blocked == expected
 
     def test_plan_fails_whole_when_its_checks_run_out_of_budget(self):
         renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
@@ -620,6 +637,64 @@ class TestRenameModelReferences(BaseTest):
             "select other.back.id as id from other",
         ]:
             assert self._resolves(query), query
+
+    @parameterized.expand(
+        [
+            # The bare name is the synced table, so its join is not the model's and stays.
+            (
+                "bare_name_is_a_synced_table",
+                "shared",
+                "select m.id as model_id, w.details.id as detail_id from models.shared as m join shared as w on m.id = w.id",
+                None,
+            ),
+            (
+                "stored_under_models",
+                "models.shared",
+                "select s.details.id as id from models.shared as s",
+                "models.income",
+            ),
+        ]
+    )
+    def test_rename_moves_only_the_joins_whose_name_binds_to_the_model(
+        self, _case: str, stored_as: str, query: str, moved_to: str | None
+    ):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="shared")
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=stored_as,
+            source_table_key="id",
+            joining_table_name="costs",
+            joining_table_key="id",
+            field_name="details",
+        )
+        dependent = DataWarehouseSavedQuery.objects.create(team=self.team, name="reads_shared", query={"query": query})
+
+        plan = plan_model_rename(self.team, renamed.id, "income")
+
+        assert plan.blocked == ()
+        assert [(entry.join_id, entry.source_table_name_after) for entry in plan.joins] == (
+            [] if moved_to is None else [(join.id, moved_to)]
+        )
+        apply_model_rename(self.team, renamed.id, "income", plan.token, authorize=lambda _plan: None)
+        join.refresh_from_db()
+        dependent.refresh_from_db()
+        assert join.source_table_name == (moved_to or stored_as)
+        stored = (dependent.query or {})["query"]
+        assert self._resolves(stored), stored
+
+    def test_a_long_field_chain_looks_up_no_deeper_than_the_names_in_scope(self):
+        class CountingScope(dict):
+            lookups = 0
+
+            def __contains__(self, key: object) -> bool:
+                CountingScope.lookups += 1
+                return super().__contains__(key)
+
+        scope = CountingScope({"revenue": ["income"], "marts__orders": None})
+
+        assert _qualifier_binding(["properties", *["x"] * 1000], scope) is None
+        # The first segment, then prefixes up to two segments deep, the deepest name in scope.
+        assert CountingScope.lookups <= 3
 
 
 class TestBoundedResolver(BaseTest):

@@ -2758,7 +2758,12 @@ class TestSavedQuery(APIBaseTest):
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
         assert DataWarehouseJoin.objects.get(id=join.id).source_table_name == "stg_signups"
 
-        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+        with (
+            patch.object(Database, "create_for", wraps=Database.create_for) as create_for,
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action"
+            ) as report_user_action,
+        ):
             response = self.client.post(
                 f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
             )
@@ -2766,6 +2771,14 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code == 200, response.content
         assert response.json()["name"] == "staging.signups"
+        report_user_action.assert_called_once()
+        event, properties = report_user_action.call_args.args[1:3]
+        assert (event, properties["saved_query_id"], properties["name_changed"], properties["query_changed"]) == (
+            "view updated",
+            str(renamed.id),
+            True,
+            False,
+        )
         assert DataWarehouseJoin.objects.get(id=join.id).source_table_name == "staging.signups"
         rename_activity = ActivityLog.objects.get(item_id=str(renamed.id), activity="updated")
         assert cast(dict[str, Any], rename_activity.detail)["changes"][0]["before"] == "stg_signups"
