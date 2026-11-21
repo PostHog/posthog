@@ -15,6 +15,19 @@ type NotebookNodeEmbedAttributes = {
     height?: string | number
 }
 
+const DEFAULT_SANDBOX = 'allow-scripts allow-popups allow-forms'
+
+// Video players fail to start without storage access in their own origin. Cross-origin frames
+// cannot reach the notebook even with allow-same-origin, so only trusted video hosts get it.
+const SAME_ORIGIN_EMBED_HOSTS = ['youtube.com', 'youtube-nocookie.com']
+
+export const getEmbedSandbox = (url: URL): string => {
+    const isTrustedHost = SAME_ORIGIN_EMBED_HOSTS.some(
+        (host) => url.hostname === host || url.hostname.endsWith(`.${host}`)
+    )
+    return url.protocol === 'https:' && isTrustedHost ? `${DEFAULT_SANDBOX} allow-same-origin` : DEFAULT_SANDBOX
+}
+
 const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null => {
     const parser = new DOMParser()
     const doc = parser.parseFromString(input, 'text/html')
@@ -61,7 +74,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                         onLoad={() => {
                             setLoaded(true)
                         }}
-                        sandbox="allow-scripts allow-popups allow-forms"
+                        sandbox={getEmbedSandbox(validUrl)}
                     />
                     {!loaded ? <SpinnerOverlay /> : null}
                 </>
