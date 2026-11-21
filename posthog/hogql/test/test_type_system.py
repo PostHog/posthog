@@ -271,9 +271,10 @@ class TestHogQLTypeSystem:
         for day_plus in ("addDays", "addWeeks", "addMonths", "subtractDays", "subtractYears"):
             self._assert_first_column_type(f"SELECT {day_plus}(toDate('2020-01-01'), 1)", ast.DateType(nullable=True))
 
-        # A DateTime argument stays a DateTime under sub-day arithmetic.
+        # A DateTime argument stays a DateTime under sub-day arithmetic. `toDateTime` of a string
+        # literal prints as a strict parse, so it is not nullable.
         self._assert_first_column_type(
-            "SELECT addHours(toDateTime('2020-01-01 00:00:00'), 1)", ast.DateTimeType(nullable=True)
+            "SELECT addHours(toDateTime('2020-01-01 00:00:00'), 1)", ast.DateTimeType(nullable=False)
         )
 
     def test_resolver_infers_array_and_tuple_access_types(self) -> None:
@@ -873,10 +874,12 @@ class TestHogQLTypeSystem:
         # declared non-nullable, the simplifier proves the wrapper redundant and drops it, and every
         # date-bounded query then feeds Nullable(DateTime64) into places ClickHouse requires a plain
         # value — `numbers(dateDiff(...))` fails outright with "Illegal type Nullable(Int64)".
+        # A bare string literal prints as a strict parse that never returns NULL, so the argument here
+        # is a non-literal string to keep the `OrNull` parse.
         resolved = cast(
             ast.SelectQuery,
             resolve_types(
-                self._select("SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00')) AS bound"),
+                self._select("SELECT assumeNotNull(toDateTime(toString('2020-01-01 00:00:00'))) AS bound"),
                 self.context,
                 dialect="clickhouse",
             ),
@@ -946,7 +949,7 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT formatReadableSize(1024)", ast.StringType(nullable=False))
         # Nullable because the inner string parse can fail, not because of the outer helper.
         self._assert_first_column_type(
-            "SELECT formatDateTime(toDateTime('2024-01-01'), '%F')",
+            "SELECT formatDateTime(toDateTime(toString('2024-01-01')), '%F')",
             ast.StringType(nullable=True),
         )
         self._assert_first_column_type("SELECT toYear(toDate('2024-01-01'))", ast.IntegerType(nullable=True))

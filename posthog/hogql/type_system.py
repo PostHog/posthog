@@ -1423,6 +1423,11 @@ def _infer_generic_function_type(
     if normalized_name in {"todate", "to_date", "_todate"}:
         return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
+    if dialect == "clickhouse" and normalized_name == "todatetime" and _is_single_string_constant(args):
+        # The printer turns `toDateTime('<literal>')` into a strict parse (toDateTime, toDateTime64 or
+        # parseDateTime64BestEffort) that errors on bad input instead of returning NULL.
+        return ast.DateTimeType(nullable=False)
+
     if normalized_name in {"todatetime", "todatetime64", "todatetimeus", "parsedatetime", "parsedatetimebesteffort"}:
         return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
@@ -2164,6 +2169,10 @@ def _constant_int(expr: ast.Expr) -> Optional[int]:
     if isinstance(expr, ast.Constant) and isinstance(expr.value, int):
         return expr.value
     return None
+
+
+def _is_single_string_constant(args: Optional[list[ast.Expr]]) -> bool:
+    return args is not None and len(args) == 1 and _constant_string(args[0]) is not None
 
 
 def _constant_string(expr: ast.Expr) -> Optional[str]:
