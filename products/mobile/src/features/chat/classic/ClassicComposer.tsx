@@ -6,7 +6,10 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 
+import { type ComposerDictation, ComposerInput, DictationButton } from '../ComposerInput'
+
 interface ClassicComposerProps {
+    dictation: ComposerDictation
     text: string
     onChangeText: (text: string) => void
     onSend: () => void
@@ -17,30 +20,33 @@ interface ClassicComposerProps {
 }
 
 export const ClassicComposer = forwardRef<TextInputInstance, ClassicComposerProps>(function ClassicComposer(
-    { text, onChangeText, onSend, onStop, disabled, working, stopping },
+    { dictation, text, onChangeText, onSend, onStop, disabled, working, stopping },
     ref
 ): ReactElement {
     const { colors, shadows, scheme } = useTheme()
     const styles = useStyles()
-    const canSend = !disabled && !working && text.trim().length > 0
+    const canSend = !disabled && !working && text.trim().length > 0 && dictation.phase === 'idle'
     return (
         <View style={[styles.card, shadows.popover]}>
-            <TextInput
-                ref={ref}
-                value={text}
-                onChangeText={onChangeText}
-                placeholder="Ask anything…"
-                placeholderTextColor={colors.tertiary}
-                accessibilityLabel="Message"
-                keyboardAppearance={scheme}
-                multiline
-                returnKeyType="send"
-                submitBehavior="submit"
-                onSubmitEditing={() => canSend && onSend()}
-                style={styles.input}
-                testID="chat-input"
-            />
-            <View style={styles.toolbar}>
+            <ComposerInput dictation={dictation}>
+                <TextInput
+                    ref={ref}
+                    value={text}
+                    onChangeText={onChangeText}
+                    placeholder="Ask anything…"
+                    placeholderTextColor={colors.tertiary}
+                    accessibilityLabel="Message"
+                    keyboardAppearance={scheme}
+                    multiline
+                    returnKeyType="send"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => canSend && onSend()}
+                    style={styles.input}
+                    testID="chat-input"
+                />
+            </ComposerInput>
+            <View style={styles.toolbar} testID="chat-composer-actions">
+                <DictationButton dictation={dictation} disabled={disabled} />
                 {working ? (
                     <Pressable44
                         onPress={onStop}
@@ -81,7 +87,7 @@ const useStyles = createStyles(({ colors }) => ({
         gap: 10,
     },
     input: { ...inputReset, ...type.input, color: colors.ink, minHeight: 40, maxHeight: 120 },
-    toolbar: { alignItems: 'flex-end' },
+    toolbar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 6 },
     send: {
         width: 40,
         height: 40,
