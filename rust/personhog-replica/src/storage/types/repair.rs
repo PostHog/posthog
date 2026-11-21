@@ -8,6 +8,7 @@ pub enum RaiseOutcome {
     AtOrAbove,
     NotLive,
     Missing,
+    TooLarge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +37,7 @@ pub enum RestoreOutcome {
     ExistsLive,
     ExistsTombstoned,
     NoDistinctId,
+    TooLarge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

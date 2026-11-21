@@ -540,16 +540,22 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert [a.outcome for a in actions] == ["skipped_tombstoned", "skipped_tombstoned"]
         assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
 
-    @override_settings(PERSONHOG_WRITE_PATH="leader")
-    def test_skips_a_person_the_leader_refuses_as_too_large(self) -> None:
+    @parameterized.expand([("leader",), ("replica",)])
+    def test_skips_a_person_the_write_path_refuses_as_too_large(self, write_path: str) -> None:
         person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
         self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
-        refusal = rpc_error(grpc.StatusCode.FAILED_PRECONDITION)
-        refusal.trailing_metadata = MagicMock(return_value=(("x-semantic-refusal", "person-too-large"),))
         fake = get_active_fake()
+        if write_path == "leader":
+            refusal = rpc_error(grpc.StatusCode.FAILED_PRECONDITION)
+            refusal.trailing_metadata = MagicMock(return_value=(("x-semantic-refusal", "person-too-large"),))
+            refused = patch.object(fake, "raise_person_version", side_effect=refusal)
+        else:
+            response = person_pb2.RaisePersonVersionFloorsResponse()
+            response.results.add(person_uuid=str(person.uuid), outcome=person_pb2.RAISE_OUTCOME_TOO_LARGE, version=3)
+            refused = patch.object(fake, "raise_person_version_floors", return_value=response)
 
-        with patch.object(fake, "raise_person_version", side_effect=refusal):
+        with override_settings(PERSONHOG_WRITE_PATH=write_path), refused:
             _, actions = self._repair(person.uuid)
 
         assert [a.outcome for a in actions] == ["skipped_raise_refused", "skipped_raise_refused"]

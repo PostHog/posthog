@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import grpc
 from parameterized import parameterized
+from personhog.types.v1 import person_pb2
 
 from posthog.models.person.divergence import observe, repairs, restore_verbs, team_scan, verbs
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin, rpc_error
@@ -374,6 +375,22 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert outcomes == {lost: "skipped_no_distinct_id", "claimed": "skipped_changed"}
         fake = get_active_fake()
         assert fake is not None
+        assert fake.stored_person(self.team.pk, lost) is None
+
+    def test_restore_leaves_out_a_lost_person_personhog_reports_too_large(self):
+        lost = str(uuid4())
+        self._ch_person(lost, 4, {"email": "lost@example.com"})
+        self._ch_mapping("big-1", lost, 2)
+        scan_dir, _ = self._scan(purged_at=datetime.now(UTC) + timedelta(hours=1))
+        fake = get_active_fake()
+        assert fake is not None
+        response = person_pb2.RestorePersonsResponse()
+        response.results.add(person_uuid=lost, outcome=person_pb2.RESTORE_OUTCOME_TOO_LARGE)
+
+        with patch.object(fake, "restore_persons", return_value=response):
+            outcomes = self._run(scan_dir, "restore", apply=True)
+
+        assert outcomes == {lost: "skipped_too_large", "big-1": "skipped_too_large"}
         assert fake.stored_person(self.team.pk, lost) is None
 
     def test_fold_and_merge_skip_a_team_with_person_processing_off(self):

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='raise_person_version_floors_trimmed' */\n                UPDATE posthog_person p\n                SET version = f.min_version, properties = f.properties::jsonb\n                FROM UNNEST($2::bigint[], $3::bigint[], $4::text[]) AS f(id, min_version, properties)\n                WHERE p.team_id = $1 AND p.id = f.id AND p.is_deleted = false\n                  AND COALESCE(p.version, 0) < f.min_version\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "703dbabc97dcbe1452ca65ec6f37289dd782f577ba664f4eac34e170b44de152"
+}
