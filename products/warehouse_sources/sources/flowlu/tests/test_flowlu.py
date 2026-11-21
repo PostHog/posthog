@@ -19,6 +19,29 @@ def _driver() -> SourceDriver:
 
 
 class TestPagination:
+    @parameterized.expand(
+        [
+            ("account_categories", "/api/v1/module/crm/account_category/list"),
+            ("transaction_categories", "/api/v1/module/fin/categories/list"),
+            ("bank_accounts", "/api/v1/module/fin/bank_account/list"),
+            ("business_lines", "/api/v1/module/fin/business_line/list"),
+        ]
+    )
+    def test_walks_pages_of_vendor_list_path(self, endpoint: str, expected_path: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=_envelope([{"id": 1}, {"id": 2}])),
+                ScriptedResponse(json=_envelope([{"id": 3}])),
+                ScriptedResponse(json=_envelope([])),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.paths == [expected_path] * 3
+        assert result.params("page") == ["1", "2", "3"]
+
     def test_resumes_from_saved_page(self) -> None:
         result = _driver().run(
             "accounts",
