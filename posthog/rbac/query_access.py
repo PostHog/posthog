@@ -16,6 +16,8 @@ from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.models import User
 
+from products.access_control.backend.facade import api as access_control_api
+
 
 def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Database | None = None) -> None:
     """Raise PermissionDenied unless `user` can read everything `sql` selects from.
@@ -38,3 +40,11 @@ def assert_user_can_read_sql(sql: str, team_id: int, user: User, database: Datab
         # A query that no longer resolves, such as one reading a renamed column, can't be safely
         # published either, but the user is not denied anything, so it is a bad request.
         raise exceptions.ValidationError(str(err))
+
+    # A materialized copy runs without the user and keeps only the team's default property rules.
+    if context.restricted_properties and not context.restricted_properties.issubset(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+    ):
+        raise exceptions.PermissionDenied(
+            "Your property access permissions do not allow materializing queries. Ask a project administrator for help."
+        )

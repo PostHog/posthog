@@ -17,6 +17,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
+
 from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
@@ -36,6 +38,7 @@ from posthog.permissions import (
 from posthog.scopes.catalog import APIScopeObject
 from posthog.scopes.checks import scopes_not_covered
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
@@ -646,6 +649,19 @@ class PlatformAlertsFlagPermission(BasePermission):
         return bool(view.open_source_kinds)
 
 
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "schedule_restriction",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "check_interval_minutes",
+    }
+)
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
     scope_object_read_actions = ["list", "retrieve", "destinations", "events"]
@@ -729,6 +745,26 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
         ]
 
+    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
+        # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
+        # A malformed config is refused by the source's own validation later.
+        if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
+            return
+        filters = source_config.get("filters")
+        names = filters.get("serviceNames") if isinstance(filters, dict) else None
+        if names is not None and not (isinstance(names, list) and all(isinstance(name, str) for name in names)):
+            return
+        services = set(names or [])
+        if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+            return
+        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+        ):
+            raise PermissionDenied(
+                "Your property access permissions do not allow alerts on pipeline logs. "
+                "Pick the services this alert watches, without PostHog pipeline services."
+            )
+
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
 
@@ -751,6 +787,18 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
+
+    def _checked_edit(
+        self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
+    ) -> PlatformAlertConfigurationEdit:
+        edited = replace(stored, **fields)
+        # Only a rename or a change to when the alert fires leaves what it reads and who it tells as they were.
+        # An edit form sends unchanged settings back, so compare values, not keys.
+        changed = {name for name, value in fields.items() if getattr(stored, name) != value}
+        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
+        if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
+            self._require_pipeline_log_access(source_kind, edited.source_config)
+        return edited
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -778,7 +826,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                 source_kinds=self._writable_source_kinds,
                 configuration_id=configuration_id,
                 # A partial update names only the fields it changes. The rest keep what is stored.
-                change=lambda stored: replace(stored, **fields),
+                change=lambda stored: self._checked_edit(current.source_kind, stored, fields),
                 check_interval_minutes=check_interval_minutes,
             )
         except PlatformAlertNotEditable as error:
@@ -818,6 +866,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
         fields.pop("source_kind")
+        self._require_pipeline_log_access(source_kind, fields["source_config"])
         try:
             created = platform_api.create_configuration(
                 team_id=self._canonical_team_id(),

@@ -627,6 +627,9 @@ class DataWarehouseSavedQuerySerializer(
 
         if sync_frequency not in (None, "never") and not engine.can_materialize.available:
             raise serializers.ValidationError(engine.can_materialize.reason)
+        # A new view can take the name another materialized view reads, and that refresh runs without the user.
+        if engine.can_materialize.available:
+            self._assert_can_materialize(view, {})
         if engine.column_source == ViewColumnSource.CLIENT_TYPES:
             view.set_columns(self._columns_from_request_types())
         if engine.has_lineage.available:
@@ -686,10 +689,6 @@ class DataWarehouseSavedQuerySerializer(
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
             # The frequency writes through to the DAG node's freshness target, which only a view with lineage has.
             if sync_frequency is not None and engine.has_lineage.available:
-                if sync_frequency != "never":
-                    modeling_api.assert_user_can_read_saved_query(
-                        view, cast(User, self.context["request"].user), database=self.context.get("database")
-                    )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
         if _cadence_asks_to_materialize(view, sync_frequency):
@@ -704,6 +703,14 @@ class DataWarehouseSavedQuerySerializer(
         )
         return view
 
+    def _assert_can_materialize(self, saved_query: DataWarehouseSavedQuery, validated_data: Any) -> None:
+        pending = copy.copy(saved_query)
+        if "query" in validated_data:
+            pending.query = validated_data["query"]
+        modeling_api.assert_user_can_read_saved_query(
+            pending, cast(User, self.context["request"].user), database=self.context.get("database")
+        )
+
     def update(self, instance: Any, validated_data: Any) -> Any:
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -717,12 +724,6 @@ class DataWarehouseSavedQuerySerializer(
 
         if sync_frequency not in (None, "never") and not engine.can_materialize.available:
             raise serializers.ValidationError(engine.can_materialize.reason)
-
-        if sync_frequency and sync_frequency != "never":
-            # Scheduling a view is the same grant as materializing it directly.
-            modeling_api.assert_user_can_read_saved_query(
-                instance, cast(User, self.context["request"].user), database=self.context.get("database")
-            )
 
         # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
         # saved before those views lost lineage can still hold a node target that a pause must remove.
@@ -805,6 +806,13 @@ class DataWarehouseSavedQuerySerializer(
             before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
+            renamed = "name" in validated_data and validated_data["name"] != locked_instance.name
+            # Scheduling a view is the same grant as materializing it. A changed query or a freed name reaches the
+            # next refresh of this view or of any materialized view that reads it, and those run without the user.
+            if (query_changed or renamed or (sync_frequency and sync_frequency != "never")) and ViewEngine.from_query(
+                validated_data.get("query", locked_instance.query)
+            ).can_materialize.available:
+                self._assert_can_materialize(locked_instance, validated_data)
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:

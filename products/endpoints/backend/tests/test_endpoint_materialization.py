@@ -26,6 +26,8 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.testing import set_member_property_access
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     clamp_dag_targets_to_plan_floor,
@@ -44,6 +46,7 @@ from products.endpoints.backend.materialization_transforms import Materializatio
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
@@ -126,6 +129,41 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             call for call in mock_capture.call_args_list if call.kwargs.get("event") in {"view created", "view updated"}
         ]
         self.assertEqual(view_events, [])
+
+    @parameterized.expand([("team_rule", status.HTTP_200_OK), ("own_rule", status.HTTP_403_FORBIDDEN)])
+    def test_enable_materialization_follows_property_access(self, rule: str, expected: int) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=self.organization_membership,
+            access="restricted" if rule == "team_rule" else "granted",
+        )
+        if rule == "own_rule":
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="member_note", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+        endpoint = create_endpoint_with_version(
+            name="property_rules_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected, response.json())
+        version = endpoint.versions.get()
+        self.assertEqual(version.saved_query is not None, expected == status.HTTP_200_OK)
 
     def test_enable_materialization_drops_the_cached_throttle_snapshot(self):
         endpoint = create_endpoint_with_version(

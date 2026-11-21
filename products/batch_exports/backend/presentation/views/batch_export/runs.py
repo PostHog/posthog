@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -160,6 +161,7 @@ class RunsCursorPagination(FacadeCursorPagination):
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = [CDPPropertyAccessPermission]
     path_parameters = {
         "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run."),
         "batch_export_id": PathParameter(type=UUID, description="The `BatchExport` this run belongs to."),
