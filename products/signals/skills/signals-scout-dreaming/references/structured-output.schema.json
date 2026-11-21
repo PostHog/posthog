@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Dreaming scout record",
-    "description": "One change the memory upkeep scout made, or tried to make, to one scratchpad entry. Subject is the entry's key. Holds no entry content, because entries can hold customer data.",
+    "description": "One change the memory upkeep scout made, or tried to make, to one scratchpad entry. Subject is the owning scout's skill name, and the entry's key goes in `dream_key`, because a key can be longer than a subject may be. Holds no entry content, because entries can hold customer data.",
     "type": "object",
     "additionalProperties": false,
     "required": [

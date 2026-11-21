@@ -835,7 +835,7 @@ class TestShippedStructuredOutputSchemas:
             "dream_entry_age_days": 41.5,
             "dream_evidence": "alert is deleted, read with alert-get",
         }
-        _validate_records([StructuredOutputRecord(payload=retire, subject=retire["dream_key"])], schema)
+        _validate_records([StructuredOutputRecord(payload=retire, subject="signals-scout-example")], schema)
         # Entries can hold customer data, and these records land in the project's event stream,
         # so the schema stays closed to any field that could carry an entry's content.
         for rejected in ({**retire, "dream_content": "the entry body"}, {**retire, "dream_action": "forget"}):

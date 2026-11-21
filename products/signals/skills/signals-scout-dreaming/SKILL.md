@@ -120,7 +120,8 @@ Write no digest for a scout whose memory you only read.
 
 ## Close out
 
-Record one structured-output record per change with `scout-record-output`, against the schema in _Structured output_ in your run prompt, with the entry's key as the record's `subject`.
+Record one structured-output record per change with `scout-record-output`, against the schema in _Structured output_ in your run prompt, with the owning scout's skill name as the record's `subject`.
+The entry's key goes in `dream_key`, because a key can be longer than a `subject` may be.
 A skipped conflict, a learning and a digest are each a record too.
 Records hold no entry content, because entries can hold customer data.
 
