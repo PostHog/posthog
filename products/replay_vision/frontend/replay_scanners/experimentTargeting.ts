@@ -58,27 +58,32 @@ export interface ScannerExperimentScope {
 }
 
 /**
- * The experiment a scanner watches, wherever it is stored: the `scope` column first, then the two
- * stores it replaces. Mirrors the backend's `stored_scope()`, including its order, so a row the
- * backfill or the save mirror has given a scope reads the same here as it does there.
+ * The experiment a scanner watches, from whichever store holds it: the experiment type's
+ * `scanner_config`, then the legacy `experiment_targeting` column, then `scope`.
  */
 export function scannerExperimentScope(scanner: ReplayScanner | null | undefined): ScannerExperimentScope | null {
     if (!scanner) {
         return null
     }
-    const scope = scanner.scope
-    if (scope?.kind === 'experiment' && scope.experiment_id) {
-        return { experimentId: scope.experiment_id, variants: scope.variants ?? null }
-    }
+    // The older stores come first here, the reverse of the backend's order, because this reads a
+    // form as often as a saved row. While both stores hold the experiment the mirror keeps them in
+    // step, so the answer is the same either way — except mid-edit, where only the older store
+    // carries what the person has just typed and the column still holds what was saved.
     if (scanner.scanner_type === 'experiment') {
         const { experiment_id, variants } = scanner.scanner_config
         return experiment_id ? { experimentId: experiment_id, variants: variants ?? null } : null
     }
     const targeting = scanner.experiment_targeting
-    if (!targeting?.experiment_id) {
-        return null
+    if (targeting?.experiment_id) {
+        return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
     }
-    return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
+    // Last, so a row that has only the column answers: nothing the editor writes today produces
+    // this shape, and nothing else holds its experiment.
+    const scope = scanner.scope
+    if (scope?.kind === 'experiment' && scope.experiment_id) {
+        return { experimentId: scope.experiment_id, variants: scope.variants ?? null }
+    }
+    return null
 }
 
 /**

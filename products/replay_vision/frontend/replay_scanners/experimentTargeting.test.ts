@@ -111,9 +111,9 @@ describe('experimentTargeting', () => {
         expect(experimentScannerName(base, experimentName)).toEqual(expected)
     })
 
-    // The three stores a scanner can hold its experiment in, read in the order `stored_scope` reads
-    // them. A row carries more than one while the save mirror keeps them in step, so the order is
-    // what decides which one the editor shows.
+    // The three stores a scanner can hold its experiment in. A row carries more than one while the
+    // save mirror keeps them in step; the order decides what the editor shows mid-edit, when only
+    // the older store has what the person just typed.
     it.each([
         [
             'the scope column',
@@ -136,12 +136,14 @@ describe('experimentTargeting', () => {
             { experimentId: 7, variants: ['control'] },
         ],
         [
-            'the scope column ahead of a legacy store that disagrees',
+            // The form carries an in-progress edit in the older store while the column still holds
+            // what was saved, so the older store wins and the estimate previews what was typed.
+            'a legacy store ahead of the scope column when they disagree',
             {
                 scope: { kind: 'experiment', experiment_id: 7, variants: ['control'] },
                 experiment_targeting: { experiment_id: 9, variant: 'test' },
             },
-            { experimentId: 7, variants: ['control'] },
+            { experimentId: 9, variants: ['test'] },
         ],
     ])('scannerExperimentScope reads %s', (_label, fields, expected) => {
         const scanner = { scanner_type: 'monitor', scanner_config: { prompt: 'p' }, ...fields } as ReplayScanner
