@@ -1,7 +1,7 @@
 import json
 import time
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -321,14 +321,14 @@ def _get_affected_mat_columns(
     client: Client,
     table: str,
     properties: list[str],
-    table_column: str = "properties",
+    table_columns: Sequence[str] = ("properties",),
     log: QueryLogger | None = None,
 ) -> list[tuple[str, bool]]:
     """Query a specific shard for materialized columns matching deleted properties.
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
     ``column_materializer::<table_column>::<prop>`` convention.  Pass
-    ``table_column="person_properties"`` to discover columns materialised from
+    ``table_columns=("person_properties",)`` to discover columns materialised from
     ``events.person_properties``.  Comments live on the distributed ``events``
     table while the DEFAULT expression lives on ``sharded_events`` (see
     ``materialize()`` in ee/clickhouse/materialized_columns), so we cannot
@@ -356,7 +356,7 @@ def _get_affected_mat_columns(
     result: list[tuple[str, bool]] = []
     for col_name, comment, is_nullable in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        if details.table_column == table_column and details.property_name in target_props:
+        if details.table_column in table_columns and details.property_name in target_props:
             result.append((col_name, bool(is_nullable)))
     return result
 
@@ -633,7 +633,7 @@ def _refuse_property_removal_unsweepable(
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
         return _property_removal_where(
-            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+            deletion_request, inserted_at_max=marker_str, json_schema=target.stores_native_json_properties
         )
 
     _refuse_unsweepable(
@@ -1276,31 +1276,30 @@ def _shard_predicate(
     the same ``inserted_at < marker`` bound, so they cannot drift. Drift either deletes rows the copy
     does not hold or leaves originals behind.
     """
-    # The events JSON table reads properties through JSON subcolumns and has no typed columns to reset.
+    # A table with no typed columns, such as events_json, has no column comments and so yields nothing.
+    # temporary_properties is a source only on the native JSON tables, where a request names its keys
+    # the same way.
     mat_cols: list[tuple[str, bool]] = []
     person_mat_cols: list[tuple[str, bool]] = []
-    if target.discovers_typed_property_columns:
-        if deletion_request.properties:
-            # A native JSON table also derives columns from temporary_properties, and a request names
-            # those properties the same way.
-            source_columns = (
-                ("properties", "temporary_properties") if target.uses_new_events_schema else ("properties",)
-            )
-            for table_column in source_columns:
-                mat_cols += _get_affected_mat_columns(
-                    client, target.read_table, deletion_request.properties, table_column=table_column, log=log
-                )
-        if deletion_request.person_properties:
-            person_mat_cols = _get_affected_mat_columns(
-                client, target.read_table, deletion_request.person_properties, table_column="person_properties", log=log
-            )
+    if deletion_request.properties:
+        mat_cols = _get_affected_mat_columns(
+            client,
+            target.read_table,
+            deletion_request.properties,
+            table_columns=("properties", "temporary_properties"),
+            log=log,
+        )
+    if deletion_request.person_properties:
+        person_mat_cols = _get_affected_mat_columns(
+            client, target.read_table, deletion_request.person_properties, table_columns=("person_properties",), log=log
+        )
     sql, params = _property_removal_where(
         deletion_request,
         mat_cols=mat_cols,
         person_mat_cols=person_mat_cols,
         inserted_at_max=marker_str,
         hogql_compiled=hogql_compiled,
-        json_schema=target.uses_new_events_schema,
+        json_schema=target.stores_native_json_properties,
     )
     return _ShardPredicate(sql=sql, params=params, mat_cols=mat_cols + person_mat_cols)
 
@@ -1624,7 +1623,9 @@ def get_property_removal_shards(
     for placement in rewritten:
         for shard in sorted(placement.cluster.shards):
             target = PropertyRemovalTarget(
-                table=placement.target.data_table, shard=shard, json_schema=placement.target.uses_new_events_schema
+                table=placement.target.data_table,
+                shard=shard,
+                json_schema=placement.target.stores_native_json_properties,
             )
             yield dagster.DynamicOutput(target, mapping_key=target.mapping_key)
 

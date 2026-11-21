@@ -274,7 +274,7 @@ The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` co
 
 `sharded_flag_evaluations_json` is swept by the same ops, with native-JSON properties (`DeletionTarget.stores_native_json_properties`).
 Its three typed columns are `DEFAULT` columns that read JSON paths: `flag_key` and `response` from `properties`, and `request_id` from `temporary_properties`.
-`DeletionTarget.has_typed_property_columns` makes the job discover them through their `column_materializer::` comments on the read table, because a JSON drop leaves the derived value in place.
+The job discovers them through their `column_materializer::` comments on the read table, because a JSON drop leaves the derived value in place.
 Discovery matches a column on both source columns, so a request that names `$feature_flag_request_id` resets `request_id` too.
 
 #### Duplicate rows
