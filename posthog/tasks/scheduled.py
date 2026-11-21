@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.proxy import reconcile_managed_proxies
 from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
@@ -1163,6 +1164,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sync_sandbox_sender_tenant_state.s(),
         name="workflows sandbox sender tenant state",
+    )
+
+    # Activation hooks can miss broker delivery, so reconcile retained proxies independently.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="17"),
+        reconcile_managed_proxies.s(),
+        name="managed proxy activation reconciliation",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13
