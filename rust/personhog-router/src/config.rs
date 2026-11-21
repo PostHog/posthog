@@ -219,6 +219,26 @@ pub struct Config {
     #[envconfig(default = "/personhog/")]
     pub etcd_prefix: String,
 
+    /// Follower instances this router reads people from, as `name=etcd-prefix` pairs
+    /// separated by commas. Empty disables followed reads.
+    #[envconfig(default = "")]
+    pub follower_instances: String,
+
+    /// How long connecting to one follower may take before the read moves on to the next
+    /// instance. Short, because a follower that died is still the listed owner until its
+    /// lease expires.
+    #[envconfig(default = "250")]
+    pub follower_connect_timeout_ms: u64,
+
+    /// How long a connected follower may take to answer before the read goes to any
+    /// replica.
+    #[envconfig(default = "1000")]
+    pub follower_request_timeout_ms: u64,
+
+    /// The follower instance to try first, normally the one in this router's zone.
+    #[envconfig(default = "")]
+    pub follower_preferred_instance: String,
+
     /// Router name for etcd registration (typically set from K8s downward API)
     #[envconfig(default = "router-0")]
     pub pod_name: String,
@@ -464,6 +484,10 @@ mod tests {
         // A replica router registers no lease, so the same pair is dead
         // config there and must not refuse startup.
         assert!(leased(10, 0).validate_lease_timescales().is_ok());
+        // Unless it joins a follower instance, where it registers one.
+        let mut with_followers = leased(10, 0);
+        with_followers.follower_instances = "zone-a=/followers-a/".to_string();
+        assert!(with_followers.validate_lease_timescales().is_err());
     }
 
     /// A heartbeat past the renewal margin exhausts the lease by sleeping,
@@ -835,6 +859,12 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
+    /// Whether this router registers with a coordination instance: the leaders', in
+    /// leader mode, or a follower instance's.
+    fn holds_routing_tables(&self) -> bool {
+        self.router_mode == RouterMode::Leader || !self.follower_instances.trim().is_empty()
+    }
+
     /// Refuse a heartbeat the lease cannot survive: a zero interval
     /// times out every renewal instantly and a slow one sleeps through
     /// the margin, so either exhausts the lease against healthy etcd
@@ -842,11 +872,12 @@ impl Config {
     /// election lease runs the same keepalive with its own knobs, so it
     /// gets the same refusal.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
-        // Everything here is the routing table's, and the routing table
-        // only exists in leader mode — a replica router registers no
-        // lease and reads none of these, and refusing startup over dead
-        // config would turn it into an outage.
-        if self.router_mode == RouterMode::Leader {
+        // Everything here is the routing table's. A router has one in
+        // leader mode and one for each follower instance it joins; a
+        // replica router with neither registers no lease and reads none
+        // of these, and refusing startup over dead config would turn it
+        // into an outage.
+        if self.holds_routing_tables() {
             Self::validate_keepalive_pair(
                 "HEARTBEAT_INTERVAL_SECS",
                 self.heartbeat_interval(),
@@ -878,10 +909,10 @@ impl Config {
             }
         }
         // Only where a coordinator can actually run — which takes both
-        // the flag and leader mode, since replica routers never register
-        // one: refusing startup over knobs a coordinator that cannot
-        // exist never reads would turn dead config into an outage.
-        if !self.coordinator_enabled || self.router_mode != RouterMode::Leader {
+        // the flag and a routing table to coordinate: refusing startup
+        // over knobs a coordinator that cannot exist never reads would
+        // turn dead config into an outage.
+        if !self.coordinator_enabled || !self.holds_routing_tables() {
             return Ok(());
         }
         Self::validate_keepalive_pair(

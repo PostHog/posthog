@@ -10,7 +10,8 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use personhog_common::grpc::{tracked_tcp_incoming_until, until_incoming_ends, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 use personhog_coordination::changelog::{
-    keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
+    keep_changelog_live, keep_changelog_live_every, load_changelog_config, LiveChangelog,
+    CHANGELOG_BOOT_POLL_INTERVAL, FOLLOWER_RECONCILE_INTERVAL,
 };
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -18,9 +19,11 @@ use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_router::backend::discovery::{DiscoveryReadiness, EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
-    ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
+    ChannelBackend, DnsBackendConfig, FollowerBackend, FollowerInstance, LeaderBackend,
+    LeaderBackendConfig, StashTable,
 };
 use personhog_router::config::{Config, DiscoveryMode, RouterMode};
+use personhog_router::followers::{parse_instances, FollowerInstanceSpec, NoHold};
 use personhog_router::proxy::{IdentityProxyService, LifecycleProxyService, RawProxyService};
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
@@ -32,6 +35,208 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
+
+fn routing_table_config(config: &Config) -> RoutingTableConfig {
+    RoutingTableConfig {
+        router_name: config.pod_name.clone(),
+        lease_ttl: config.lease_ttl,
+        heartbeat_interval: config.heartbeat_interval(),
+        participant_stall_threshold: config.participant_stall_threshold(),
+        reconcile_failure_budget: config.router_reconcile_failure_budget,
+        run_retry_budget: config.router_run_retry_budget,
+        run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
+        reconcile_interval: config.router_reconcile_interval(),
+        max_txn_ops: config.etcd_max_txn_ops,
+    }
+}
+
+fn coordinator_config(config: &Config) -> CoordinatorConfig {
+    CoordinatorConfig {
+        name: config.pod_name.clone(),
+        leader_lease_ttl: config.coordinator_lease_ttl,
+        keepalive_interval: config.coordinator_keepalive_interval(),
+        standby_poll_interval: config.coordinator_standby_poll_interval(),
+        run_retry_backoff: config.coordinator_run_retry_backoff(),
+        backoff_decay_window: config.coordinator_backoff_decay_window(),
+        rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+        reconcile_interval: config.coordinator_reconcile_interval(),
+        handoff_deadline: config.coordinator_handoff_deadline(),
+        warming_deadline: config.coordinator_warming_deadline(),
+        // The same server limit the routing table's ack
+        // batches mirror: one env, one `--max-txn-ops`.
+        max_txn_ops: config.etcd_max_txn_ops,
+        migration_pre_flip_deadline: config.coordinator_migration_pre_flip_deadline(),
+        migration_debounce_interval: config.coordinator_migration_debounce_interval(),
+    }
+}
+
+/// The handles of one follower instance: its routing table, and its coordinator when this
+/// router is a coordinator candidate.
+type FollowerHandles = (lifecycle::Handle, Option<lifecycle::Handle>);
+
+/// How long a router that could not join its follower instances waits before it tries again.
+const FOLLOWER_JOIN_RETRY: Duration = Duration::from_secs(5);
+
+/// Join each follower instance in the background. Until that is done, a replica answers
+/// every read.
+fn start_followers(
+    config: &Config,
+    instances: Vec<(FollowerInstanceSpec, FollowerHandles)>,
+    changelog_handle: lifecycle::Handle,
+) -> Arc<FollowerBackend> {
+    let backend = Arc::new(FollowerBackend::new(
+        Duration::from_millis(config.follower_connect_timeout_ms),
+        Duration::from_millis(config.follower_request_timeout_ms),
+    ));
+    tokio::spawn(join_followers(
+        config.clone(),
+        instances,
+        changelog_handle,
+        Arc::clone(&backend),
+    ));
+    backend
+}
+
+/// One follower instance's store, once etcd can be reached. `None` is a shutdown.
+async fn follower_store(
+    config: &Config,
+    spec: &FollowerInstanceSpec,
+    shutdown: &CancellationToken,
+) -> Option<Arc<PersonhogStore>> {
+    loop {
+        let connect = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: spec.etcd_prefix.clone(),
+        });
+        let connected = tokio::select! {
+            () = shutdown.cancelled() => return None,
+            connected = connect => connected,
+        };
+        match connected {
+            Ok(store) => {
+                let store = PersonhogStore::new(store).with_config_prefix(&config.etcd_prefix);
+                return Some(Arc::new(store));
+            }
+            Err(e) => {
+                tracing::warn!(instance = %spec.name, error = %e, "could not connect to etcd for a follower instance");
+            }
+        }
+        tokio::select! {
+            () = shutdown.cancelled() => return None,
+            () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+        }
+    }
+}
+
+/// The changelog config, once it can be read. `None` is a shutdown.
+async fn follower_changelog(
+    store: &Arc<PersonhogStore>,
+    shutdown: &CancellationToken,
+) -> Option<LiveChangelog> {
+    loop {
+        match load_changelog_config(store, CHANGELOG_BOOT_POLL_INTERVAL, shutdown).await {
+            Ok(loaded) => return loaded.map(LiveChangelog::new),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not load the changelog config from etcd");
+            }
+        }
+        tokio::select! {
+            () = shutdown.cancelled() => return None,
+            () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+        }
+    }
+}
+
+/// Join each follower instance as a router and, where enabled, as a coordinator
+/// candidate. Each instance keeps its own registrations and assignments under its own
+/// prefix and takes the changelog config from the leaders' prefix.
+async fn join_followers(
+    config: Config,
+    instances: Vec<(FollowerInstanceSpec, FollowerHandles)>,
+    changelog_handle: lifecycle::Handle,
+    backend: Arc<FollowerBackend>,
+) {
+    let shutdown = changelog_handle.shutdown_token();
+    let mut backends = Vec::with_capacity(instances.len());
+    let mut changelog: Option<LiveChangelog> = None;
+    let mut changelog_handle = Some(changelog_handle);
+    for (spec, (table_handle, coordinator_handle)) in instances {
+        tracing::info!(instance = %spec.name, prefix = %spec.etcd_prefix, "joining a follower instance");
+        let Some(store) = follower_store(&config, &spec, &shutdown).await else {
+            return;
+        };
+
+        // Every instance reads the same config, so the first one's store keeps it live.
+        if let Some(handle) = changelog_handle.take() {
+            let Some(live) = follower_changelog(&store, &shutdown).await else {
+                return;
+            };
+            changelog = Some(live.clone());
+            let store = Arc::clone(&store);
+            tokio::spawn(async move {
+                let _guard = handle.process_scope();
+                let cancel = CancellationToken::new();
+                tokio::select! {
+                    _ = handle.shutdown_signal() => cancel.cancel(),
+                    _ = keep_changelog_live_every(
+                        store,
+                        live,
+                        FOLLOWER_RECONCILE_INTERVAL,
+                        cancel.clone(),
+                    ) => {}
+                }
+            });
+        }
+
+        let routing_table = RoutingTable::new(Arc::clone(&store), routing_table_config(&config));
+        let addresses = routing_table.addresses_handle();
+        backends.push(FollowerInstance {
+            name: Arc::from(spec.name.as_str()),
+            table: routing_table.table_handle(),
+            addresses: Arc::new(move |pod_name: &str| {
+                addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
+            }),
+        });
+        let instance = spec.name.clone();
+        tokio::spawn(async move {
+            let _guard = table_handle.process_scope();
+            let shutdown = table_handle.shutdown_token();
+            // Any replica answers while the table is down, so the router keeps serving.
+            while let Err(e) = routing_table.run(shutdown.clone(), Arc::new(NoHold)).await {
+                metrics::counter!(
+                    "personhog_router_follower_table_restarts_total",
+                    "instance" => instance.clone()
+                )
+                .increment(1);
+                tracing::error!(%instance, error = %e, "follower routing table stopped; joining again");
+                tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+                }
+            }
+        });
+
+        if let Some(handle) = coordinator_handle {
+            let coordinator = Coordinator::new(
+                store,
+                coordinator_config(&config),
+                Arc::new(StickyBalancedStrategy),
+                None,
+            );
+            tokio::spawn(async move {
+                let _guard = handle.process_scope();
+                coordinator.run(handle.shutdown_token()).await;
+            });
+        }
+    }
+    if let Some(changelog) = changelog {
+        backend.join(backends, changelog);
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -157,6 +362,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let changelog_handle = (config.router_mode == RouterMode::Leader)
         .then(|| manager.register("changelog-config", ComponentOptions::new()));
 
+    // A router of either mode joins the follower instances it is given.
+    let follower_instances: Vec<(FollowerInstanceSpec, FollowerHandles)> = parse_instances(
+        &config.follower_instances,
+        &config.follower_preferred_instance,
+    )
+    .expect("Invalid FOLLOWER_INSTANCES")
+    .into_iter()
+    .map(|spec| {
+        let table = manager.register(
+            &format!("follower-routing-table-{}", spec.name),
+            ComponentOptions::new()
+                .with_graceful_shutdown(config.phase1_graceful_shutdown())
+                .with_shutdown_phase(1),
+        );
+        let coordinator = config.coordinator_enabled.then(|| {
+            manager.register(
+                &format!("follower-coordinator-{}", spec.name),
+                ComponentOptions::new()
+                    .with_graceful_shutdown(config.coordinator_graceful_shutdown())
+                    .with_shutdown_phase(1),
+            )
+        });
+        (spec, (table, coordinator))
+    })
+    .collect();
+    let follower_changelog_handle = (!follower_instances.is_empty())
+        .then(|| manager.register("follower-changelog-config", ComponentOptions::new()));
+
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
@@ -279,20 +512,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Build the routing table and leader backend, sharing the same
         // partition-to-pod mapping so both see consistent state.
-        let routing_table_config = RoutingTableConfig {
-            router_name: config.pod_name.clone(),
-            lease_ttl: config.lease_ttl,
-            heartbeat_interval: config.heartbeat_interval(),
-            participant_stall_threshold: config.participant_stall_threshold(),
-            reconcile_failure_budget: config.router_reconcile_failure_budget,
-            run_retry_budget: config.router_run_retry_budget,
-            run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
-            reconcile_interval: config.router_reconcile_interval(),
-            max_txn_ops: config.etcd_max_txn_ops,
-        };
-
         let coordination_routing_table =
-            RoutingTable::new(Arc::clone(&store), routing_table_config);
+            RoutingTable::new(Arc::clone(&store), routing_table_config(&config));
 
         let shared_table = coordination_routing_table.table_handle();
         // Addresses come from the same etcd records that carry ownership
@@ -386,23 +607,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let coordinator = Coordinator::new(
                 store,
-                CoordinatorConfig {
-                    name: config.pod_name.clone(),
-                    leader_lease_ttl: config.coordinator_lease_ttl,
-                    keepalive_interval: config.coordinator_keepalive_interval(),
-                    standby_poll_interval: config.coordinator_standby_poll_interval(),
-                    run_retry_backoff: config.coordinator_run_retry_backoff(),
-                    backoff_decay_window: config.coordinator_backoff_decay_window(),
-                    rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
-                    reconcile_interval: config.coordinator_reconcile_interval(),
-                    handoff_deadline: config.coordinator_handoff_deadline(),
-                    warming_deadline: config.coordinator_warming_deadline(),
-                    // The same server limit the routing table's ack
-                    // batches mirror: one env, one `--max-txn-ops`.
-                    max_txn_ops: config.etcd_max_txn_ops,
-                    migration_pre_flip_deadline: config.coordinator_migration_pre_flip_deadline(),
-                    migration_debounce_interval: config.coordinator_migration_debounce_interval(),
-                },
+                coordinator_config(&config),
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,
             );
@@ -426,6 +631,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Replica mode: leader routing disabled");
         None
     };
+
+    let follower_backend = follower_changelog_handle
+        .map(|handle| start_followers(&config, follower_instances, handle));
 
     // gRPC server
     let grpc_addr = config.grpc_address;
@@ -456,6 +664,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_recv,
             config.response_size_warn_bytes,
         );
+        let proxy = match follower_backend {
+            Some(follower) => proxy.with_follower(follower),
+            None => proxy,
+        };
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
