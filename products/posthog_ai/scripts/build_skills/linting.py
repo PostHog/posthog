@@ -14,6 +14,7 @@ from . import (
     reference_links,
     rendering,
     reserved_names,
+    served_skills,
     skill_manifest,
     source_files,
     tool_references,
@@ -29,6 +30,7 @@ class SkillLinter:
     - Jinja2 syntax validation via parse-only (all .j2 files)
     - Frontmatter validation for product and project skill entry points
     - Tool/skill reference validation in markdown (against the MCP schema registries)
+    - Every name in the MCP served-skills list is a product skill
     """
 
     def __init__(self, repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> None:
@@ -42,6 +44,11 @@ class SkillLinter:
     def run(self) -> bool:
         """Run every check and report. Returns True if all checks pass."""
         self._check_names()
+        self.errors.extend(
+            served_skills._check_served_skills(
+                self.repo_root, {discovery._unrendered_skill_name(skill) for skill in self.skills}
+            )
+        )
         tool_names = tool_references._load_mcp_tool_names(self.repo_root)
         if tool_names is None:
             print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)

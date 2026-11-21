@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+import json
 import types
 import shutil
 import zipfile
@@ -602,6 +603,30 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         output_dir=tmp_path / "output",
     )
     assert builder.lint_all() is False
+
+
+@pytest.mark.parametrize(
+    "served_name,expected",
+    [("real-name", True), ("renamed-dir", False), ("ghost", False)],
+    ids=["frontmatter-name", "directory-name", "no-such-skill"],
+)
+def test_lint_all_checks_served_skills_against_shipped_names(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], served_name: str, expected: bool
+) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "renamed-dir"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: real-name\ndescription: A skill\n---\nBody\n")
+    served_file = tmp_path / "services" / "mcp" / "src" / "skills" / "served-skills.json"
+    served_file.parent.mkdir(parents=True)
+    served_file.write_text(json.dumps({"skills": {served_name: {}}, "context_mill_skills": {"elsewhere": {}}}))
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is expected
+    assert (f"lists '{served_name}'" in capsys.readouterr().err) is not expected
 
 
 @pytest.mark.parametrize(

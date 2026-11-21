@@ -1,0 +1,173 @@
+{
+    "skills": {
+        "analyzing-ai-citations": {
+            "feature_flag": "aeo-citation-tracking"
+        },
+        "analyzing-expensive-users": {},
+        "analyzing-experiment-session-replays": {},
+        "analyzing-funnel-correlation": {},
+        "analyzing-offline-evaluations": {},
+        "assessing-heatmaps": {},
+        "auditing-endpoints": {},
+        "auditing-experiments-flags": {},
+        "auditing-warehouse-source-health": {},
+        "auditing-warehouse-view-health": {},
+        "authoring-data-quality-checks": {},
+        "authoring-error-tracking-alerts": {},
+        "authoring-insight-alerts": {},
+        "authoring-log-alerts": {},
+        "authoring-scouts": {},
+        "building-a-dashboard": {},
+        "building-canvases": {
+            "feature_flag": "today-rail-nav"
+        },
+        "building-html-canvases": {
+            "feature_flag": "today-rail-nav"
+        },
+        "building-notebook-apps": {
+            "feature_flag": "notebook-app-builder"
+        },
+        "building-react-quill-canvases": {
+            "feature_flag": "today-rail-nav"
+        },
+        "building-workflows": {},
+        "checking-member-access": {},
+        "choosing-trend-or-slope-view": {},
+        "cleaning-up-stale-feature-flags": {},
+        "composing-grid-canvases": {
+            "feature_flag": "today-rail-nav"
+        },
+        "configuring-experiment-analytics": {},
+        "configuring-experiment-rollout": {},
+        "consuming-endpoints-from-client-code": {},
+        "copying-endpoints-across-projects": {},
+        "copying-flags-across-projects": {},
+        "creating-ai-subscription": {},
+        "creating-an-endpoint": {},
+        "creating-box-plot-insights": {},
+        "creating-experiments": {},
+        "creating-online-evaluations": {},
+        "creating-replay-vision-scanners": {},
+        "creating-surveys": {},
+        "debugging-failed-data-quality-checks": {},
+        "designing-email-templates": {},
+        "designing-replay-vision-scanners": {},
+        "diagnosing-endpoint-performance": {},
+        "diagnosing-experiment-health": {},
+        "diagnosing-failed-warehouse-syncs": {},
+        "diagnosing-missing-recordings": {},
+        "diagnosing-replay-capture-gaps": {},
+        "diagnosing-replay-rendering": {},
+        "diagnosing-sdk-health": {},
+        "diagnosing-stacktrace-symbolication": {},
+        "downloading-batch-export-files": {},
+        "exploring-ai-failures": {},
+        "exploring-apm-traces": {},
+        "exploring-autocapture-events": {},
+        "exploring-endpoint-execution-logs": {},
+        "exploring-live-traffic": {},
+        "exploring-llm-clusters": {},
+        "exploring-llm-costs": {},
+        "exploring-llm-evaluations": {},
+        "exploring-llm-traces": {},
+        "exploring-mcp-intent-clusters": {
+            "feature_flag": "mcp-analytics-intent-routing"
+        },
+        "exploring-mcp-sessions": {},
+        "exploring-mcp-tool-quality": {},
+        "exploring-mcp-tool-usage": {},
+        "exploring-replay-vision-observations": {},
+        "exploring-scouts": {},
+        "filtering-bot-traffic": {},
+        "finding-deleted-feature-flags": {},
+        "finding-experiments": {},
+        "finding-replay-for-issue": {},
+        "finding-sessions-to-watch": {},
+        "formatting-insight-axes": {},
+        "grouping-noisy-errors": {},
+        "implementing-api-surveys": {},
+        "importing-push-tokens": {},
+        "inbox-exploration": {},
+        "installing-posthog-from-chat": {},
+        "installing-posthog-in-a-codebase": {},
+        "investigate-metric": {},
+        "investigating-error-issue": {},
+        "investigating-logs": {},
+        "investigating-metric-anomalies": {
+            "feature_flag": "metrics"
+        },
+        "investigating-replay": {},
+        "linking-errors-to-traces": {},
+        "managing-endpoint-versions": {},
+        "managing-experiment-lifecycle": {},
+        "managing-llm-prompts": {},
+        "managing-path-cleaning-rules": {},
+        "managing-reminders": {},
+        "managing-self-driving-spend": {},
+        "managing-streamlit-apps": {
+            "feature_flag": "streamlit-apps"
+        },
+        "managing-subscriptions": {},
+        "measuring-email-performance": {},
+        "migrating-from-customer-io": {},
+        "migrating-from-email-providers": {},
+        "migrating-from-fivetran": {},
+        "modeling-activation-metrics": {},
+        "modeling-conversion-metrics": {},
+        "modeling-dimension-tables": {},
+        "modeling-product-usage-metrics": {},
+        "modeling-revenue-metrics": {},
+        "modeling-warehouse-foundations": {},
+        "prioritizing-my-inbox": {},
+        "querying-canvas-data": {
+            "feature_flag": "today-rail-nav"
+        },
+        "querying-posthog-data": {},
+        "resolving-ingestion-warnings": {},
+        "review-hog-authoring": {
+            "feature_flag": "review-hog"
+        },
+        "reviewing-warehouse-suggestions": {},
+        "scanning-experiments-with-replay-vision": {},
+        "sending-transactional-emails": {},
+        "setting-up-a-custom-rest-source": {},
+        "setting-up-a-data-warehouse-source": {},
+        "setting-up-ai-visibility": {
+            "feature_flag": "aeo-citation-tracking"
+        },
+        "setting-up-data-catalog": {},
+        "setting-up-supabase-auth-emails": {},
+        "signals": {},
+        "skills-store": {},
+        "suggesting-data-imports": {},
+        "suppressing-noisy-errors": {},
+        "syncing-migrated-self-managed-tables": {},
+        "triaging-error-issues": {},
+        "tuning-incremental-sync-config": {},
+        "understanding-billing-usage": {},
+        "validating-and-publishing-canvases": {
+            "feature_flag": "today-rail-nav"
+        },
+        "working-with-autoresearch": {
+            "feature_flag": "autoresearch"
+        },
+        "working-with-scouts": {},
+        "working-with-skills": {},
+        "writing-streamlit-apps": {
+            "feature_flag": "streamlit-apps"
+        }
+    },
+    "context_mill_skills": {
+        "instrument-error-tracking": {},
+        "instrument-feature-flags": {},
+        "instrument-integration": {},
+        "instrument-llm-analytics": {},
+        "instrument-logs": {},
+        "instrument-metrics": {
+            "feature_flag": "metrics"
+        },
+        "instrument-product-analytics": {},
+        "instrument-reverse-proxy": {},
+        "instrument-tracing": {}
+    }
+}
