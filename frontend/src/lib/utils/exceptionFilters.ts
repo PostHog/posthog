@@ -1,6 +1,6 @@
 import { BeforeSendFn } from 'posthog-js'
 
-import { UNACTIONABLE_NETWORK_ERROR_MESSAGES, isScopeNotFoundMessage } from 'lib/api-error'
+import { REGION_BLOCKED_DETAIL, UNACTIONABLE_NETWORK_ERROR_MESSAGES, isScopeNotFoundMessage } from 'lib/api-error'
 
 /** One entry of the `$exception_list` that posthog-js builds, reduced to the fields these filters read. */
 interface CapturedException {
@@ -55,6 +55,15 @@ const HANDLED_AUTH_GATE_MESSAGES: ReadonlySet<string> = new Set([
  */
 export const dropHandledAuthGateExceptions = dropExceptionsWhen((exceptions) =>
     exceptions.some((exception) => exception?.value != null && HANDLED_AUTH_GATE_MESSAGES.has(exception.value))
+)
+
+/**
+ * Drops an uncaught rejection from a request that `AllowIPMiddleware` refused for the client's region
+ * or IP range. The kea loaders and `shouldReportApiFailure` already excuse it, but a promise that no
+ * caller handles reaches error tracking through autocapture, where only the message is left to match.
+ */
+export const dropRegionBlockedExceptions = dropExceptionsWhen((exceptions) =>
+    exceptions.some((exception) => exception?.value === REGION_BLOCKED_DETAIL)
 )
 
 /**

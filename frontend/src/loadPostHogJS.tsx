@@ -7,6 +7,7 @@ import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
     dropHandledAuthGateExceptions,
     dropInjectedScriptReferenceErrors,
+    dropRegionBlockedExceptions,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
 } from 'lib/utils/exceptionFilters'
@@ -167,6 +168,7 @@ export function loadPostHogJS(): void {
             before_send: [
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,
+                dropRegionBlockedExceptions,
                 dropUnactionableNetworkExceptions,
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,

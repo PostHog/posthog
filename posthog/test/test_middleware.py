@@ -506,6 +506,23 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", REMOTE_ADDR="128.0.0.2")
             self.assertIn(b"PostHog is not available", response.content)
 
+    def test_blocked_api_request_returns_region_blocked_code_without_running_the_view(self):
+        self.client.force_login(self.user)
+        dashboards_before = Dashboard.objects.count()
+
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31"]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Created from a blocked IP"},
+                content_type="application/json",
+                REMOTE_ADDR="10.0.0.1",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "region_blocked"
+        assert "PostHog is not available" in response.json()["detail"]
+        assert Dashboard.objects.count() == dashboards_before
+
     def test_trusted_proxies(self):
         with self.settings(
             ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
@@ -741,14 +758,14 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
 
         assert client_ips == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
 
-    def test_runs_before_the_middleware_that_logs_the_forwarded_for_header(self) -> None:
-        # per_request_logging_context_middleware reads x-forwarded-for on the request path, so it
-        # only records the signed IP while it stays below this middleware. AllowIPMiddleware and axes
-        # read the client IP at or after the view, so their position does not constrain this one.
+    def test_runs_before_the_middlewares_that_read_the_client_ip_on_the_request_path(self) -> None:
+        # per_request_logging_context_middleware and AllowIPMiddleware read the client IP on the
+        # request path, so they only see the signed IP while they stay below this middleware. Axes
+        # reads the client IP at or after the view, so its position does not constrain this one.
         middleware = list(settings.MIDDLEWARE)
-        assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
-            "posthog.middleware.per_request_logging_context_middleware"
-        )
+        proxy_index = middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware")
+        assert proxy_index < middleware.index("posthog.middleware.per_request_logging_context_middleware")
+        assert proxy_index < middleware.index("posthog.middleware.AllowIPMiddleware")
 
 
 @patch("posthog.client_build_middleware.get_git_commit_short", return_value="abc1234567")

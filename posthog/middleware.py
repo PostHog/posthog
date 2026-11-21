@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, 
 from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
+from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import (
     end_impersonation,
@@ -300,6 +301,13 @@ class ManagedProxyClientIPMiddleware:
         return self.get_response(request)
 
 
+# The frontend matches both to leave this refusal unreported. Keep in sync with frontend/src/lib/api-error.ts.
+REGION_BLOCKED_ERROR_CODE = "region_blocked"
+REGION_BLOCKED_DETAIL = (
+    "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com."
+)
+
+
 class AllowIPMiddleware:
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
@@ -311,22 +319,32 @@ class AllowIPMiddleware:
     def extract_client_ip(self, request: HttpRequest) -> str | None:
         return get_trusted_client_ip(request)
 
-    def __call__(self, request: HttpRequest):
-        response: HttpResponse = self.get_response(request)
+    def is_allowed(self, request: HttpRequest) -> bool:
         if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
-            return response
+            return True
         ip = self.extract_client_ip(request)
-        if ip:
-            if settings.ALLOWED_IP_BLOCKS:
-                if any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
-                    return response
-            elif settings.BLOCKED_GEOIP_REGIONS:
-                if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
-                    return response
-        return HttpResponse(
-            "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
-            status=403,
-        )
+        if not ip:
+            return False
+        if settings.ALLOWED_IP_BLOCKS:
+            return any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks)
+        if settings.BLOCKED_GEOIP_REGIONS:
+            return get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS
+        return False
+
+    def __call__(self, request: HttpRequest):
+        # Decide before the view runs, so a blocked request can't change anything.
+        if self.is_allowed(request):
+            return self.get_response(request)
+        if request.path.startswith("/api/"):
+            # A DRF-shaped body lets the frontend tell this refusal apart from other 403s.
+            return generate_exception_response(
+                "allow_ip",
+                REGION_BLOCKED_DETAIL,
+                code=REGION_BLOCKED_ERROR_CODE,
+                type="authentication_error",
+                status_code=403,
+            )
+        return HttpResponse(REGION_BLOCKED_DETAIL, status=403)
 
 
 _OAUTH_CORS_PATHS = frozenset(

@@ -1,10 +1,11 @@
 import { CaptureResult } from 'posthog-js'
 
-import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
+import { NETWORK_ERROR_MESSAGES, REGION_BLOCKED_DETAIL } from 'lib/api-error'
 
 import {
     dropHandledAuthGateExceptions,
     dropInjectedScriptReferenceErrors,
+    dropRegionBlockedExceptions,
     dropScopeNotFoundExceptions,
     dropUnactionableNetworkExceptions,
 } from './exceptionFilters'
@@ -26,6 +27,7 @@ describe('exceptionFilters', () => {
     it.each([
         ['dropScopeNotFoundExceptions', dropScopeNotFoundExceptions],
         ['dropHandledAuthGateExceptions', dropHandledAuthGateExceptions],
+        ['dropRegionBlockedExceptions', dropRegionBlockedExceptions],
         ['dropUnactionableNetworkExceptions', dropUnactionableNetworkExceptions],
         ['dropInjectedScriptReferenceErrors', dropInjectedScriptReferenceErrors],
     ])('%s passes through non-exception events and exceptions with no list', (_, filter) => {
@@ -72,6 +74,25 @@ describe('exceptionFilters', () => {
             const event = exceptionEvent(exceptions)
 
             expect(dropHandledAuthGateExceptions(event)).toBe(kept ? event : null)
+        })
+    })
+
+    describe('dropRegionBlockedExceptions', () => {
+        it.each([
+            ['a region-blocked rejection', [{ type: 'Error', value: REGION_BLOCKED_DETAIL }], false],
+            [
+                'a region-blocked rejection wrapped as a cause',
+                [
+                    { type: 'Error', value: 'alertsLogic: load failed' },
+                    { type: 'Error', value: REGION_BLOCKED_DETAIL },
+                ],
+                false,
+            ],
+            ['a real crash', [{ type: 'TypeError', value: 'x is not a function' }], true],
+        ])('handles %s', (_, exceptions, kept) => {
+            const event = exceptionEvent(exceptions)
+
+            expect(dropRegionBlockedExceptions(event)).toBe(kept ? event : null)
         })
     })
 
