@@ -25,7 +25,8 @@ You only need the full setup below when you want to run the app in a worktree. F
 
 - Pre-commit hooks (lint-staged, hogli, ruff, ty) work out of the box: they borrow the main clone's `node_modules` and Python venv automatically, as long as the worktree's `pnpm-lock.yaml` and `uv.lock` match the main clone's.
 - The borrow lasts for one hook process. The worktree gets no `node_modules` or venv of its own, so editors, typecheck and tests need `flox activate` first.
-- Borrowed tooling runs the main clone's copy of first-party code. `hogli` and `@posthog/*` resolve there rather than to your branch, because editable installs and workspace links point at whichever clone ran the install. Run `flox activate` in the worktree before changing `hogli` or a workspace package.
+- Borrowed tooling runs the main clone's copy of first-party code. The running `hogli` framework and `@posthog/*` resolve there rather than to your branch, because editable installs and workspace links point at whichever clone ran the install. Run `flox activate` in the worktree before changing either.
+- `hogli` commands import the worktree's copy of each editable Python package, such as `owners_yaml`, so they do not run against an older main clone. Other Python processes on the borrowed venv still import the main clone's copies.
 - If a lockfile differs, the hooks tell you what to install locally instead.
 - Use `phw` (below) only when you need to run the app in that worktree.
 

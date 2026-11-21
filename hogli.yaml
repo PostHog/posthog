@@ -5,6 +5,7 @@ config:
     # hooks, and post-command hooks. Keep these modules cheap to import — heavy
     # dependencies must live behind lazy imports inside handler bodies.
     boot_modules:
+        - hogli_commands.worktree_packages
         - hogli_commands.prechecks
         - hogli_commands.telemetry_props
         - hogli_commands.hint_hook
