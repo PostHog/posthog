@@ -331,9 +331,11 @@ export interface taskTrackerSceneLogicActions {
     noteDraft: (
         hasText: boolean,
         request: TaskWarmRequest,
-        eligible?: boolean | undefined
+        eligible?: boolean | undefined,
+        focused?: boolean | undefined
     ) => {
         eligible: boolean
+        focused: boolean
         hasText: boolean
         request: TaskWarmRequest
     } // taskWarmLogic
@@ -986,8 +988,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 values.selectedCloudTargetIds
             )
             if (request) {
-                const shouldWarm = values.composerFocused || values.newTaskData.description.trim().length > 0
-                actions.noteDraft(shouldWarm, request, !usesChatGptPlan(values.composerAdapter))
+                actions.noteDraft(
+                    values.newTaskData.description.trim().length > 0,
+                    request,
+                    !usesChatGptPlan(values.composerAdapter),
+                    values.composerFocused
+                )
             } else if (values.effectiveRepositoryConfig.repositoryIntegrationId) {
                 // A sandbox warmed for an earlier GitHub pick can't serve a GitLab task.
                 actions.releaseWarm()

@@ -78,6 +78,7 @@ def import_resend_automation(
     *,
     step_emails: Mapping[str, ImportedStepEmail] | None = None,
     segments: Mapping[str, str | None] | None = None,
+    segment_members_imported: bool = False,
 ) -> ProviderAutomationResult:
     """Saves a Resend automation as a draft workflow. An automation imported before stays as it is, unless its draft
     was deleted.
@@ -127,6 +128,7 @@ def import_resend_automation(
             segment_id: _segment_cohort(team_id, user, access, segment_id, name)
             for segment_id, name in (segments or {}).items()
         },
+        segment_members_imported=segment_members_imported,
         unavailable_templates=_gated_templates(team)
         if step_types & {"add_to_segment", "contact_update"}
         else frozenset(),

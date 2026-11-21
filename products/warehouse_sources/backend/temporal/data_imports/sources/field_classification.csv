@@ -48,7 +48,7 @@ AmazonSNS,,,,,,amazon-sns
 AmazonSQS,,,,,,amazon-sqs
 AmazonSellingPartner,region client_id client_secret refresh_token,,,marketplace_ids,,amazon-selling-partner
 Amplemarket,api_key,,,,,amplemarket
-Amplitude,api_key secret_key region,,,,,amplitude
+Amplitude,api_key secret_key region management_api_key,,,,,amplitude
 AnodotCost,,,,,,anodot-cost
 Anomalo,,,,,,anomalo
 Anthropic,api_key,,,,,anthropic

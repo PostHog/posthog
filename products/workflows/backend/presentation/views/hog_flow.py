@@ -3,7 +3,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -28,6 +28,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -166,6 +167,7 @@ from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
     is_utm_apply_eligible,
     load_team_utm_defaults,
+    pick_default_email_sender,
     plan_flow_utm_update,
     release_edited_email_utm_keys,
     seed_new_email_steps_with_utm_defaults,
@@ -283,10 +285,13 @@ from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
     can_default_to_sandbox,
     check_sandbox_sender_available,
+    deliverable_own_sender_ids,
+    has_sandbox_sender,
     has_verified_own_sender,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
+    provision_sandbox_sender_if_available,
     require_sandbox_runtime,
     sandbox_adoption_enabled,
     to_own_email_action,
@@ -1072,11 +1077,16 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
-SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
+SANDBOX_SENDER_SETUP_FAILURES = Counter(
+    "workflows_sandbox_sender_setup_failures_total",
+    "Test sender setups that failed after a save or before a real test.",
+    labelnames=["path"],
+)
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
 
 
-def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
+def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
     actions = data.get("actions") if isinstance(data, dict) else None
     get_team = context.get("get_team")
     user = getattr(context.get("request"), "user", None)
@@ -1091,22 +1101,37 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
         return data
     stored_ids = (
         {
-            action.get("id")
+            action["id"]
             for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
             if isinstance(action, dict) and isinstance(action.get("id"), str)
         }
         if instance
         else set()
     )
+    trimmed_stored_ids = {action_id.strip() for action_id in stored_ids}
+    senderless_steps = [
+        index
+        for index, action in enumerate(actions)
+        if isinstance(action, dict) and _has_no_sender(action) and action["id"].strip() not in trimmed_stored_ids
+    ]
     new_steps = [
         index
         for index, action in enumerate(actions)
         if isinstance(action, dict) and can_default_to_sandbox(action) and action["id"] not in stored_ids
     ]
-    if not new_steps:
+    if not senderless_steps and not new_steps:
         return data
     team = get_team()
-    if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
+    if not sandbox_adoption_enabled(team, user):
+        return data
+    deliverable = deliverable_own_sender_ids(team.id)
+    if deliverable:
+        sender_id = pick_default_email_sender(team.id, deliverable)
+        if sender_id is None:
+            return data
+        without_address = [index for index in senderless_steps if not _has_custom_address(actions[index])]
+        return _with_own_sender(data, actions, without_address, sender_id)
+    if not new_steps or has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
         check_sandbox_sender_available(team, user)
@@ -1124,6 +1149,64 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     return {**data, "actions": converted}
 
 
+def _has_no_sender(action: dict) -> bool:
+    if (
+        action.get("type") != "function_email"
+        or not isinstance(action.get("id"), str)
+        or not isinstance(action.get("config"), dict)
+    ):
+        return False
+    sender = _email_value(action["config"]).get("from")
+    if sender is None or sender == "":
+        return True
+    return (
+        isinstance(sender, dict)
+        and not sender.get("integrationId")
+        and not sender.get("integrationIds")
+        and (sender.get("email") is None or isinstance(sender.get("email"), str))
+    )
+
+
+def _email_value(config: dict) -> dict:
+    inputs = config.get("inputs")
+    email = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email.get("value") if isinstance(email, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _has_custom_address(action: dict) -> bool:
+    sender = _email_value(action["config"]).get("from")
+    return isinstance(sender, dict) and bool(sender.get("email"))
+
+
+def _is_empty_sender_field(key: str, field: Any) -> bool:
+    if field is None:
+        return True
+    if key in ("email", "name"):
+        return isinstance(field, str) and field == ""
+    return key == "integrationIds" and isinstance(field, list) and not field
+
+
+def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
+    if not new_steps:
+        return data
+    converted = list(actions)
+    for index in new_steps:
+        step = deepcopy(actions[index])
+        config = step["config"]
+        inputs: dict = config["inputs"] if isinstance(config.get("inputs"), dict) else {}
+        email: dict = inputs["email"] if isinstance(inputs.get("email"), dict) else {}
+        value = _email_value(config)
+        sender: dict = value["from"] if isinstance(value.get("from"), dict) else {}
+        kept = {key: field for key, field in sender.items() if not _is_empty_sender_field(key, field)}
+        config["inputs"] = {
+            **inputs,
+            "email": {**email, "value": {**value, "from": {**kept, "integrationId": sender_id}}},
+        }
+        converted[index] = step
+    return {**data, "actions": converted}
+
+
 def _with_saved_template_content(action: dict, team: Team, context: dict) -> Optional[dict]:
     step = deepcopy(action)
     config = step["config"]
@@ -1137,6 +1220,16 @@ def _with_saved_template_content(action: dict, team: Team, context: dict) -> Opt
     if config.get("template_uuid") and not _has_email_body(step):
         return None
     return step
+
+
+def _test_sender_step_ids(actions: Any) -> list[str]:
+    if not isinstance(actions, list):
+        return []
+    return [
+        step["id"]
+        for step in actions
+        if isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE and isinstance(step.get("id"), str)
+    ]
 
 
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
@@ -4017,10 +4110,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        defaulted = _with_new_email_steps_on_the_sandbox_sender(data, instance, self.context)
-        if defaulted is not data:
-            self.context[SETS_UP_SANDBOX_SENDER] = True
-        return super().to_internal_value(defaulted)
+        return super().to_internal_value(_with_default_senders_on_new_email_steps(data, instance, self.context))
 
     class Meta:
         fields = [
@@ -6191,9 +6281,11 @@ class HogFlowViewSet(
             team_id=self.team_id,
             user_id=self._actor_id(),
             validated_data=serializer.validated_data,
-            before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+            before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
         )
         serializer.instance = self._written_workflow(result)
+        if not serializer.context.get(SANDBOX_SENDER_SET_UP_IN_WRITE):
+            self._set_up_sandbox_sender_after_commit(serializer)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -6263,7 +6355,7 @@ class HogFlowViewSet(
                 validated_status=serializer.instance.status,
                 validated_disabled_from_active=serializer.instance.disabled_from_active,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
-                before_write=lambda: self._set_up_defaulted_sandbox_sender(serializer),
+                before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
@@ -6372,7 +6464,7 @@ class HogFlowViewSet(
             serializer.context["enforce_graph_structure"] = True
         serializer.context["stages_draft"] = stages_draft
         serializer.is_valid(raise_exception=True)
-        self._set_up_defaulted_sandbox_sender(serializer)
+        self._set_up_sandbox_sender_for_save(serializer)
         return serializer.validated_data
 
     def _stages_surgical_edit(self, state: WorkflowEditState) -> bool:
@@ -6390,9 +6482,60 @@ class HogFlowViewSet(
             return value.lower() == "true"
         raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
-    def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
-        if serializer.context.get(SETS_UP_SANDBOX_SENDER):
-            provision_sandbox_sender(self.team, cast(User, self.request.user))
+    def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
+        step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
+        if step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
+            serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
+        elif serializer.instance is not None:
+            self._set_up_sandbox_sender_after_commit(serializer)
+
+    def _set_up_sandbox_sender_in_the_write(self, workflow_id: Any, step_ids: Sequence[str]) -> bool:
+        user = self.request.user
+        try:
+            with transaction.atomic():
+                if (
+                    isinstance(user, User)
+                    and not has_sandbox_sender(self.team.id)
+                    and _can_set_up_sandbox_sender(self.team, user)
+                ):
+                    provision_sandbox_sender_if_available(self.team, user)
+        except Exception:
+            logger.warning(
+                "sandbox_sender_setup_moved_after_commit",
+                team_id=self.team.id,
+                workflow_id=str(workflow_id) if workflow_id else None,
+                action_ids=step_ids,
+                exc_info=True,
+            )
+            return False
+        return True
+
+    def _set_up_sandbox_sender_after_commit(self, serializer: serializers.BaseSerializer) -> None:
+        step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
+        if step_ids:
+            workflow_id = getattr(serializer.instance, "id", None)
+            transaction.on_commit(lambda: self._try_to_set_up_sandbox_sender("save", workflow_id, step_ids))
+
+    def _try_to_set_up_sandbox_sender(self, path: str, workflow_id: Any, step_ids: Sequence[str]) -> None:
+        user = self.request.user
+        try:
+            with transaction.atomic():
+                if (
+                    isinstance(user, User)
+                    and not has_sandbox_sender(self.team.id)
+                    and _can_set_up_sandbox_sender(self.team, user)
+                ):
+                    provision_sandbox_sender_if_available(self.team, user)
+        except Exception as error:
+            SANDBOX_SENDER_SETUP_FAILURES.labels(path=path).inc()
+            logger.exception(
+                "sandbox_sender_setup_failed",
+                team_id=self.team.id,
+                workflow_id=str(workflow_id) if workflow_id else None,
+                action_ids=step_ids,
+                path=path,
+            )
+            capture_exception(error)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -7308,6 +7451,11 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
+            step_ids = [
+                step_id for step_id in _test_sender_step_ids(actions) if step_id == payload.get("current_action_id")
+            ]
+            if step_ids:
+                self._try_to_set_up_sandbox_sender("test", hog_flow.id if hog_flow else None, step_ids)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id if hog_flow else None,
