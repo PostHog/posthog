@@ -14,6 +14,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
+import { ImportFromAnotherToolButton } from '../OptOuts/ImportFromAnotherToolButton'
+import { ProviderImportModal } from '../OptOuts/ProviderImportModal'
 import { NewTransactionalPushModal } from './push/NewTransactionalPushModal'
 import { TransactionalNewButtons } from './TransactionalNewButtons'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
@@ -56,6 +58,7 @@ export function TransactionalScene(): JSX.Element {
             <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
             {showPush ? <NewTransactionalPushModal /> : null}
+            <ProviderImportModal />
         </SceneContent>
     )
 }
@@ -67,5 +70,10 @@ function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, '
     if (tab !== 'transactional' && tab !== 'log' && tab !== 'metrics') {
         return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
     }
-    return <TransactionalNewButtons />
+    return (
+        <>
+            <ImportFromAnotherToolButton entryPoint="transactional" dataAttr="transactional-import-from-another-tool" />
+            <TransactionalNewButtons />
+        </>
+    )
 }

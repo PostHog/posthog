@@ -54,6 +54,7 @@ from posthog.models.usage_ingestion.billing_usage_records import SHARDED_BILLING
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     MCP_ANALYTICS_EVENT_METRICS,
+    USAGE_REPORT_QUEUE_MAX_DEPTH,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -68,6 +69,7 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
     _UsageRecordRow,
+    _wait_for_usage_reports_queue,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -131,6 +133,42 @@ def test_usage_report_parent_task_acks_early_while_capture_task_acks_late() -> N
 
     assert capture_report.acks_late is True
     assert capture_report.reject_on_worker_lost is True
+
+
+class _FakeBrokerClient:
+    def __init__(self, *depths: int) -> None:
+        self.depths = list(depths)
+        self.keys_read: list[str] = []
+
+    def llen(self, key: str) -> int:
+        self.keys_read.append(key)
+        return self.depths.pop(0) if len(self.depths) > 1 else self.depths[0]
+
+
+@patch("posthog.tasks.usage_report.time.sleep")
+def test_wait_for_usage_reports_queue_waits_until_the_queue_drains(_mock_sleep: MagicMock) -> None:
+    broker = _FakeBrokerClient(
+        USAGE_REPORT_QUEUE_MAX_DEPTH + 500, USAGE_REPORT_QUEUE_MAX_DEPTH + 1, USAGE_REPORT_QUEUE_MAX_DEPTH
+    )
+
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue(max_wait_seconds=600) is True
+
+    assert broker.keys_read == ["usage_reports"] * 3
+
+
+def test_wait_for_usage_reports_queue_gives_up_when_the_queue_does_not_drain() -> None:
+    broker = _FakeBrokerClient(USAGE_REPORT_QUEUE_MAX_DEPTH + 1)
+
+    with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+        assert _wait_for_usage_reports_queue(max_wait_seconds=0) is False
+
+
+@patch("posthog.tasks.usage_report.get_celery_broker_client")
+def test_wait_for_usage_reports_queue_gives_up_when_the_depth_cannot_be_read(mock_broker_client: MagicMock) -> None:
+    mock_broker_client.return_value.llen.side_effect = ConnectionError("broker unavailable")
+
+    assert _wait_for_usage_reports_queue(max_wait_seconds=600) is False
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -775,6 +813,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "unity_events_count_in_period": 1,
                     "roblox_events_count_in_period": 1,
                     "rust_events_count_in_period": 0,
+                    "rust_ffi_events_count_in_period": 0,
+                    "electron_events_count_in_period": 0,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
                     "mobile_recording_bytes_in_period": 6,
@@ -883,6 +923,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 1,
                             "roblox_events_count_in_period": 1,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -985,6 +1027,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 0,
                             "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
                             "mobile_recording_bytes_in_period": 6,
@@ -1110,6 +1154,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "unity_events_count_in_period": 0,
                     "roblox_events_count_in_period": 0,
                     "rust_events_count_in_period": 0,
+                    "rust_ffi_events_count_in_period": 0,
+                    "electron_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_bytes_in_period": 0,
@@ -1218,6 +1264,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 0,
                             "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -1862,6 +1910,8 @@ class TestQueryUsageReportSQL:
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
         assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
+        assert "lib_expr = 'posthog-rs-ffi', 'rust_ffi_events'" in main_query
+        assert "lib_expr = 'posthog-electron', 'electron_events'" in main_query
         assert (
             "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events'"
             in main_query
@@ -1934,10 +1984,12 @@ class TestQueryUsageReportSQL:
             "godot_events",
             "unreal_events",
             "laravel_events",
+            "rust_ffi_events",
+            "electron_events",
         ]
         main_results = iter(
             [
-                [(1, metric, 2) for metric in sdk_metrics],
+                [(1, metric, 2 + index) for index, metric in enumerate(sdk_metrics)],
                 [(1, metric, 3) for metric in sdk_metrics] + [(2, "godot_events", 7)],
             ]
         )
@@ -1950,8 +2002,8 @@ class TestQueryUsageReportSQL:
 
         result = get_all_event_metrics_in_period(begin, begin + timedelta(days=1))
 
-        for metric in sdk_metrics:
-            expected = {1: 5, 2: 7} if metric == "godot_events" else {1: 5}
+        for index, metric in enumerate(sdk_metrics):
+            expected = {1: 5 + index, 2: 7} if metric == "godot_events" else {1: 5 + index}
             assert dict(result[metric]) == expected
         for metric in ["rust_events", "go_events", "ruby_events", "unity_events"]:
             assert result[metric] == []
@@ -5913,6 +5965,55 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_client.group_identify.assert_not_called()
         assert mock_client.capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
+    @parameterized.expand([("queue_drains", True), ("queue_stuck", False)])
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
+    @patch("posthog.tasks.usage_report._wait_for_usage_reports_queue")
+    @patch("posthog.tasks.usage_report.capture_report")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_waits_for_the_queue_until_it_stops_draining(
+        self,
+        _name: str,
+        queue_drains: bool,
+        mock_get_sqs_producer: MagicMock,
+        mock_client: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_wait: MagicMock,
+    ) -> None:
+        mock_wait.return_value = queue_drains
+        for _ in range(2):
+            Team.objects.create(organization=Organization.objects.create())
+
+        send_all_org_usage_reports(dry_run=False)
+
+        published = mock_capture_report.delay.call_count
+        assert published >= 3
+        assert mock_wait.call_count == (published if queue_drains else 1)
+
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_CHECK_INTERVAL", 1)
+    @patch("posthog.tasks.usage_report.USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS", 0)
+    @patch("posthog.tasks.usage_report.time.sleep", side_effect=AssertionError("waited past the total wait budget"))
+    @patch("posthog.tasks.usage_report.capture_report")
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_stops_pacing_once_the_total_wait_budget_is_spent(
+        self,
+        mock_get_sqs_producer: MagicMock,
+        mock_client: MagicMock,
+        mock_capture_report: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        broker = _FakeBrokerClient(USAGE_REPORT_QUEUE_MAX_DEPTH + 1)
+        for _ in range(2):
+            Team.objects.create(organization=Organization.objects.create())
+
+        with patch("posthog.tasks.usage_report.get_celery_broker_client", return_value=broker):
+            send_all_org_usage_reports(dry_run=False)
+
+        assert broker.keys_read == ["usage_reports"]
+
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     clickhouse_reset_materialized_event_properties = ("$exception_values",)
@@ -6688,6 +6789,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ("posthog-godot", "godot_events", "unity_events"),
             ("posthog-unreal", "unreal_events", "unity_events"),
             ("posthog-laravel", "laravel_events", "php_events"),
+            ("posthog-rs-ffi", "rust_ffi_events", "rust_events"),
+            ("posthog-electron", "electron_events", "node_events"),
         ]
     )
     def test_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str, parent_metric: str) -> None:

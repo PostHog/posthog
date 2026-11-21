@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 
@@ -100,6 +101,7 @@ describe('providerImportLogic', () => {
                     return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
                 },
                 '/api/projects/:team_id/messaging_provider_imports/:id/': () => [200, retrieved],
+                '/api/environments/:team_id/messaging_templates/': () => [200, { results: [] }],
             },
             post: {
                 '/api/projects/:team_id/messaging_provider_imports/': async ({ request }) => {
@@ -147,6 +149,10 @@ describe('providerImportLogic', () => {
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
+        const templatesLogic = messageTemplatesLogic()
+        await expectLogic(templatesLogic, () => {
+            templatesLogic.mount()
+        }).toDispatchActions(['loadTemplatesSuccess'])
         await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
         jest.useFakeTimers()
         logic.actions.toggleImportStep('categories')
@@ -170,6 +176,8 @@ describe('providerImportLogic', () => {
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
         expect(customerIOLogic.values.stepCompletion.step1).toBe('completed')
+        await expectLogic(templatesLogic).toDispatchActions(['loadTemplates'])
+        templatesLogic.unmount()
 
         const callsWhenFinished = listCalls
         await jest.advanceTimersByTimeAsync(10000)
@@ -263,17 +271,65 @@ describe('providerImportLogic', () => {
     })
 
     it('asks which tool to import from only when there is more than one', async () => {
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedProvider?.key).toBe('customerio')
+        expect(logic.values.importButtonLabel).toBe('Import from Customer.io')
 
         const resend = { ...PROVIDER_OPTION, key: 'resend', label: 'Resend', retains_credentials: false }
         logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
         expect(logic.values.selectedProvider).toBeNull()
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
 
         logic.actions.setImportFormValue('api_key', 'a-key-for-another-tool')
         logic.actions.selectProvider('resend')
         expect(logic.values.selectedProvider?.key).toBe('resend')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.importForm.api_key).toBe('')
+    })
+
+    it.each(['workflows', 'templates'] as const)(
+        'offers the Customer.io automation import from the %s page even when Customer.io is the only tool',
+        async (entryPoint) => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openImportModal(null, entryPoint)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.showsAutomationImport).toBe(true)
+            expect(logic.values.selectedProvider).toBeNull()
+        }
+    )
+
+    it('opens straight on Customer.io from other pages when it is the only tool', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openImportModal(null, 'transactional')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.showsAutomationImport).toBe(false)
+        expect(logic.values.selectedProvider?.key).toBe('customerio')
+    })
+
+    it.each([
+        ['opt-outs', ['customerio', 'postmark', 'sendgrid', 'resend']],
+        ['workflows', ['resend', 'customerio', 'postmark', 'sendgrid']],
+        ['templates', ['postmark', 'resend', 'customerio', 'sendgrid']],
+        ['transactional', ['postmark', 'resend', 'customerio', 'sendgrid']],
+        ['broadcasts', ['sendgrid', 'resend', 'customerio', 'postmark']],
+    ] as const)('lists the tools that bring what the %s page is about first', async (entryPoint, expectedOrder) => {
+        const tool = (key: string, steps: string[]): typeof PROVIDER_OPTION => ({
+            ...PROVIDER_OPTION,
+            key,
+            steps: steps.map((step) => ({ key: step, label: step, description: '' })),
+        })
+        logic.actions.loadImportProvidersSuccess([
+            PROVIDER_OPTION,
+            tool('postmark', ['streams', 'templates']),
+            tool('sendgrid', ['lists', 'suppressions']),
+            tool('resend', ['contacts', 'templates', 'automations']),
+        ] as any)
+
+        logic.actions.openImportModal(null, entryPoint)
+
+        expect(logic.values.orderedImportProviders.map((provider) => provider.key)).toEqual(expectedOrder)
     })
 })
