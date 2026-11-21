@@ -5,10 +5,7 @@ import { IconBolt, IconClock, IconSparkles, IconUser } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
@@ -160,24 +157,6 @@ export function MCPSessionView({
                             </CopyToClipboardInline>
                         ) : null}
                     </div>
-                    {!intent && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.McpAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                size="xsmall"
-                                icon={<IconSparkles />}
-                                loading={isGeneratingIntent}
-                                onClick={onGenerateIntent}
-                                className="shrink-0"
-                                data-attr="mcp-session-summarize-intent"
-                            >
-                                {isGeneratingIntent ? 'Thinking…' : 'Summarize session intent'}
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -196,14 +175,10 @@ export function MCPSessionView({
                         {shortenSessionId(session.session_id)}
                     </CopyToClipboardInline>
                 </div>
+                <SessionIntentCard intent={intent} isGenerating={isGeneratingIntent} onGenerate={onGenerateIntent} />
             </header>
 
             <section className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
-                {intent && (
-                    <div className="mb-2">
-                        <SessionIntentCard intent={intent} />
-                    </div>
-                )}
                 {loading ? (
                     <ToolCallRowSkeletons count={skeletonCount} />
                 ) : error ? (

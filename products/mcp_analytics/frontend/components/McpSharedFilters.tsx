@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconHourglass, IconMessage, IconRefresh, IconSparkles } from '@posthog/icons'
+import { IconHourglass, IconPlug, IconRefresh, IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -218,12 +218,11 @@ export function McpSharedFilters({
                                             />
                                         }
                                     >
-                                        <IconMessage />
-                                        Agent feedback
+                                        <IconPlug />
+                                        Missing capability
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        Calls from sessions where the agent sent feedback or reported a missing
-                                        capability
+                                        Calls from sessions where the agent reported a missing capability
                                     </TooltipContent>
                                 </Tooltip>
                             )}

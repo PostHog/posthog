@@ -3,7 +3,7 @@ export type LeaderboardSectionId = 'key-metrics' | 'agent-feedback' | 'usage' | 
 // A Record so a new section id fails to compile until it has a title.
 const SECTION_TITLES: Record<LeaderboardSectionId, string> = {
     'key-metrics': 'Key metrics',
-    'agent-feedback': 'Agent feedback',
+    'agent-feedback': 'Missing capabilities',
     usage: 'Usage',
     agents: 'What agents do',
 }

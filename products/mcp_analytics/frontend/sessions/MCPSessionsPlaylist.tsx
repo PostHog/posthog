@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { memo, useRef } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 
 import { IconBolt, IconClock, IconSparkles, IconWarning } from '@posthog/icons'
 import {
@@ -21,6 +21,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import type { MCPSessionApi } from '../generated/api.schemas'
 import { ConversationIdBanner } from './ConversationIdBanner'
 import { MCPSessionDetail } from './MCPSessionDetail'
@@ -90,31 +91,40 @@ function HorizontalLayout(): JSX.Element {
     )
 }
 
+// Too narrow for the list and a session side by side, so a session opens in a drawer over the list.
 function VerticalLayout(): JSX.Element {
-    const detailRef = useRef<HTMLDivElement>(null)
-
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey: 'mcp-sessions-detail-vertical',
-        containerRef: detailRef,
-        persistent: true,
-        placement: 'bottom',
-    }
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+    const { sessions, selectedSessionId } = useValues(mcpSessionsLogic)
+    const { selectSession } = useActions(mcpSessionsLogic)
+    const [drawerOpen, setDrawerOpen] = useState(false)
+    const index = sessions.findIndex((session) => session.session_id === selectedSessionId)
+    const openSession = useCallback(
+        (sessionId: string) => {
+            selectSession(sessionId)
+            setDrawerOpen(true)
+        },
+        [selectSession]
+    )
 
     return (
         <>
-            <div
-                ref={detailRef}
-                className="relative shrink-0 pb-2"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ height: desiredSize ?? 320, minHeight: 240 }}
-            >
-                <SessionDetailPanel className="h-full" />
-                <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded mx-1" />
-            </div>
             <div className="relative flex flex-col min-h-0 flex-1">
-                <SessionsListPanel />
+                <SessionsListPanel onSelect={openSession} />
             </div>
+            {drawerOpen && index >= 0 ? (
+                <MCPDetailDrawer
+                    noun="session"
+                    title="Session"
+                    position={{ index, total: sessions.length }}
+                    onPrevious={index > 0 ? () => selectSession(sessions[index - 1].session_id) : null}
+                    onNext={index < sessions.length - 1 ? () => selectSession(sessions[index + 1].session_id) : null}
+                    onClose={() => setDrawerOpen(false)}
+                    data-attr="mcp-sessions-drawer"
+                >
+                    <div className="flex h-[calc(100dvh-8rem)] min-h-0 flex-col">
+                        <MCPSessionDetail stacked />
+                    </div>
+                </MCPDetailDrawer>
+            ) : null}
         </>
     )
 }
@@ -129,7 +139,7 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
     )
 }
 
-function SessionsListPanel(): JSX.Element {
+function SessionsListPanel({ onSelect }: { onSelect?: (sessionId: string) => void }): JSX.Element {
     const { loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
     const { sessions, sessionsLoading, sorting, hasNext, selectedSessionId, hasActiveFilters } =
         useValues(mcpSessionsLogic)
@@ -176,7 +186,7 @@ function SessionsListPanel(): JSX.Element {
                                     <MCPSessionPreview
                                         session={session}
                                         isActive={session.session_id === selectedSessionId}
-                                        onSelect={selectSession}
+                                        onSelect={onSelect ?? selectSession}
                                     />
                                 </li>
                             ))}

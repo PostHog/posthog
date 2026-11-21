@@ -20,10 +20,10 @@ export interface MCPSharedFilterParams {
     filter_test_accounts?: boolean
 }
 
-// Marks the "Agent feedback" session list, so the GET endpoints can leave it out of the URL.
-const FEEDBACK_SESSIONS_LABEL = 'Agent feedback'
+// Marks the "Missing capability" session list, so the GET endpoints can leave it out of the URL.
+const FEEDBACK_SESSIONS_LABEL = 'Missing capability'
 
-/** The shared filters as GET params. "Agent feedback" is left out: its session list can outgrow a URL. */
+/** The shared filters as GET params. "Missing capability" is left out: its session list can outgrow a URL. */
 export function sharedFilterParams(filters: MCPSharedQueryFilters): MCPSharedFilterParams {
     const properties = filters.properties.filter((filter) => filter.label !== FEEDBACK_SESSIONS_LABEL)
     return {
@@ -63,7 +63,7 @@ const FACET_LIST_KEYS = ['tools', 'categories', 'errors', 'harnesses', 'models']
 
 // Matches no tool, for "New tools" when no tool is new: an empty list would match every call instead.
 const NO_NEW_TOOLS = '$mcp_no_new_tools'
-// Matches no session, for "Agent feedback" when no agent sent any.
+// Matches no session, for "Missing capability" when no agent reported one.
 const NO_FEEDBACK_SESSIONS = '$mcp_no_feedback_sessions'
 
 const FACET_FLAG_PARAMS = { slow: 'slow', isNew: 'is_new', gaveFeedback: 'feedback' } as const

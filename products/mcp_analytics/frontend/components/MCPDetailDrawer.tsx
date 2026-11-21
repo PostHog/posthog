@@ -26,7 +26,8 @@ export interface MCPDetailDrawerProps {
     position: MCPDetailDrawerPosition | null
     onPrevious: (() => void) | null
     onNext: (() => void) | null
-    fullPageHref: string
+    /** Leave it out when the list is already the item's page. */
+    fullPageHref?: string
     fullPageLabel?: string
     /** An arrow when the link leaves this page. */
     fullPageIcon?: ReactNode
@@ -151,15 +152,17 @@ export function MCPDetailDrawer({
                     ) : null}
                     <span className="ml-2 min-w-0 truncate text-sm font-semibold">{title}</span>
                     <div className="ml-auto flex items-center gap-1">
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={fullPageIcon}
-                            to={fullPageHref}
-                            data-attr={`${dataAttr}-full-page`}
-                        >
-                            {fullPageLabel}
-                        </LemonButton>
+                        {fullPageHref ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={fullPageIcon}
+                                to={fullPageHref}
+                                data-attr={`${dataAttr}-full-page`}
+                            >
+                                {fullPageLabel}
+                            </LemonButton>
+                        ) : null}
                         <LemonButton
                             size="small"
                             icon={<IconX />}

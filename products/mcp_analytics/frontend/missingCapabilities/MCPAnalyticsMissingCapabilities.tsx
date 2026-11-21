@@ -158,7 +158,7 @@ const OUTCOME_OPTIONS = OUTCOME_KEYS.map((key) => ({ value: REPORT_OUTCOMES[key]
 const OUTCOME_HELP =
     "Whether the agent says it still finished the user's task despite the gap. Blocked: it could not. Completed anyway: it found another way. Not reported: the report did not say, which is always the case for get_more_tools reports."
 const SUGGESTED_HELP =
-    'The change the agent says would have helped, such as a tool to add, from its send_feedback report.'
+    'The change the agent says would have helped, such as a tool to add, from its missing capability report.'
 
 function AskCell({ row }: { row: MCPMissingCapabilitiesItem }): JSX.Element {
     return row.intent ? <span>{row.intent}</span> : <span className="text-muted">No description given</span>

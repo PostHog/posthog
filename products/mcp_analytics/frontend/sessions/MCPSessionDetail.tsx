@@ -7,7 +7,7 @@ import { MCPSessionViewSkeleton } from './MCPSessionViewSkeleton'
 import { SessionCallDrawer } from './SessionCallDrawer'
 import { sessionCallDrawerLogic } from './sessionCallDrawerLogic'
 
-export function MCPSessionDetail(): JSX.Element {
+export function MCPSessionDetail({ stacked = false }: { stacked?: boolean }): JSX.Element {
     const {
         selectedSession,
         selectedSessionToolCalls,
@@ -46,7 +46,7 @@ export function MCPSessionDetail(): JSX.Element {
                 onRetryToolCalls={() => loadToolCalls(sessionId)}
                 onOpenToolCall={openCall}
             />
-            <SessionCallDrawer />
+            <SessionCallDrawer stacked={stacked} />
         </>
     )
 }
