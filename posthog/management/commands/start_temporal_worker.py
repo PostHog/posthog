@@ -101,6 +101,7 @@ from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
+from posthog.temporal.mcp_analytics.wrapped import MCP_ANALYTICS_WRAPPED_ACTIVITIES, MCP_ANALYTICS_WRAPPED_WORKFLOWS
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
     WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
@@ -249,8 +250,8 @@ _task_queue_specs: list[tuple[str, typing.Any, typing.Any]] = [
         # defaultdict merge below folds these into the general-purpose
         # registration; the env override routes them to a dedicated worker.
         settings.MCPA_TASK_QUEUE,
-        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS + MCP_ANALYTICS_WRAPPED_WORKFLOWS,
+        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES + MCP_ANALYTICS_WRAPPED_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
