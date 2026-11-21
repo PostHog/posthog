@@ -37,6 +37,7 @@ _LAZY = {
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
+    "closed_series_values": "trends.series_values_precompute",
     "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
@@ -70,6 +71,9 @@ if TYPE_CHECKING:
         CalendarHeatmapTrendsQueryRunner,
     )
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
+    from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (  # noqa: F401
+        closed_series_values,
+    )
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
     )

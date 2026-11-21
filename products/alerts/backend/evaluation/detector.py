@@ -49,6 +49,7 @@ from products.alerts.backend.evaluation.delay import (
     apply_evaluation_delay,
     validate_evaluation_delay,
 )
+from products.alerts.backend.evaluation.series_values_shadow import compare_series_values_shadow
 from products.alerts.backend.facade.contracts import MovedAlertCheck
 from products.alerts.backend.forecast import scorer as forecast_scorer
 from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
@@ -68,6 +69,27 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
+def detector_filters_override(
+    query: TrendsQuery,
+    detector_config: dict[str, Any],
+    *,
+    evaluation_delay_intervals: int,
+    date_from: str | None = None,
+) -> dict | None:
+    if _is_non_time_series_trend(query):
+        return None
+    interval_value = query.interval.value if query.interval else None
+    min_samples = _compute_min_samples_for_detector(detector_config, interval_value) + 1 + evaluation_delay_intervals
+    if not date_from:
+        return _date_range_override_for_detector(query, min_samples)
+    # Use whichever goes further back: the caller's range or the detector minimum.
+    min_date_from = _date_range_override_for_detector(query, min_samples)
+    utc = ZoneInfo("UTC")
+    user_dt = relative_date_parse(date_from, utc)
+    min_dt = relative_date_parse(min_date_from["date_from"], utc) if min_date_from else None
+    return min_date_from if (min_dt and min_dt < user_dt) else {"date_from": date_from}
+
+
 def extract_detector_series(
     insight: Insight,
     team: Any,
@@ -80,6 +102,7 @@ def extract_detector_series(
     date_from: str | None = None,
     user: Optional[User] = None,
     evaluation_delay_intervals: int = 0,
+    alert: AlertConfiguration | None = None,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -89,23 +112,12 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    interval_value = query.interval.value if query.interval else None
-    min_samples = _compute_min_samples_for_detector(detector_config, interval_value) + 1 + evaluation_delay_intervals
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
-
-    if is_non_time_series:
-        filters_override = None
-    elif date_from:
-        # Use whichever goes further back: the caller's range or the detector minimum.
-        min_date_from = _date_range_override_for_detector(query, min_samples)
-        utc = ZoneInfo("UTC")
-        user_dt = relative_date_parse(date_from, utc)
-        min_dt = relative_date_parse(min_date_from["date_from"], utc) if min_date_from else None
-        filters_override = min_date_from if (min_dt and min_dt < user_dt) else {"date_from": date_from}
-    else:
-        filters_override = _date_range_override_for_detector(query, min_samples)
+    filters_override = detector_filters_override(
+        query, detector_config, evaluation_delay_intervals=evaluation_delay_intervals, date_from=date_from
+    )
 
     calculation_result = calculate_for_query_based_insight(
         insight,
@@ -115,6 +127,8 @@ def extract_detector_series(
         user=user,
         filters_override=filters_override,
     )
+    if alert is not None:
+        compare_series_values_shadow(alert, query, filters_override, calculation_result, alert_kind="detector")
 
     if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
@@ -571,6 +585,7 @@ class TrendsDetectorExtractor:
             series_index=series_index,
             user=alert.created_by,
             evaluation_delay_intervals=alert.evaluation_delay_intervals,
+            alert=alert,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:

@@ -44,6 +44,7 @@ from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor,
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
+from products.alerts.backend.evaluation.series_values_shadow import record_unsupported_insight_kind
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
@@ -172,11 +173,15 @@ def run_extractor(
         with query_slot(), owner_sql_errors(query):
             # Resolve inside the slot so a slot wait cannot push the window past a bucket boundary.
             cache_age_seconds = _resolve_cache_age_seconds(alert, query, execution_mode)
-            return extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
+            result = extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
             raise
         raise AlertExtractionError(rule_violation_message(err)) from err
+    kind = get_from_dict_or_attr(query, "kind")
+    if kind != NodeKind.TRENDS_QUERY:
+        record_unsupported_insight_kind(alert, str(kind))
+    return result
 
 
 def check_detector_alert(
