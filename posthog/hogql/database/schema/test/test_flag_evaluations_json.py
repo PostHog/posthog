@@ -81,6 +81,11 @@ class TestFlagEvaluationsJsonPrinting(BaseTest):
                 "or(isNotNull(flag_evaluations.properties.`$feature_flag_response`), has(flag_evaluations.properties_null_keys,",
             ),
             (
+                "json_has_moved_key",
+                "JSONHas(properties, '$feature_flag_request_id')",
+                "has(flag_evaluations.temporary_properties_null_keys,",
+            ),
+            (
                 "json_extract_string",
                 "JSONExtractString(properties, 'foo')",
                 "flag_evaluations.properties.foo",
