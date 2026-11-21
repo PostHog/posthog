@@ -805,13 +805,9 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 content_type="application/json",
             )
             if path == "web_save":
-                with self.captureOnCommitCallbacks() as after_commit:
-                    response = self.client.post(
-                        f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
-                    )
-                assert not self._sandbox_sender_is_set_up()
-                for callback in after_commit:
-                    callback()
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
+                )
             else:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_flows/new/invocations",
@@ -833,12 +829,15 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("setup_fails", False, False),
-            ("already_set_up", True, False),
-            ("setup_fails_for_an_api_step_moved_to_the_test_sender", False, True),
+            ("setup_fails", False, False, False),
+            ("already_set_up", True, False, False),
+            ("setup_fails_for_an_api_step_moved_to_the_test_sender", False, True, False),
+            ("setup_fails_once_and_runs_again_after_commit", False, False, True),
         ]
     )
-    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool, from_api: bool) -> None:
+    def test_a_save_never_waits_on_test_sender_setup(
+        self, _name: str, already_set_up: bool, from_api: bool, fails_once: bool
+    ) -> None:
         if already_set_up:
             provision_sandbox_sender(self.team, self.user)
         if from_api:
@@ -846,9 +845,16 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         rows_before = list(
             Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True)
         )
-        fault = patch.object(
-            IntegrationManager.email_sandbox.credentials, "create", side_effect=RuntimeError("setup failed")
-        )
+        create = IntegrationManager.email_sandbox.credentials.create
+        attempts: list[str] = []
+
+        def create_or_fail(*args: Any, **kwargs: Any) -> Any:
+            attempts.append("create")
+            if fails_once and len(attempts) > 1:
+                return create(*args, **kwargs)
+            raise RuntimeError("setup failed")
+
+        fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=create_or_fail)
         headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if from_api else {}
 
         with (
@@ -870,11 +876,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["type"] == "email_sandbox"
         assert [
             (log["workflow_id"], log["action_ids"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"
-        ] == ([] if already_set_up else [(response.json()["id"], [stored["id"]])])
-        assert (
-            list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
-            == rows_before
-        )
+        ] == ([] if already_set_up or fails_once else [(response.json()["id"], [stored["id"]])])
+        if fails_once:
+            assert self._sandbox_sender_is_set_up()
+        else:
+            assert (
+                list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
+                == rows_before
+            )
 
     @parameterized.expand(
         [

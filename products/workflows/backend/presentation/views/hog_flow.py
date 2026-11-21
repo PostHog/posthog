@@ -1076,7 +1076,6 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
-SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
 SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
 SANDBOX_SENDER_SETUP_FAILURES = Counter(
     "workflows_sandbox_sender_setup_failures_total",
@@ -1141,7 +1140,6 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             moved = True
     if not moved:
         return data
-    context[SETS_UP_SANDBOX_SENDER] = True
     return {**data, "actions": converted}
 
 
@@ -6471,15 +6469,22 @@ class HogFlowViewSet(
         raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
-        if serializer.context.get(SETS_UP_SANDBOX_SENDER) and self._set_up_sandbox_sender_in_the_write():
+        step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
+        if step_ids and self._set_up_sandbox_sender_in_the_write():
             serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
         elif serializer.instance is not None:
             self._set_up_sandbox_sender_after_commit(serializer)
 
     def _set_up_sandbox_sender_in_the_write(self) -> bool:
+        user = self.request.user
         try:
             with transaction.atomic():
-                provision_sandbox_sender(self.team, cast(User, self.request.user))
+                if (
+                    isinstance(user, User)
+                    and not has_sandbox_sender(self.team.id)
+                    and _can_set_up_sandbox_sender(self.team, user)
+                ):
+                    provision_sandbox_sender_if_available(self.team, user)
         except Exception:
             logger.warning("sandbox_sender_setup_moved_after_commit", team_id=self.team.id, exc_info=True)
             return False
