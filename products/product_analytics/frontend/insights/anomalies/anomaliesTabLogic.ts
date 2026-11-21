@@ -44,7 +44,6 @@ export interface AnomaliesFilters {
     interval: SignalsAnomaliesSearchRetrieveInterval | null
     dashboardId: number | null
     search: string
-    order: SignalsAnomaliesSearchRetrieveOrder
 }
 
 export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
@@ -52,7 +51,6 @@ export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
     interval: null,
     dashboardId: null,
     search: '',
-    order: SignalsAnomaliesSearchRetrieveOrder.Recent,
 }
 
 export type AnomaliesLoadError = 'not_available' | 'failed'
@@ -91,7 +89,6 @@ function filterProperties(filters: AnomaliesFilters): Record<string, unknown> {
     return {
         date_from: filters.dateFrom,
         interval: filters.interval,
-        order: filters.order,
         has_dashboard: filters.dashboardId != null,
         has_search: !!filters.search.trim(),
     }
@@ -104,7 +101,7 @@ async function searchAnomalies(
 ): Promise<AnomalySearchResponseApi> {
     return await signalsAnomaliesSearchRetrieve(String(projectId), {
         date_from: filters.dateFrom,
-        order: filters.order,
+        order: SignalsAnomaliesSearchRetrieveOrder.Recent,
         group_by: 'series',
         only_flagged: true,
         include_points: false,
@@ -477,14 +474,13 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             actions.loadAnomalies()
         },
         loadMoreAnomalies: () => {
-            posthog.capture('anomalies tab load more', { offset: values.series.length, order: values.filters.order })
+            posthog.capture('anomalies tab load more', { offset: values.series.length })
         },
         reportInsightOpened: ({ series, position }) => {
             posthog.capture('anomalies tab insight opened', {
                 insight_id: series.insight_id,
                 interval: series.interval,
                 flagged_buckets: series.flagged_buckets,
-                order: values.filters.order,
                 position,
             })
         },
@@ -495,14 +491,12 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             posthog.capture('anomalies tab series rated', {
                 ...seriesProperties(series),
                 rating,
-                order: values.filters.order,
                 position,
             })
         },
         reportCreateAlertOpened: ({ series, position }) => {
             posthog.capture('anomalies tab create alert opened', {
                 ...seriesProperties(series),
-                order: values.filters.order,
                 position,
             })
         },
@@ -514,7 +508,6 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             posthog.capture('anomalies tab insight expanded', {
                 insight_id: insightId,
                 flagged_series: group?.series.length ?? 0,
-                order: values.filters.order,
                 position,
             })
         },
