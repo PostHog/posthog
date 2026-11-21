@@ -108,8 +108,9 @@ def validate_traces_edit(edit: PlatformAlertConfigurationEdit) -> None:
 TRACES_ALERT_CONFIG: Final = SourceConfigSpec(
     model=TracesPlatformAlertConfig,
     validate=validate_traces_edit,
-    # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
-    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
+    native=NativeAlertLifecycle(
+        check_interval_minutes=CHECK_INTERVAL_MINUTES, platform_destinations=True, max_per_team=MAX_ALERTS_PER_TEAM
+    ),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
     rollout_flag="platform-alerts-source-traces",
