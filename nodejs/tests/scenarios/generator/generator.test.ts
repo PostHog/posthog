@@ -379,7 +379,7 @@ describe('drive', () => {
         const server = http.createServer((request, response) => {
             request.resume()
             answers += 1
-            response.writeHead(answers === 1 ? 503 : 202, { 'retry-after': '0' }).end('{}')
+            response.writeHead(answers === 1 ? 503 : 202).end('{}')
         })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
@@ -387,7 +387,13 @@ describe('drive', () => {
             const { driving, journal } = startDrive(
                 cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'transactional_email' }),
                 ACKNOWLEDGED,
-                { cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` } }
+                {
+                    cdpApi: {
+                        ...CDP_API,
+                        url: `http://127.0.0.1:${port}`,
+                        retry: { backoffMs: 1, maxWaitMs: 1, deadlineMs: 1000 },
+                    },
+                }
             )
 
             expect({ summary: await driving, journal }).toMatchObject({

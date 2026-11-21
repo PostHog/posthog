@@ -11,13 +11,13 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
-import { OfferContext, TRAFFIC, bounceFollowup, captureWebhook, retryDelayMsOf, transactionalEmail } from './traffic'
+import { OfferContext, SendRetry, TRAFFIC, bounceFollowup, captureWebhook, transactionalEmail } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
 const ROUTE = `/api/projects/${UNIT.teamId}/hog_flows/${UNIT.flowId}/transactional_email`
 
-type Answer = { status: number; body: object; retryAfter?: string }
+type Answer = { status: number; body: object }
 
 const NEVER_ABORTED = new AbortController().signal
 
@@ -40,10 +40,10 @@ function startCdpApi(
             const body = TransactionalEmailRequestSchema.strict().parse(parseJSON(raw))
             const answer = answers[Math.min(received.length, answers.length - 1)]
             received.push({ method: req.method, url: req.url, authorized, body })
-            res.writeHead(answer.status, {
-                'content-type': 'application/json',
-                ...(answer.retryAfter !== undefined && { 'retry-after': answer.retryAfter }),
-            }).end(JSON.stringify(answer.body), markAnswered)
+            res.writeHead(answer.status, { 'content-type': 'application/json' }).end(
+                JSON.stringify(answer.body),
+                markAnswered
+            )
         })
     })
     return new Promise((resolve) =>
@@ -58,9 +58,9 @@ function startCdpApi(
     )
 }
 
-const contextFor = (url: string, settled: string | undefined = undefined): OfferContext => ({
+const contextFor = (url: string, settled: string | undefined = undefined, retry?: SendRetry): OfferContext => ({
     emit: () => Promise.reject(new Error('the transactional kind never emits')),
-    cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET) },
+    cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET), retry },
     sesFeedback: { settled: (unitId) => Promise.resolve(unitId === UNIT.unitId ? settled : 'another unit') },
 })
 
@@ -131,37 +131,50 @@ describe('traffic', () => {
             })
         })
 
-        const UNAVAILABLE: Answer = { status: 503, body: { error: 'intake_unavailable' }, retryAfter: '0' }
+        const UNAVAILABLE: Answer = { status: 503, body: { error: 'intake_unavailable' } }
+        const QUICK_RETRY: SendRetry = { backoffMs: 1, maxWaitMs: 1, deadlineMs: 200 }
 
-        it.each<[string, Answer[], object, number]>([
-            [
-                'retries a 5xx with the same key and journals the retry',
-                [UNAVAILABLE, { status: 202, body: { status: 'queued' } }],
-                { accepted: true, retries: 1 },
-                2,
-            ],
-            [
-                'stops retrying after three retries and journals the last refusal',
-                [UNAVAILABLE],
-                { accepted: false, status: 503, outcome: 'intake_unavailable', retries: 3 },
-                4,
-            ],
-        ])('%s', async (_story, answers, expected, sends) => {
-            const cdpApi = await startCdpApi(...answers)
+        const offerAgainst = (cdpApi: { url: string }, retry: SendRetry, signal = NEVER_ABORTED) =>
+            transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, retry), signal)
+
+        it('retries a 5xx with the same key and journals the retry', async () => {
+            const cdpApi = await startCdpApi(UNAVAILABLE, { status: 202, body: { status: 'queued' } })
             try {
-                expect(await transactionalEmail.offer(UNIT, contextFor(cdpApi.url), NEVER_ABORTED)).toEqual(expected)
-                expect(cdpApi.received).toHaveLength(sends)
+                expect(await offerAgainst(cdpApi, QUICK_RETRY)).toEqual({ accepted: true, retries: 1 })
+                expect(cdpApi.received).toHaveLength(2)
                 expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
             } finally {
                 await cdpApi.close()
             }
         })
 
-        it('stops waiting out a Retry-After when the run aborts', async () => {
-            const cdpApi = await startCdpApi({ ...UNAVAILABLE, retryAfter: '30' })
+        it('keeps retrying a 5xx with the same key until its deadline, then journals the last refusal', async () => {
+            const cdpApi = await startCdpApi(UNAVAILABLE)
+            try {
+                const answer = await offerAgainst(cdpApi, QUICK_RETRY)
+
+                expect(answer).toEqual({
+                    accepted: false,
+                    status: 503,
+                    outcome: 'intake_unavailable',
+                    retries: cdpApi.received.length - 1,
+                })
+                expect(cdpApi.received.length).toBeGreaterThan(4)
+                expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
+            } finally {
+                await cdpApi.close()
+            }
+        })
+
+        it('stops waiting to retry when the run aborts', async () => {
+            const cdpApi = await startCdpApi(UNAVAILABLE)
             const abort = new AbortController()
             try {
-                const offered = transactionalEmail.offer(UNIT, contextFor(cdpApi.url), abort.signal)
+                const offered = offerAgainst(
+                    cdpApi,
+                    { backoffMs: 60_000, maxWaitMs: 60_000, deadlineMs: 120_000 },
+                    abort.signal
+                )
                 await cdpApi.answered
                 abort.abort()
 
@@ -170,22 +183,6 @@ describe('traffic', () => {
             } finally {
                 await cdpApi.close()
             }
-        })
-
-        it.each<[string, Parameters<typeof retryDelayMsOf>[0], number | undefined]>([
-            ['waits the seconds Retry-After asks for', { status: 503, retryAfter: '2', retry: 0, keyed: true }, 2000],
-            ['backs off without a Retry-After', { status: 500, retryAfter: null, retry: 2, keyed: true }, 2000],
-            [
-                'backs off past a Retry-After it cannot read',
-                { status: 503, retryAfter: 'soon', retry: 0, keyed: true },
-                500,
-            ],
-            ['caps a long Retry-After', { status: 503, retryAfter: '120', retry: 0, keyed: true }, 10_000],
-            ['never retries an unkeyed send', { status: 503, retryAfter: '0', retry: 0, keyed: false }, undefined],
-            ['never retries a refusal under 500', { status: 429, retryAfter: '0', retry: 0, keyed: true }, undefined],
-            ['stops after three retries', { status: 503, retryAfter: '0', retry: 3, keyed: true }, undefined],
-        ])('%s', (_story, attempt, expected) => {
-            expect(retryDelayMsOf(attempt)).toBe(expected)
         })
     })
 })

@@ -22,9 +22,11 @@ export type Unit = { unitId: string; teamId: number; flowId: string }
 
 export type Emit = (unit: Unit, event: string, properties: object) => Promise<IntakeAnswer>
 
+export type SendRetry = { backoffMs: number; maxWaitMs: number; deadlineMs: number }
+
 export type OfferContext = {
     emit: Emit
-    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'> }
+    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; retry?: SendRetry }
     sesFeedback?: SesFeedback
 }
 
@@ -247,48 +249,20 @@ export const bounceFollowup: TrafficKind = {
     },
 }
 
-const SEND_RETRIES = 3
-const RETRY_BACKOFF_MS = 500
-const RETRY_WAIT_CAP_MS = 10_000
-
-// cdp-api returns the first send for a repeated idempotency key, so only a keyed send can be retried without
-// sending twice.
-export function retryDelayMsOf({
-    status,
-    retryAfter,
-    retry,
-    keyed,
-}: {
-    status: number
-    retryAfter: string | null
-    retry: number
-    keyed: boolean
-}): number | undefined {
-    if (!keyed || status < 500 || retry >= SEND_RETRIES) {
-        return undefined
-    }
-    const askedMs = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined
-    return Math.min(askedMs ?? RETRY_BACKOFF_MS * 2 ** retry, RETRY_WAIT_CAP_MS)
-}
+const SEND_RETRY: SendRetry = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
 async function sendTransactional(
     unit: Unit,
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     signal: AbortSignal
 ): Promise<JournalEntry['answer']> {
+    const { backoffMs, maxWaitMs, deadlineMs } = cdpApi.retry ?? SEND_RETRY
     const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
+    const deadline = Date.now() + deadlineMs
     for (let retry = 0; ; retry += 1) {
-        const { answer, retryAfter } = await postTransactional(unit, cdpApi, request)
-        const waitMs =
-            'status' in answer
-                ? retryDelayMsOf({
-                      status: answer.status,
-                      retryAfter,
-                      retry,
-                      keyed: request.idempotency_key !== undefined,
-                  })
-                : undefined
-        if (waitMs === undefined) {
+        const answer = await postTransactional(unit, cdpApi, request)
+        const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
+        if (!('status' in answer) || answer.status < 500 || Date.now() + waitMs > deadline) {
             return retry === 0 ? answer : { ...answer, retries: retry }
         }
         await sleep(waitMs, undefined, { signal })
@@ -299,7 +273,7 @@ async function postTransactional(
     unit: Unit,
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     request: object
-): Promise<{ answer: IntakeAnswer; retryAfter: string | null }> {
+): Promise<IntakeAnswer> {
     try {
         const response = await internalFetch(
             `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
@@ -313,12 +287,11 @@ async function postTransactional(
             }
         )
         const body = await response.text()
-        const retryAfter = response.headers['retry-after'] ?? null
         return response.status >= 200 && response.status < 300
-            ? { answer: { accepted: true }, retryAfter }
-            : { answer: { accepted: false, status: response.status, outcome: errorOf(body) }, retryAfter }
+            ? { accepted: true }
+            : { accepted: false, status: response.status, outcome: errorOf(body) }
     } catch (error) {
-        return { answer: { accepted: false, transportError: String(error) }, retryAfter: null }
+        return { accepted: false, transportError: String(error) }
     }
 }
 
