@@ -64,26 +64,27 @@ function ActiveInputForm(): JSX.Element | null {
 
     // Build the approval object to display - only show if not yet resolved
     // Resolved approvals are shown as summaries in the chat thread, not in the input area
-    const activeDangerousOperationApproval = useMemo(() => {
-        if (!pendingApprovalProposalId) {
-            return null
-        }
-        // Don't show if already resolved - the summary will appear in the chat thread
-        if (resolvedApprovalStatuses[pendingApprovalProposalId]) {
-            return null
-        }
-        const approval = pendingApprovalsData[pendingApprovalProposalId]
-        if (!approval) {
-            return null
-        }
-        return {
-            status: 'pending_approval' as const,
-            proposalId: approval.proposal_id,
-            toolName: approval.tool_name,
-            preview: approval.preview,
-            payload: approval.payload as Record<string, unknown>,
-        }
-    }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
+    const activeDangerousOperationApprovals = useMemo(
+        () =>
+            Object.values(pendingApprovalsData)
+                .filter(
+                    (approval) =>
+                        approval.decision_status === 'pending' && !resolvedApprovalStatuses[approval.proposal_id]
+                )
+                .map((approval) => ({
+                    status: 'pending_approval' as const,
+                    proposalId: approval.proposal_id,
+                    toolName: approval.tool_name,
+                    preview: approval.preview,
+                    payload: approval.payload as Record<string, unknown>,
+                }))
+                .sort(
+                    (left, right) =>
+                        Number(right.proposalId === pendingApprovalProposalId) -
+                        Number(left.proposalId === pendingApprovalProposalId)
+                ),
+        [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses]
+    )
 
     // Sandbox permission requests take precedence in the input area, mirroring the LangGraph
     // dangerous-operation flow but driven by runStreamLogic. A pending request only ever
@@ -110,11 +111,11 @@ function ActiveInputForm(): JSX.Element | null {
         )
     }
 
-    if (activeDangerousOperationApproval) {
+    if (activeDangerousOperationApprovals.length > 0) {
         return (
             <DangerousOperationInput
-                key={activeDangerousOperationApproval.proposalId}
-                operation={activeDangerousOperationApproval}
+                key={activeDangerousOperationApprovals.map((operation) => operation.proposalId).join(',')}
+                operations={activeDangerousOperationApprovals}
             />
         )
     }
