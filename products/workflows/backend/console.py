@@ -198,6 +198,7 @@ class EmailSendingPanel(Panel):
                     "tier": state.tier if state is not None else 0,
                     "pinned": state is not None and state.tier_pinned,
                 },
+                query_fields=frozenset({"pinned", "reason"}),
             ),
             Operation(
                 key="recompute-tier",

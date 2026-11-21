@@ -154,6 +154,9 @@ class Operation:
     form_class: type[forms.Form] | None = None
     # Starting values for the form, usually the record's current state, so an unchanged submit changes nothing.
     form_initial: dict[str, object] | None = None
+    # Fields besides choices that a link may fill. A value from a URL can reach the audit log without staff writing
+    # it, so name a field only when staff read the form before they submit it.
+    query_fields: frozenset[str] = frozenset()
     description: str = ""
     undo_hint: str = ""
     gate: Gate | None = None
@@ -166,6 +169,11 @@ class Operation:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
+        unknown_query_fields = self.query_fields - set(self.form_class.base_fields if self.form_class else ())
+        if unknown_query_fields:
+            raise ValueError(
+                f"Operation {self.key!r} lets a link fill {sorted(unknown_query_fields)}, which its form does not have"
+            )
 
 
 class ReasonForm(forms.Form):
