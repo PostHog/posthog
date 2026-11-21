@@ -737,7 +737,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
             ),
         ]
     )
-    def test_swaps_when_persons_moves_its_join_filter_out_of_the_tree(
+    def test_swaps_when_persons_holds_a_copy_of_its_join_filter(
         self, _name: str, alias: str, name: str, source: str, ctes: str
     ):
         query = ctes + _PROMOTED_OUTER.format(alias=alias, name=name, source=source)
@@ -768,7 +768,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "FROM events" not in swap.source.to_hogql()
 
-    def test_declines_when_a_column_named_posthog_hides_the_events_scan_in_the_moved_filter(self):
+    def test_declines_when_a_column_named_posthog_hides_the_events_scan_in_the_persons_join_filter(self):
         source = (
             "SELECT posthog.events.person_id FROM posthog.events "
             "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
@@ -792,7 +792,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 @time_machine.travel(NOW, tick=False)
 class TestSwapFlagCallsPropertyParityInPromotedPersonsFilter(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("materialized_on_events", True, False), ("not_materialized", False, True)])
-    def test_swaps_only_when_the_moved_filter_reads_properties_from_the_same_column_kind(
+    def test_swaps_only_when_the_persons_join_filter_reads_properties_from_the_same_column_kind(
         self, _name: str, materialize_it: bool, expected: bool
     ):
         source = f"{_PROMOTED_SOURCE} AND isNull(properties.$current_url)"

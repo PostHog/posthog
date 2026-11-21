@@ -4853,6 +4853,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert "in(persons.id, tuple(1, 2, 3))" not in printed
 
     def test_dont_inline_persons(self):
         printed = self._print(
@@ -4871,6 +4872,36 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert "in(p1.id, tuple(1, 2, 3))" not in printed
+
+    def test_inline_persons_subquery_that_reads_an_outer_cte(self):
+        printed = self._print(
+            """
+            with fc as (select person_id from events where event = 'x')
+            select count() from events as e
+                     join persons as p on e.person_id = p.id and p.id in (select person_id from fc)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT fc.person_id AS person_id FROM fc)))"
+            in printed
+        )
+
+    def test_inline_persons_in_a_persons_join_nested_in_another_persons_join_filter(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on p.id = e.person_id
+                         and p.id in (
+                             select pp.id from events as e2
+                             join persons as pp on pp.id = e2.person_id and pp.id in (7, 8)
+                         )
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8)))" in printed
+        assert "in(pp.id, tuple(7, 8))" not in printed
 
     def test_inline_persons_subquery_that_reads_a_lazy_join(self):
         printed = self._print(
@@ -4909,7 +4940,7 @@ class TestPrinter(BaseTest):
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert "globalIn(id, (SELECT" in printed or "in(id, (SELECT" in printed
+        assert f"FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT" in printed
         assert "p1.id, (SELECT" not in printed
 
     def test_two_joins(self):
@@ -4924,6 +4955,8 @@ class TestPrinter(BaseTest):
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+        assert "in(p1.id, tuple(1, 2, 3))" not in printed
+        assert "in(p2.id, tuple(4, 5, 6))" not in printed
 
     def test_two_clauses(self):
         printed = self._print(
@@ -4940,6 +4973,40 @@ class TestPrinter(BaseTest):
             in printed
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+
+    @parameterized.expand(
+        [
+            ("cohort_first", "p.id in cohort {cohort} and p.id in (1, 2)", "in(id, tuple(1, 2)))", "in(p.id, (SELECT"),
+            ("cohort_last", "p.id in (1, 2) and p.id in cohort {cohort}", "in(id, tuple(1, 2)))", "in(p.id, (SELECT"),
+            (
+                "two_plain_in",
+                "p.id in (1, 2) and p.id in cohort {cohort} and p.id in (3, 4)",
+                "in(id, tuple(1, 2)), in(id, tuple(3, 4)))",
+                "in(p.id, (SELECT",
+            ),
+            (
+                "subquery_in",
+                "p.id in cohort {cohort} and p.id in (select person_id from events where event = 'x')",
+                "globalIn(id, (SELECT",
+                "in(p.id, (SELECT",
+            ),
+            (
+                "not_in_cohort",
+                "p.id not in cohort {cohort} and p.id in (1, 2)",
+                "in(id, tuple(1, 2)))",
+                "notIn(p.id, (SELECT",
+            ),
+        ]
+    )
+    def test_inline_persons_next_to_a_cohort_conjunct(self, _name, conjuncts, inlined, kept_in_join):
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True, created_by=self.user)
+        printed = self._print(
+            f"select count() from events as e join persons as p on p.id = e.person_id and {conjuncts.format(cohort=cohort.pk)}",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), {inlined}" in printed
+        assert kept_in_join in printed
+        assert "in(p.id, tuple(" not in printed
 
     def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
         query = parse_expr("avgArray([1, 2, 3])")

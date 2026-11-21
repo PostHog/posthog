@@ -464,6 +464,8 @@ class PersonsTable(LazyTable):
     description: str = "Deduplicated people in the project, with their latest properties. One row per person."
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
+    filter_positions: tuple[int, ...] = ()
+    filter_source_length: int = 0
 
     @staticmethod
     def _is_promotable_expr(expr, alias: Optional[str] = None):
@@ -498,35 +500,42 @@ class PersonsTable(LazyTable):
         # A RIGHT or FULL join keeps the persons rows that its ON clause rejects, and a filter inside the subselect drops them.
         if any(kind in (join.join_type or "") for kind in ("RIGHT", "FULL")):
             return self
-        promotable = [expr for expr in join.constraint.expr.exprs if PersonsTable._is_promotable_expr(expr, join.alias)]
-        if not promotable:
+        conjuncts = join.constraint.expr.exprs
+        positions = tuple(i for i, expr in enumerate(conjuncts) if PersonsTable._is_promotable_expr(expr, join.alias))
+        if not positions:
             return self
-        moved: list[Expr] = [
+        filter_copies: list[Expr] = [
             CompareOperation(
                 op=CompareOperationOp.In,
                 left=Field(chain=["id"]),
-                right=clone_expr(cast(CompareOperation, expr).right),
+                right=clone_expr(cast(CompareOperation, conjuncts[i]).right),
             )
-            for expr in promotable
+            for i in positions
         ]
         p = self.model_copy()
-        p.filter = moved[0] if len(moved) == 1 else And(exprs=moved)
+        p.filter = filter_copies[0] if len(filter_copies) == 1 else And(exprs=filter_copies)
+        p.filter_positions = positions
+        p.filter_source_length = len(conjuncts)
         return p
 
     def take_join_filter(self, join: JoinExpr) -> None:
-        """Removes the resolved copy of the predicates that `filter` holds from the join's constraint."""
+        """Removes the resolved copy of the predicates that `filter` holds from the join's constraint.
+
+        It removes conjuncts by the positions that promotion recorded, because other conjuncts can resolve into the
+        same shape. The resolver rewrites `p.id IN COHORT n` into `p.id IN (<cohort subquery>)`, for example.
+        """
         if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
             return
         exprs = join.constraint.expr.exprs
-        taken = [expr for expr in exprs if PersonsTable._is_resolved_promotable_expr(expr, join.alias)]
         # The resolved copy is gone when an earlier call removed it.
-        if not taken:
+        if len(exprs) == self.filter_source_length - len(self.filter_positions):
             return
-        expected = len(self.filter.exprs) if isinstance(self.filter, And) else 1
-        if len(taken) != expected:
+        if len(exprs) != self.filter_source_length or not all(
+            PersonsTable._is_resolved_promotable_expr(exprs[i], join.alias) for i in self.filter_positions
+        ):
             raise ResolutionError("The persons join filter does not match the join constraint")
-        taken_ids = {id(expr) for expr in taken}
-        join.constraint.expr.exprs = [expr for expr in exprs if id(expr) not in taken_ids]
+        positions = set(self.filter_positions)
+        join.constraint.expr.exprs = [expr for i, expr in enumerate(exprs) if i not in positions]
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:

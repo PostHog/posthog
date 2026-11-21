@@ -459,7 +459,8 @@ class LazyTableResolver(TraversingVisitor):
             # A SAMPLE clause applies to the table, not to the subquery that replaces it.
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(join_ptr.table.chain)),
-                # The resolver would otherwise read a fresh table from the database, without the join's moved filter.
+                # The resolver would otherwise read a fresh table from the database, without the filter that it copied
+                # from the join.
                 table_schema=cast(ast.Table, _lazy_table_of(original_table_type)),
                 alias=table_alias,
                 sample=clone_expr(join_ptr.sample, clear_types=True) if join_ptr.sample is not None else None,
