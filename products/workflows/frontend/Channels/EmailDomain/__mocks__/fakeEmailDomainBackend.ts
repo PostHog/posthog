@@ -337,7 +337,7 @@ export class FakeEmailDomainBackend {
         this.oneOffFailures.delete(endpoint)
     }
 
-    /** Keeps every response from the endpoint pending until the returned function is called. */
+    /** Delays every response from the endpoint until the returned function is called. */
     hold(endpoint: FakeEndpoint): () => void {
         const hold = createHold()
         this.holds.set(endpoint, hold)
@@ -467,12 +467,14 @@ export class FakeEmailDomainBackend {
         return async (info) => {
             const body = await readBody(info.request)
             this.requests.push({ endpoint, method: info.request.method, url: info.request.url, body })
+            // A held read answers with the state at request time, and a held write lands only on release.
+            const read = info.request.method === 'GET' ? respond(info, body) : null
             await this.holds.get(endpoint)?.promise
             const failure = this.failureFor(endpoint)
             if (failure) {
                 return [failure.status, failure.body ?? { detail: 'The fake backend refused this request' }]
             }
-            return respond(info, body)
+            return read ?? respond(info, body)
         }
     }
 
