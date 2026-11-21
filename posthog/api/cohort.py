@@ -1997,24 +1997,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Resolved from whichever context shape the caller provided, so the check can't be skipped.
         return _team_from_serializer_context(self.context)
 
-    def _team_flag_enabled(self, team: Team, flag_key: str) -> bool:
-        return feature_enabled_or_false(
-            flag_key,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            send_feature_flag_events=False,
-        )
-
     def _is_static_cohort_replace_enabled(self) -> bool:
         team = _team_from_serializer_context(self.context)
         return team is not None and is_static_cohort_replace_enabled(team)
 
     def _validate_population_mode(self, attrs: dict) -> None:
-        if "population_mode" not in attrs or attrs["population_mode"] is None:
+        if "population_mode" not in attrs:
             return
 
         if not self._is_static_cohort_replace_enabled():
@@ -2050,7 +2038,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if team is None or user is None or not getattr(user, "is_authenticated", False):
             return
         # Gate on the same flag the enforcement in Database.create_for uses.
-        if not self._team_flag_enabled(team, "hogql-warehouse-access-control"):
+        if not feature_enabled_or_false(
+            "hogql-warehouse-access-control",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
             return
 
         # Check what survives the save, not just the fields in the payload.
@@ -3196,8 +3193,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             )
         from posthog.tasks.calculate_cohort import _recount_static_cohort, schedule_static_cohort_count_refresh
 
-        # save_state=False keeps is_calculating intact during an in-flight replace. Outside a replace we recount
-        # synchronously so the response reflects the new size; during a replace we debounce via the refresh task.
+        # save_state=False keeps is_calculating intact during an in-flight replace. Outside a replace, the count
+        # is recounted before the call returns. During one, the replace's finalize sets it.
         # Guarding the count cleanup in finally ensures even a partial batch error refreshes the count without masking
         # the insert failure.
         try:

@@ -2383,12 +2383,11 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
                 cohort.refresh_from_db()
                 self.assertTrue(cohort.population_copy_started)
 
-                # Turn off the kill switch before the retry runs; because this lineage already wrote
-                # replace rows to Postgres, it finishes converging instead of stranding stale members.
+                # Turn off the kill switch before the retry runs. An earlier attempt of this replace already copied
+                # rows into Postgres, so the retry finishes the replace and Postgres isn't left half pruned.
                 self.mock_replace_flag.return_value = False
                 clock.shift(10)
                 insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -2428,7 +2427,6 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
                 cohort.refresh_from_db()
                 self.assertFalse(cohort.population_copy_started)
 
@@ -2907,7 +2905,6 @@ class TestCohortCalculationTasks(APIBaseTest):
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
-                self.assertNotIn("pg_membership_written", scheduled.exception.sig.kwargs)
                 cohort.refresh_from_db()
                 self.assertEqual(cohort.population_copy_started, pg_already_written)
 
@@ -2930,7 +2927,7 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     def test_replace_319_then_pre_copy_failure_deletes_all_abandoned_rows_for_this_cohort_only(self) -> None:
         run = uuid4().hex[:8]
-        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
         other_person = create_person(team=self.team, distinct_ids=[f"{run}-other"], uuid=uuid4())
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -2995,7 +2992,6 @@ class TestCohortCalculationTasks(APIBaseTest):
             _static_cohort_rows(self.team.pk, other_cohort.pk), [(str(other_person.uuid), REPLACE_ROW_OFFSET)]
         )
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [])
-        self.assertIsNotNone(p1.id)
 
     def test_killed_replace_that_copied_then_redispatch_failing_before_copy_keeps_first_attempt_rows(self) -> None:
         run = uuid4().hex[:8]
@@ -3055,7 +3051,7 @@ class TestCohortCalculationTasks(APIBaseTest):
     def test_fresh_replace_failing_before_copy_keeps_earlier_failed_runs_copied_rows(self) -> None:
         run = uuid4().hex[:8]
         p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-a"}, uuid=uuid4())
-        p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], properties={"tag": f"{run}-b"}, uuid=uuid4())
+        create_person(team=self.team, distinct_ids=[f"{run}-p2"], properties={"tag": f"{run}-b"}, uuid=uuid4())
         flush_persons_and_events()
         cohort = Cohort.objects.create(
             team=self.team,
@@ -3093,11 +3089,10 @@ class TestCohortCalculationTasks(APIBaseTest):
         # Run A's p1 row at M1 survives (backing Postgres); run B's uncopied p2 row at M2 is deleted.
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [p1.id])
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p1.uuid), REPLACE_ROW_OFFSET)])
-        self.assertIsNotNone(p2.id)
 
     def test_failed_replace_cleanup_runs_while_cohort_is_still_locked_before_release(self) -> None:
         run = uuid4().hex[:8]
-        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
         p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], uuid=uuid4())
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -3137,13 +3132,12 @@ class TestCohortCalculationTasks(APIBaseTest):
             [(uuid4(), p2.uuid, cohort.pk, self.team.pk, new_marker, REPLACE_ROW_OFFSET)],
         )
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
-        self.assertIsNotNone(p1.id)
 
     def test_failed_replace_cleanup_keeps_rows_a_newer_run_writes_after_its_marker(self) -> None:
         # A contact import can release is_calculating without our run fields, so a new replace may claim, mint and
         # write before this run's cleanup is submitted. Its marker is later than every row this run wrote.
         run = uuid4().hex[:8]
-        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
         p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], uuid=uuid4())
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -3179,7 +3173,6 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         # This run's p1 row is gone; the newer run's p2 row is not.
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
-        self.assertIsNotNone(p1.id)
 
     def test_stuck_sweep_inside_failed_replace_finalize_leaves_the_run_alone(self) -> None:
         run = uuid4().hex[:8]

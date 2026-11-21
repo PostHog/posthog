@@ -1132,8 +1132,8 @@ def _replace_static_members(
         require_current_population_marker,
     )
 
-    # Check again once ClickHouse finishes when this execution minted the marker, so flipping the kill switch
-    # stops a slow query before any Postgres write or prune. Marker-carrying retries finish converging.
+    # Check the flag again unless an attempt has started copying into Postgres, since that replace must finish
+    # so Postgres isn't left half pruned.
     if check_replace_enabled and not is_static_cohort_replace_enabled(team):
         raise ReplaceDisabled(f"Static cohort replace is disabled for team {team_id}")
 

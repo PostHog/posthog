@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 blank=True,
                 choices=[("append", "Append"), ("replace", "Replace")],
-                help_text="How the claimed static population writes its matches: append adds them to the current members, and replace also removes the members the query no longer matches. Null if the cohort was never claimed for a population.",
+                help_text="How the claimed static population writes its matches: append adds them to the current members, and replace also removes the members the query no longer matches. Null when no population is pending.",
                 max_length=16,
                 null=True,
             ),
@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             name="population_marker",
             field=models.DateTimeField(
                 blank=True,
-                help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null when no replace is in flight.",
+                help_text="ClickHouse _timestamp of the current replace attempt. Every attempt stores a newer value, and an attempt that finds a different value stored stops writing. Null until the current attempt mints its marker, and when no replace is pending.",
                 null=True,
             ),
         ),
@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 db_default=False,
                 default=False,
-                help_text="Whether the current static cohort replace has started copying its own rows into Postgres. Survives worker kills so a sweep redispatch finishes converging even if the flag is turned off.",
+                help_text="Whether the current static cohort replace has started copying its own rows into Postgres. Kept across worker kills, so a sweep redispatch finishes the replace even if the flag is turned off, and Postgres isn't left half pruned.",
             ),
         ),
         migrations.AddField(

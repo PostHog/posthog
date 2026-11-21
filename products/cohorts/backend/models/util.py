@@ -1603,8 +1603,8 @@ def insert_cohort_people_into_pg(
     ``ReconcileSuperseded`` when false.
     """
 
-    def _copy_once() -> tuple[int, bool]:
-        return _copy_static_cohort_rows_to_pg(
+    for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
+        new_rows_read, any_counted_resolved = _copy_static_cohort_rows_to_pg(
             cohort,
             team_id=team_id,
             written_since=written_since,
@@ -1613,9 +1613,6 @@ def insert_cohort_people_into_pg(
             on_pg_write=on_pg_write,
             still_current=still_current,
         )
-
-    for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-        new_rows_read, any_counted_resolved = _copy_once()
         if new_rows_read >= min_rows:
             # ClickHouse can hold non-empty rows whose UUIDs do not correspond to any Person in Postgres.
             # Require at least one resolved counted person before pruning so Postgres keeps existing members
