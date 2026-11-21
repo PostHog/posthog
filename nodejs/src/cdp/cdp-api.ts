@@ -295,6 +295,9 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
+// A 503 refusal clears once the database answers again, which a failover takes seconds to reach.
+const TRANSACTIONAL_SEND_RETRY_AFTER_SECONDS = 5
+
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
@@ -1515,7 +1518,11 @@ export class CdpApi {
                     if ('refused' in result) {
                         return reply(result.refused.body.error, result.refused.status, result.refused.body)
                     }
-                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
+                    const status = TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome]
+                    if (status === 503) {
+                        res.set('Retry-After', String(TRANSACTIONAL_SEND_RETRY_AFTER_SECONDS))
+                    }
+                    return reply(result.outcome, status, {
                         error: result.outcome,
                         ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
                     })

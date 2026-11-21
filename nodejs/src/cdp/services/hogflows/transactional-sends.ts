@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
@@ -146,6 +147,22 @@ const isSkippedSendRefusal = (
     refusal === 'sending_paused' ||
     refusal === 'recipient_suppressed' ||
     refusal === 'recipient_unreachable'
+
+// These failures come before the insert reaches the database, so a retry cannot queue the send twice. Any other lost
+// connection may have come after the commit, and only an idempotency key lets its retry replay instead of send again.
+const UNSENT_CONNECTION_FAILURES = [
+    'query_wait_timeout',
+    'server login has been failing',
+    'no more connections allowed',
+    'timeout exceeded when trying to connect',
+    'Connection terminated due to connection timeout',
+    'ECONNREFUSED',
+    'Cannot use a pool after calling end on the pool',
+]
+
+const isRetryableQueueFailure = (error: unknown, keyed: boolean): boolean =>
+    isTransientPgError(error) &&
+    (keyed || (error instanceof Error && UNSENT_CONNECTION_FAILURES.some((m) => error.message.includes(m))))
 
 // The intake consumer counts the queued email and writes its status once it inserts the run, so a retry counts once.
 const producedResult = (
@@ -389,6 +406,9 @@ export class TransactionalSends {
         } catch (error) {
             if (isLockTimeout(error)) {
                 return { outcome: 'idempotency_unavailable' }
+            }
+            if (isRetryableQueueFailure(error, run.claim !== undefined)) {
+                return { outcome: 'intake_unavailable' }
             }
             throw error
         }

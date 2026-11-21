@@ -3276,6 +3276,21 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
             })
 
+            it.each([
+                ['a keyed send', 'query_wait_timeout', true, 503],
+                ['an unkeyed send', 'query_wait_timeout', false, 503],
+                ['a keyed send', 'Connection terminated unexpectedly', true, 503],
+                ['an unkeyed send', 'Connection terminated unexpectedly', false, 500],
+            ])('answers %s whose queue insert failed with %s', async (_, message, isKeyed, status) => {
+                mockQueueInvocations.mockRejectedValueOnce(new Error(message))
+
+                const res = await sendKeyed(isKeyed ? keyed : body)
+
+                expect({ status: res.status, retryAfter: res.headers['retry-after'] }).toEqual(
+                    status === 503 ? { status, retryAfter: '5' } : { status, retryAfter: undefined }
+                )
+            })
+
             it('returns the first scheduled send for a retry that names the same time in another offset', async () => {
                 const scheduledAt = new Date(Date.now() + 2 * DAY_MS)
                 scheduledAt.setUTCMilliseconds(0)
