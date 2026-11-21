@@ -29,8 +29,11 @@ describe('usage key resolvers', () => {
         expect(resolveAnalyticsUsageKey(event)).toBe(expected)
     })
 
-    it('bills everything on the ai lane under the ai key', () => {
-        expect(resolveAiUsageKey('$ai_generation')).toBe(AI_EVENTS_USAGE_KEY)
-        expect(resolveAiUsageKey('$ai_not_a_real_event')).toBe(AI_EVENTS_USAGE_KEY)
+    it.each([
+        ['$ai_generation', AI_EVENTS_USAGE_KEY],
+        ['$ai_not_a_real_event', AI_EVENTS_USAGE_KEY],
+        ['$mcp_tool_call', EVENTS_USAGE_KEY],
+    ])('resolveAiUsageKey bills %s under %s', (event, expected) => {
+        expect(resolveAiUsageKey(event)).toBe(expected)
     })
 })

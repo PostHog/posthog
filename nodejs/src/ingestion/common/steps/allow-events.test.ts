@@ -50,15 +50,18 @@ describe('createAllowEventsStep', () => {
     })
 
     describe('createAllowEventPrefixStep', () => {
-        const prefixStep = createAllowEventPrefixStep('$ai_')
+        const prefixStep = createAllowEventPrefixStep(['$ai_', '$mcp_'])
 
-        it.each(['$ai_generation', '$ai_custom_metric', '$ai_'])('passes through %s', async (eventName) => {
-            const input = makeInput(eventName)
+        it.each(['$ai_generation', '$ai_custom_metric', '$ai_', '$mcp_tool_call'])(
+            'passes through %s',
+            async (eventName) => {
+                const input = makeInput(eventName)
 
-            expect(await prefixStep(input)).toEqual(ok(input))
-        })
+                expect(await prefixStep(input)).toEqual(ok(input))
+            }
+        )
 
-        it.each(['$pageview', 'ai_generation', '$AI_generation', ' $ai_generation', '$ai'])(
+        it.each(['$pageview', 'ai_generation', '$AI_generation', ' $ai_generation', '$ai', '$mcp'])(
             'DLQs %s with the prefix mismatch reason',
             async (eventName) => {
                 expect(await prefixStep(makeInput(eventName))).toEqual(dlq('event_name_prefix_mismatch'))
