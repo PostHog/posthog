@@ -126,8 +126,8 @@ class TestDashboardCachedTiles(APIBaseTest):
             {"tile_ids": ",".join(str(tile_id) for tile_id in tile_ids), **(params or {})},
         )
 
-    def _statuses(self, tile_ids: list[int]) -> list[tuple[int, str]]:
-        response = self._cached_tiles(tile_ids)
+    def _statuses(self, tile_ids: list[int], params: dict[str, str] | None = None) -> list[tuple[int, str]]:
+        response = self._cached_tiles(tile_ids, params)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return [(tile["id"], tile["status"]) for tile in response.json()["results"]]
 
@@ -164,6 +164,19 @@ class TestDashboardCachedTiles(APIBaseTest):
             (1, 1),
         )
         assert _without_run_ids(payload) == self.snapshot
+
+    def test_frames_format_leaves_tiles_without_frames_as_they_are(self) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        result = self._per_tile(insight_id, "force_cache")["result"]
+
+        response = self._cached_tiles([tile_id], {"format": "frames"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        [tile] = response.json()["results"]
+        self.assertEqual((tile["status"], tile["format"]), ("hit", "result"))
+        self.assertNotIn("frames", tile)
+        self.assertEqual(tile["insight"]["result"], result)
 
     def test_dashboard_filter_override_reads_its_own_cache_entry(self) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
@@ -299,7 +312,10 @@ class TestDashboardCachedTiles(APIBaseTest):
 
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(self) -> None:
+    @parameterized.expand([("result", {}), ("frames", {"format": "frames"})])
+    def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(
+        self, _name: str, params: dict[str, str]
+    ) -> None:
         # Raw SQL tiles, because their cache keys look up warehouse names in Postgres.
         tiles = [
             self._add_insight_tile(event, _sql_count_query(event))
@@ -308,12 +324,12 @@ class TestDashboardCachedTiles(APIBaseTest):
         for insight_id, _ in tiles:
             self._per_tile(insight_id, "blocking")
         tile_ids = [tile_id for _, tile_id in tiles]
-        self._statuses(tile_ids)
+        self._statuses(tile_ids, params)
 
         with CaptureQueriesContext(connection) as one_tile, _count_redis_round_trips() as one_tile_redis:
-            self.assertEqual(self._statuses(tile_ids[:1]), [(tile_ids[0], "hit")])
+            self.assertEqual(self._statuses(tile_ids[:1], params), [(tile_ids[0], "hit")])
         with CaptureQueriesContext(connection) as four_tiles, _count_redis_round_trips() as four_tile_redis:
-            self.assertEqual(self._statuses(tile_ids), [(tile_id, "hit") for tile_id in tile_ids])
+            self.assertEqual(self._statuses(tile_ids, params), [(tile_id, "hit") for tile_id in tile_ids])
 
         self.assertEqual(len(four_tiles.captured_queries), len(one_tile.captured_queries))
         self.assertEqual(

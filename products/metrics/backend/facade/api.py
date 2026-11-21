@@ -19,7 +19,7 @@ from django.db import connection
 
 import structlog
 
-from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -105,6 +105,7 @@ from products.metrics.backend.metric_query_runner import (
     _align_to_interval,
     _interval_step,
     _pick_interval,
+    _resolve_interval,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
@@ -135,9 +136,10 @@ from products.metrics.backend.query_counts import (
     record_metric_queries,
     record_promql_query as _record_promql_query,
 )
+from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.recording_rules import logic as recording_rule_logic
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
-from products.metrics.backend.variables import from_dashboard, with_values
+from products.metrics.backend.variables import from_dashboard, from_query, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -804,6 +806,13 @@ def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None
     resolved = interval or DEFAULT_INSTANT_INTERVAL
     end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
     return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
+
+
+def metrics_query_interval(*, query: MetricsQuery, date_from: dt.datetime, date_to: dt.datetime) -> str:
+    """The bucket interval a MetricsQuery runs at over this range: its own or the auto pick, coarsened to the bucket limit."""
+    return _resolve_interval(
+        date_from, date_to, resolve_query_interval(query.interval, from_query(query.variables), date_from, date_to)
+    )
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
