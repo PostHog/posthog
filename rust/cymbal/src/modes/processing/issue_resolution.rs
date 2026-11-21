@@ -53,6 +53,16 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SpikingIssue {
+    pub issue: Issue,
+    pub props: ProcessedExceptionProperties,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
+    pub computed_baseline: f64,
+    pub current_bucket_value: i64,
+}
+
 pub struct IssueWithFirstSeen {
     pub id: Uuid,
     pub team_id: i32,
@@ -641,13 +651,10 @@ pub async fn send_issue_reopened_notification(
 
 pub async fn send_issue_spiking_notification(
     context: &AppContext,
-    issue: &Issue,
-    processed_properties: ProcessedExceptionProperties,
-    event_uuid: Uuid,
-    event_timestamp: &str,
-    computed_baseline: f64,
-    current_bucket_value: f64,
+    spike: &SpikingIssue,
+    change_id: Option<Uuid>,
 ) -> Result<(), UnhandledError> {
+    let issue = &spike.issue;
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
         EventPropertiesLimits {
@@ -655,9 +662,9 @@ pub async fn send_issue_spiking_notification(
             max_bytes: context.config.event_properties_max_bytes,
         },
         issue.team_id,
-        event_uuid,
+        spike.event_uuid,
         "issue_spiking",
-        &processed_properties,
+        &spike.props,
     )
     .await;
     let assignment = issue
@@ -670,11 +677,12 @@ pub async fn send_issue_spiking_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
             meta: notification_meta(issue),
-            issue: issue_notification_context(issue, processed_properties),
-            event_uuid,
-            event_timestamp: event_timestamp.to_string(),
-            computed_baseline,
-            current_bucket_value,
+            change_id,
+            issue: issue_notification_context(issue, spike.props.clone()),
+            event_uuid: spike.event_uuid,
+            event_timestamp: spike.event_timestamp.clone(),
+            computed_baseline: spike.computed_baseline,
+            current_bucket_value: spike.current_bucket_value as f64,
             assignee: assignment_to_string(assignment)?,
         }),
     )

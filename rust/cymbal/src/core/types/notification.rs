@@ -245,6 +245,8 @@ pub struct IssueReopened {
 pub struct IssueSpiking {
     #[serde(flatten)]
     pub meta: NotificationMeta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_id: Option<Uuid>,
     #[serde(flatten)]
     pub issue: IssueNotificationContext,
     #[serde(default)]
@@ -387,6 +389,7 @@ mod tests {
             computed_baseline: 2.5,
             current_bucket_value: 20.0,
             assignee: None,
+            change_id: None,
         });
         let mut legacy_json = serde_json::to_value(notification).unwrap();
         let object = legacy_json.as_object_mut().unwrap();

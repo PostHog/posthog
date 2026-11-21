@@ -1,4 +1,5 @@
 use common_temporal::StartWorkflowOutcome;
+use tracing::error;
 
 use crate::core::{
     error::UnhandledError,
@@ -59,6 +60,18 @@ pub async fn handle_issue_spiking(
     context: &NotificationsContext,
     notification: IssueSpiking,
 ) -> Result<(), UnhandledError> {
+    if let Some(writer) = &context.spike_change_writer {
+        if let Err(error) = writer.record(&notification).await {
+            error!(
+                team_id = notification.meta.team_id,
+                notification_id = %notification.meta.notification_id,
+                change_id = ?notification.change_id,
+                error = %error,
+                "Failed to record spiking change"
+            );
+            return Err(error);
+        }
+    }
     context
         .issue_lifecycle_workflow_starters
         .start_spiking(&notification)

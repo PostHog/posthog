@@ -315,6 +315,7 @@ mod tests {
             computed_baseline: 2.0,
             current_bucket_value: 20.0,
             assignee: None,
+            change_id: None,
         }
     }
 

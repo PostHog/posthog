@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::core::error::UnhandledError;
 use crate::modes::notifications::config::NotificationsConfig;
+use crate::modes::notifications::issue_changes::SpikeChangeWriter;
 use crate::modes::notifications::rate_limit::IssueCreatedRateLimiter;
 use crate::modes::notifications::temporal::IssueLifecycleWorkflowStarters;
 
@@ -9,6 +10,7 @@ use crate::modes::notifications::temporal::IssueLifecycleWorkflowStarters;
 pub struct NotificationsContext {
     pub issue_lifecycle_workflow_starters: IssueLifecycleWorkflowStarters,
     pub issue_created_limiter: Arc<IssueCreatedRateLimiter>,
+    pub spike_change_writer: Option<SpikeChangeWriter>,
 }
 
 impl NotificationsContext {
@@ -17,6 +19,7 @@ impl NotificationsContext {
             issue_lifecycle_workflow_starters: IssueLifecycleWorkflowStarters::from_config(config)
                 .await?,
             issue_created_limiter: Arc::new(IssueCreatedRateLimiter::from_config(config).await?),
+            spike_change_writer: SpikeChangeWriter::from_config(config)?,
         })
     }
 }
