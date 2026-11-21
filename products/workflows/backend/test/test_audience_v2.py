@@ -230,7 +230,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
             "dedupe_preview": lambda: get_dedupe_audience_count_v2(self.team, filters, "email"),
             "send": lambda: get_batch_audience_person_ids(self.team, filters),
             "snapshot_send": lambda: get_batch_audience_person_ids_snapshot(
-                self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings()
+                self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings(), user=None
             ),
         }[path]
 

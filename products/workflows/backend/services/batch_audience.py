@@ -17,6 +17,7 @@ from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import Property, PropertyValidationError
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
@@ -148,6 +149,7 @@ def get_batch_audience_person_ids_snapshot(
     dedupe_key: Optional[str],
     limit: int,
     settings: HogQLGlobalSettings,
+    user: Optional[User],
 ) -> list[str]:
     """
     The whole person audience in one query, in person id order, for a run that resolves its audience
@@ -167,6 +169,8 @@ def get_batch_audience_person_ids_snapshot(
             workload=Workload.OFFLINE,
             # The cohort limit context lets the explicit LIMIT above exceed the interactive row cap.
             limit_context=LimitContext.COHORT_CALCULATION,
+            # Warehouse tables and views the audience reads are checked against this user's access.
+            user=user,
         )
 
     return [str(row[0]) for row in response.results] if response.results else []
