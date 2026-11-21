@@ -118,7 +118,7 @@ class _Transformer(CloningVisitor):
         self.held: set[int] = set()
 
     def visit(self, node: ast.AST | None):
-        if id(node) in self.held:
+        if node is not None and id(node) in self.held:
             return clone_expr(node, clear_types=True)
         return super().visit(node)
 
