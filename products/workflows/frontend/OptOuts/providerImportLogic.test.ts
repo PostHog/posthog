@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 
@@ -100,6 +101,7 @@ describe('providerImportLogic', () => {
                     return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
                 },
                 '/api/projects/:team_id/messaging_provider_imports/:id/': () => [200, retrieved],
+                '/api/environments/:team_id/messaging_templates/': () => [200, { results: [] }],
             },
             post: {
                 '/api/projects/:team_id/messaging_provider_imports/': async ({ request }) => {
@@ -147,6 +149,10 @@ describe('providerImportLogic', () => {
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
+        const templatesLogic = messageTemplatesLogic()
+        await expectLogic(templatesLogic, () => {
+            templatesLogic.mount()
+        }).toDispatchActions(['loadTemplatesSuccess'])
         await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
         jest.useFakeTimers()
         logic.actions.toggleImportStep('categories')
@@ -170,6 +176,8 @@ describe('providerImportLogic', () => {
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
         expect(customerIOLogic.values.stepCompletion.step1).toBe('completed')
+        await expectLogic(templatesLogic).toDispatchActions(['loadTemplates'])
+        templatesLogic.unmount()
 
         const callsWhenFinished = listCalls
         await jest.advanceTimersByTimeAsync(10000)

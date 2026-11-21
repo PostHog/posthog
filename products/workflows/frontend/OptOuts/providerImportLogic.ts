@@ -20,6 +20,8 @@ import type {
     ProviderImportRunApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
+import { transactionalTemplatesLogic } from '../Transactional/transactionalTemplatesLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
 
@@ -574,6 +576,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
                         )
                     }
                     optOutCategoriesLogic.findMounted()?.actions.loadCategories()
+                    messageTemplatesLogic.findMounted()?.actions.loadTemplates()
+                    transactionalTemplatesLogic.findMounted()?.actions.loadTransactionalTemplates()
                 }
             }
             actions.setTrackedImportRunIds(activeIds)
