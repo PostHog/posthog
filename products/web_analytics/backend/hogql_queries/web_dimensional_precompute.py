@@ -32,6 +32,7 @@ from django.conf import settings
 from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions_v3 import SESSIONS_V3_COVERAGE_START_BY_REGION
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
@@ -374,15 +375,11 @@ DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
 )
 
 
-# The sessions v3 table holds every session only from the day its backfill reached, per Cloud region.
-# A region missing here has no complete v3 history yet, so a v3 team there gets no dimensional days.
-SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
-    "US": datetime(2026, 10, 1, tzinfo=UTC),
-}
 _NO_SESSIONS_COVERAGE = datetime.max.replace(tzinfo=UTC)
 
 
 def sessions_coverage_floor(modifiers: HogQLQueryModifiers) -> datetime | None:
+    # A v3 team in a region without an entry in SESSIONS_V3_COVERAGE_START_BY_REGION gets no dimensional days.
     # A window before the floor builds as if no sessions existed: empty for the stats template, and
     # without entry dimensions or bounces for the rest. The writer must not build it and reads must
     # not serve it. Off Cloud the v3 materialized view fills the table natively, so it has no floor.

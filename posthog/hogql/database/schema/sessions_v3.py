@@ -1,4 +1,5 @@
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.hogql import ast
@@ -37,6 +38,12 @@ if TYPE_CHECKING:
 
     from posthog.models.team import Team
 
+
+# The day each Cloud region's raw_sessions_v3 holds every session from, once its backfill reached it. A region
+# missing here has no complete v3 history yet, so a query over it must read the v2 table.
+SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
+    "US": datetime(2026, 10, 1, tzinfo=UTC),
+}
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),

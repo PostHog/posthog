@@ -2,11 +2,24 @@ from datetime import UTC, datetime
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange
+from posthog.schema import (
+    DateRange,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    RecordingsQuery,
+    SessionPropertyFilter,
+    SessionTableVersion,
+)
 
+from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 
 
@@ -68,3 +81,102 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
 
         assert query_date_range.date_from() == expected_date_from
         assert query_date_range.date_to() == expected_date_to
+
+
+@time_machine.travel("2026-11-13T12:00:00", tick=False)
+class TestReplaySessionsTableVersion(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("recent_range_in_a_covered_region", {"date_from": "-7d"}, "US", None, None, {}, SessionTableVersion.V3),
+            ("last_30_days_in_a_covered_region", {"date_from": "-30d"}, "US", None, None, {}, SessionTableVersion.V3),
+            ("range_longer_than_30_days", {"date_from": "-60d"}, "US", None, None, {}, None),
+            ("range_before_the_coverage_start", {"date_from": "2026-09-25"}, "US", None, None, {}, None),
+            ("region_without_coverage", {"date_from": "-7d"}, "EU", None, None, {}, None),
+            ("team_pins_v2", {"date_from": "-7d"}, "US", "v2", None, {}, None),
+            ("request_pins_v2", {"date_from": "-7d"}, "US", None, SessionTableVersion.V2, {}, SessionTableVersion.V2),
+            (
+                "pinned_recent_session_ids",
+                {"date_from": "-60d", "session_ids": [str(uuid7("2026-11-10"))]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                SessionTableVersion.V3,
+            ),
+            (
+                "pinned_session_id_before_the_coverage_start",
+                {"date_from": "-7d", "session_ids": [str(uuid7("2026-11-10")), str(uuid7("2026-09-01"))]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                None,
+            ),
+            (
+                "pinned_session_id_without_a_timestamp",
+                {"date_from": "-7d", "session_ids": ["custom-session-id"]},
+                "US",
+                None,
+                None,
+                {"bypass_date_window_for_session_ids": True},
+                None,
+            ),
+            (
+                "flag_off",
+                {"date_from": "-7d"},
+                "US",
+                None,
+                None,
+                {},
+                None,
+                False,
+            ),
+            (
+                "hogql_filter_on_a_field_only_v2_has",
+                {"date_from": "-7d", "properties": [HogQLPropertyFilter(key="session.$vitals_lcp > 2500")]},
+                "US",
+                None,
+                None,
+                {},
+                None,
+            ),
+            (
+                "filter_on_a_field_only_v2_has",
+                {
+                    "date_from": "-7d",
+                    "properties": [SessionPropertyFilter(key="$vitals_lcp", value=2.5, operator=PropertyOperator.GT)],
+                },
+                "US",
+                None,
+                None,
+                {},
+                None,
+            ),
+        ]
+    )
+    def test_recent_ranges_read_sessions_v3(
+        self, _name, query_kwargs, region, team_version, requested_version, list_kwargs, expected_version, flag_on=True
+    ) -> None:
+        if team_version:
+            self.team.modifiers = {"sessionTableVersion": team_version}
+            self.team.save()
+        query = SessionRecordingListFromQuery(
+            team=self.team,
+            query=RecordingsQuery(**query_kwargs),
+            hogql_query_modifiers=HogQLQueryModifiers(sessionTableVersion=requested_version)
+            if requested_version
+            else None,
+            **list_kwargs,
+        )
+
+        with (
+            patch("posthog.session_recordings.queries.session_recording_list_from_query.is_cloud", return_value=True),
+            patch(
+                "posthog.session_recordings.queries.session_recording_list_from_query.feature_enabled_or_false",
+                return_value=flag_on,
+            ),
+            override_settings(CLOUD_DEPLOYMENT=region),
+        ):
+            modifiers = query._execution_modifiers
+
+        assert (modifiers.sessionTableVersion if modifiers else None) == expected_version
