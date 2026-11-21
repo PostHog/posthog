@@ -95,6 +95,9 @@ database "posthog" {
     column "_partition" {
       type = "UInt64"
     }
+    # ALTER TABLE ADD COLUMN appended the two map columns, so the live tables list
+    # them after _partition. Add new columns at the end to keep the declared order
+    # equal to the live order.
     column "properties_group_custom" {
       type = "Map(String, String)"
     }
