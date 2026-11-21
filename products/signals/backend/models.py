@@ -1262,12 +1262,12 @@ class SignalReport(UUIDModel):
             team_id=team_id, task_id__in=task_ids
         ).values_list("task_id", "report_id", "relationship"):
             add(task_id, report_id, task_run_identifier_for_legacy_relationship(relationship))
-        for task_id, report_id in SignalReportAssignment.all_teams.filter(
+        for actor_task_id, report_id in SignalReportAssignment.all_teams.filter(
             team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
         ).values_list("actor_task_id", "report_id"):
-            add(task_id, report_id, None)
-        for task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
-            add(task_id, source_id, None)
+            add(actor_task_id, report_id, None)
+        for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
+            add(source_task_id, source_id, None)
 
         targets: set[str] = set()
         for task_id in task_ids:
