@@ -317,6 +317,32 @@ def _property_removal_where(
 QueryLogger = Callable[[str, str], None]
 
 
+def _affected_typed_columns(
+    client: Client, deletion_request: DeletionRequestContext, target: DeletionTarget, log: QueryLogger | None = None
+) -> tuple[list[tuple[str, bool]], list[tuple[str, bool]]]:
+    """The typed columns of ``target`` that derive from the request's properties and person properties.
+
+    A table with no typed columns, such as events_json, has no column comments and so yields nothing.
+    On the native JSON tables a typed column can read temporary_properties. A request lists those keys
+    in its properties, so discovery matches columns that read either column.
+    """
+    mat_cols: list[tuple[str, bool]] = []
+    person_mat_cols: list[tuple[str, bool]] = []
+    if deletion_request.properties:
+        mat_cols = _get_affected_mat_columns(
+            client,
+            target.read_table,
+            deletion_request.properties,
+            table_columns=("properties", "temporary_properties"),
+            log=log,
+        )
+    if deletion_request.person_properties:
+        person_mat_cols = _get_affected_mat_columns(
+            client, target.read_table, deletion_request.person_properties, table_columns=("person_properties",), log=log
+        )
+    return mat_cols, person_mat_cols
+
+
 def _get_affected_mat_columns(
     client: Client,
     table: str,
@@ -632,8 +658,16 @@ def _refuse_property_removal_unsweepable(
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
+        # A typed column keeps a removed value after its JSON key is gone, so the count reads it too.
+        mat_cols, person_mat_cols = cluster.any_host(
+            partial(_affected_typed_columns, deletion_request=deletion_request, target=target)
+        ).result()
         return _property_removal_where(
-            deletion_request, inserted_at_max=marker_str, json_schema=target.stores_native_json_properties
+            deletion_request,
+            mat_cols=mat_cols,
+            person_mat_cols=person_mat_cols,
+            inserted_at_max=marker_str,
+            json_schema=target.stores_native_json_properties,
         )
 
     _refuse_unsweepable(
@@ -1276,23 +1310,7 @@ def _shard_predicate(
     the same ``inserted_at < marker`` bound, so they cannot drift. Drift either deletes rows the copy
     does not hold or leaves originals behind.
     """
-    # A table with no typed columns, such as events_json, has no column comments and so yields nothing.
-    # On the native JSON tables a typed column can read temporary_properties. A request lists those keys
-    # in its properties, so discovery matches columns that read either column.
-    mat_cols: list[tuple[str, bool]] = []
-    person_mat_cols: list[tuple[str, bool]] = []
-    if deletion_request.properties:
-        mat_cols = _get_affected_mat_columns(
-            client,
-            target.read_table,
-            deletion_request.properties,
-            table_columns=("properties", "temporary_properties"),
-            log=log,
-        )
-    if deletion_request.person_properties:
-        person_mat_cols = _get_affected_mat_columns(
-            client, target.read_table, deletion_request.person_properties, table_columns=("person_properties",), log=log
-        )
+    mat_cols, person_mat_cols = _affected_typed_columns(client, deletion_request, target, log)
     sql, params = _property_removal_where(
         deletion_request,
         mat_cols=mat_cols,
