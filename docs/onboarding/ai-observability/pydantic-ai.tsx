@@ -84,7 +84,8 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                 <>
                     <Markdown>
                         Create a Pydantic AI agent and run it. PostHog automatically captures an `$ai_generation` event
-                        for each LLM call via the OTel instrumentation.
+                        for each LLM call via the OTel instrumentation. Tool calls appear as `$ai_span` events, with
+                        arguments and results available in the Conversation view.
                     </Markdown>
 
                     <CodeBlock

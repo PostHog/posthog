@@ -2,6 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { liftStopReasonFromOutputChoices } from './stop-reason'
+import { readToolState } from './tool-state'
 import { OtelLibraryMiddleware } from './types'
 
 const LOGFIRE_STRIP_KEYS = [
@@ -13,6 +14,9 @@ const LOGFIRE_STRIP_KEYS = [
     'gen_ai.usage.details.input_tokens',
     'gen_ai.usage.details.output_tokens',
 ]
+
+const TOOL_ARGUMENT_KEYS = ['gen_ai.tool.call.arguments', 'tool_arguments']
+const TOOL_RESULT_KEYS = ['gen_ai.tool.call.result', 'tool_response']
 
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
@@ -92,27 +96,13 @@ function process(event: PluginEvent, next: () => void): void {
     }
 
     if (event.event === '$ai_span') {
-        if (props['tool_arguments'] !== undefined) {
-            let toolArgs = props['tool_arguments']
-            if (typeof toolArgs === 'string') {
-                try {
-                    toolArgs = parseJSON(toolArgs)
-                } catch {
-                    // Keep original string
-                }
-            }
+        const toolArgs = readToolState(props, TOOL_ARGUMENT_KEYS)
+        if (toolArgs !== undefined) {
             props['$ai_input_state'] = toolArgs
         }
 
-        if (props['tool_response'] !== undefined) {
-            let toolResponse = props['tool_response']
-            if (typeof toolResponse === 'string') {
-                try {
-                    toolResponse = parseJSON(toolResponse)
-                } catch {
-                    // Keep original string
-                }
-            }
+        const toolResponse = readToolState(props, TOOL_RESULT_KEYS)
+        if (toolResponse !== undefined) {
             props['$ai_output_state'] = toolResponse
         }
 
@@ -120,8 +110,9 @@ function process(event: PluginEvent, next: () => void): void {
             props['$ai_span_name'] = props['gen_ai.tool.name']
         }
 
-        delete props['tool_arguments']
-        delete props['tool_response']
+        for (const key of [...TOOL_ARGUMENT_KEYS, ...TOOL_RESULT_KEYS]) {
+            delete props[key]
+        }
         delete props['gen_ai.tool.name']
         delete props['gen_ai.tool.call.id']
     }
