@@ -2111,8 +2111,9 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Requires task_id. When true, keeps only the reports that the task's pull requests and commits "
-            "link to: its source report and its pipeline, legacy and assignment associations. A report that "
-            "the task only claimed is kept only when the task has no other report."
+            "link to: its source report, the reports the task attached a pull request to, and its pipeline, "
+            "legacy and assignment associations. A report that the task only claimed is kept only when the "
+            "task has no other report."
         ),
     ),
     OpenApiParameter(
