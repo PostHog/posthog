@@ -1,5 +1,9 @@
+import contextlib
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
@@ -12,6 +16,7 @@ from products.customer_analytics.backend.models import Announcement, Announcemen
 from products.customer_analytics.backend.tasks import send_announcement
 
 POST = "products.customer_analytics.backend.logic.announcements.post_support_message"
+CAPTURE = "products.customer_analytics.backend.logic.announcement_monitoring.ph_background_capture"
 
 
 class TestSendAnnouncement(BaseTest):
@@ -31,6 +36,9 @@ class TestSendAnnouncement(BaseTest):
 
     def _delivery(self, announcement: Announcement, channel_id: str) -> AnnouncementDelivery:
         return AnnouncementDelivery.all_teams.get(announcement=announcement, slack_channel_id=channel_id)
+
+    def _captured(self, mock_capture: MagicMock) -> dict[str, dict]:
+        return {c.kwargs["event"]: c.kwargs["properties"] for c in mock_capture.return_value.call_args_list}
 
     @patch(POST)
     def test_all_channels_succeed(self, mock_post: MagicMock):
@@ -100,8 +108,9 @@ class TestSendAnnouncement(BaseTest):
         assert failed.status == AnnouncementDelivery.Status.FAILED
         assert failed.error == "not_in_channel"
 
+    @patch(CAPTURE)
     @patch(POST)
-    def test_no_slack_credentials_fails_all(self, mock_post: MagicMock):
+    def test_no_slack_credentials_fails_all(self, mock_post: MagicMock, mock_capture: MagicMock):
         mock_post.side_effect = SupportSlackNotConfigured()
 
         announcement = self._make(["C1", "C2"])
@@ -112,6 +121,42 @@ class TestSendAnnouncement(BaseTest):
         assert announcement.failed_count == 2
         assert "not connected" in self._delivery(announcement, "C1").error
         assert mock_post.call_count == 1
+        assert self._captured(mock_capture)["customer_analytics_announcement_send"]["error_code"] == (
+            "slack_not_configured"
+        )
+
+    @parameterized.expand(
+        [
+            ("sent", "1.0", "sent", None, 0),
+            ("slack_error", SupportMessageSendError("not_in_channel"), "failed", "not_in_channel", 0),
+            ("rate_limited", SupportMessageSendError("ratelimited", retry_after=30.0), "deferred", "ratelimited", 1),
+            # The exception message can carry customer text, so only the class name is sent.
+            ("unexpected_error", ValueError("text from the channel"), "failed", "ValueError", 0),
+        ]
+    )
+    @patch(CAPTURE)
+    @patch(POST)
+    def test_each_post_emits_a_delivery_event(
+        self,
+        _name: str,
+        post_result: object,
+        outcome: str,
+        error_code: str | None,
+        deferred: int,
+        mock_post: MagicMock,
+        mock_capture: MagicMock,
+    ):
+        mock_post.side_effect = [post_result]
+
+        with contextlib.suppress(AnnouncementRateLimited):
+            send_announcement(str(self._make(["C1"]).id), self.team.pk)
+
+        events = self._captured(mock_capture)
+        delivery = events["customer_analytics_announcement_delivery"]
+        assert (delivery["outcome"], delivery.get("error_code")) == (outcome, error_code)
+        assert delivery["post_seconds"] >= 0
+        send = events["customer_analytics_announcement_send"]
+        assert (send["posted"], send["deferred"]) == (1, deferred)
 
     @patch(POST)
     def test_rerun_does_not_repost_to_already_sent_channels(self, mock_post: MagicMock):

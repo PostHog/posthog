@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
@@ -23,6 +24,11 @@ from products.customer_analytics.backend.constants import (
     DELIVERY_RATE_LIMIT_DEFERRED_ERROR,
 )
 from products.customer_analytics.backend.facade.contracts import AnnouncementChannelView, AnnouncementValidationError
+from products.customer_analytics.backend.logic.announcement_monitoring import (
+    DeliveryOutcome,
+    capture_announcement_delivery,
+    capture_announcement_send,
+)
 from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
 
 if TYPE_CHECKING:
@@ -155,7 +161,7 @@ def _customer_names_by_channel(team_id: int) -> dict[str, str]:
     return result
 
 
-def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
+def send_pending_deliveries(announcement_id: str, team_id: int, attempt: int = 1) -> None:
     announcement = Announcement.objects.for_team(team_id).filter(id=announcement_id).first()
     if not announcement:
         logger.warning("announcement_not_found", announcement_id=announcement_id, team_id=team_id)
@@ -179,17 +185,22 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
         )
         pending = [delivery for delivery in pending if delivery.id not in interrupted_ids]
 
+    started_at = time.monotonic()
     if announcement.status == Announcement.Status.PENDING:
         announcement.status = Announcement.Status.SENDING
         announcement.save(update_fields=["status", "updated_at"])
 
     sender = _announcement_sender(announcement)
+    posted = 0
     deferred = 0
+    run_error_code: str | None = None
     for delivery in pending:
         try:
+            posted += 1
             if not _deliver_to_channel(team_id, delivery, announcement.message, sender):
                 deferred += 1
         except SupportSlackNotConfigured:
+            run_error_code = "slack_not_configured"
             logger.warning("announcement_no_slack_credentials", announcement_id=announcement_id, team_id=team_id)
             AnnouncementDelivery.objects.filter(
                 announcement_id=announcement.id, status=AnnouncementDelivery.Status.PENDING
@@ -209,6 +220,23 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
         sent=announcement.sent_count,
         failed=announcement.failed_count,
         deferred=deferred,
+    )
+    capture_announcement_send(
+        team_id=team_id,
+        announcement_id=str(announcement.id),
+        attempt=attempt,
+        status=announcement.status,
+        total_channels=announcement.total_channels,
+        sent_count=announcement.sent_count,
+        failed_count=announcement.failed_count,
+        posted=posted,
+        deferred=deferred,
+        interrupted=len(interrupted_ids),
+        duration_seconds=time.monotonic() - started_at,
+        seconds_to_finish=(
+            (announcement.sent_at - announcement.created_at).total_seconds() if announcement.sent_at else None
+        ),
+        error_code=run_error_code,
     )
     if deferred:
         # Ride the task's autoretry backoff instead of sleeping in the worker.
@@ -230,6 +258,8 @@ def _deliver_to_channel(
     # can never lead to a double post on retry.
     delivery.error = DELIVERY_IN_FLIGHT_ERROR
     delivery.save(update_fields=["error", "updated_at"])
+    error_code: str | None = None
+    started_at = time.monotonic()
     try:
         delivery.slack_message_ts = post_support_message(team_id, delivery.slack_channel_id, message, sender=sender)
         delivery.status = AnnouncementDelivery.Status.SENT
@@ -238,17 +268,30 @@ def _deliver_to_channel(
     except SupportMessageSendError as e:
         if e.code == "ratelimited" and not was_rate_limit_deferred:
             # Leave the row pending for the task's autoretry; one deferral per row.
+            post_seconds = time.monotonic() - started_at
             delivery.error = DELIVERY_RATE_LIMIT_DEFERRED_ERROR
             delivery.save(update_fields=["error", "updated_at"])
+            _capture_delivery(team_id, delivery, sender, "deferred", post_seconds, e.code, e.retry_after)
             return False
         delivery.status = AnnouncementDelivery.Status.FAILED
         delivery.error = e.code[:2000]
+        error_code = e.code
     except SupportSlackNotConfigured:
         raise
     except Exception as e:
         delivery.status = AnnouncementDelivery.Status.FAILED
         delivery.error = str(e)[:2000]
+        error_code = type(e).__name__
+    post_seconds = time.monotonic() - started_at
     delivery.save(update_fields=["status", "slack_message_ts", "sent_at", "error", "updated_at"])
+    _capture_delivery(
+        team_id,
+        delivery,
+        sender,
+        "sent" if delivery.status == AnnouncementDelivery.Status.SENT else "failed",
+        post_seconds,
+        error_code,
+    )
     logger.info(
         "announcement_channel_delivery",
         announcement_id=str(delivery.announcement_id),
@@ -259,6 +302,27 @@ def _deliver_to_channel(
         error=delivery.error or None,
     )
     return True
+
+
+def _capture_delivery(
+    team_id: int,
+    delivery: AnnouncementDelivery,
+    sender: SupportSlackSender | None,
+    outcome: DeliveryOutcome,
+    post_seconds: float,
+    error_code: str | None = None,
+    retry_after_seconds: float | None = None,
+) -> None:
+    capture_announcement_delivery(
+        team_id=team_id,
+        announcement_id=str(delivery.announcement_id),
+        outcome=outcome,
+        send_as=Announcement.SendAs.BOT if sender is None else Announcement.SendAs.USER,
+        post_seconds=post_seconds,
+        seconds_since_created=(timezone.now() - delivery.created_at).total_seconds(),
+        error_code=error_code,
+        retry_after_seconds=retry_after_seconds,
+    )
 
 
 def _recompute_announcement_status(announcement: Announcement) -> None:
