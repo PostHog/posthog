@@ -46,23 +46,27 @@ function toError(spec: ParityError): Error {
 
 type CapturedMessage = { batch: number; output: string; message: IngestionOutputMessage }
 
-class CapturingIngestionOutputs extends IngestionOutputs<string> {
+type ProduceFault<E> = { output: string; team_id?: string; times: number; error: E }
+
+/** Captures every produced message, after failing the produces that `faults` name. The metrics parity harness shares it. */
+export class CapturingIngestionOutputs<E = ParityError> extends IngestionOutputs<string> {
     public readonly captured: CapturedMessage[] = []
     public producedCount = 0
     public currentBatch = 0
     private readonly remainingFaults: number[]
 
     constructor(
-        private readonly scenario: ParityScenario,
+        private readonly faults: ProduceFault<E>[],
+        private readonly toFaultError: (error: E) => Error,
         private readonly discard = false
     ) {
         super({})
-        this.remainingFaults = scenario.produce_faults.map((fault) => fault.times)
+        this.remainingFaults = faults.map((fault) => fault.times)
     }
 
     private faultFor(output: string, message: IngestionOutputMessage): Error | null {
-        for (let i = 0; i < this.scenario.produce_faults.length; i++) {
-            const fault = this.scenario.produce_faults[i]
+        for (let i = 0; i < this.faults.length; i++) {
+            const fault = this.faults[i]
             if (fault.output !== output || this.remainingFaults[i] <= 0) {
                 continue
             }
@@ -70,7 +74,7 @@ class CapturingIngestionOutputs extends IngestionOutputs<string> {
                 continue
             }
             this.remainingFaults[i]--
-            return toError(fault.error)
+            return this.toFaultError(fault.error)
         }
         return null
     }
@@ -242,7 +246,10 @@ function canonicalizeMetricPayload(payload: unknown): unknown {
     return sortArrays(canonicalizeAvroValue(payload))
 }
 
-function indexInputs(scenario: ParityScenario): Map<string, { batch: number; index: number }> {
+export function indexInputs(scenario: {
+    name: string
+    batches: { value_b64: string | null }[][]
+}): Map<string, { batch: number; index: number }> {
     const inputs = new Map<string, { batch: number; index: number }>()
     scenario.batches.forEach((batch, batchIndex) =>
         batch.forEach((message, index) => {
@@ -277,7 +284,7 @@ export function buildParityConsumer(
     options: { classes?: ParityConsumerClasses; discard?: boolean } = {}
 ) {
     const classes = options.classes ?? CURRENT_CLASSES
-    const outputs = new CapturingIngestionOutputs(scenario, options.discard)
+    const outputs = new CapturingIngestionOutputs(scenario.produce_faults, toError, options.discard)
     const teamsById = new Map(scenario.teams.map((team) => [team.id, team]))
     const teamsByToken = new Map(scenario.teams.map((team) => [team.api_token, team]))
     const teamsIngested: number[][] = []

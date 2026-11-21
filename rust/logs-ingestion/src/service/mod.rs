@@ -31,7 +31,7 @@ use crate::pipeline::{
 };
 use crate::rate_limiter::{system_clock, KeyRoot, RedisTokenBucket};
 
-use config::{ConsumerKind, RunMode, ServiceConfig};
+use config::{ConsumerKind, OutputRoute, RunMode, ServiceConfig};
 use consumer_loop::run_consumer_loop;
 use kafka_outputs::{producer_client_config, KafkaOutputs};
 use kafka_source::{consumer_client_config, FencingContext, KafkaBatchSource, LogsConsumer};
@@ -62,10 +62,24 @@ pub fn identity(kind: ConsumerKind) -> LogsConsumerIdentity {
 }
 
 pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String, FutureProducer>> {
+    create_kafka_producers(
+        &config.routes,
+        &config.producers,
+        config.kafka_client_rack.as_deref(),
+        config.mode,
+    )
+}
+
+/// Builds each producer that a route names. In shadow mode every routed topic must already exist.
+pub fn create_kafka_producers(
+    routes: &[OutputRoute],
+    producers: &[(String, Vec<(String, String)>)],
+    client_rack: Option<&str>,
+    mode: RunMode,
+) -> anyhow::Result<HashMap<String, FutureProducer>> {
     let mut out = HashMap::new();
-    for (name, overrides) in &config.producers {
-        let topics: Vec<&str> = config
-            .routes
+    for (name, overrides) in producers {
+        let topics: Vec<&str> = routes
             .iter()
             .filter(|r| &r.producer == name)
             .map(|r| r.topic.as_str())
@@ -73,8 +87,8 @@ pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String
         if topics.is_empty() {
             continue;
         }
-        let mut client = producer_client_config(overrides, config.kafka_client_rack.as_deref());
-        if config.mode == RunMode::Shadow {
+        let mut client = producer_client_config(overrides, client_rack);
+        if mode == RunMode::Shadow {
             // A mistyped shadow topic must fail here instead of creating a topic on the cluster.
             client.set("allow.auto.create.topics", "false");
         }
@@ -83,7 +97,7 @@ pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String
             .client()
             .fetch_metadata(None, Duration::from_secs(15))
             .map_err(|e| anyhow::anyhow!("producer {name} cannot reach Kafka: {e}"))?;
-        if config.mode == RunMode::Shadow {
+        if mode == RunMode::Shadow {
             for topic in topics {
                 require_topic(&metadata, topic)?;
             }
@@ -197,8 +211,19 @@ pub fn health_router(
     liveness: lifecycle::LivenessHandler,
     render_metrics: Arc<dyn Fn() -> String + Send + Sync>,
 ) -> Router {
+    named_health_router(SERVICE_NAME, readiness, liveness, render_metrics)
+}
+
+/// `/` answers with `service_name`.
+pub fn named_health_router(
+    service_name: &'static str,
+    readiness: lifecycle::ReadinessHandler,
+    liveness: lifecycle::LivenessHandler,
+    render_metrics: Arc<dyn Fn() -> String + Send + Sync>,
+) -> Router {
+    let metrics = move || ready(render_metrics());
     Router::new()
-        .route("/", get(|| async { SERVICE_NAME }))
+        .route("/", get(move || async move { service_name }))
         .route(
             "/_health",
             get(move || {
@@ -213,7 +238,9 @@ pub fn health_router(
                 async move { readiness.check().await }
             }),
         )
-        .route("/metrics", get(move || ready(render_metrics())))
+        // Node serves both paths, and the deployment scrapes `/_metrics`.
+        .route("/_metrics", get(metrics.clone()))
+        .route("/metrics", get(metrics))
 }
 
 /// A failed batch ends the process with an error, as the Node consumer crashes, so the restart replays from the last commit.
@@ -296,7 +323,10 @@ pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn join_or_abort<T>(name: &str, mut task: tokio::task::JoinHandle<T>) -> anyhow::Result<T> {
+pub async fn join_or_abort<T>(
+    name: &str,
+    mut task: tokio::task::JoinHandle<T>,
+) -> anyhow::Result<T> {
     match tokio::time::timeout(TASK_JOIN_GRACE, &mut task).await {
         Ok(joined) => Ok(joined?),
         Err(_) => {
