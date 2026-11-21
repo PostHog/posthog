@@ -201,7 +201,13 @@ def _check_creator(team_id: int, user_id: int | None) -> _Creator | ProviderCont
 
 
 def import_contact_chunk(
-    team_id: int, storage_prefix: str, chunk: int, *, send_events: bool, created_by_id: int | None
+    team_id: int,
+    storage_prefix: str,
+    chunk: int,
+    *,
+    send_events: bool,
+    created_by_id: int | None,
+    wait_for_people: bool = True,
 ) -> ContactChunkOutcome:
     """Send one stored part's events, then wait until ingestion has created its people.
 
@@ -217,7 +223,7 @@ def import_contact_chunk(
     delay = WAIT_FIRST_DELAY_SECONDS
     while True:
         found = existing_distinct_ids(team_id, distinct_ids)
-        if len(found) >= len(distinct_ids) or time.monotonic() >= deadline:
+        if not wait_for_people or len(found) >= len(distinct_ids) or time.monotonic() >= deadline:
             return ContactChunkOutcome(people=len(people), found=len(found))
         time.sleep(delay)
         delay = min(delay * 2, WAIT_MAX_DELAY_SECONDS)

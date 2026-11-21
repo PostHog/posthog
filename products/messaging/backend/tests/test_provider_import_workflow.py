@@ -143,7 +143,9 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
             raise ApplicationError("Capture didn't acknowledge 3 events.")
         if key == ("prefix", 1) and chunk_attempts[key] == 1:
             raise ApplicationError("The worker went away")
-        calls.append(f"{inputs.storage_prefix} chunk {inputs.chunk}")
+        calls.append(
+            f"{inputs.storage_prefix} chunk {inputs.chunk}{'' if inputs.wait_for_people else ' without waiting'}"
+        )
         return ContactChunkResult(people=3, found=2, attempt=activity.info().attempt)
 
     @activity.defn(name="messaging-provider-import.fill_contacts_cohort")
@@ -186,7 +188,7 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
                 execution_timeout=timedelta(minutes=5),
             )
 
-    # A segment only waits for people the first list's events create, so it is skipped once those didn't go out.
+    # A segment waits for people the first list's events create, so once those didn't go out it fills right away.
     expected = {
         None: (
             ["prefix chunk 1", "fill 7", "segment chunk 0", "fill 8"],
@@ -197,8 +199,8 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
             ContactsImportOutcome(people=9, found=6, removed=1, failed_lists=1, retried_chunks=1),
         ),
         "send": (
-            ["fail 7", "fail 8"],
-            ContactsImportOutcome(people=3, found=2, removed=0, failed_lists=2, retried_chunks=0),
+            ["fail 7", "segment chunk 0 without waiting", "fill 8"],
+            ContactsImportOutcome(people=6, found=4, removed=1, failed_lists=1, retried_chunks=0),
         ),
     }
     ending, outcome = expected[failure]

@@ -54,7 +54,6 @@ STEP_RETRY_POLICY = RetryPolicy(
 FINISH_RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
 CONTACTS_IMPORT_PATCH = "provider-contacts-import-2026-11"
 STAGED_CONTACTS_CLEANUP_PATCH = "provider-import-staged-contacts-cleanup-2026-11"
-SKIP_LISTS_WITHOUT_PEOPLE_PATCH = "provider-contacts-skip-lists-without-people-2026-11"
 # The hourly sweep deletes whatever this leaves behind, so it gives up after about two hours.
 CLEANUP_RETRY_POLICY = RetryPolicy(
     maximum_attempts=20,
@@ -172,17 +171,6 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                 chunks=plan.chunks,
                 created_by_id=plan.created_by_id,
             )
-            if workflow.patched(SKIP_LISTS_WITHOUT_PEOPLE_PATCH) and people_not_sent and not plan.send_events:
-                # This list waits for people from a list whose events didn't go out, so each part would wait out
-                # its full timeout for people who aren't coming.
-                failed_lists += 1
-                await workflow.execute_activity(
-                    fail_contacts_cohort_activity,
-                    cohort,
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=FINISH_RETRY_POLICY,
-                )
-                continue
             sending = True
             try:
                 for chunk in range(plan.chunks):
@@ -194,6 +182,9 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             chunk=chunk,
                             send_events=plan.send_events,
                             created_by_id=plan.created_by_id,
+                            # The people this list waits for came from a list whose events didn't all go out, so
+                            # it fills its cohort with the people who already exist instead of waiting for the rest.
+                            wait_for_people=not people_not_sent,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,
                         heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,

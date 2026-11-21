@@ -42,6 +42,7 @@ class ContactChunkInputs:
     chunk: int
     send_events: bool
     created_by_id: int | None = None
+    wait_for_people: bool = True
 
 
 @frozen
