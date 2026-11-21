@@ -670,6 +670,7 @@ class ClickHousePrinter(BasePrinter):
             isinstance(type.table_type, ast.BaseTableType)
             and self._is_native_json_table(type.table_type.resolve_database_table(self.context))
             and isinstance(field := type.resolve_database_field(self.context), DatabaseField)
+            # flag_evaluations declares $session_id, $session_id_uuid and $window_id as expressions. Their inner field reads are rewritten instead.
             and not isinstance(field, ExpressionField)
         ):
             name = field.name
@@ -684,7 +685,7 @@ class ClickHousePrinter(BasePrinter):
                 "$group_3",
                 "$group_4",
             }:
-                # events_json has no columns for these; they are declared String paths in properties.
+                # The native JSON tables have no columns for these. They are declared String paths in properties.
                 prefix = field_sql.removesuffix(self._print_identifier(name))
                 path = "$session_id" if name in ("$session_id_uuid", "session_id") else name
                 field_sql = f"{prefix}properties.{self._print_identifier(path)}"
@@ -694,7 +695,7 @@ class ClickHousePrinter(BasePrinter):
         return self._maybe_apply_json_drop_keys(type, field_sql if serialized is None else serialized)
 
     def _events_json_document_field(self, type: ast.FieldType) -> StringJSONDatabaseField | None:
-        """The field when it is a JSON document column of the native events table, otherwise None."""
+        """The field when it is a JSON document column of a native JSON table, otherwise None."""
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
