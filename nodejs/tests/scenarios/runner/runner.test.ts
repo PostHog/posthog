@@ -1865,6 +1865,7 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                evidence: evidenceOf(result, 'writer-cpu.json'),
             }).toEqual({
                 status: 'invalid',
                 statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
@@ -1878,6 +1879,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                evidence: { unsourced: 'the local stack has no Aurora writer to read CPU from' },
             })
         },
         30_000
