@@ -4,7 +4,13 @@ import pytest
 
 from django.core.management.base import CommandError
 
-from products.replay.backend.management.commands.export_recordings_to_s3 import _shard_list, check_session_list
+from temporalio.client import WorkflowExecutionStatus
+
+from products.replay.backend.management.commands.export_recordings_to_s3 import (
+    _shard_list,
+    check_session_list,
+    check_shard_rerun,
+)
 
 
 @pytest.mark.parametrize(
@@ -38,3 +44,20 @@ def test_session_list_must_fit_in_one_query(session_ids: list[str], accepted: bo
     else:
         with pytest.raises(CommandError):
             check_session_list(session_ids)
+
+
+@pytest.mark.parametrize(
+    "last_run_status,accepted",
+    [
+        (WorkflowExecutionStatus.FAILED, True),
+        (None, False),
+        (WorkflowExecutionStatus.COMPLETED, False),
+        (WorkflowExecutionStatus.RUNNING, False),
+    ],
+)
+def test_shards_rerun_only_after_a_failed_run(last_run_status: WorkflowExecutionStatus | None, accepted: bool) -> None:
+    if accepted:
+        check_shard_rerun(last_run_status)
+    else:
+        with pytest.raises(CommandError):
+            check_shard_rerun(last_run_status)

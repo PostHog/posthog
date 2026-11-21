@@ -24,6 +24,7 @@ It plays one session at a time, with no event timeline and no search.
    `summary.json` exists only when the run finished.
    A shard that fails after all its retries does not stop the others. The summary lists it under `failed_shards` as `YYYY-MM-DD:N`, and the run then ends as failed.
    Start the quote again with `--shards <that list>` and the same `--shards-per-day` to export only those shards, as a new run.
+   `--shards` needs a failed earlier run of the quote.
 
 A quote starts one workflow, `export-recordings-<team_id>-<quote_id>`.
 Temporal refuses a second start while it runs or after it completes, and allows one after a failed run.

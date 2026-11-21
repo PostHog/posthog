@@ -93,6 +93,7 @@ Other shard failures retry on their own and resume from their last checkpoint.
 
 A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.
 Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>` and the same `--shards-per-day`.
+The command refuses `--shards` unless the quote's last run failed, so a first start always covers the whole selection.
 A quote can start again only after a failed run, so a second start of a running or finished export is refused.
 
 ### 6. Hand over
