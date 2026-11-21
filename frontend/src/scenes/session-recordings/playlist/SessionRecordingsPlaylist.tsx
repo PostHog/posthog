@@ -34,6 +34,7 @@ import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } fr
 const HedgehogDirector = pngHoggie(directorPng)
 
 type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
+    readOnlyFilters?: boolean
     showContent?: boolean
     isSynthetic?: boolean
     description?: string
@@ -340,6 +341,7 @@ function PlayerWrapper({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
+    readOnlyFilters?: boolean
     watchLayout?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
@@ -364,7 +366,8 @@ function PlayerWrapper({
     const { setFilters, applySavedFilter, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
-    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { isFiltersExpanded: filterPanelExpanded } = useValues(playlistFiltersLogic)
+    const isFiltersExpanded = filterPanelExpanded && !props.readOnlyFilters
 
     const onPlayNextRecording = useCallback(() => {
         if (nextSessionRecording?.id && !isFiltersExpanded) {
