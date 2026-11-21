@@ -17,6 +17,7 @@ class GlueEndpoint:
     names_only: bool = False
     paginated: bool = True
     missing_is_empty: bool = False
+    request_params: tuple[tuple[str, object], ...] = ()
 
 
 ENDPOINTS: dict[str, GlueEndpoint] = {
@@ -113,6 +114,41 @@ ENDPOINTS: dict[str, GlueEndpoint] = {
         primary_keys=("region", "id"),
         timestamp_columns=("created_on", "completed_on"),
     ),
+    "data_quality_rulesets": GlueEndpoint(
+        operation="ListDataQualityRulesets",
+        result_key="Rulesets",
+        primary_keys=("region", "name"),
+        timestamp_columns=("created_on", "last_modified_on"),
+    ),
+    "triggers": GlueEndpoint(
+        operation="GetTriggers",
+        result_key="Triggers",
+        primary_keys=("region", "name"),
+    ),
+    "schema_registries": GlueEndpoint(
+        operation="ListRegistries",
+        result_key="Registries",
+        primary_keys=("region", "registry_arn"),
+    ),
+    "schemas": GlueEndpoint(
+        operation="ListSchemas",
+        result_key="Schemas",
+        primary_keys=("region", "schema_arn"),
+    ),
+    "schema_versions": GlueEndpoint(
+        operation="ListSchemaVersions",
+        result_key="Schemas",
+        primary_keys=("region", "schema_arn", "schema_version_id"),
+        parent="schemas",
+        missing_is_empty=True,
+    ),
+    "connections": GlueEndpoint(
+        operation="GetConnections",
+        result_key="ConnectionList",
+        primary_keys=("region", "name"),
+        timestamp_columns=("creation_time", "last_updated_time", "last_connection_validation_time"),
+        request_params=(("HidePassword", True),),
+    ),
 }
 
 # GetColumnStatisticsForTable accepts at most 100 column names per request.
@@ -145,7 +181,18 @@ ENDPOINT_DESCRIPTIONS = {
     "column_statistics": "Column statistics for each catalog table, such as null counts, distinct values, and value ranges.",
     "table_optimizer_runs": "Compaction, snapshot retention, and orphan file deletion runs for each Iceberg table.",
     "sessions": "Interactive sessions, with status, duration, and compute use.",
+    "data_quality_rulesets": "Data quality rulesets and the catalog tables they evaluate.",
+    "triggers": "Triggers, with the schedules and conditions that start jobs and crawlers.",
+    "schema_registries": "Schema registries in the account.",
+    "schemas": "Schemas in every schema registry, with their status.",
+    "schema_versions": "Version history for each schema registry schema.",
+    "connections": "Connections that jobs and crawlers use to reach data stores. Passwords are not synced.",
 }
+
+# HidePassword covers the main connection password. Kafka connections also store passwords
+# (KAFKA_SASL_PLAIN_PASSWORD and similar), so every key that names a password is dropped.
+SECRET_PROPERTY_MARKER = "PASSWORD"
+CONNECTION_PROPERTY_MAPS = ("ConnectionProperties", "SparkProperties", "AthenaProperties", "PythonProperties")
 
 ERROR_MESSAGES = {
     "AccessDeniedException": "AWS denied access. Grant the required Glue read permissions and check Lake Formation permissions.",

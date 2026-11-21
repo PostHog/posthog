@@ -15,11 +15,13 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.sources.aws_glue_data_catalog.settings import (
     BODY_RETRY_CODES,
     COLUMN_STATISTICS_BATCH_SIZE,
+    CONNECTION_PROPERTY_MAPS,
     CONTENT_TYPE,
     ENDPOINTS,
     ERROR_MESSAGES,
     PARENT_ENDPOINTS,
     REQUEST_TIMEOUT_SECONDS,
+    SECRET_PROPERTY_MARKER,
     TABLE_OPTIMIZER_TYPES,
     TARGET_PREFIXES,
     GlueEndpoint,
@@ -149,7 +151,7 @@ class AwsGlueClient:
 
     def request_endpoint(self, endpoint: GlueEndpoint, params: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            return self.request(endpoint.operation, params)
+            return self.request(endpoint.operation, {**dict(endpoint.request_params), **params})
         except AwsGlueError as error:
             # ListTableOptimizerRuns fails when the table has no optimizer of the requested type.
             if endpoint.missing_is_empty and error.code == "EntityNotFoundException":
@@ -186,7 +188,20 @@ def endpoint_spec(endpoint: str) -> GlueEndpoint:
     return ENDPOINTS[endpoint] if endpoint in ENDPOINTS else PARENT_ENDPOINTS[endpoint]
 
 
+def without_passwords(item: dict[str, Any]) -> dict[str, Any]:
+    result = dict(item)
+    for key in CONNECTION_PROPERTY_MAPS:
+        properties = result.get(key)
+        if isinstance(properties, dict):
+            result[key] = {
+                name: value for name, value in properties.items() if SECRET_PROPERTY_MARKER not in name.upper()
+            }
+    return result
+
+
 def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_payload: dict[str, Any]) -> dict[str, Any]:
+    if endpoint == "connections":
+        item = without_passwords(item)
     row = {camel_to_snake(key): value for key, value in item.items()}
     row["region"] = region
     for column in endpoint_spec(endpoint).timestamp_columns:
@@ -209,6 +224,8 @@ def parent_payload(endpoint: str, parent: dict[str, Any]) -> dict[str, Any]:
         return {"CrawlerName": parent["name"]}
     if endpoint == "workflow_runs":
         return {"Name": parent["name"], "IncludeGraph": False}
+    if endpoint == "schema_versions":
+        return {"SchemaId": {"SchemaArn": parent["schema_arn"]}}
     payload = {"DatabaseName": parent["name"] if endpoint == "tables" else parent["database_name"]}
     if parent.get("catalog_id"):
         payload["CatalogId"] = parent["catalog_id"]
