@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -18,11 +18,29 @@ import { ProviderImportPanel } from './ProviderImportPanel'
 const CUSTOMERIO_PROVIDER = 'customerio'
 
 function ProviderPicker(): JSX.Element {
-    const { orderedImportProviders, latestImportRunByProvider } = useValues(providerImportLogic)
-    const { selectProvider } = useActions(providerImportLogic)
+    const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport } = useValues(providerImportLogic)
+    const { selectProvider, closeImportModal } = useActions(providerImportLogic)
+    const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
 
     return (
         <div className="flex flex-col gap-2">
+            {showsAutomationImport && (
+                <LemonButton
+                    type="secondary"
+                    fullWidth
+                    sideIcon={<IconChevronRight />}
+                    onClick={() => {
+                        closeImportModal()
+                        openAutomationImport()
+                    }}
+                    data-attr="import-provider-customerio-automations"
+                >
+                    <div className="flex flex-col gap-0.5 py-1 font-normal">
+                        <span className="font-semibold">Customer.io automations</span>
+                        <span className="text-xs text-secondary">Automations, as draft workflows</span>
+                    </div>
+                </LemonButton>
+            )}
             {orderedImportProviders.map((provider) => (
                 <LemonButton
                     key={provider.key}
@@ -50,15 +68,14 @@ function ProviderPicker(): JSX.Element {
 }
 
 function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
-    const { hasSeveralProviders } = useValues(providerImportLogic)
-    const { selectProvider, closeImportModal } = useActions(providerImportLogic)
-    const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
+    const { hasSeveralProviders, showsAutomationImport } = useValues(providerImportLogic)
+    const { selectProvider } = useActions(providerImportLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
     const isCustomerIO = provider.key === CUSTOMERIO_PROVIDER
 
     return (
         <div className="space-y-4">
-            {hasSeveralProviders && (
+            {(hasSeveralProviders || showsAutomationImport) && (
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -68,20 +85,6 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
                 >
                     All tools
                 </LemonButton>
-            )}
-            {isCustomerIO && (
-                <p className="mb-0 text-secondary">
-                    Moving automations too?{' '}
-                    <Link
-                        onClick={() => {
-                            closeImportModal()
-                            openAutomationImport()
-                        }}
-                        data-attr="import-provider-customerio-automations"
-                    >
-                        Import them as draft workflows
-                    </Link>
-                </p>
             )}
             {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
             {isCustomerIO && isAdminOrOwner === false ? (

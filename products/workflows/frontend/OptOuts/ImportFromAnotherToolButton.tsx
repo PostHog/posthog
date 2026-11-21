@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -19,20 +21,27 @@ export function ImportFromAnotherToolButton({
 }): JSX.Element {
     const { importButtonLabel } = useValues(providerImportLogic)
     const { openImportModal } = useActions(providerImportLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.Workflow}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <LemonButton
-                data-attr={dataAttr}
-                onClick={() => openImportModal(null, entryPoint)}
-                type="secondary"
-                size="small"
-            >
-                {importButtonLabel}
-            </LemonButton>
+            {todayRailNav ? (
+                <Button data-attr={dataAttr} onClick={() => openImportModal(null, entryPoint)} variant="outline">
+                    {importButtonLabel}
+                </Button>
+            ) : (
+                <LemonButton
+                    data-attr={dataAttr}
+                    onClick={() => openImportModal(null, entryPoint)}
+                    type="secondary"
+                    size="small"
+                >
+                    {importButtonLabel}
+                </LemonButton>
+            )}
         </AccessControlAction>
     )
 }

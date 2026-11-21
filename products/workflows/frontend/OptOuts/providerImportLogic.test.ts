@@ -280,6 +280,20 @@ describe('providerImportLogic', () => {
         expect(logic.values.importForm.api_key).toBe('')
     })
 
+    it('offers the Customer.io automation import from the Workflows page even when Customer.io is the only tool', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openImportModal(null, 'workflows')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.showsAutomationImport).toBe(true)
+        expect(logic.values.selectedProvider).toBeNull()
+
+        logic.actions.openImportModal(null, 'templates')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.showsAutomationImport).toBe(false)
+        expect(logic.values.selectedProvider?.key).toBe('customerio')
+    })
+
     it.each([
         ['opt-outs', ['customerio', 'postmark', 'sendgrid', 'resend']],
         ['workflows', ['resend', 'customerio', 'postmark', 'sendgrid']],
