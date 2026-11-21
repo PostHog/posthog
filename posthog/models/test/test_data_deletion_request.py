@@ -469,6 +469,7 @@ def test_uncopied_rows_predicate_refuses_for_the_json_table_until_it_has_a_hogql
     uncopied = uncopied_rows_predicate(_flag_call_request(team, "properties.plan = 'pro'"), FLAG_EVALUATIONS_JSON)
 
     assert uncopied.compiled is None
+    assert "no HogQL table" in uncopied.error
 
 
 # A missing key, a JSON null and an escaped quote are the rows where two ways of reading a property can
