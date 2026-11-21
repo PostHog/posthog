@@ -7,15 +7,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.event_definitions.backend.models import PropertyDefinition
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.message_assets_sql import INSERT_MESSAGE_ASSET_SQL
 
@@ -317,30 +313,24 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
 
         assert [r["invocation_id"] for r in rows] == (["inv"] if expected else [])
 
-    def test_an_email_hidden_from_the_user_does_not_match_unlinked_sends(self):
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+    @parameterized.expand(
+        [
+            (kind, path, access, expected)
+            for kind, path in (("email", "emails"), ("push", "push_notifications"))
+            for access, expected in (("restricted", 403), ("granted", 200), ("admin", 200))
         ]
-        self.organization.save()
-        email = PropertyDefinition.objects.create(
-            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=email,
-            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
-            access_level=PropertyAccessLevel.NONE.value,
-        )
-        create_message_asset(
-            team_id=self.team.pk,
-            function_id=str(self.hog_flow.pk),
-            invocation_id="inv",
-            person_id="",
-            distinct_id="someone-else",
-            recipient="P@Example.com",
-        )
+    )
+    def test_message_history_follows_property_access(
+        self, kind: str, path: str, access: PropertyAccess, expected: int
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        self._seed("inv", kind=kind, recipient="p@example.com")
 
-        assert self._emails().json() == []
+        res = self.client.get(f"/api/projects/{self.team.id}/persons/{self.person.uuid}/{path}/")
+
+        assert res.status_code == expected, res.json()
+        if expected == 200:
+            assert [row["recipient"] for row in res.json()] == ["p@example.com"]
 
     def test_isolated_from_other_persons(self):
         self._seed("mine")

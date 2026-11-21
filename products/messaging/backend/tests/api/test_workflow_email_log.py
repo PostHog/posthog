@@ -14,7 +14,11 @@ from posthog.models import OrganizationMembership, Team
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.workflows.backend.facade.testing import create_batch_job_for_test, create_workflow_for_test
 
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
@@ -88,6 +92,19 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/workflow_email_log/{suffix}"
+
+    @parameterized.expand([("restricted", True), ("granted", False)])
+    def test_send_log_follows_property_access(self, access: PropertyAccess, blocked: bool) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        run_id = self._run_id(NOW - timedelta(days=1))
+
+        responses = [
+            self.client.get(self._url(), {"workflow_id": self.workflow_id}),
+            self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"}),
+            self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"}),
+        ]
+
+        assert [response.status_code == 403 for response in responses] == [blocked] * 3
 
     def test_lists_each_step_of_a_run_as_its_own_send(self):
         run_started = NOW - timedelta(days=2)

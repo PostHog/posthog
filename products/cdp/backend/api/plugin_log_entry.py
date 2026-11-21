@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.paging import Page, PageRequest
@@ -55,7 +56,7 @@ class PluginLogEntryRequestSerializer(serializers.Serializer):
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "plugin"
     serializer_class = PluginLogEntrySerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPLogPropertyAccessPermission]
     pagination_class = PluginLogEntryPagination
 
     @extend_schema(parameters=[PluginLogEntryRequestSerializer])
