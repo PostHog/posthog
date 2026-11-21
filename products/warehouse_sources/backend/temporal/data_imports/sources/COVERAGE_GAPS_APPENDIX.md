@@ -691,10 +691,10 @@ Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analyt
 
 Re-audited 2026-11-19 against: <https://amplitude.com/docs/apis/analytics/dashboard-rest.md>
 
-- [ ] `Lookup tables (GET /api/3/lookup_table)` — customer-uploaded lookup tables that map IDs on events to names; list call then per-table GET /api/3/lookup_table/:name (medium)
-- [ ] `Experiments (GET https://experiment.amplitude.com/api/1/experiments)` — experiment definitions, state and variants, to join against exposure events (medium)
-- [ ] `Feature flags (GET https://experiment.amplitude.com/api/1/flags)` — flag definitions and rollout state (medium)
-- [ ] `Experiment deployments (GET https://experiment.amplitude.com/api/1/deployments)` — deployment keys that experiments and flags are attached to (low)
+- [x] `Lookup tables (GET /api/3/lookup_table)` — customer-uploaded lookup tables that map IDs on events to names; list call then per-table GET /api/3/lookup_table/:name (medium). Added as `lookup_tables`: one row per table definition from the list call, full refresh. The per-table CSV contents are not synced.
+- [x] `Experiments (GET https://experiment.amplitude.com/api/1/experiments)` — experiment definitions, state and variants, to join against exposure events (medium). Added as `experiments` (archived included), full refresh, with the new optional Management API key field.
+- [x] `Feature flags (GET https://experiment.amplitude.com/api/1/flags)` — flag definitions and rollout state (medium). Added as `flags` (archived included), full refresh, with the Management API key.
+- [x] `Experiment deployments (GET https://experiment.amplitude.com/api/1/deployments)` — deployment keys that experiments and flags are attached to (low). Added as `deployments`, full refresh, with the Management API key. The deployment `key` itself is not synced.
 - [ ] `Holdout groups (GET https://experiment.amplitude.com/api/1/holdouts)` — holdout group configuration for experiments (low)
 - [ ] `Active and new user counts (GET /api/2/users)` — Amplitude-computed daily active and new users, matching its dashboards (low)
 - [ ] `Average session length (GET /api/2/sessions/average)` — vendor-computed session length per day (low)
