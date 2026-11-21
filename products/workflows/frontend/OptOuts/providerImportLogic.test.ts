@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { suppressionListLogic } from '../Suppression/suppressionListLogic'
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
@@ -146,6 +147,72 @@ describe('providerImportLogic', () => {
 
         logic.actions.selectProvider('customerio')
         expect(logic.values.importSettings).toEqual({})
+    })
+
+    it('blocks the start as soon as a ticked step loses a step it needs', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
+                    200,
+                    [
+                        {
+                            ...PROVIDER_WITH_SETTINGS,
+                            settings: [],
+                            steps: [
+                                { key: 'suppressions', label: 'Suppression list', description: '', needs: [] },
+                                { key: 'opt_outs', label: 'Unsubscribed contacts', description: '', needs: [] },
+                                {
+                                    key: 'contacts',
+                                    label: 'Contacts',
+                                    description: '',
+                                    needs: ['suppressions', 'opt_outs'],
+                                },
+                            ],
+                        },
+                    ],
+                ],
+            },
+        })
+        logic.actions.loadImportProviders()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.cannotStartImportReason).toBeNull()
+
+        logic.actions.toggleImportStep('suppressions')
+        logic.actions.toggleImportStep('opt_outs')
+
+        expect(logic.values.unmetStepNeeds).toEqual({ contacts: ['Suppression list', 'Unsubscribed contacts'] })
+        expect(logic.values.cannotStartImportReason).toEqual(
+            'Contacts needs Suppression list and Unsubscribed contacts selected too'
+        )
+
+        logic.actions.toggleImportStep('suppressions')
+        expect(logic.values.unmetStepNeeds).toEqual({ contacts: ['Unsubscribed contacts'] })
+
+        logic.actions.toggleImportStep('opt_outs')
+        expect(logic.values.cannotStartImportReason).toBeNull()
+    })
+
+    it('reloads the suppression list behind the window when it closes', async () => {
+        let suppressionLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_suppressions/suppressions/': () => {
+                    suppressionLoads += 1
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+        const suppressions = suppressionListLogic()
+        await expectLogic(suppressions, () => {
+            suppressions.mount()
+        }).toDispatchActions(['loadSuppressionsSuccess'])
+        expect(suppressionLoads).toBe(1)
+
+        await expectLogic(suppressions, () => logic.actions.closeImportModal()).toDispatchActions([
+            'loadSuppressionsSuccess',
+        ])
+        expect(suppressionLoads).toBe(2)
+        suppressions.unmount()
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
