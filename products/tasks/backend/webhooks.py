@@ -171,18 +171,44 @@ def _select_task_run_candidate(
     task_id: UUID | None,
 ) -> tuple[TaskRun | None, str]:
     pr_urls = {url for url in (pr_url, canonical_github_pull_request_url(pr_url) if pr_url else None) if url}
+    eligible_by_rank = {
+        rank: _eligible_task_run_candidates(rank, [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs])
+        for rank in _TaskRunMatchRank
+    }
     # Checked before the task filter: when a run of another task reports the PR, a branch match of
     # the filtered task alone does not show that this task opened the PR.
     any_run_reports_pr = any(_reports_pull_request(run, pr_urls) for run in runs.values())
     # The server assigns self-driving and wizard branches, but any member can set a run's checkout
     # branch and reported PR. So only a run that also pushed to the branch can outrank the owner.
     any_branch_run_reports_pr = any(
-        _reports_pull_request(run, pr_urls)
-        for rank in _BRANCH_MATCH_RANKS
-        for run in _eligible_task_run_candidates(
-            rank, [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs]
+        _reports_pull_request(run, pr_urls) for rank in _BRANCH_MATCH_RANKS for run in eligible_by_rank[rank]
+    )
+    owner_runs = [
+        run
+        for rank in (_TaskRunMatchRank.SELF_DRIVING_HEAD_BRANCH, _TaskRunMatchRank.WIZARD_HEAD_BRANCH)
+        for run in eligible_by_rank[rank]
+    ]
+    owner_task_ids = {run.task_id for run in owner_runs}
+    # Any member can also write the pushed branches and the reported PR of their own run, and the
+    # server records no push that proves them. So a claim from another task against a branch owner
+    # that does not report the PR matches nothing, because the verified link that a match grants
+    # also authorizes PR edits.
+    contested_owner = (
+        bool(owner_task_ids)
+        and not eligible_by_rank[_TaskRunMatchRank.VERIFIED_PR_URL]
+        and not any(_reports_pull_request(run, pr_urls) for run in owner_runs)
+        and any(
+            run.task_id not in owner_task_ids and _reports_pull_request(run, pr_urls)
+            for run in eligible_by_rank[_TaskRunMatchRank.SIGNED_HEAD_BRANCH]
         )
     )
+    if contested_owner:
+        logger.info(
+            "github_webhook_task_run_lookup_ambiguous",
+            pr_url=pr_url,
+            run_ids=[str(run_id) for run_id in runs],
+        )
+        return None, "ambiguous_head_branch"
     if task_id is not None:
         runs = {run_id: run for run_id, run in runs.items() if run.task_id == task_id}
     skipped_ambiguous_branch = False

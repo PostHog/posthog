@@ -2364,9 +2364,16 @@ class TestFindTaskRun(TestCase):
 
         self.assertEqual(result, None if fixer_reports_pr else opener_run)
 
-    @parameterized.expand([("run_state_only", False), ("task_head_branch", True)])
-    def test_self_driving_branch_owner_does_not_take_the_pr_from_the_run_that_reports_it(
-        self, _name: str, owner_task_has_head_branch: bool
+    @parameterized.expand(
+        [
+            ("run_state_only", False, False),
+            ("task_head_branch", True, False),
+            ("owner_reports_pr", False, True),
+            ("owner_reports_pr_with_task_head_branch", True, True),
+        ]
+    )
+    def test_claim_from_another_task_against_a_self_driving_branch_owner(
+        self, _name: str, owner_task_has_head_branch: bool, owner_reports_pr: bool
     ) -> None:
         pr_url = "https://github.com/posthog/posthog/pull/43"
         branch = "posthog-self-driving/fix-shared-abc123"
@@ -2379,14 +2386,15 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
             head_branch=branch if owner_task_has_head_branch else None,
         )
-        TaskRun.objects.create(
+        owner_run = TaskRun.objects.create(
             task=owner_task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="master",
             state={"self_driving_head_branch": branch},
+            output={"pr_url": pr_url} if owner_reports_pr else None,
         )
-        opener_run = TaskRun.objects.create(
+        TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
@@ -2396,7 +2404,9 @@ class TestFindTaskRun(TestCase):
 
         result = find_task_run(team_ids=[self.team.id], pr_url=pr_url, branch=branch, repository="posthog/posthog")
 
-        self.assertEqual(result, opener_run)
+        # The claimant's pushed branch and reported PR are both member-writable, so they cannot
+        # take the PR from a server-assigned owner, but they block an owner that does not report it.
+        self.assertEqual(result, owner_run if owner_reports_pr else None)
 
     @parameterized.expand(
         [
