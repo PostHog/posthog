@@ -50,6 +50,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | ----------------- | --------------------------------------------------------------------------------- |
 | `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects        |
 | `truth.json`      | Every request the provider edge received and how it answered                      |
+| `writer-cpu.json` | The Aurora writer's CPU over the drive, a point a minute, for a writer CPU bar    |
 | `logs/<role>.log` | Each role's log lines from this run                                               |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
 | `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
