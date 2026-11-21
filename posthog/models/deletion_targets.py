@@ -270,8 +270,9 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # would race the TTL for little benefit.
 #
 # sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
-# sweep target. The migration that creates it does nothing on deployed cloud, so no deployed table
-# holds rows before that change lands.
+# sweep target. Migration 0392 creates it and its consumer on every deployment that is not deployed
+# cloud, so a self-hosted deployment that forks flag calls holds personal data in it that no sweep
+# reaches. The two changes must merge together.
 TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), FLAG_EVALUATIONS_JSON_DATA_TABLE})
 
 
