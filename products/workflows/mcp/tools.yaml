@@ -118,10 +118,10 @@ tools:
             with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
             not put one shared current_value condition in top-level properties. A new function_email step without a
             sender gets the project's default sender if it can still send, or else the only verified sender that can; a
-            stopped sender doesn't count, and a from.email on another domain or with template syntax keeps the step
-            without one. With several such senders and no default, set from.integrationId yourself, and check the step's
-            sender with workflows-get. In a project with no verified email sender that can send but with access to the
-            PostHog test sender, the step starts on it instead (type email_sandbox), which sends only to verified
+            stopped sender is never picked, and a step with its own from.email keeps it and stays without a sender. With
+            several such senders and no default, set from.integrationId yourself, and check the step's sender with
+            workflows-get. In a project with no verified email sender but with access to the PostHog test sender, the
+            step starts on it instead (type email_sandbox), which sends only to verified
             members of the organization; tell the user, and point them to domain verification so they can reach everyone
             else. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions
             and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with
