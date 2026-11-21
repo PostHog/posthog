@@ -538,8 +538,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self._score(_day(12), score=0.90, flag=1, interval="hour")
         self._score(_day(20), score=0.10, flag=0)
         self._score(_day(22), score=0.90, flag=1)
-        # Before the 14-day daily window.
-        self._score(_day(8), score=0.90, flag=1)
+        # Before the daily chart window.
+        self._score(datetime.datetime(2026, 9, 10, tzinfo=datetime.UTC), score=0.90, flag=1)
         for index in range(20):
             self._score(_day(22), score=0.10, flag=0, series_key=f"other_{index}")
 
