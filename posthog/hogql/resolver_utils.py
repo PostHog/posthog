@@ -464,6 +464,9 @@ def _recursively_resolve_column(
     context: HogQLContext,
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
+        if column.constant_type is not None:
+            fields[name] = _constant_type_to_database_field(name, column.constant_type)
+            return
         return _recursively_resolve_column(name, column.type, fields, context)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)

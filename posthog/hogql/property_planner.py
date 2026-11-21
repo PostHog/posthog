@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsPersonSubTable
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
@@ -499,6 +500,10 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
         return PropertyScope.UNKNOWN
 
     if isinstance(resolved_table, EVENT_ROW_TABLES):
+        return PropertyScope.EVENT
+    if isinstance(resolved_table, AiEventsTable) and field_type.name == "properties":
+        if resolved_table.maps_to_native_string_column(str(property_type.chain[0])):
+            return PropertyScope.UNKNOWN
         return PropertyScope.EVENT
     if isinstance(
         resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable | PersonsTable | RawPersonsTable

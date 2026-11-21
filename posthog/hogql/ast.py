@@ -183,10 +183,12 @@ class Program(AST):
     declarations: list[Declaration]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldAliasType(Type):
     alias: str
     type: Type
+    # Keep the source binding for property lowering when a conversion changes the projected type.
+    constant_type: Optional[ConstantType] = None
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         return self.type.get_child(name, context)
@@ -195,6 +197,8 @@ class FieldAliasType(Type):
         return self.type.has_child(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.constant_type is not None:
+            return self.constant_type
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
