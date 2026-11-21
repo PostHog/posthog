@@ -1,0 +1,72 @@
+name: Notify Mobile App about rebuilds
+
+on:
+    workflow_run:
+        workflows: [PR housekeeping]
+        types: [completed]
+
+permissions: {}
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: false
+
+jobs:
+    notice:
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.conclusion == 'failure'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            actions: read
+            pull-requests: write
+        steps:
+            # Runs from the default branch. Read Actions metadata and post a fixed message without checking out PR code.
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              with:
+                  script: |
+                      const run = context.payload.workflow_run
+                      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+                          ...context.repo, run_id: run.id, attempt_number: run.run_attempt, per_page: 100,
+                      })
+                      const gate = jobs.find(job => job.name === 'Mobile Rebuild / Native rebuild acknowledged')
+                      const stepFailed = name => gate?.steps?.some(step => step.name === name && step.conclusion === 'failure')
+                      const comparisonFailed = stepFailed('Check comparison job')
+                      if (!comparisonFailed && !stepFailed('Require rebuild acknowledgement')) return
+                      if (!/^[a-f0-9]{40}$/.test(run.head_sha) || !run.head_repository) return
+
+                      // Fork runs can omit pull_requests. Resolve the matching open PR by its repository, branch and SHA.
+                      const pulls = await github.paginate(github.rest.pulls.list, {
+                          ...context.repo, state: 'open',
+                          head: `${run.head_repository.owner.login}:${run.head_branch}`,
+                          per_page: 100,
+                      })
+                      const matching = pulls.filter(pr => pr.head.sha === run.head_sha && pr.head.repo?.id === run.head_repository.id)
+                      const pr = matching.find(pr => run.pull_requests?.some(pull => pull.number === pr.number)) ??
+                          (matching.length === 1 ? matching[0] : null)
+                      if (!pr) return
+
+                      const issue = { ...context.repo, issue_number: pr.number }
+                      const marker = comparisonFailed
+                          ? `<!-- mobile-rebuild-comparison:${run.head_sha} -->`
+                          : `<!-- mobile-rebuild:${run.head_sha} -->`
+                      for await (const page of github.paginate.iterator(github.rest.issues.listComments, { ...issue, per_page: 100 })) {
+                          if (page.data.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker))) return
+                      }
+                      await github.rest.issues.createComment({
+                          ...issue,
+                          body: (comparisonFailed ? [
+                              marker,
+                              `@PostHog/team-mobile-app CI could not compare the production mobile build inputs. [Check the failed workflow run](${run.html_url}), then select **Re-run failed jobs**.`,
+                          ] : [
+                              marker,
+                              `@PostHog/team-mobile-app This PR may need a new production iOS or Android build. [See why the check flagged it](${gate.html_url}).`,
+                              '',
+                              'Anyone with repository write access, including the PR author, can acknowledge this commit.',
+                              '',
+                              `1. Post \`/ack-mobile-rebuild ${run.head_sha}\` as a separate PR comment.`,
+                              '2. Select **Re-run failed jobs** on the workflow run so the check reads your acknowledgement.',
+                          ]).join('\n'),
+                      })

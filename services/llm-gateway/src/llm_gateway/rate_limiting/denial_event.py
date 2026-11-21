@@ -8,6 +8,7 @@ import structlog
 from posthoganalytics import Posthog
 
 from llm_gateway.auth.models import resolve_distinct_id
+from llm_gateway.config import POSTHOG_SYNC_SEND_MAX_RETRIES
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +68,7 @@ class PosthogDenialCapturer:
                 self._api_key,
                 host=self._host,
                 sync_mode=True,
+                max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
                 enable_local_evaluation=False,
             )
             client.capture(**capture_kwargs)

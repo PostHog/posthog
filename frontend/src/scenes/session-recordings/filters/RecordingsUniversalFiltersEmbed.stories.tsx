@@ -78,7 +78,6 @@ export const ProductAnalyticsUnderLimit: Story = {
 // those alone leaves it disabled.
 export const ScannerCrossSell: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS],
         pageUrl: combineUrl(urls.replay(), {
             showFilters: true,
             filters: {
@@ -89,14 +88,6 @@ export const ScannerCrossSell: Story = {
             },
         }).url,
         testOptions: { waitForSelector: '[data-attr="replay-save-filters-as-scanner"]' },
-    },
-}
-
-// The entry point experiment's control arm: the button that opens the wizard, with no popover.
-export const ScannerCrossSellControl: Story = {
-    parameters: {
-        ...ScannerCrossSell.parameters,
-        featureFlags: { [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS_POPOVER]: 'control' },
     },
 }
 

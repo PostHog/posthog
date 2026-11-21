@@ -8,6 +8,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
+import { AI_DATA_PROCESSING_LOCKED_REASON } from '~/layout/ai/aiConsentLogic'
+
 import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
 export function OrganizationAI(): JSX.Element {
@@ -17,8 +19,17 @@ export function OrganizationAI(): JSX.Element {
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const handleChange = (checked: boolean): void => {
-        updateOrganization({ is_ai_data_processing_approved: checked })
+    const checked = !!currentOrganization?.is_ai_data_processing_approved
+    // The lock only stops turning AI on, so an organization that is locked can still turn it off.
+    const disabledReason =
+        currentOrganization?.is_ai_data_processing_locked && !checked
+            ? AI_DATA_PROCESSING_LOCKED_REASON
+            : restrictionReason
+              ? ORG_ADMIN_REQUIRED_TOOLTIP
+              : undefined
+
+    const handleChange = (value: boolean): void => {
+        updateOrganization({ is_ai_data_processing_approved: value })
     }
 
     if (todayRailNav) {
@@ -26,10 +37,10 @@ export function OrganizationAI(): JSX.Element {
             <QuillSettingSwitch
                 label="Enable PostHog features that use third-party AI services"
                 dataAttr="organization-ai-enabled"
-                checked={!!currentOrganization?.is_ai_data_processing_approved}
+                checked={checked}
                 onCheckedChange={handleChange}
                 disabled={currentOrganizationLoading}
-                disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
+                disabledReason={disabledReason}
             />
         )
     }
@@ -40,8 +51,8 @@ export function OrganizationAI(): JSX.Element {
                 label="Enable PostHog features that use third-party AI services"
                 data-attr="organization-ai-enabled"
                 onChange={handleChange}
-                checked={!!currentOrganization?.is_ai_data_processing_approved}
-                disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
+                checked={checked}
+                disabledReason={disabledReason}
                 loading={currentOrganizationLoading}
                 bordered
             />
