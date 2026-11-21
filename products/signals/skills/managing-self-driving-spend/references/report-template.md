@@ -2,9 +2,10 @@
 
 Keep the report proportional to the question. For a full review, show:
 
-- **Scope:** canonical project, UTC period, and summary `as_of`.
+- **Scope:** canonical project, the UTC period and whether it is a calendar month or a billing period, and summary `as_of`.
 - **Recorded usage:** finalized AI credits and their USD value using `pricing.usd_per_credit`; sources plus scout execution reconcile to the total. Always show processing, research, scout execution, and implementation separately, including any that are zero.
 - **Billing:** current billed spend and cap from `posthog:billing-limits-get`, separately from recorded usage. Identify exempt credits as a subset; non-exempt usage is not necessarily the invoice.
+  When the user compares with a bill, use the billing period for both numbers, show non-exempt recorded usage in USD next to billed spend, and name the causes of any gap.
 - **Not counted yet:** in plain words, say how many AI credits of work are still running (unsettled credits), how many scout runs have no cost record yet (untracked runs), and how much spend could not be tied to a source or scout (unattributed costs). Leave out any that are zero, and do not use field names. Missing amounts are unknown, not zero.
 - **Breakdowns:** source/scout, recorded USD, exempt USD, reports created, resolved share, and estimated cost per resolved report, with the baselines they are compared to. For scouts add runs and runs with neither new nor edited reports. Deduplicate report IDs for project totals. On a large project, show the top 10 to 15 items and group the rest in one row with their total.
 - **Daily trend:** finalized usage by day, highlighting the source, scout, or work kind behind spikes.

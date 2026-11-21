@@ -5,9 +5,11 @@ description: >
   Self-driving, which signal sources or scouts drive that spend, how spend changes day to day,
   how many reports a source or scout produced, or how to lower or cap the spend. Breaks spend
   down by signal source, scout, and day, links it to the reports it produced, recommends changes
-  ranked by savings, and applies them only after the user confirms each one. Trigger terms:
-  inbox spend, self-driving cost, scout cost, why is my bill high, reduce inbox spend, billing
-  limit, daily report limit, turn off a source, pause a scout, scout pre-check.
+  ranked by savings, and applies them only after the user confirms each one. Compares recorded
+  spend with the bill over the organization's billing period. Trigger terms: inbox spend,
+  self-driving cost, scout cost, why is my bill high, compare with my invoice, billing period,
+  reduce inbox spend, billing limit, daily report limit, turn off a source, pause a scout, scout
+  pre-check.
 ---
 
 # Managing Self-driving spend
@@ -16,11 +18,14 @@ Start with `posthog:inbox-usage-get` for monthly recorded usage, including proce
 Pass `month: "YYYY-MM"`, or omit it for this month; history starts no earlier than October 2026, and a project's first receipt can be later.
 Show amounts as AI credits, with the USD value next to them: multiply decimal credits by the returned `pricing.usd_per_credit`.
 Recorded usage includes exempt work and is not an invoice; use `posthog:billing-limits-get` for the billing spend and limit.
+The bill follows the organization's billing period, which often does not start on the 1st, while the monthly tool uses UTC calendar months.
+When the user wants to compare spend with a bill or invoice, follow "Compare with the bill" below.
 On a large project these tools can return more than fits in your context. If yours saves the output to a file, parse the file with a script, and keep the fields you need.
 
 ## Workflow
 
 1. **Scope.** Use the selected project and requested dates, defaulting to this UTC calendar month.
+   When the user asks about their bill or invoice, use the billing period instead, as "Compare with the bill" describes.
    Read `posthog:inbox-usage-get` and `posthog:billing-limits-get`.
    Use the returned canonical `project_id` for SQL reconciliation; child environments resolve to their parent and require access there.
 2. **Inventory.** List sources with `posthog:inbox-source-configs-list` and scouts with `posthog:scout-config-list`.
@@ -42,6 +47,25 @@ On a large project these tools can return more than fits in your context. If you
    Read the setting back after you change it.
 
 Present the result with [references/report-template.md](references/report-template.md).
+
+## Compare with the bill
+
+1. **Find the period.** Read `posthog:billing-subscription-get`. `billing_period.current_period_start` and `current_period_end` bound the current period in UTC.
+   For an earlier invoice, ask for the period dates printed on it. Do not get a past period by subtracting a month, because a plan change can move the period.
+   When the tool fails, for example because the key can read only some projects, or `billing_period` is null, ask the user for the period dates instead of using the calendar month.
+2. **Recorded usage for the period.** The monthly tool reads calendar months only, so run "Spend in a billing period" in [references/queries-spend.md](references/queries-spend.md) with the period bounds.
+   For the current period, end at now. The source, scout, and day queries take the same bounds.
+3. **Billed spend for the period.** For the current period, use `spend_usd` on the `inbox` row of `posthog:billing-limits-get`.
+   For an earlier period, use the Inbox amount on the invoice.
+   Both billing tools need organization access. Without it, show recorded usage and say that the billed amount needs a key with organization access.
+4. **Explain the gap.** Compare non-exempt recorded usage in USD with billed spend. Name the causes that apply:
+   - Exempt credits are recorded but not billed.
+   - Usage can reach billing up to 24 hours late, so the last day of recorded usage can be missing from billed spend.
+   - Discounts, credits, and billing cutovers change the invoice. `posthog:billing-subscription-get` returns `discount_percent` and `discount_amount_usd`.
+   - Work counts in the period in which it finalized, so work that started before the period starts can be in it.
+   - Unsettled work is in neither number yet.
+
+   Do not call a gap an overcharge until these causes are ruled out.
 
 ## Rules
 
