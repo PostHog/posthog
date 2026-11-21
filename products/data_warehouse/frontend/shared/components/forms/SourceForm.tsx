@@ -381,6 +381,7 @@ export const sourceFieldToElement = (
                             integration={field.kind}
                             redirectUrl={oauthRedirectUrl}
                             schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            purpose="import"
                         />
                     ) : (
                         <SourceIntegrationChoice
@@ -390,6 +391,7 @@ export const sourceFieldToElement = (
                             onChange={onChange}
                             integration={field.kind}
                             schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            purpose="import"
                         />
                     )
                 }
