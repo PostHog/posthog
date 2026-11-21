@@ -23,9 +23,13 @@ import { DashboardInsightResultMenuPopover } from './DashboardInsightResultMenuP
 export function DashboardInsightResultMenu({
     insight,
     children,
+    dashboardId,
+    tileId,
 }: {
     insight: InsightModel
     children: ReactNode
+    dashboardId?: number
+    tileId?: number
 }): JSX.Element {
     const [position, setPosition] = useState<ResultMenuPoint | null>(null)
     const [actors, setActors] = useState<CapturedPersonsModal | null>(null)
@@ -144,6 +148,8 @@ export function DashboardInsightResultMenu({
                     rowsQuery={rowsQuery}
                     rowsUrl={rowsUrl}
                     close={close}
+                    dashboardId={dashboardId}
+                    tileId={tileId}
                 />
             )}
         </div>

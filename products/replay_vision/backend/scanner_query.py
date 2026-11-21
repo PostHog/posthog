@@ -167,6 +167,8 @@ class _HogQLReferences(TraversingVisitor):
         raise ScannerQueryError(f"A HogQL expression in a scanner filter must name each {kind} by its numeric id.")
 
     def visit_call(self, node: ast.Call) -> None:
+        if node.name == "matchesInsight":
+            raise ScannerQueryError("A HogQL expression in a scanner filter can't use matchesInsight.")
         if node.name == "matchesAction":
             self.actions.append(self._id(node.args[0] if node.args else None, "action"))
         super().visit_call(node)

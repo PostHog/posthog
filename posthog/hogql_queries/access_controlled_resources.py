@@ -15,6 +15,7 @@ from posthog.schema import (
     EntityType,
     FunnelsDataWarehouseNode,
     HogQLQuery,
+    HogQLQueryModifiers,
     LifecycleDataWarehouseNode,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
@@ -229,6 +230,7 @@ def queried_access_controlled_resources(
     team: "Team",
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
+    modifiers: HogQLQueryModifiers | None = None,
     _catalog: Optional[_WarehouseCatalog] = None,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -256,6 +258,13 @@ def queried_access_controlled_resources(
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     catalog = _catalog or _catalog_for_fingerprint(team.pk)
+
+    # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
+    # references are expanded here, conservatively partition on every access-control scope.
+    if _contains_insight_selection(
+        [query, modifiers if modifiers is not None else team.modifiers], team.test_account_filters
+    ):
+        return None
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -368,6 +377,7 @@ def queried_access_controlled_resources(
                     HogQLQuery(query=view_sql),
                     team,
                     bypassed_scopes=bypassed_scopes,
+                    modifiers=modifiers,
                     _catalog=catalog,
                 )
                 if nested is None:
@@ -384,6 +394,76 @@ def queried_access_controlled_resources(
         if _references_data_warehouse(query)
         else set()
     )
+
+
+def _contains_insight_selection(value, test_account_filters=None) -> bool:
+    if isinstance(value, BaseModel):
+        value = value.__dict__
+    if isinstance(value, (list, tuple)):
+        return any(_contains_insight_selection(field, test_account_filters) for field in value)
+    if not isinstance(value, dict):
+        return False
+
+    if (value.get("filterTestAccounts") or value.get("filter_test_accounts")) and _contains_insight_selection(
+        test_account_filters
+    ):
+        return True
+
+    expressions = []
+    if value.get("kind") == "HogQLQuery":
+        expressions.append(value.get("query"))
+    if value.get("type") in ("hogql", "event_metadata"):
+        expressions.extend(value.get(field) for field in ("key", "property"))
+    if value.get("breakdown_type") in ("hogql", "event_metadata"):
+        expressions.append(value.get("breakdown"))
+    # These query fields contain expressions; property values and request metadata are literals.
+    expressions.extend(
+        value.get(field)
+        for field in (
+            "select",
+            "orderBy",
+            "groupBy",
+            "where",
+            "having",
+            "filterExpression",
+            "metrics",
+            "formula",
+            "math_hogql",
+            "pathsHogQLExpression",
+            "funnelAggregateByHogQL",
+            "id_field",
+            "timestamp_field",
+            "distinct_id_field",
+            "aggregation_target_field",
+            "created_at_field",
+            "hogql",
+        )
+    )
+    return any(_hogql_contains_insight_selection(expr) for expr in expressions) or any(
+        _contains_insight_selection(field, test_account_filters)
+        for name, field in value.items()
+        if name not in ("tags", "name", "value")
+    )
+
+
+def _hogql_contains_insight_selection(value) -> bool:
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select  # noqa: PLC0415
+
+    if isinstance(value, (list, tuple)):
+        return any(_hogql_contains_insight_selection(field) for field in value)
+    if not isinstance(value, str) or ("(" not in value and "<" not in value):
+        return False
+    # Quoted function names use the same decoding as execution. Unknown syntax fails closed.
+    for parser in (parse_expr, parse_select, parse_order_expr):
+        try:
+            finder = InsightSelectionFinder(parser(value))
+            # Query tags expand structured queries and saved filters outside the outer table scan.
+            return finder.found or finder.has_query_tags
+        except BaseHogQLError:
+            pass
+    return True
 
 
 def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:

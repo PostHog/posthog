@@ -97,6 +97,16 @@ export function forgetRetainedResponse(key: string | null): void {
     }
 }
 
+export function forgetRetainedResponsesForNode(nodeKey: string): void {
+    const matches = (key: string): boolean => JSON.parse(key)[2] === nodeKey
+    retainedResponses.deleteMatching(matches)
+    for (const [key, query] of getInflightQueries().byKey) {
+        if (matches(key)) {
+            query.abort()
+        }
+    }
+}
+
 export function retainResponse(key: string | null, response: AnyResponseType | null | undefined): void {
     retainWith(retainedResponses.set.bind(retainedResponses), key, response)
 }
@@ -168,7 +178,11 @@ export function trackInflightResponse(
     }
     byKey.set(key, query)
     promise
-        .then((response) => retainWith(retain, key, response))
+        .then((response) => {
+            if (byKey.get(key) === query) {
+                retainWith(retain, key, response)
+            }
+        })
         .catch(() => {})
         .finally(() => {
             settled = true

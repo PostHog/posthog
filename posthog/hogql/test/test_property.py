@@ -2446,6 +2446,21 @@ class TestProperty(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [f"{name}('{{}}')" for name in ("matchesInsight", r"`matches\0Insight`", r'"matches\0Insight"')]
+        + [
+            "<TrendsQuery filterTestAccounts={true} />",
+            """<TrendsQuery properties={[{type: 'hogql', key: "matchesInsight('{}')"}]} />""",
+        ]
+    )
+    def test_action_steps_reject_insight_selections(self, expression):
+        action = create_action(
+            team=self.team,
+            steps_json=[{"event": "$pageview", "properties": [{"type": "hogql", "key": expression}]}],
+        )
+        with self.assertRaisesRegex(QueryError, "Action steps cannot contain insight selections"):
+            action_to_expr(action)
+
     def test_behavioral_property_in_action_step_raises(self):
         # Compiling one would re-enter action_to_expr until Python's recursion limit
         action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])

@@ -43,6 +43,7 @@ import { DashboardTileSectionBand } from 'products/dashboards/frontend/component
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { type LayoutGesturePerformance, LayoutGestureMonitor } from 'products/dashboards/frontend/dashboardPerformance'
+import { dashboardResultFilterLogic } from 'products/dashboards/frontend/dashboardResultFilterLogic'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
 import { useCarryTile } from 'products/dashboards/frontend/useCarryTile'
@@ -159,6 +160,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
         biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
+    useMountedLogic(
+        dashboardResultFilterLogic({
             dashboardId: dashboard?.id ?? 0,
             tiles: canCrossFilter ? (tiles ?? []) : [],
             loadQueue: queryLoadQueue,

@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
@@ -26,6 +28,42 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLCohortQuery, particularly the optimization for multiple person property filters."""
+
+    @parameterized.expand(
+        [f"{name}('{{}}')" for name in ("matchesInsight", r"`matches\0Insight`", '"matchesInsight"')]
+        + [
+            "<TrendsQuery filterTestAccounts={true} />",
+            """<TrendsQuery properties={[{type: 'hogql', key: "matchesInsight('{}')"}]} />""",
+        ]
+    )
+    def test_saved_cohort_rejects_insight_selection(self, expression) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="saved behavioral filter",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 7,
+                                    "time_interval": "day",
+                                    "event_filters": [{"type": "hogql", "key": expression}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        with self.assertRaisesRegex(QueryError, "Cohort definitions cannot contain insight selections"):
+            HogQLCohortQuery(cohort=cohort).get_query()
 
     def test_dynamic_cohort_id_is_not_injectable(self) -> None:
         # A static/dynamic-cohort property whose value is an arbitrary string (e.g. smuggled through

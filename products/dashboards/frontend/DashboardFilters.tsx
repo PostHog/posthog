@@ -13,6 +13,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardPlacement } from '~/types'
 
 import { BIDashboardFilterBar } from 'products/business_intelligence/frontend/BIDashboardFilterBar'
+import { DashboardResultFilterBar } from 'products/dashboards/frontend/components/DashboardResultFilterBar'
 import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
 import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
@@ -53,7 +54,12 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         {placement === DashboardPlacement.Dashboard && (
                             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden">
                                 {!todayRailNav && <DashboardUnsavedChangesIndicator />}
-                                {dashboard && !isSharedView() && <BIDashboardFilterBar dashboardId={dashboard.id} />}
+                                {dashboard && !isSharedView() && (
+                                    <>
+                                        <BIDashboardFilterBar dashboardId={dashboard.id} />
+                                        <DashboardResultFilterBar dashboardId={dashboard.id} />
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>

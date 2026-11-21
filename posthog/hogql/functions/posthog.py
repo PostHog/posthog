@@ -4,6 +4,7 @@ from .core import HogQLFunctionMeta
 
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
+    "matchesInsight": HogQLFunctionMeta("matchesInsight", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
     "withIcon": HogQLFunctionMeta("withIcon", 2, 2),
