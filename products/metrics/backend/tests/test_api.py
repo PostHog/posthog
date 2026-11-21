@@ -149,6 +149,26 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert all("Unknown column" in response.json()["detail"] for response in responses)
         assert run.call_count == 1
 
+    @parameterized.expand(
+        [
+            (
+                "bad_query_in_a_hogqlx_tag",
+                "SELECT service_name FROM <HogQLQuery query='SELECT FROM posthog.metrics' />",
+                "Error parsing query tag",
+            ),
+            (
+                "field_a_subquery_does_not_select",
+                "SELECT m.service_name FROM (SELECT metric_name FROM posthog.metrics) AS m",
+                "service_name",
+            ),
+        ]
+    )
+    def test_an_options_query_that_does_not_resolve_is_a_400(self, _name: str, query: str, message: str) -> None:
+        response = self._post({"source": "sql", "query": query})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+
     def test_all_of_a_list_ignores_a_regex_left_over_from_a_query(self) -> None:
         filled = fill_all_values(
             team=self.team,
