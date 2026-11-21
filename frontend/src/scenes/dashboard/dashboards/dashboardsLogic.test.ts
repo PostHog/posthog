@@ -341,6 +341,31 @@ describe('dashboardsLogic', () => {
         })
     })
 
+    it.each([
+        [DashboardsTab.All, DashboardsTab.Yours],
+        [DashboardsTab.Yours, DashboardsTab.All],
+    ])('clears filter chips when switching from %s to %s', async (from, to) => {
+        router.actions.push(urls.dashboards(), { tab: from })
+        logic.actions.setFilters({
+            search: 'sales',
+            pinned: true,
+            shared: true,
+            createdBy: [OTHER_USER.id],
+            tags: ['finance'],
+            folder: 'Marketing',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTab(to)
+        }).toMatchValues({
+            currentTab: to,
+            filters: { ...DEFAULT_FILTERS, search: 'sales' },
+        })
+        for (const param of ['created_by', 'pinned', 'shared', 'tags', 'folder']) {
+            expect(router.values.searchParams[param]).toBeUndefined()
+        }
+    })
+
     it('shows correct dashboards when filtering by name', async () => {
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [OTHER_USER.id] })
