@@ -12566,7 +12566,7 @@ Today (7): `affiliate_coupons`, `affiliate_links`, `affiliates`, `campaigns`, `c
 
 Diffed against: <https://developers.rewardful.com/llms.txt>
 
-- [ ] `List sales (GET /v1/sales)` — Individual purchases behind each commission, with charge, refund, tax and sale amounts, the base for revenue and refund analysis per referral (high)
+- [x] `List sales (GET /v1/sales)` — Individual purchases behind each commission, with charge, refund, tax and sale amounts, the base for revenue and refund analysis per referral (high)
 
 Note: Read llms.txt and the .md page for every REST resource: campaigns, affiliates, affiliate links, affiliate coupons, referrals, sales, commissions and payouts. Only sales is missing. Page params match the other resources, and it supports expand=commission, which is not needed because commissions are already synced. Excluded affiliate SSO and webhook routes.
 
