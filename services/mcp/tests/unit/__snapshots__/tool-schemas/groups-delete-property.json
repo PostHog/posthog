@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "group_key": {
+            "description": "Specify the key of the group to find",
+            "type": "string"
+        },
+        "group_type_index": {
+            "description": "Specify the group type to find",
+            "type": "number"
+        },
+        "property_name": {
+            "description": "Name of the property to delete.",
+            "type": "string"
+        }
+    },
+    "required": ["group_key", "group_type_index", "property_name"],
+    "type": "object"
+}

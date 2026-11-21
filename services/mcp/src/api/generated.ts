@@ -93491,6 +93491,14 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedGroupTypeMetadataUpdateRequest {
+      /**
+         * Group type metadata updates to apply, at most 5, one per group type.
+         * @maxItems 5
+         */
+      updates?: GroupTypeMetadataUpdate[];
+    }
+
     /**
      * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
      *
