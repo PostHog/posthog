@@ -117,6 +117,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
+    loadPulsePins: 'scenes.project-homepage.today.todayHighlightsLogic', // The pins editor shows why pins are unavailable
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
