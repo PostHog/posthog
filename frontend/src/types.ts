@@ -4953,10 +4953,6 @@ export interface EventDefinition {
     primary_property?: string | null
 }
 
-export interface EventDefinitionMetrics {
-    query_usage_30_day: number
-}
-
 export interface ObjectMediaPreview {
     id: string
     created_at: string

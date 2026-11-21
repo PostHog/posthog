@@ -19,6 +19,11 @@ MAX_EVENTS_LOGGED_PER_QUERY = 50
 MAX_PROPERTIES_LOGGED_PER_QUERY = 50
 
 
+def event_usage_instance_id(event_name: str) -> str:
+    """The app_metrics2 identity of one event definition. Rows keep it forever, so the shape must not change."""
+    return f"event:{event_name}"
+
+
 def property_usage_instance_id(property_type: str, property_name: str, group_type_index: int | None = None) -> str:
     """The app_metrics2 identity of one property definition. Rows keep it forever, so the shape must not change.
 
@@ -52,7 +57,7 @@ def log_event_usage(
         raise ValueError("Event name must not be empty")
 
     payload = {
-        "instance_id": f"event:{event_name}",
+        "instance_id": event_usage_instance_id(event_name),
         "metric_name": "viewed",
         "team_id": team_id,
         "app_source_id": str(user_id) if user_id else "anonymous",

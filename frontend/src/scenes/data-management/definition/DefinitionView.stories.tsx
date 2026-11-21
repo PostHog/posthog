@@ -35,7 +35,39 @@ const MOCK_EVENT_DEFINITION = {
     created_by: { id: 1, first_name: 'Demo', email: 'demo@posthog.com' },
 }
 
-const MOCK_METRICS = { query_usage_30_day: 12345 }
+// 30 days ending on the story's mockDate, so the sparkline labels stay fixed.
+const MOCK_DAYS = Array.from({ length: 30 }, (_, index) =>
+    new Date(Date.UTC(2026, 3, 1 + index)).toISOString().slice(0, 10)
+)
+
+function mockDailyCounts(base: number): number[] {
+    return MOCK_DAYS.map((_, index) => Math.round(base * (1 + 0.4 * Math.sin(index / 2.5))))
+}
+
+function mockQueryUsage(base: number, previous: number | null): Record<string, unknown> {
+    const counts = mockDailyCounts(base)
+    return {
+        query_usage_30_day: counts.reduce((total, count) => total + count, 0),
+        query_usage_previous_30_day: previous,
+        query_usage_daily: MOCK_DAYS.map((date, index) => ({ date, count: counts[index] })),
+    }
+}
+
+function mockEventVolumeResponse(base: number, previousBase: number): Record<string, unknown> {
+    const result = (compareLabel: 'current' | 'previous', counts: number[]): Record<string, unknown> => ({
+        label: 'All events',
+        count: counts.reduce((total, count) => total + count, 0),
+        data: counts,
+        days: MOCK_DAYS,
+        labels: MOCK_DAYS,
+        compare: true,
+        compare_label: compareLabel,
+    })
+    return { results: [result('current', mockDailyCounts(base)), result('previous', mockDailyCounts(previousBase))] }
+}
+
+// The event page has no usage before the earlier window, so it shows no comparison.
+const MOCK_METRICS = mockQueryUsage(410, null)
 
 const MOCK_PROPERTY_DEFINITION = {
     id: '0190c3a1-1f2e-7000-8000-000000000001',
@@ -95,7 +127,8 @@ function insightsListMock(insights: Record<string, unknown>[]): Record<string, u
 }
 
 function propertyUsageDecorator(
-    queryUsage: number,
+    queryUsage: Record<string, unknown>,
+    eventVolume: Record<string, unknown>,
     insights: Record<string, unknown>[]
 ): ReturnType<typeof mswDecorator> {
     return mswDecorator({
@@ -106,14 +139,11 @@ function propertyUsageDecorator(
         post: {
             '/api/projects/:project_id/property_definitions/usage_metrics/': {
                 results: [
-                    {
-                        type: 'event',
-                        name: MOCK_PROPERTY_DEFINITION.name,
-                        group_type_index: null,
-                        query_usage_30_day: queryUsage,
-                    },
+                    { type: 'event', name: MOCK_PROPERTY_DEFINITION.name, group_type_index: null, ...queryUsage },
                 ],
             },
+            '/api/environments/:team_id/query/': eventVolume,
+            '/api/environments/:team_id/query/:query_kind/': eventVolume,
         },
     })
 }
@@ -179,7 +209,9 @@ export const PropertyDefinitionUsage: Story = {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
     },
-    decorators: [propertyUsageDecorator(4821, MOCK_INSIGHTS)],
+    decorators: [
+        propertyUsageDecorator(mockQueryUsage(160, 3900), mockEventVolumeResponse(52000, 61000), MOCK_INSIGHTS),
+    ],
 }
 
 export const PropertyDefinitionUsageEmpty: Story = {
@@ -187,5 +219,5 @@ export const PropertyDefinitionUsageEmpty: Story = {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
     },
-    decorators: [propertyUsageDecorator(0, [])],
+    decorators: [propertyUsageDecorator(mockQueryUsage(0, 0), mockEventVolumeResponse(0, 0), [])],
 }
