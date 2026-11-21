@@ -124,6 +124,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
     const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const quillSurface = useQuillSurface()
+    const alignWithVariableLabels = hasVariables && !quillSurface
     const showSaveActions =
         quillSurface && placement === DashboardPlacement.Dashboard && dashboardSettingsState === 'unsavedChanges'
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -154,11 +155,16 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 clsx('flex gap-2 items-end flex-wrap', quillSurface && 'min-w-0', 'border', editingFrameClass)
             }
         >
+            {quillSurface && hasVariables && (
+                <div className="flex basis-full flex-wrap items-end gap-2">
+                    <VariablesForDashboard />
+                </div>
+            )}
             {showDateFilter && (
                 <DashboardControlSlot
                     control="dateRange"
                     hasValue={!!effectiveEditBarFilters.date_from || !!effectiveEditBarFilters.date_to}
-                    className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}
+                    className={clsx('content-end min-w-0', { 'h-[61px]': alignWithVariableLabels })}
                 >
                     <Shortcut
                         name="DashboardDateFilter"
@@ -199,7 +205,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 <DashboardControlSlot
                     control="interval"
                     hasValue={effectiveEditBarFilters.interval != null}
-                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                    className={clsx('content-end', { 'h-[61px]': alignWithVariableLabels })}
                 >
                     <DashboardIntervalFilter />
                 </DashboardControlSlot>
@@ -207,7 +213,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             <DashboardControlSlot
                 control="properties"
                 hasValue={(effectiveEditBarFilters.properties?.length ?? 0) > 0}
-                className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                className={clsx('content-end', { 'h-[61px]': alignWithVariableLabels })}
             >
                 <PropertyFilters
                     onChange={(properties) => {
@@ -242,7 +248,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 <DashboardControlSlot
                     control="breakdown"
                     hasValue={!!effectiveEditBarFilters.breakdown_filter}
-                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                    className={clsx('content-end', { 'h-[61px]': alignWithVariableLabels })}
                 >
                     <BindLogic logic={insightLogic} props={insightProps}>
                         <TaxonomicBreakdownFilter
@@ -270,15 +276,15 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     </BindLogic>
                 </DashboardControlSlot>
 
-                <VariablesForDashboard />
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                {!quillSurface && <VariablesForDashboard />}
+                <div className={clsx('content-end', { 'h-[61px]': alignWithVariableLabels })}>
                     <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
                 </div>
                 {controlsEnabled && (
                     <DashboardControlSlot
                         control="metricVariables"
                         hasValue={(effectiveEditBarFilters.metricVariables?.length ?? 0) > 0}
-                        className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                        className={clsx('content-end', { 'h-[61px]': alignWithVariableLabels })}
                     >
                         <div className="flex min-h-[30px] flex-wrap items-end gap-1 border-l border-primary pl-2">
                             <DashboardMetricVariables />

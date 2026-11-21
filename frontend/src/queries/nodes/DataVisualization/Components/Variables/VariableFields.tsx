@@ -30,6 +30,7 @@ import {
     Variable,
     VariableType,
 } from '../../types'
+import { useListVariableOptions } from './useListVariableOptions'
 import { VariableCalendar } from './VariableCalendar'
 import {
     RelativeDateUnit,
@@ -141,13 +142,12 @@ export const ListVariableSelect = ({
     selectedValues = getListVariableSelectedValues(variable),
     size,
 }: ListVariableSelectProps): JSX.Element => {
-    const logic = variableValuesLogic({ variable, loadOnMount })
-    const { loadVariableOptions } = useActions(logic)
-    const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
-    const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
-    const options =
-        variable.values_query == null ? getStaticVariableOptions(variable) : isCurrentQuery ? variableOptions : []
-    const currentError = isCurrentQuery ? variableOptionsError : null
+    const {
+        options,
+        error: currentError,
+        loading: variableOptionsLoading,
+        reload: reloadOptions,
+    } = useListVariableOptions(variable, loadOnMount)
 
     return (
         <LemonInputSelect
@@ -174,7 +174,7 @@ export const ListVariableSelect = ({
                     : variable.values_query?.trim()
                       ? {
                             children: 'Reload options',
-                            onClick: () => loadVariableOptions(variable),
+                            onClick: reloadOptions,
                             loading: variableOptionsLoading,
                         }
                       : undefined
@@ -346,7 +346,7 @@ export const ListVariableFields = ({
     )
 }
 
-const RELATIVE_DATE_UNITS: Array<{ value: RelativeDateUnit; label: string }> = [
+export const RELATIVE_DATE_UNITS: Array<{ value: RelativeDateUnit; label: string }> = [
     { value: 'h', label: 'hours' },
     { value: 'd', label: 'days' },
     { value: 'w', label: 'weeks' },

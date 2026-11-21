@@ -14,7 +14,7 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -25,32 +25,39 @@ import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { DateVariable, ListVariable, Variable } from '../../types'
 import { inlineListVariableSelectLogic } from './inlineListVariableSelectLogic'
 import { NewVariableModal } from './NewVariableModal'
+import { QuillDashboardVariable } from './QuillDashboardVariable'
 import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
-import { formatRelativeDateValue, getListVariableSelectedValues, isRelativeDateValue } from './variableUtils'
-
-const getVariableDisplayValue = (variable: Variable): string => {
-    const value = variable.value ?? variable.default_value
-    if (variable.type === 'List') {
-        const selectedValues = getListVariableSelectedValues(variable)
-        if (variable.is_multi && selectedValues.length > 1) {
-            return `${selectedValues.length} selected`
-        }
-        return selectedValues[0] ?? ''
-    }
-    if (variable.type === 'Date' && typeof value === 'string' && isRelativeDateValue(value)) {
-        return formatRelativeDateValue(value)
-    }
-    return String(value ?? '')
-}
+import {
+    getInitialVariableInputValue,
+    getListVariableSelectedValues,
+    getVariableDisplayValue,
+    isRelativeDateValue,
+} from './variableUtils'
 
 export const VariablesForDashboard = (): JSX.Element => {
     const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
+    const quillSurface = useQuillSurface()
 
     if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
+    }
+
+    if (quillSurface) {
+        return (
+            <>
+                {effectiveVariablesAndAssociatedInsights.map((n) => (
+                    <QuillDashboardVariable
+                        key={n.variable.id}
+                        variable={n.variable}
+                        insightsUsingVariable={n.insightNames}
+                        onChange={overrideVariableValue}
+                    />
+                ))}
+            </>
+        )
     }
 
     return (
@@ -121,27 +128,9 @@ export const VariableInput = ({
     variableSettingsOnClick,
     onInsertAtCursor,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState<string | string[]>(() => {
-        const val = variable.value ?? variable.default_value
-
-        if (variable.type === 'Number' && !val) {
-            return '0'
-        }
-
-        if (variable.type === 'Boolean') {
-            return val === true || val === 'true' ? 'true' : 'false'
-        }
-
-        if (variable.type === 'Date' && !val) {
-            return dayjs().format('YYYY-MM-DD HH:mm:00')
-        }
-
-        if (variable.type === 'List') {
-            return getListVariableSelectedValues(variable)
-        }
-
-        return String(val ?? '')
-    })
+    const [localInputValue, setLocalInputValue] = useState<string | string[]>(() =>
+        getInitialVariableInputValue(variable)
+    )
     const [isNull, setIsNull] = useState<boolean>(variable.isNull ?? false)
 
     // A fixed date is committed by the calendar's own Apply button, so a second one would be redundant.
