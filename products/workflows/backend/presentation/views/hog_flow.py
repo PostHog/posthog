@@ -6470,12 +6470,12 @@ class HogFlowViewSet(
 
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
-        if step_ids and self._set_up_sandbox_sender_in_the_write():
+        if step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
             serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
         elif serializer.instance is not None:
             self._set_up_sandbox_sender_after_commit(serializer)
 
-    def _set_up_sandbox_sender_in_the_write(self) -> bool:
+    def _set_up_sandbox_sender_in_the_write(self, workflow_id: Any, step_ids: Sequence[str]) -> bool:
         user = self.request.user
         try:
             with transaction.atomic():
@@ -6486,7 +6486,13 @@ class HogFlowViewSet(
                 ):
                     provision_sandbox_sender_if_available(self.team, user)
         except Exception:
-            logger.warning("sandbox_sender_setup_moved_after_commit", team_id=self.team.id, exc_info=True)
+            logger.warning(
+                "sandbox_sender_setup_moved_after_commit",
+                team_id=self.team.id,
+                workflow_id=str(workflow_id) if workflow_id else None,
+                action_ids=step_ids,
+                exc_info=True,
+            )
             return False
         return True
 
@@ -6499,12 +6505,13 @@ class HogFlowViewSet(
     def _try_to_set_up_sandbox_sender(self, path: str, workflow_id: Any, step_ids: Sequence[str]) -> None:
         user = self.request.user
         try:
-            if (
-                isinstance(user, User)
-                and not has_sandbox_sender(self.team.id)
-                and _can_set_up_sandbox_sender(self.team, user)
-            ):
-                provision_sandbox_sender_if_available(self.team, user)
+            with transaction.atomic():
+                if (
+                    isinstance(user, User)
+                    and not has_sandbox_sender(self.team.id)
+                    and _can_set_up_sandbox_sender(self.team, user)
+                ):
+                    provision_sandbox_sender_if_available(self.team, user)
         except Exception as error:
             SANDBOX_SENDER_SETUP_FAILURES.labels(path=path).inc()
             logger.exception(

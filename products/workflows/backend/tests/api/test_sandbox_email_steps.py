@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
 
 import responses
@@ -852,7 +853,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             attempts.append("create")
             if fails_once and len(attempts) > 1:
                 return create(*args, **kwargs)
-            raise RuntimeError("setup failed")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 / 0")
 
         fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=create_or_fail)
         headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if from_api else {}
