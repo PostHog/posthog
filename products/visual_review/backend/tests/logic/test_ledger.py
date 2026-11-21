@@ -11,9 +11,9 @@ from django.utils import timezone
 import yaml
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import BaselineEntrySource, BaselineMode, RunType
+from products.visual_review.backend.facade.enums import BaselineEntrySource, BaselineMode, RunGate, RunStatus, RunType
 from products.visual_review.backend.logic import errors, github_api, ledger, repos
-from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo
+from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _SEED_SHA = "a" * 40
@@ -132,9 +132,22 @@ class TestLedger:
 
         repo.refresh_from_db()
         assert (repo.baseline_mode, repo.commit_status_gate_enabled) == (BaselineMode.LEDGER, True)
+        for pr_number, approved in ((12, False), (13, True)):
+            Run.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"head-{pr_number}",
+                branch=f"pr-{pr_number}",
+                pr_number=pr_number,
+                status=RunStatus.COMPLETED,
+                gate=RunGate.COMMIT_STATUS,
+                approved=approved,
+            )
         output = StringIO()
         call_command(command[0], "status", *command[1:], stdout=output)
         assert "Commit status gate: on" in output.getvalue()
+        assert "Pull requests whose run is gated by the commit status: #12\n" in output.getvalue()
 
     def _export_storybook(self, repo: Repo) -> dict:
         out = StringIO()
