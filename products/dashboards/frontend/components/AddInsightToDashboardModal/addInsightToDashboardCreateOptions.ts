@@ -1,6 +1,5 @@
 import { ComponentType } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import {
@@ -32,10 +31,12 @@ export function addInsightToDashboardCreateOptions({
     dashboardId,
     tileGroupKey,
     featureFlags,
+    showMetricsInsight,
 }: {
     dashboardId: number | undefined
     tileGroupKey: string | null
     featureFlags: FeatureFlagsSet
+    showMetricsInsight: boolean
 }): { quickCreate: AddInsightCreateOption[]; moreCreate: AddInsightCreateOption[] } {
     const insightUrl = (type: InsightType): string => urls.insightNew({ type, dashboardId, tileGroupKey })
 
@@ -67,7 +68,7 @@ export function addInsightToDashboardCreateOptions({
             dataAttr: `create-${type.toLowerCase()}`,
         }))
 
-    if (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) {
+    if (showMetricsInsight) {
         moreCreate.push({
             type: InsightType.METRICS,
             label: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name,
