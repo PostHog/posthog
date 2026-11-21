@@ -341,7 +341,11 @@ rules:
                               |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
+                              |MCPIntentClusteringRun
                               |MCPIntentEmbeddingCache
+                              |MCPIntentErasure
+                              |MCPIntentTopic
+                              |MCPIntentWriteBarrier
                               |MCPMeasuredStats
                               |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
@@ -890,7 +894,11 @@ rules:
                         |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
+                        |MCPIntentClusteringRun
                         |MCPIntentEmbeddingCache
+                        |MCPIntentErasure
+                        |MCPIntentTopic
+                        |MCPIntentWriteBarrier
                         |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
