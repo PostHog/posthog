@@ -3606,6 +3606,7 @@ _INSERT_LOAD_BALANCING_CASES = [
     (LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED, "in_order"),
     (LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED, "in_order"),
     (LazyComputationTable.WEB_GOALS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.SERIES_VALUES_PREAGGREGATED, "in_order"),
     (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
     (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
     (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
