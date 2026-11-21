@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExpandedEventRow } from '~/queries/nodes/DataTable/ExpandedEventRow'
-
 import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
+import { ToolCallEventView } from '../components/ToolCallEventView'
 import { sessionCallDrawerLogic } from './sessionCallDrawerLogic'
 
 export function SessionCallDrawer({ stacked = false }: { stacked?: boolean }): JSX.Element | null {
@@ -34,7 +33,7 @@ export function SessionCallDrawer({ stacked = false }: { stacked?: boolean }): J
             data-attr="mcp-session-call-drawer"
         >
             {loadedEvent ? (
-                <ExpandedEventRow event={loadedEvent} />
+                <ToolCallEventView event={loadedEvent} />
             ) : eventLoading ? (
                 <div className="flex flex-col gap-2" aria-busy>
                     <LemonSkeleton className="h-8 w-2/3" />

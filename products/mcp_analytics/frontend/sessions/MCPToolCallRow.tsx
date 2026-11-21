@@ -29,7 +29,7 @@ function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorCont
     }
 }
 
-function CapturedJson({
+export function CapturedJson({
     label,
     json,
     property,

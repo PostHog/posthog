@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react'
 import { IconArrowUpRight, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExpandedEventRow } from '~/queries/nodes/DataTable/ExpandedEventRow'
-
 import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
+import { ToolCallEventView } from '../components/ToolCallEventView'
 import { SessionDrawer } from '../sessions/SessionDrawer'
 import { activityDrawerLogic } from './activityDrawerLogic'
 
@@ -51,7 +50,7 @@ export function ActivityDrawer(): JSX.Element | null {
                                 View session
                             </LemonButton>
                         ) : null}
-                        <ExpandedEventRow event={event} />
+                        <ToolCallEventView event={event} />
                     </div>
                 ) : loadedEventLoading ? (
                     <div className="flex flex-col gap-2" aria-busy>

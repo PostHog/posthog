@@ -1,22 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import {
-    Card,
-    Table,
-    TableBody,
-    TableCell,
-    TableEmpty,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@posthog/quill-primitives'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { cn } from 'lib/utils/css-classes'
 import { formatPercentage } from 'lib/utils/numbers'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { InstrumentationEmptyState } from '../components/InstrumentationEmptyState'
 import { McpDateFilter } from '../components/McpDateFilter'
@@ -24,11 +16,11 @@ import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLabel } from '../dashboard/HarnessLabel'
-import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
 import { mcpUsersLogic } from './mcpUsersLogic'
 import { UserReport } from './UserReport'
 import { userReportLogic } from './userReportLogic'
+import type { UserRow } from './usersQueries'
 
 export function mcpUserUrl(distinctId: string, dateFrom: string | null, dateTo: string | null): string {
     return combineUrl(urls.mcpAnalyticsUser(distinctId), {
@@ -37,7 +29,7 @@ export function mcpUserUrl(distinctId: string, dateFrom: string | null, dateTo: 
     }).url
 }
 
-const COLUMNS = ['Calls', 'Sessions', 'Error rate', 'p95', 'Top tool', 'Harness', 'Last seen']
+const errorRate = (user: UserRow): number => (user.calls ? (user.errors / user.calls) * 100 : 0)
 
 function UsersTable(): JSX.Element {
     const { users, filteredUsers, usersLoading, usersFailed, search, openedUser } = useValues(mcpUsersLogic)
@@ -45,95 +37,100 @@ function UsersTable(): JSX.Element {
 
     if (!usersLoading && !usersFailed && users.length === 0) {
         return (
-            <Card size="sm">
+            <div data-quill>
                 <InstrumentationEmptyState fix={INSTRUMENTATION_FIXES.identify} dataAttr="mcp-users-setup" />
-            </Card>
+            </div>
         )
     }
     return (
-        // pt-0: no card header.
-        <Card size="sm" className="gap-0 overflow-hidden pt-0">
-            <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={usersLoading}>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead expand>User</TableHead>
-                        {COLUMNS.map((column) => (
-                            <TableHead
-                                key={column}
-                                align={column === 'Top tool' || column === 'Harness' ? 'left' : 'right'}
-                            >
-                                {column}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                {usersLoading && users.length === 0 ? (
-                    <TableBody>
-                        {[0, 1, 2, 3, 4].map((i) => (
-                            <TableRow key={i}>
-                                <TableCell expand>
-                                    <SkeletonLine className="w-48" />
-                                </TableCell>
-                                {COLUMNS.map((column) => (
-                                    <TableCell key={column}>
-                                        <SkeletonLine className="w-12" />
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                ) : usersFailed ? (
-                    <TableEmpty className="py-6 text-secondary">
-                        Couldn't load users.{' '}
-                        <button type="button" className="underline" onClick={() => loadUsers()}>
+        <>
+            {usersFailed ? (
+                <LemonBanner type="error">
+                    <div className="flex items-center justify-between gap-2">
+                        Couldn't load users.
+                        <LemonButton type="secondary" size="small" onClick={() => loadUsers()}>
                             Try again
-                        </button>
-                    </TableEmpty>
-                ) : filteredUsers.length === 0 ? (
-                    <TableEmpty className="py-6 text-secondary">
-                        {search ? 'No users match this search.' : 'No users in this date range.'}
-                    </TableEmpty>
-                ) : (
-                    <TableBody>
-                        {filteredUsers.map((user) => (
-                            <TableRow
-                                key={user.distinctId}
-                                className={cn(
-                                    'cursor-pointer',
-                                    user.distinctId === openedUser && 'bg-fill-highlight-100'
-                                )}
-                                onClick={() => openUser(user.distinctId)}
-                                data-attr="mcp-users-row"
-                            >
-                                <TableCell expand>
-                                    <div className="truncate font-medium">{user.label}</div>
-                                    {user.label !== user.distinctId ? (
-                                        <div className="truncate text-xs text-secondary">{user.distinctId}</div>
-                                    ) : null}
-                                </TableCell>
-                                <TableCell align="right">{formatNumber(user.calls)}</TableCell>
-                                <TableCell align="right">{formatNumber(user.sessions)}</TableCell>
-                                <TableCell align="right">
-                                    {formatPercentage(user.calls ? (user.errors / user.calls) * 100 : 0, {
-                                        compact: true,
-                                    })}
-                                </TableCell>
-                                <TableCell align="right">{user.p95Ms !== null ? formatMs(user.p95Ms) : '–'}</TableCell>
-                                <TableCell>
-                                    <span className="font-mono">{user.topTool}</span>
-                                </TableCell>
-                                <TableCell>
-                                    <HarnessLabel category={user.topHarness} />
-                                </TableCell>
-                                <TableCell align="right" className="whitespace-nowrap">
-                                    <TZLabel time={user.lastSeen} />
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                )}
-            </Table>
-        </Card>
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            ) : null}
+            <LemonTable<UserRow>
+                dataSource={filteredUsers}
+                loading={usersLoading}
+                rowKey="distinctId"
+                defaultSorting={{ columnKey: 'calls', order: -1 }}
+                emptyState={search ? 'No users match this search.' : 'No users in this date range.'}
+                onRow={(user) => ({
+                    onClick: () => openUser(user.distinctId),
+                    className: 'cursor-pointer',
+                    'data-attr': 'mcp-users-row',
+                })}
+                rowStatus={(user) => (user.distinctId === openedUser ? 'highlighted' : null)}
+                columns={[
+                    {
+                        title: 'User',
+                        key: 'user',
+                        sorter: (a, b) => a.label.localeCompare(b.label),
+                        render: (_, user) => (
+                            <PersonDisplay
+                                person={{
+                                    distinct_id: user.distinctId,
+                                    properties: user.label !== user.distinctId ? { email: user.label } : {},
+                                }}
+                                withIcon
+                                noLink
+                                noPopover
+                            />
+                        ),
+                    },
+                    {
+                        title: 'Calls',
+                        key: 'calls',
+                        align: 'right',
+                        sorter: (a, b) => a.calls - b.calls,
+                        render: (_, user) => formatNumber(user.calls),
+                    },
+                    {
+                        title: 'Sessions',
+                        key: 'sessions',
+                        align: 'right',
+                        sorter: (a, b) => a.sessions - b.sessions,
+                        render: (_, user) => formatNumber(user.sessions),
+                    },
+                    {
+                        title: 'Error rate',
+                        key: 'errorRate',
+                        align: 'right',
+                        sorter: (a, b) => errorRate(a) - errorRate(b),
+                        render: (_, user) => formatPercentage(errorRate(user), { compact: true }),
+                    },
+                    {
+                        title: 'p95',
+                        key: 'p95',
+                        align: 'right',
+                        sorter: (a, b) => (a.p95Ms ?? 0) - (b.p95Ms ?? 0),
+                        render: (_, user) => (user.p95Ms !== null ? formatMs(user.p95Ms) : '–'),
+                    },
+                    {
+                        title: 'Top tool',
+                        key: 'topTool',
+                        render: (_, user) => <span className="font-mono">{user.topTool}</span>,
+                    },
+                    {
+                        title: 'Harness',
+                        key: 'topHarness',
+                        render: (_, user) => <HarnessLabel category={user.topHarness} />,
+                    },
+                    {
+                        title: 'Last seen',
+                        key: 'lastSeen',
+                        align: 'right',
+                        sorter: (a, b) => a.lastSeen.localeCompare(b.lastSeen),
+                        render: (_, user) => <TZLabel time={user.lastSeen} />,
+                    },
+                ]}
+            />
+        </>
     )
 }
 
@@ -169,9 +166,7 @@ export function MCPAnalyticsUsers(): JSX.Element {
                     dataAttr="mcp-users-date-filter"
                 />
             </McpSharedFilters>
-            <div data-quill>
-                <UsersTable />
-            </div>
+            <UsersTable />
             {openedUser ? (
                 <MCPDetailDrawer
                     noun="user"
