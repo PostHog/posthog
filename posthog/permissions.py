@@ -1492,6 +1492,14 @@ class AccessControlPermission(ScopeBasePermission):
         elif getattr(view, "requires_resource_level_access", False):
             self.message = f"You do not have {required_level} access to this resource."
             return False
+        elif getattr(view, "object_permission_decides_detail_writes", False) and (
+            getattr(view, "lookup_url_kwarg", None) or getattr(view, "lookup_field", "pk")
+        ) in getattr(view, "kwargs", {}):
+            # Detail routes only: has_object_permission applies the resource rule again together with the
+            # object rules and the creator exemption, so it makes the final decision.
+            # Every detail action of an opted-in view must reach check_object_permissions. An action that
+            # skips it would have no access check left once this returns True.
+            return True
         elif view.action == "create":
             # If the user has no access to the resource level, but is trying to create a new object, we should block it
             # Specific object access isn't relevant here as we are trying to create a new object

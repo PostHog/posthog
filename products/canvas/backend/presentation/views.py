@@ -434,6 +434,9 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Gener
     """
 
     scope_object = "canvas"
+    # Lets a canvas creator edit their own canvas under a project-wide viewer rule. Every detail action
+    # must go through self._canvas() or _check_object_access, because the object check is then the only one.
+    object_permission_decides_detail_writes = True
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
     path_parameters = {
