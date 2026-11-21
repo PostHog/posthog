@@ -68,7 +68,6 @@ export type CustomerTaskFilters = {
     archiveState: CustomerTasksListArchiveState
     account: CustomerTaskAccountFilter | null
     due: CustomerTaskDueFilter
-    // Inbox filters persisted before tags existed load without this key.
     tags?: string[]
 }
 
@@ -301,7 +300,6 @@ function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
     return Number.isInteger(memberId) && memberId > 0 && memberId <= MAX_CUSTOMER_TASK_ASSIGNEE_ID ? memberId : null
 }
 
-// The router JSON-parses search params, so a tags link arrives as an array, not a string.
 function parseTags(value: unknown): string[] {
     let tags = value
     if (typeof value === 'string') {

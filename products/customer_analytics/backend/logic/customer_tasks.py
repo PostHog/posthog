@@ -74,7 +74,6 @@ def _task_queryset(team_id: int) -> QuerySet[CustomerTask]:
         CustomerTask.objects.for_team(team_id)
         .select_related("account", "assigned_to", "completed_by", "created_by")
         .prefetch_related(
-            # The same attribute the tagged-item serializer mixin reads, so one query serves a whole page.
             Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
         )
     )
@@ -106,7 +105,6 @@ def _resolve_tag_names(current: list[str], tags: Iterable[str], tags_mode: str) 
 
 
 def _set_customer_task_tags(team_id: int, updates: Iterable[tuple[CustomerTask, list[str]]]) -> None:
-    """Use bulk writes so tag changes appear only in the access-checked task history."""
     pending: list[tuple[CustomerTask, dict[str, TaggedItem], set[str]]] = []
     names_to_add: set[str] = set()
     removed_ids: set[UUID] = set()
@@ -124,7 +122,6 @@ def _set_customer_task_tags(team_id: int, updates: Iterable[tuple[CustomerTask, 
         names_to_add.update(missing)
         pending.append((task, kept, missing))
 
-    # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
     tags = {name: Tag.objects.get_or_create(name=name, team_id=team_id)[0] for name in sorted(names_to_add)}
     added: list[TaggedItem] = []
     for task, kept, missing in pending:
@@ -455,7 +452,6 @@ def list_customer_tasks(
     if filters.has_due_at is not None:
         queryset = queryset.filter(due_at__isnull=not filters.has_due_at)
     if tag_names := _parse_tag_names(filters.tags):
-        # A subquery rather than .distinct(), which Postgres rejects next to the ordering aliases.
         tagged_task_ids = CustomerTask.objects.for_team(team_id).filter(tagged_items__tag__name__in=tag_names)
         queryset = queryset.filter(id__in=tagged_task_ids.values("id"))
 
