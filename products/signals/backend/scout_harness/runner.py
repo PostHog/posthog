@@ -52,8 +52,10 @@ from products.signals.backend.report_search import search_enabled as report_sear
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
     canonical_scouts_preserving_trial_model,
     canonical_skill_names,
+    scout_skill_row_is_proven_canonical,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.limits import (
@@ -112,6 +114,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.trial.funding import without_trial_funding
 from products.signals.backend.trial.scouts import trial_scout_runtime
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
@@ -998,8 +1001,24 @@ def _memory_upkeep_has_written(team: Team) -> bool:
     True once that scout has a live scratchpad entry on the project, so an upkeep run that wrote
     nothing leaves the section off. Every scout run reads the team's whole scratchpad, so there is
     no per-user access to check. A failed read is False: the section is optional steering.
+
+    The upkeep scout's skill must also be the unedited row the harness seeded. A team can author a
+    skill under that name, and the section would then point every scout at entries that skill wrote.
     """
     try:
+        skill = (
+            LLMSkill.objects.filter(
+                team_id=team.id,
+                name=MEMORY_UPKEEP_SCOUT,
+                is_latest=True,
+                deleted=False,
+                metadata__seeded_by=HARNESS_SEEDED_BY,
+            )
+            .prefetch_related("files")
+            .first()
+        )
+        if skill is None or not scout_skill_row_is_proven_canonical(skill):
+            return False
         return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
