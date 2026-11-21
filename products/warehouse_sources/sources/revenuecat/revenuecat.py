@@ -461,7 +461,8 @@ def create_webhook(
     created without an auth header and the user finishes setup by adding one
     via the webhook fields (handled by the surrounding warehouse-source flow).
     When a webhook for this URL already exists, a supplied header is bound to
-    it in place via the update endpoint.
+    it in place via the update endpoint. When the key can't write
+    integrations, a supplied header counts as set up manually.
     """
     project_id = _normalize_project_id(project_id)
     logger = LOGGER.bind(project_id=project_id)
@@ -512,6 +513,12 @@ def create_webhook(
         response = _session(api_key).post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.HTTPError as e:
+        if authorization_header_value and e.response is not None and e.response.status_code == 403:
+            # A key without write permission for integrations is the manual setup path: the user sets
+            # this header on the webhook in RevenueCat, and PostHog has already stored the value it
+            # checks deliveries against. Failing here would refuse every save of that value.
+            logger.info("RevenueCat key cannot write integrations; keeping the manually configured header")
+            return WebhookCreationResult(success=True)
         logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
         return WebhookCreationResult(
             success=False,

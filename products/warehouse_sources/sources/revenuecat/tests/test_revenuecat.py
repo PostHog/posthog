@@ -291,6 +291,36 @@ class TestCreateWebhook:
         assert "write permission for integrations" in result.error
         assert "manual setup" in result.error
 
+    @parameterized.expand(
+        [
+            # A read-only key on the manual path: the user set the header in RevenueCat.
+            ("new_webhook_forbidden", None, 403, True),
+            ("existing_webhook_forbidden", {"id": "wh_existing", "url": "https://example.com/h"}, 403, True),
+            # Any other failure still blocks the save.
+            ("new_webhook_unauthorized", None, 401, False),
+            ("existing_webhook_unauthorized", {"id": "wh_existing", "url": "https://example.com/h"}, 401, False),
+            ("new_webhook_server_error", None, 500, False),
+        ]
+    )
+    @patch("products.warehouse_sources.sources.revenuecat.revenuecat._find_webhook_integration")
+    @patch("products.warehouse_sources.sources.revenuecat.revenuecat._session")
+    def test_binding_authorization_header(
+        self, _name, existing, status_code, expected_success, mock_session, mock_find
+    ):
+        mock_find.return_value = existing
+        mock_session.return_value.post.return_value = _http_error_response(status_code)
+
+        result = api_client.create_webhook(
+            "sk_test",
+            project_id="proj_test",
+            webhook_url="https://example.com/h",
+            authorization_header_value="Bearer my-secret",
+        )
+
+        assert result.success is expected_success
+        assert (result.error is None) is expected_success
+        assert result.pending_inputs == []
+
 
 class TestDeleteWebhook:
     @patch("products.warehouse_sources.sources.revenuecat.revenuecat._list_webhook_integrations")
