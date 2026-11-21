@@ -56,7 +56,21 @@ def check_high_frequency_batch_exports_enabled(team: Team) -> None:
         raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
 
 
-@extend_schema_field(HogQLQueryModifiers)  # type: ignore[arg-type]
+# Only documents the API. The shared `useNewEventsSchema` description is written for project settings, and
+# `apply_hogql_batch_export_modifier_defaults` resolves the modifier differently for batch exports.
+class BatchExportHogQLQueryModifiers(HogQLQueryModifiers):
+    useNewEventsSchema: bool | None = pydantic.Field(
+        default=None,
+        description=(
+            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). A value"
+            " set here always applies to this export, `false` included. When unset, the export reads the legacy"
+            " table until PostHog moves batch exports to the native table. Project settings and other events table"
+            " switches do not change which table a batch export reads."
+        ),
+    )
+
+
+@extend_schema_field(BatchExportHogQLQueryModifiers)  # type: ignore[arg-type]
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
