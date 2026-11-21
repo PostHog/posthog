@@ -160,6 +160,15 @@ class TestMetricSearchFixtureCatalog(BaseTest):
                 ],
                 [("annual_arr", "name match"), ("annual_revenue_total", "name match")],
             ),
+            (
+                "literal_name_match_before_stop_word_match",
+                "revenue before tax",
+                [
+                    ("revenue_after_tax", "", "Revenue after tax, per month.", MetricStatus.APPROVED),
+                    ("revenue_before_tax", "", "Revenue before tax, per month.", MetricStatus.APPROVED),
+                ],
+                [("revenue_before_tax", "name match"), ("revenue_after_tax", "name match")],
+            ),
         ]
     )
     def test_approval_never_moves_a_word_match(
@@ -198,6 +207,29 @@ class TestSplitSearch(SimpleTestCase):
     )
     def test_split_search(self, _name: str, search: str, expected: list[str]) -> None:
         assert split_search(search) == expected
+
+
+class TestSemanticQueryText(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("drops_stop_words", ["what is the MRR"], ["MRR"]),
+            ("keeps_non_ascii_words", ["the 收入 of café"], ["收入 café"]),
+            ("keeps_contractions_whole", ["users who don't convert"], ["users don't convert"]),
+            ("keeps_negations", ["users who did not convert"], ["users not convert"]),
+            ("joins_phrasings", ["the churn", "lost clients"], ["churn; lost clients"]),
+            ("skips_embedding_for_only_stop_words", ["what is it"], []),
+        ]
+    )
+    def test_query_embedding_text(self, _name: str, queries: list[str], expected: list[str]) -> None:
+        sent: list[str] = []
+
+        def embed_query(text: str) -> list[float] | None:
+            sent.append(text)
+            return None
+
+        search_metrics(Metric.objects.unscoped().none(), queries, embed_query=embed_query)
+
+        assert sent == expected
 
 
 class TestScoreCase(SimpleTestCase):

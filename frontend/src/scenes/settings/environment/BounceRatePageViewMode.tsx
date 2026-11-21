@@ -3,12 +3,15 @@ import { useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
+
+import { QuillTeamSettingRadio } from '../components/QuillTeamSettingRadio'
 
 type BounceRatePageViewMode = NonNullable<HogQLQueryModifiers['bounceRatePageViewMode']>
 
@@ -58,6 +61,7 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const bounceRatePageViewModeOptions = BOUNCE_RATE_PAGE_VIEW_MODE_OPTIONS.map((o) => ({
         ...o,
@@ -75,6 +79,21 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
         reportBounceRatePageViewModeUpdated(mode)
     }
 
+    const saveDisabledReason =
+        bounceRatePageViewMode === savedBounceRatePageViewMode ? 'No changes to save' : restrictedReason
+
+    if (todayRailNav) {
+        return (
+            <QuillTeamSettingRadio
+                options={bounceRatePageViewModeOptions}
+                value={bounceRatePageViewMode}
+                onValueChange={setBounceRatePageViewMode}
+                onSave={() => handleChange(bounceRatePageViewMode)}
+                saveDisabledReason={saveDisabledReason}
+            />
+        )
+    }
+
     return (
         <>
             <LemonRadio
@@ -86,9 +105,7 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={() => handleChange(bounceRatePageViewMode)}
-                    disabledReason={
-                        bounceRatePageViewMode === savedBounceRatePageViewMode ? 'No changes to save' : restrictedReason
-                    }
+                    disabledReason={saveDisabledReason}
                 >
                     Save
                 </LemonButton>

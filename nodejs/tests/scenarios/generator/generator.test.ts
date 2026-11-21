@@ -3,10 +3,11 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import path from 'path'
 
-import { LoadedCard, load } from '../cards'
+import { LoadedCard, load, stepsOf } from '../cards'
 import type { JournalEntry } from '../judge/judge'
+import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
 import { SeedState, StepGate, drive } from './generator'
-import type { OfferContext } from './traffic'
+import { OfferContext, kafkaEmit } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
@@ -23,7 +24,7 @@ const seededFor = (teamIds: number[], traffic: string): SeedState => ({
     ),
 })
 
-type Produce = OfferContext['producer']['produce']
+type Produce = Parameters<typeof kafkaEmit>[0]['produce']
 type Summary = Awaited<ReturnType<typeof drive>>
 
 function cardWith({
@@ -80,8 +81,7 @@ function startDrive(
     const journal: JournalEntry[] = []
     const seeded = seededFor(teamIds, loaded.card.drive.traffic[0].name)
     const driving = drive(loaded, seeded, { record: (entry) => journal.push(entry) }, signal, {
-        producer: { produce },
-        eventsTopic: 'scenario_events_test',
+        emit: kafkaEmit({ produce }, 'scenario_events_test'),
         cdpApi,
         sesFeedback,
         runId: 'run-a',
@@ -135,6 +135,26 @@ describe('drive', () => {
             answer(kafka)
 
             expect(await driving).toMatchObject(expected)
+        }
+    )
+
+    it.each(['transactional_email', 'bounce_followup'])(
+        'refuses %s before its first offer on a run target without the local CDP API and SES feedback',
+        async (traffic) => {
+            const loaded = cardWith({ ratePerSecond: 50, driveFor: '100ms', traffic })
+            const emitted: string[] = []
+            const journal: JournalEntry[] = []
+
+            await expect(
+                drive(loaded, seededFor([7], traffic), { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
+                    emit: (unit) => {
+                        emitted.push(unit.unitId)
+                        return Promise.resolve({ accepted: true })
+                    },
+                    runId: 'run-a',
+                })
+            ).rejects.toThrow(`${traffic} needs the local CDP API and SES feedback`)
+            expect({ emitted, journal }).toEqual({ emitted: [], journal: [] })
         }
     )
 
@@ -457,6 +477,153 @@ describe('drive', () => {
         }).toEqual(expected)
     })
 
+    const MINUTE = 60_000
+    const CPU_BAR = { name: 'writer_cpu_under', params: { percent: 70 } }
+
+    const cpuReadAfter =
+        (delayMs: number, percent: number): LiveRamp['writerCpu'] =>
+        ({ startedAt }) =>
+            new Promise((resolve) => setTimeout(() => resolve([{ at: startedAt, percent }]), delayMs))
+    const BROKE_AT_1X = {
+        end: 'broke',
+        sustainedScale: null,
+        broke: {
+            scale: 1,
+            offeredPerSecond: 1,
+            by: 'writer_cpu_under',
+            kind: 'bar',
+            at: expect.any(String),
+            part: 'db:cyclotron',
+        },
+        reason: 'writer_cpu_under broke at the 1x step',
+    }
+
+    it.each<[string, LiveRamp['writerCpu'], object]>([
+        [
+            'its writer CPU broke the bar at the 1x step, read during the 2x step',
+            cpuReadAfter(30_000, 90),
+            {
+                offeredSteps: [0, 1],
+                steps: [
+                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
+                    { fromMs: MINUTE, toMs: 105_000, firstOfferMs: MINUTE },
+                ],
+                ramp: BROKE_AT_1X,
+            },
+        ],
+        [
+            'its writer CPU broke the bar at the 1x step, read only after the 2x step was due to end',
+            cpuReadAfter(MINUTE, 90),
+            {
+                offeredSteps: [0, 1],
+                steps: [
+                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
+                    { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
+                ],
+                ramp: BROKE_AT_1X,
+            },
+        ],
+        [
+            'its writer CPU held the bar at the 1x step, read only after the 2x step was due to end',
+            cpuReadAfter(MINUTE, 40),
+            {
+                offeredSteps: [0, 1, 2],
+                steps: [
+                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
+                    { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
+                    { fromMs: 135_000, toMs: 195_000, firstOfferMs: 135_000 },
+                ],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+        ],
+        [
+            'its writer CPU read failed at the 1x step',
+            () => Promise.reject(new Error('CloudWatch is down')),
+            {
+                offeredSteps: [0, 1],
+                steps: [
+                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
+                    { fromMs: MINUTE, toMs: 75_000, firstOfferMs: MINUTE },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: null,
+                    broke: {
+                        scale: 1,
+                        offeredPerSecond: 1,
+                        by: 'run_host',
+                        kind: 'harness',
+                        at: expect.any(String),
+                        part: null,
+                    },
+                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
+                },
+            },
+        ],
+    ])(
+        'a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, when %s',
+        async (_story, writerCpu, expected) => {
+            jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
+            const ramped = rampedCard(
+                1,
+                [
+                    { scale: 1, for: '1m' },
+                    { scale: 2, for: '1m' },
+                    { scale: 5, for: '1m' },
+                ],
+                '3m',
+                true
+            )
+            const startedAt = Date.now()
+            let journaled: JournalEntry[] = []
+            const watch = watchRamp(
+                {
+                    minOffered: 0.9,
+                    bars: [CPU_BAR],
+                    gates: {},
+                    judgesRefusals: false,
+                    driveStartedAt: startedAt,
+                    profile: {},
+                    journal: () => journaled,
+                    samples: () => [],
+                    host: () => [],
+                    queue: () => [],
+                    writerCpu,
+                },
+                NEVER_ABORTED
+            )
+            const { driving, journal } = startDrive(ramped, ACKNOWLEDGED, { halt: watch.halt, gate: watch.gate })
+            journaled = journal
+
+            await jest.advanceTimersByTimeAsync(5 * MINUTE)
+            const { steps } = await driving
+
+            expect({
+                offeredSteps: [...new Set(journal.map(({ step }) => step))],
+                steps: steps.map(({ index, startedAt: from, endedAt: to, waitedFor }) => ({
+                    fromMs: from - startedAt,
+                    toMs: to - startedAt,
+                    firstOfferMs:
+                        Math.min(...journal.filter(({ step }) => step === index).map((unit) => unit.offeredAt)) -
+                        startedAt,
+                    ...(waitedFor !== undefined && { waitedFor }),
+                })),
+                ramp: rampOf({
+                    planned: stepsOf(ramped.card.drive),
+                    steps,
+                    minOffered: 0.9,
+                    stop: watch.stopped(),
+                    bars: [],
+                    invariants: [],
+                    gates: {},
+                    journal,
+                    admissions: [],
+                    converged: true,
+                }),
+            }).toEqual(expected)
+        }
+    )
+
     it('returns when its last step ends, without waiting for a step gate still pending', async () => {
         const gate: StepGate = () => new Promise<void>(() => undefined)
         const ramped = rampedCard(
@@ -700,7 +867,8 @@ describe('drive', () => {
             }
             const journal = { record: () => { throw new Error('journal full') } }
             const interrupt = new AbortController()
-            const context = { producer: { produce: () => ${produce} }, eventsTopic: 'scenario_events_test', runId: 'run-a' }
+            const { kafkaEmit } = require(${JSON.stringify(path.join(__dirname, 'traffic'))})
+            const context = { emit: kafkaEmit({ produce: () => ${produce} }, 'scenario_events_test'), runId: 'run-a' }
             drive(card, { teamIds: [7], flowIds: { event_email: { 7: 'flow-7' } } }, journal, interrupt.signal, context).then(
                 () => process.stdout.write('ended'),
                 (error) => process.stdout.write(error.message)
@@ -798,8 +966,7 @@ describe('drive', () => {
         }
         const startedAt = Date.now()
         const driving = drive(card, seeded, { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
-            producer: { produce: ACKNOWLEDGED },
-            eventsTopic: 'scenario_events_test',
+            emit: kafkaEmit({ produce: ACKNOWLEDGED }, 'scenario_events_test'),
             cdpApi: CDP_API,
             sesFeedback: NO_FEEDBACK,
             runId: 'run-a',

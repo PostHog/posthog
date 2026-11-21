@@ -254,6 +254,7 @@ Batch flag evaluation always reads it from Postgres.
 A cache entry without the level reads as `off`.
 
 `condition_type` is derived by Django on save.
+The migration `cohorts.0024_backfill_cohort_condition_type` filled it for the cohorts saved before the column existed, so a team needs no resave to classify its cohorts before it is added to `REALTIME_COHORT_EVALUATION_TEAM_IDS` or granted `serving`.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
 A behavioral run refuses such a cohort, so it never reads as ready.
 

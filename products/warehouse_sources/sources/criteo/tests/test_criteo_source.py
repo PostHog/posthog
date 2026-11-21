@@ -35,6 +35,8 @@ def config(**overrides: str) -> CriteoSourceConfig:
         ("CampaignStats", 200, {"Rows": []}, True, None),
         ("Ads", 200, {"data": [{"id": "10"}]}, True, None),
         ("Ads", 200, {"data": []}, True, None),
+        ("Creatives", 200, {"data": [{"id": "10"}]}, True, None),
+        ("AudienceSegments", 200, {"data": [], "meta": {"totalItems": 0}}, True, None),
     ],
 )
 @time_machine.travel("2026-10-12T00:00:00Z", tick=False)
@@ -44,7 +46,7 @@ def test_creation_checks_only_credentials_and_table_probes_check_access(
     script = [ScriptedResponse(json={"access_token": "example-access-token", "expires_in": 900})]
     if schema_name:
         script.append(ScriptedResponse(status=status, json=payload))
-        if schema_name == "Ads" and payload and payload["data"]:
+        if schema_name in ("Ads", "Creatives") and payload and payload["data"]:
             script.append(ScriptedResponse(json={"data": []}))
     with scripted_network(script) as network:
         result = CriteoSource().validate_credentials(config(), 1, schema_name)
@@ -58,8 +60,8 @@ def test_creation_checks_only_credentials_and_table_probes_check_access(
     if schema_name == "CampaignStats":
         assert network.requests_log[1].json()["startDate"] == "2026-10-12"
         assert network.requests_log[1].json()["endDate"] == "2026-10-12"
-    if schema_name == "Ads" and payload and payload["data"]:
-        assert network.requests_log[-1].path == "/2026-07/marketing-solutions/advertisers/10/ads"
+    if schema_name in ("Ads", "Creatives") and payload and payload["data"]:
+        assert network.requests_log[-1].path == f"/2026-07/marketing-solutions/advertisers/10/{schema_name.lower()}"
 
 
 @pytest.mark.parametrize("status", [400, 401, 403])
