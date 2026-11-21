@@ -539,6 +539,7 @@ class TestCohort(BaseTest):
     @parameterized.expand(
         [
             ("no_replace_in_flight", None, True, 1),
+            ("append_in_flight", "append", True, 1),
             ("replace_in_flight", "replace", True, 2),
             ("replace_waiting_after_sweep_reset", "replace", False, 2),
         ]

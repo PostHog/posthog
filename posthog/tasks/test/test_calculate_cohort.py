@@ -3219,6 +3219,50 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [])
 
+    def test_failed_replace_finalize_leaves_dynamic_flip_alone(self) -> None:
+        run = uuid4().hex[:8]
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace dynamic flip",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        from posthog.tasks import calculate_cohort as calculate_cohort_tasks
+
+        real_finalize = calculate_cohort_tasks._finalize_population_history
+
+        def finalize_then_flip_to_dynamic(*args: Any, **kwargs: Any) -> None:
+            real_finalize(*args, **kwargs)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_static=False,
+                is_calculating=True,
+                count=7,
+                pending_population_mode=None,
+                population_marker=None,
+                population_claimed_at=None,
+                population_copy_started=False,
+                population_first_marker=None,
+            )
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")),
+            patch(
+                "posthog.tasks.calculate_cohort._finalize_population_history",
+                side_effect=finalize_then_flip_to_dynamic,
+            ),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.count, 7)
+
     @parameterized.expand(
         [
             ("count_refresh", "products.cohorts.backend.models.cohort.Cohort._refresh_count"),

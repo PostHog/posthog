@@ -1829,7 +1829,13 @@ class TestCohortUtils(BaseTest):
 
 
 class TestAddDuringReplace(BaseTest):
-    @parameterized.expand([("replace_in_flight", CohortPopulationMode.REPLACE, True), ("no_replace", None, False)])
+    @parameterized.expand(
+        [
+            ("replace_in_flight", CohortPopulationMode.REPLACE, True),
+            ("append_in_flight", CohortPopulationMode.APPEND, False),
+            ("no_replace", None, False),
+        ]
+    )
     def test_an_add_is_a_quorum_write_only_while_a_replace_runs(
         self, _name: str, mode: str | None, expect_quorum: bool
     ) -> None:
