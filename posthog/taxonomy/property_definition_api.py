@@ -1,11 +1,9 @@
 import json
 import uuid
-import hashlib
 import functools
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.core.cache import cache
 from django.db import connections
 from django.db.models import Field, Manager, QuerySet, TextChoices
 from django.http import Http404
@@ -24,15 +22,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import GROUP_TYPES_LIMIT
-from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -42,13 +36,20 @@ from posthog.taxonomy.definition_listing import (
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.property_usage import PropertyUsageMap, get_property_usage_map
+from posthog.taxonomy.property_usage_ordering import (
+    MAX_DEFINITIONS_FOR_USAGE_ORDERING,
+    PropertyDefinitionOrdering,
+    TooManyPropertiesToOrderByUsage,
+    UsedProperty,
+    plan_usage_page,
+)
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
     PROPERTY_NAME_ALIASES_BY_TYPE,
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
-from posthog.utils import relative_date_parse
 
 from products.event_definitions.backend.models import EventProperty, PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
@@ -118,56 +119,32 @@ class PropertyDefinitionTypeSerializerMixin(serializers.Serializer):
         return instance.group_type_index if instance.type == PropertyDefinition.Type.GROUP else None
 
 
-MAX_USAGE_METRICS_PROPERTIES = 100
-USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
+QUERY_USAGE_MAP_CONTEXT_KEY = "query_usage_map"
 
 
-@frozen
-class _PropertyUsageKey:
-    type: str
-    name: str
-    group_type_index: int | None = None
-
-    @property
-    def instance_id(self) -> str:
-        return property_usage_instance_id(self.type, self.name, self.group_type_index)
-
-
-def _usage_metrics_cache_key(team_id: int, key: _PropertyUsageKey) -> str:
-    # Property names can contain characters that are invalid in cache keys; hash them.
-    digest = hashlib.sha256(key.instance_id.encode()).hexdigest()[:32]
-    return f"property_definition:usage_30d:{team_id}:{digest}"
-
-
-def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
-    tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
-    instance_ids = {key.instance_id: key for key in keys}
-    rows = sync_execute(
-        """
-        SELECT instance_id, sum(count)
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s
-          AND app_source = %(app_source)s
-          AND metric_name = %(metric_name)s
-          AND timestamp >= toDateTime64(%(after)s, 6)
-          AND instance_id IN %(instance_ids)s
-        GROUP BY instance_id
-        """,
-        {
-            "team_id": team.pk,
-            "app_source": PROPERTY_USAGE_APP_SOURCE,
-            "metric_name": "viewed",
-            "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
-            "instance_ids": list(instance_ids),
-        },
-        team_id=team.pk,
+class PropertyQueryUsageSerializerMixin(serializers.Serializer):
+    # Read from the usage map, never from the deprecated model column of the same name.
+    query_usage_30_day = serializers.SerializerMethodField(
+        help_text=(
+            "Number of query executions in the last 30 days that referenced this property. "
+            "Set only when the list request passes `include_query_usage=true` or orders by `query_usage`, "
+            "otherwise null."
+        ),
     )
-    counts = dict.fromkeys(keys, 0)
-    for instance_id, total in rows or []:
-        key = instance_ids.get(instance_id)
-        if key is not None:
-            counts[key] = int(total)
-    return counts
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_query_usage_30_day(self, instance: PropertyDefinition) -> int | None:
+        usage_map: PropertyUsageMap | None = self.context.get(QUERY_USAGE_MAP_CONTEXT_KEY)
+        if usage_map is None:
+            return None
+        property_type = PropertyDefinitionTypeName(PropertyDefinition.Type(instance.type).label).value
+        group_type_index = instance.group_type_index if instance.type == PropertyDefinition.Type.GROUP else None
+        if property_type == PropertyDefinitionTypeName.GROUP and group_type_index is None:
+            return None
+        return usage_map.count_for(property_type, instance.name, group_type_index)
+
+
+MAX_USAGE_METRICS_PROPERTIES = 100
 
 
 class PropertyUsageEntrySerializer(serializers.Serializer):
@@ -232,7 +209,20 @@ class PropertyUsageMetricsItemSerializer(serializers.Serializer):
     )
 
 
-class PropertyUsageMetricsResponseSerializer(serializers.Serializer):
+class PropertyUsageFreshnessSerializer(serializers.Serializer):
+    computed_at = serializers.DateTimeField(
+        help_text="When the counts were computed. They refresh in the background about every 15 minutes.",
+    )
+    tracking_since = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When query usage tracking started for this project, if that is less than 30 days ago. "
+            "Then the counts cover only the time since. Null when the counts cover the full 30 days."
+        ),
+    )
+
+
+class PropertyUsageMetricsResponseSerializer(PropertyUsageFreshnessSerializer):
     results = PropertyUsageMetricsItemSerializer(
         many=True,
         help_text="One entry per requested property, in request order.",
@@ -331,6 +321,26 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
+    )
+
+    ordering = serializers.ChoiceField(
+        choices=PropertyDefinitionOrdering.choices,
+        required=False,
+        help_text=(
+            "Sort by 30-day query count. `-query_usage` puts the most queried properties first, "
+            "`query_usage` puts unqueried properties first. Ties sort by name. Both include "
+            "`query_usage_30_day` on each result. Refused with a 400 when more than "
+            f"{MAX_DEFINITIONS_FOR_USAGE_ORDERING:,} properties match. Omit for the default order."
+        ),
+    )
+
+    include_query_usage = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include `query_usage_30_day` on each result and `query_usage` freshness on the response, "
+            "without changing the order."
+        ),
     )
 
     def validate_event_names(self, value: str) -> list[str]:
@@ -596,13 +606,9 @@ class QueryContext:
             },
         )
 
-    def as_sql(self, order_by_verified: bool):
-        verified_ordering = "ee_enterprisepropertydefinition.verified DESC NULLS LAST," if order_by_verified else ""
-        length_ordering = (
-            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
-        )
-        query = f"""
-            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
+    def _from_filtered_sql(self) -> str:
+        """The FROM and WHERE clauses that every list statement shares, so all of them see the same rows."""
+        return f"""
             FROM {self.table}
             {self._join_on_event_property()}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
@@ -611,25 +617,60 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
+            """
+
+    def _select_rows_sql(self) -> str:
+        return f"SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events"
+
+    def as_sql(self, order_by_verified: bool):
+        verified_ordering = "ee_enterprisepropertydefinition.verified DESC NULLS LAST," if order_by_verified else ""
+        length_ordering = (
+            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
+        )
+        return f"""
+            {self._select_rows_sql()}
+            {self._from_filtered_sql()}
             ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
-        return query
-
     def as_count_sql(self):
-        query = f"""
+        return f"""
             SELECT count(*) as full_count
-            FROM {self.table}
-            {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
-              AND type = %(type)s
-              AND coalesce(group_type_index, -1) = %(group_type_index)s
-             {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
+            {self._from_filtered_sql()}
             """
 
-        return query
+    def with_query_usage(self, used_names: list[str]) -> Self:
+        return dataclasses.replace(self, params={**self.params, "query_usage_names": used_names})
+
+    def as_used_rows_sql(self) -> str:
+        """The id and name of each matching definition that has queries, for the sort in Python."""
+        return f"""
+            SELECT {self.property_definition_table}.id, {self.property_definition_table}.name
+            {self._from_filtered_sql()}
+              AND {self.property_definition_table}.name = ANY(%(query_usage_names)s)
+            """
+
+    def as_unused_page_sql(self) -> str:
+        # NOT EXISTS over unnest() runs as a hash anti-join. `NOT (name = ANY(...))` compares every
+        # row against the whole array, which is many times slower for large projects.
+        return f"""
+            {self._select_rows_sql()}
+            {self._from_filtered_sql()}
+              AND NOT EXISTS (
+                SELECT 1 FROM unnest(%(query_usage_names)s::text[]) AS used_property(name)
+                WHERE used_property.name = {self.property_definition_table}.name
+              )
+            ORDER BY {self.property_definition_table}.name ASC, {self.property_definition_table}.id ASC
+            LIMIT %(query_usage_limit)s OFFSET %(query_usage_offset)s
+            """
+
+    def as_rows_by_id_sql(self) -> str:
+        return f"""
+            {self._select_rows_sql()}
+            {self._from_filtered_sql()}
+              AND {self.property_definition_table}.id = ANY(%(query_usage_ids)s::uuid[])
+            """
 
     def _join_on_event_property(self):
         return (
@@ -689,7 +730,10 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(
-    PropertyDefinitionTypeSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+    PropertyDefinitionTypeSerializerMixin,
+    PropertyQueryUsageSerializerMixin,
+    TaggedItemSerializerMixin,
+    serializers.ModelSerializer,
 ):
     warehouse_origin = serializers.JSONField(
         read_only=True,
@@ -712,6 +756,7 @@ class PropertyDefinitionSerializer(
             "warehouse_origin",
             "type",
             "group_type_index",
+            "query_usage_30_day",
         )
 
     def validate(self, data):
@@ -748,6 +793,36 @@ class PropertyDefinitionSerializer(
             return super().update(property_definition, validated_data)
 
 
+class PropertyDefinitionPagination(PrecountedLimitOffsetPagination):
+    """Documents the `query_usage` freshness that a list with query counts adds next to the results."""
+
+    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        paginated = super().get_paginated_response_schema(schema)
+        paginated["properties"]["query_usage"] = {
+            "type": "object",
+            "nullable": True,
+            "description": (
+                "Freshness of `query_usage_30_day`. Present only when the request orders by `query_usage` "
+                "or passes `include_query_usage=true`."
+            ),
+            "properties": {
+                "computed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": PropertyUsageFreshnessSerializer().fields["computed_at"].help_text,
+                },
+                "tracking_since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": PropertyUsageFreshnessSerializer().fields["tracking_since"].help_text,
+                },
+            },
+            "required": ["computed_at", "tracking_since"],
+        }
+        return paginated
+
+
 @extend_schema(extensions={"x-product": "core"})
 class PropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
@@ -764,8 +839,9 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = PropertyDefinitionPagination
     queryset = PropertyDefinition.objects.all()
+    query_usage_map: PropertyUsageMap | None = None
 
     @staticmethod
     def _build_virtual_properties(group: str) -> list[dict]:
@@ -908,8 +984,87 @@ class PropertyDefinitionViewSet(
             self.paginator.set_count(full_count)
             span.set_attribute("full_count", full_count)
 
+            ordering = query.validated_data.get("ordering")
+            span.set_attribute("ordering", ordering or "")
+            if ordering and full_count > MAX_DEFINITIONS_FOR_USAGE_ORDERING:
+                raise TooManyPropertiesToOrderByUsage()
+            if ordering or query.validated_data.get("include_query_usage"):
+                self.query_usage_map = get_property_usage_map(self.team)
+            if ordering and self.query_usage_map is not None:
+                return self._usage_ordered_page(
+                    queryset,
+                    query_context,
+                    usage_by_name=self.query_usage_map.counts_by_name(
+                        prop_type, query.validated_data.get("group_type_index")
+                    ),
+                    ordering=PropertyDefinitionOrdering(ordering),
+                    full_count=full_count,
+                    offset=offset or 0,
+                    limit=limit if limit is not None else full_count,
+                )
+
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
             return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
+
+    def _usage_ordered_page(
+        self,
+        queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]],
+        query_context: QueryContext,
+        *,
+        usage_by_name: dict[str, int],
+        ordering: PropertyDefinitionOrdering,
+        full_count: int,
+        offset: int,
+        limit: int,
+    ) -> list[PropertyDefinition]:
+        """One page of the list sorted by query count. Every statement applies the same filters."""
+        query_context = query_context.with_query_usage(list(usage_by_name))
+        used: list[UsedProperty] = []
+        if usage_by_name:
+            with connections[read_db_alias()].cursor() as cursor:
+                cursor.execute(query_context.as_used_rows_sql(), query_context.params)
+                used = [
+                    UsedProperty(id=uuid.UUID(str(row_id)), name=name, count=usage_by_name[name])
+                    for row_id, name in cursor.fetchall()
+                ]
+        plan = plan_usage_page(ordering, used, full_count, offset, limit)
+
+        used_rows: list[PropertyDefinition] = []
+        if plan.used:
+            # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
+            fetched = queryset.raw(
+                query_context.as_rows_by_id_sql(),
+                params={**query_context.params, "query_usage_ids": [str(row.id) for row in plan.used]},
+            )
+            by_id = {definition.id: definition for definition in fetched}
+            used_rows = [by_id[row.id] for row in plan.used if row.id in by_id]
+
+        unused_rows: list[PropertyDefinition] = []
+        if plan.unused_limit:
+            # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
+            unused_rows = list(
+                queryset.raw(
+                    query_context.as_unused_page_sql(),
+                    params={
+                        **query_context.params,
+                        "query_usage_limit": plan.unused_limit,
+                        "query_usage_offset": plan.unused_offset,
+                    },
+                )
+            )
+        return unused_rows + used_rows if plan.unused_first else used_rows + unused_rows
+
+    def filter_queryset(self, queryset):
+        if isinstance(queryset, list):
+            # The usage-ordered page: SQL already filtered and paged it.
+            return queryset
+        return super().filter_queryset(queryset)
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if self.query_usage_map is not None:
+            context[QUERY_USAGE_MAP_CONTEXT_KEY] = self.query_usage_map
+        return context
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class: type[serializers.ModelSerializer] = self.serializer_class
@@ -1018,6 +1173,9 @@ class PropertyDefinitionViewSet(
 
             response.data["count"] = db_count + len(matching_virtual_props)
 
+        if self.query_usage_map is not None:
+            response.data["query_usage"] = PropertyUsageFreshnessSerializer(self.query_usage_map).data
+
         return response
 
     def _filter_virtual_property(
@@ -1123,43 +1281,31 @@ class PropertyDefinitionViewSet(
         description=(
             "Returns how many query executions referenced each property in the last 30 days, "
             "including cached insight views. Batched: send up to "
-            f"{MAX_USAGE_METRICS_PROPERTIES} properties at once. Counts are cached for 24 hours."
+            f"{MAX_USAGE_METRICS_PROPERTIES} properties at once. The counts come from the same "
+            "per-project snapshot as the property list, which refreshes about every 15 minutes."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["property_definition:read"], url_path="usage_metrics")
     def usage_metrics(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
-        keys = [
-            _PropertyUsageKey(type=entry["type"], name=entry["name"], group_type_index=entry.get("group_type_index"))
-            for entry in request.validated_data["properties"]
-        ]
-
-        cache_keys = {key: _usage_metrics_cache_key(self.team_id, key) for key in set(keys)}
-        cached = cache.get_many(list(cache_keys.values()))
-        counts: dict[_PropertyUsageKey, int] = {}
-        missing: list[_PropertyUsageKey] = []
-        for key, cache_key in cache_keys.items():
-            if cache_key in cached:
-                counts[key] = cached[cache_key]
-            else:
-                missing.append(key)
-
-        if missing:
-            counts.update(_fetch_property_usage(self.team, missing))
-            cache.set_many(
-                {cache_keys[key]: counts[key] for key in missing},
-                timeout=USAGE_METRICS_CACHE_TTL_SECONDS,
-            )
-
+        usage_map = get_property_usage_map(self.team)
         results = [
             {
-                "type": key.type,
-                "name": key.name,
-                "group_type_index": key.group_type_index,
-                "query_usage_30_day": counts.get(key, 0),
+                "type": entry["type"],
+                "name": entry["name"],
+                "group_type_index": entry.get("group_type_index"),
+                "query_usage_30_day": usage_map.count_for(entry["type"], entry["name"], entry.get("group_type_index")),
             }
-            for key in keys
+            for entry in request.validated_data["properties"]
         ]
-        return response.Response(PropertyUsageMetricsResponseSerializer({"results": results}).data)
+        return response.Response(
+            PropertyUsageMetricsResponseSerializer(
+                {
+                    "results": results,
+                    "computed_at": usage_map.computed_at,
+                    "tracking_since": usage_map.tracking_since,
+                }
+            ).data
+        )
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

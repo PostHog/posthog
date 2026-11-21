@@ -9,7 +9,7 @@ rules:
       owners: team-feature-flags
     - match: ['/email.py', '/email_utils.py']
       owners: team-workflows
-    - match: ['/event_definitions.py', '/test/test_event_definitions.py']
+    - match: ['/event_definitions.py', '/test/test_event_definitions.py', '/property_usage.py']
       owners: team-product-analytics
     - match: '/split_person.py'
       owners: team-ingestion
