@@ -1,28 +1,26 @@
 import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils/strings'
 
-import {
-    AutoresearchRunApi,
-    CalibrationBinApi,
-    ConfusionByCutoffApi,
-    OnlinePerformanceRowApi,
-} from './generated/api.schemas'
+import { AutoresearchRunApi, ConfusionByCutoffApi, OnlinePerformanceRowApi } from './generated/api.schemas'
 import { formatAuc, isLiftAtCeiling, liftCeilingNote, modelQuality } from './modelQuality'
 import { eventName } from './pipelineQuestion'
-import {
-    PredictionSegmentDefinition,
-    PredictionSegmentThresholds,
-    predictionSegmentFor,
-    predictionSegmentDefinitions,
-} from './predictionSegments'
+import { PredictionSegmentThresholds, predictionSegmentFor } from './predictionSegments'
 
-export interface SegmentCalibration {
-    segment: PredictionSegmentDefinition
-    people: number
-    /** Mean predicted probability of the segment's people. */
+/** One group of score-ranked calibration bins, such as the top 10%. */
+export interface RankCalibration {
+    label: string
+    /** The color of the likelihood segment the group's mean score falls in. */
+    colorClassName: string
+    /** Predictions in the group: people on one date, or people once per date over several dates. */
+    count: number
+    /** Mean predicted probability of the group. */
     predicted: number
-    /** Fraction of the segment's people who did the target event. */
+    /** Fraction of the group who did the target event. */
     actual: number
 }
+
+/** Which checked dates the Accuracy tab summarizes: every date of the live model, or only its newest. */
+export type AccuracyFrame = 'all' | 'latest'
 
 export type AccuracyCutoff = keyof ConfusionByCutoffApi
 
@@ -32,7 +30,7 @@ export const ACCURACY_CUTOFFS: { key: AccuracyCutoff; label: string }[] = [
     { key: 'likely', label: 'Likely' },
 ]
 
-/** Confusion counts of one cutoff, summed over the champion's checked dates that have them. */
+/** Confusion counts of one cutoff, summed over the checked dates that have them. */
 export interface PooledConfusion {
     tp: number
     fp: number
@@ -43,7 +41,7 @@ export interface PooledConfusion {
     recall: number | null
     firstDate: string
     lastDate: string
-    /** Champion dates shown on the tab that were checked before confusion counts existed. */
+    /** Dates in the frame that were checked before confusion counts existed. */
     datesWithoutCounts: number
 }
 
@@ -54,6 +52,26 @@ export function percent(value: number): string {
 /** The champion's row for the newest validated date. Rows come newest date first. */
 export function latestChampionRow(rows: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null {
     return rows.find((row) => row.emitted_role === 'champion') ?? null
+}
+
+/**
+ * The dates the live model was checked as champion, newest first. The live model is the current
+ * champion, or the newest champion in the rows when the models have not loaded.
+ */
+export function liveModelRows(
+    rows: OnlinePerformanceRowApi[],
+    championId: string | null | undefined
+): OnlinePerformanceRowApi[] {
+    const modelId = championId ?? latestChampionRow(rows)?.model_id
+    return rows.filter((row) => row.model_id === modelId && row.emitted_role === 'champion')
+}
+
+/** The live model's rows that a frame covers. */
+export function accuracyFrameRows(
+    liveRows: OnlinePerformanceRowApi[],
+    frame: AccuracyFrame
+): OnlinePerformanceRowApi[] {
+    return frame === 'latest' ? liveRows.slice(0, 1) : liveRows
 }
 
 export interface AccuracyStat {
@@ -75,8 +93,8 @@ function liftDetail(row: OnlinePerformanceRowApi, lift: number | null, atCeiling
     return atCeiling ? 'Near the maximum' : 'Against everyone'
 }
 
-/** The four headline stats for the champion's newest checked date. Each stat names that date. */
-export function accuracyStats(row: OnlinePerformanceRowApi, target: string): AccuracyStat[] {
+/** The four headline stats for one checked date. Each stat names that date. */
+function singleDateStats(row: OnlinePerformanceRowApi, target: string): AccuracyStat[] {
     const date = `scored on ${dayjs(row.prediction_date).format('MMM D')}`
     // Lift has no meaning when no one did the target, and the backend reports 0 then.
     const lift = row.n_positive > 0 ? row.lift_at_10 : null
@@ -118,6 +136,83 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
             tooltip: `The people the model scored on that date, and how many of them did ${eventName(target)} in the horizon.`,
         },
     ]
+}
+
+/**
+ * The four headline stats over several checked dates. Each date scores everyone again, so the
+ * counts are predictions: one person counts once a date.
+ */
+function multiDateStats(rows: OnlinePerformanceRowApi[], target: string): AccuracyStat[] {
+    const scored = rows.reduce((total, row) => total + row.n_scored, 0)
+    const positive = rows.reduce((total, row) => total + row.n_positive, 0)
+    const baseRate = scored > 0 ? positive / scored : 0
+    const aucs = rows.flatMap((row) => row.realized_auc ?? [])
+    const quality = aucs.length
+        ? modelQuality({
+              holdoutAuc: null,
+              realizedAuc: median(aucs),
+              liftAt10: null,
+              isPreliminary: false,
+              target: '',
+          })
+        : null
+    // A date's top 10% did the target at lift × its base rate, so lift × positives sums their hits.
+    // A date where no one did it adds people and no hits. A date with positives but no lift is left out.
+    const liftRows = rows.filter((row) => row.n_positive === 0 || row.lift_at_10 != null)
+    const liftHits = liftRows.reduce(
+        (total, row) => total + (row.n_positive > 0 ? (row.lift_at_10 ?? 0) : 0) * row.n_positive,
+        0
+    )
+    const liftScored = liftRows.reduce((total, row) => total + row.n_scored, 0)
+    const liftPositive = liftRows.reduce((total, row) => total + row.n_positive, 0)
+    const lift = liftPositive > 0 ? liftHits / liftPositive : null
+    return [
+        {
+            key: 'ranking',
+            label: 'Ranking',
+            value: quality?.verdict ?? '—',
+            detail: !aucs.length
+                ? 'No AUC'
+                : aucs.length === 1
+                  ? `AUC ${formatAuc(aucs[0])}`
+                  : `AUC ${formatAuc(Math.min(...aucs))} to ${formatAuc(Math.max(...aucs))} by date`,
+            tooltip: `How well the model ranked people who did ${eventName(target)} above people who did not, on each date. Realized AUC 0.5 is a coin flip and 1 is a perfect ranking. The label uses the median date.`,
+        },
+        {
+            key: 'lift',
+            label: 'Top 10% lift',
+            value: lift != null ? `${lift.toFixed(1)}×` : '—',
+            detail:
+                positive === 0
+                    ? 'No one did it'
+                    : lift != null
+                      ? `${percent(liftHits / liftScored)} against ${percent(liftPositive / liftScored)}`
+                      : 'Not measured',
+            tooltip: `How many times more often the top 10% of each date did ${eventName(target)} than everyone the model scored.`,
+        },
+        {
+            key: 'rate',
+            label: 'Actual rate',
+            value: percent(baseRate),
+            detail: `${positive.toLocaleString()} of ${scored.toLocaleString()} predictions`,
+            tooltip: `The share of predictions where the person did ${eventName(target)} in the horizon.`,
+        },
+        {
+            key: 'people',
+            label: 'Predictions checked',
+            value: scored.toLocaleString(),
+            detail: `${pluralize(rows.length, 'date')}, each person once a date`,
+            tooltip: 'The model scores everyone again on each date, so one person counts once for each checked date.',
+        },
+    ]
+}
+
+/** The four headline stats for the checked dates in a frame. Empty with no dates. */
+export function accuracyStats(rows: OnlinePerformanceRowApi[], target: string): AccuracyStat[] {
+    if (rows.length === 0) {
+        return []
+    }
+    return rows.length === 1 ? singleDateStats(rows[0], target) : multiDateStats(rows, target)
 }
 
 export type AccuracyTrendMetric = 'ranking' | 'hit_rate' | 'coverage' | 'lift' | 'calibration'
@@ -280,49 +375,85 @@ export function percentagePoints(gap: number): string {
     return `${gap > 0 ? '+' : ''}${points} pts`
 }
 
-/**
- * Predicted against actual rate per likelihood segment. The quantile bins do not align with the
- * segment cut points, so each bin goes to the segment of its mean predicted probability.
- */
-export function calibrationBySegment(
-    bins: CalibrationBinApi[],
-    thresholds: PredictionSegmentThresholds
-): SegmentCalibration[] {
-    const totals = new Map<string, { people: number; predicted: number; actual: number }>()
-    for (const bin of bins) {
-        const key = predictionSegmentFor(bin.mean_p_y, thresholds).key
-        const total = totals.get(key) ?? { people: 0, predicted: 0, actual: 0 }
-        total.people += bin.n
-        total.predicted += bin.n * bin.mean_p_y
-        total.actual += bin.n * bin.positive_rate
-        totals.set(key, total)
+/** A group of score ranks in tenths from the top, from `start` up to `end`, as "Top 10%" or "Next 20%". */
+function rankLabel(start: number, end: number): string {
+    if (start === 0) {
+        return end === 10 ? 'Everyone' : `Top ${end * 10}%`
     }
-    return predictionSegmentDefinitions(thresholds).flatMap((segment) => {
-        const total = totals.get(segment.key)
-        return total && total.people > 0
-            ? [
-                  {
-                      segment,
-                      people: total.people,
-                      predicted: total.predicted / total.people,
-                      actual: total.actual / total.people,
-                  },
-              ]
-            : []
-    })
+    return end === 10 ? `Bottom ${(10 - start) * 10}%` : `Next ${(end - start) * 10}%`
 }
 
 /**
- * Sum one cutoff's confusion counts over the matured dates of the current champion. Rows checked
- * before confusion counts existed have none, so they are counted apart instead of read as zeros.
+ * Predicted against actual rate by score rank, pooled over the given dates. A date's bins are cut at
+ * score tenths, lowest scores first, and tied scores share a bin, so a bin's tenth comes from the
+ * people below it. Neighboring tenths whose mean score falls in the same likelihood segment form one
+ * group, labelled by its ranks and never by the segment's cut point.
+ */
+export function calibrationByRank(
+    rows: OnlinePerformanceRowApi[],
+    thresholds: PredictionSegmentThresholds
+): RankCalibration[] {
+    const tenths = new Map<number, { n: number; predicted: number; actual: number }>()
+    for (const row of rows) {
+        const bins = row.calibration_bins ?? []
+        const total = bins.reduce((sum, bin) => sum + bin.n, 0)
+        let below = 0
+        for (const bin of bins) {
+            const tenth = Math.floor((below * 10) / total)
+            below += bin.n
+            const pooled = tenths.get(tenth) ?? { n: 0, predicted: 0, actual: 0 }
+            pooled.n += bin.n
+            pooled.predicted += bin.n * bin.mean_p_y
+            pooled.actual += bin.n * bin.positive_rate
+            tenths.set(tenth, pooled)
+        }
+    }
+    const lowestFirst = [...tenths.keys()].sort((a, b) => a - b)
+    const groups: (RankCalibration & { segmentKey: string; start: number; end: number })[] = []
+    for (let index = lowestFirst.length - 1; index >= 0; index--) {
+        const tenth = lowestFirst[index]
+        const pooled = tenths.get(tenth)!
+        if (pooled.n === 0) {
+            continue
+        }
+        // A bin reaches up to the next bin, so a tied bin can cover several tenths.
+        const start = 10 - (lowestFirst[index + 1] ?? 10)
+        const end = 10 - tenth
+        const segment = predictionSegmentFor(pooled.predicted / pooled.n, thresholds)
+        const last = groups[groups.length - 1]
+        if (last && last.segmentKey === segment.key) {
+            last.end = end
+            last.count += pooled.n
+            last.predicted += pooled.predicted
+            last.actual += pooled.actual
+        } else {
+            groups.push({
+                label: '',
+                colorClassName: segment.colorClassName,
+                segmentKey: segment.key,
+                start,
+                end,
+                count: pooled.n,
+                predicted: pooled.predicted,
+                actual: pooled.actual,
+            })
+        }
+    }
+    return groups.map(({ start, end, count, predicted, actual, colorClassName }) => ({
+        label: rankLabel(start, end),
+        colorClassName,
+        count,
+        predicted: predicted / count,
+        actual: actual / count,
+    }))
+}
+
+/**
+ * Sum one cutoff's confusion counts over the given checked dates. Rows checked before confusion
+ * counts existed have none, so they are counted apart instead of read as zeros.
  */
 export function pooledConfusion(rows: OnlinePerformanceRowApi[], cutoff: AccuracyCutoff): PooledConfusion | null {
-    const latest = latestChampionRow(rows)
-    if (!latest) {
-        return null
-    }
-    const championRows = rows.filter((row) => row.model_id === latest.model_id && row.emitted_role === 'champion')
-    const withCounts = championRows.filter((row) => row.confusion != null)
+    const withCounts = rows.filter((row) => row.confusion != null)
     if (withCounts.length === 0) {
         return null
     }
@@ -344,14 +475,15 @@ export function pooledConfusion(rows: OnlinePerformanceRowApi[], cutoff: Accurac
         recall: positives > 0 ? total.tp / positives : null,
         firstDate: dates[0],
         lastDate: dates[dates.length - 1],
-        datesWithoutCounts: championRows.length - withCounts.length,
+        datesWithoutCounts: rows.length - withCounts.length,
     }
 }
 
-/** The dates the pooled counts cover, as "Feb 10 to Feb 14, 2026" or one date. */
-export function confusionDateRange({ firstDate, lastDate }: Pick<PooledConfusion, 'firstDate' | 'lastDate'>): string {
-    const last = dayjs(lastDate).format('MMM D, YYYY')
-    return firstDate === lastDate ? last : `${dayjs(firstDate).format('MMM D')} to ${last}`
+/** The dates the rows cover, as "Feb 10 to Feb 14, 2026" or one date. */
+export function checkedDateRange(rows: OnlinePerformanceRowApi[]): string {
+    const dates = rows.map((row) => row.prediction_date).sort()
+    const last = dayjs(dates[dates.length - 1]).format('MMM D, YYYY')
+    return dates[0] === dates[dates.length - 1] ? last : `${dayjs(dates[0]).format('MMM D')} to ${last}`
 }
 
 /** The group of people a cutoff flags, in words that fit "{share} of {group} did X". */
@@ -366,37 +498,40 @@ function cutoffGroup(cutoff: AccuracyCutoff): string {
     }
 }
 
-/** Hit rate against the overall rate, then coverage, over the pooled dates. Null when the cutoff flagged nobody. */
-export function accuracySummary(confusion: PooledConfusion, cutoff: AccuracyCutoff, target: string): string | null {
-    if (confusion.precision == null) {
-        return null
-    }
-    const { firstDate, lastDate } = confusion
-    const period =
-        firstDate === lastDate
-            ? `For people scored on ${dayjs(lastDate).format('MMM D')}`
-            : `For people scored from ${dayjs(firstDate).format('MMM D')} to ${dayjs(lastDate).format('MMM D')}`
-    if (confusion.recall == null) {
-        return `${period}, no one did ${eventName(target)}.`
-    }
-    const everyone = confusion.tp + confusion.fp + confusion.fn + confusion.tn
-    const overall = (confusion.tp + confusion.fn) / everyone
-    return `${period}, ${percent(confusion.precision)} of ${cutoffGroup(cutoff)} did ${eventName(target)}, against ${percent(overall)} of everyone. They include ${percent(confusion.recall)} of everyone who did it.`
-}
-
 function median(values: number[]): number {
     const sorted = [...values].sort((a, b) => a - b)
     const middle = Math.floor(sorted.length / 2)
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
 }
 
-/** One sentence on how the champion did on the picked metric over the checked dates. Null with no values. */
+/** How far below the holdout AUC a date's realized AUC can be and still count as in line with training. */
+const HOLDOUT_TOLERANCE = 0.02
+
+/** Realized AUC on the given dates against the holdout AUC from training. Null when no date has an AUC. */
+export function holdoutSentence(rows: OnlinePerformanceRowApi[], holdoutAuc: number | null): string | null {
+    const scored = rows.filter((row) => row.realized_auc != null)
+    if (scored.length === 0) {
+        return null
+    }
+    const values = scored.map((row) => row.realized_auc as number)
+    const outcome =
+        values.length === 1
+            ? `On real outcomes the model scored ${values[0].toFixed(3)} on ${dayjs(scored[0].prediction_date).format('MMM D')}`
+            : `On real outcomes the model scored ${Math.min(...values).toFixed(3)} to ${Math.max(...values).toFixed(3)} across ${values.length} dates`
+    if (holdoutAuc == null) {
+        return `${outcome}.`
+    }
+    // Compare at the 3 decimals the sentence shows, so a gap that reads as 0.020 counts as in line.
+    const inLine = values.every((value) => Number((holdoutAuc - value).toFixed(3)) <= HOLDOUT_TOLERANCE)
+    return `${inLine ? 'In line with training' : 'Below training'}. ${outcome}, against ${holdoutAuc.toFixed(3)} when it was trained.`
+}
+
+/** One sentence on how the live model did on the picked metric over its checked dates. Null with no values. */
 export function accuracyTrendSummary(
     rows: OnlinePerformanceRowApi[],
     metric: AccuracyTrendMetric,
     cutoff: AccuracyCutoff,
-    target: string,
-    holdoutAuc: number | null
+    target: string
 ): string | null {
     const checked = rows
         .filter((row) => row.emitted_role === 'champion')
@@ -414,22 +549,9 @@ export function accuracyTrendSummary(
     const event = eventName(target)
 
     switch (metric) {
-        case 'ranking': {
-            if (single) {
-                return `${lead}, realized AUC was ${values[0].toFixed(3)}.`
-            }
-            const range = `Over ${checked.length} checked dates, realized AUC ranged from ${Math.min(...values).toFixed(3)} to ${Math.max(...values).toFixed(3)}.`
-            if (holdoutAuc == null) {
-                return range
-            }
-            const holdout = holdoutAuc.toFixed(3)
-            const beat = values.filter((value) => value >= holdoutAuc).length
-            if (beat === 0) {
-                return `${range} It stayed below its holdout AUC of ${holdout} on every date.`
-            }
-            const dates = beat === checked.length ? 'every date' : `${beat} of ${checked.length} dates`
-            return `${range} It matched or beat its holdout AUC of ${holdout} on ${dates}.`
-        }
+        case 'ranking':
+            // The holdout sentence under the stat tiles covers ranking, for the dates the frame picks.
+            return null
         case 'hit_rate': {
             const everyone = median(checked.map(({ row }) => row.base_rate))
             return `${lead}, ${percent(typical)} of ${cutoffGroup(cutoff)} did ${event}, against ${percent(everyone)} of everyone.`
@@ -463,17 +585,23 @@ export function firstCheckDate(
 
 /**
  * Prediction dates that a completed validation run checked. Reads the full run history, because the
- * online_performance endpoint returns only the newest dates.
+ * online_performance endpoint returns only the newest dates. With a champion, only the dates that
+ * model was checked on as champion count, the same dates the Accuracy tab shows for the live model.
  */
 export function validatedPredictionDates(
-    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'metrics'>[]
+    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'metrics'>[],
+    championId?: string | null
 ): string[] {
     return runs.flatMap((run) => {
-        const metrics = run.metrics as { prediction_date?: string; per_model?: Record<string, unknown> } | null
-        return run.run_type === 'validation' &&
-            run.status === 'completed' &&
-            metrics?.prediction_date &&
-            Object.keys(metrics.per_model ?? {}).length > 0
+        const metrics = run.metrics as {
+            prediction_date?: string
+            per_model?: Record<string, { emitted_role?: string } | undefined>
+        } | null
+        const perModel = metrics?.per_model ?? {}
+        const checked = championId
+            ? perModel[championId]?.emitted_role === 'champion'
+            : Object.keys(perModel).length > 0
+        return run.run_type === 'validation' && run.status === 'completed' && metrics?.prediction_date && checked
             ? [metrics.prediction_date]
             : []
     })

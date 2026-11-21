@@ -1,10 +1,11 @@
 import { AutoresearchRunApi, ConfusionByCutoffApi, OnlinePerformanceRowApi } from './generated/api.schemas'
 import {
     accuracyStats,
-    accuracySummary,
     accuracyTrend,
     accuracyTrendSummary,
-    calibrationBySegment,
+    calibrationByRank,
+    holdoutSentence,
+    liveModelRows,
     pooledConfusion,
     validatedPredictionDates,
 } from './onlinePerformance'
@@ -38,21 +39,32 @@ function counts(tp: number, fp: number, fn: number, tn: number): ConfusionByCuto
 }
 
 describe('onlinePerformance', () => {
-    test('calibrationBySegment weights each bin by its people and drops empty segments', () => {
-        const segments = calibrationBySegment(
+    test('calibrationByRank pools bins by score tenth over dates and labels groups by rank, not by cut point', () => {
+        const bin = (n: number, mean_p_y: number): { n: number; mean_p_y: number; positive_rate: number } => ({
+            n,
+            mean_p_y,
+            positive_rate: mean_p_y,
+        })
+        const groups = calibrationByRank(
             [
-                { n: 300, mean_p_y: 0.05, positive_rate: 0.04 },
-                { n: 100, mean_p_y: 0.15, positive_rate: 0.2 },
-                { n: 50, mean_p_y: 0.7, positive_rate: 0.6 },
+                row({
+                    calibration_bins: [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.3, 0.7].map((p) =>
+                        bin(100, p)
+                    ),
+                }),
+                // Tied low scores share one bin that covers the bottom five tenths.
+                row({
+                    prediction_date: '2026-02-11',
+                    calibration_bins: [bin(500, 0.01), ...[0.05, 0.06, 0.07, 0.3, 0.7].map((p) => bin(100, p))],
+                }),
             ],
             { likely_threshold: 0.6, possible_threshold: 0.2, base_rate: null }
         )
 
-        expect(
-            segments.map(({ segment, people, predicted, actual }) => [segment.key, people, predicted, actual])
-        ).toEqual([
-            ['likely', 50, 0.7, 0.6],
-            ['unlikely', 400, expect.closeTo(0.075), expect.closeTo(0.08)],
+        expect(groups.map(({ label, count, predicted }) => [label, count, predicted])).toEqual([
+            ['Top 10%', 200, expect.closeTo(0.7)],
+            ['Next 10%', 200, expect.closeTo(0.3)],
+            ['Bottom 80%', 1600, expect.closeTo(59 / 1600)],
         ])
     })
 
@@ -110,11 +122,6 @@ describe('onlinePerformance', () => {
 
     test.each([
         {
-            metric: 'ranking' as const,
-            expected:
-                'Over 2 checked dates, realized AUC ranged from 0.790 to 0.820. It matched or beat its holdout AUC of 0.800 on 1 of 2 dates.',
-        },
-        {
             metric: 'hit_rate' as const,
             expected:
                 'On a typical date, 30.0% of the top 10% the model flagged did “File shared”, against 4.0% of everyone.',
@@ -134,24 +141,63 @@ describe('onlinePerformance', () => {
             confusion: index === 0 ? counts(4, 6, 1, 89) : counts(2, 8, 3, 87),
         }))
 
-        expect(accuracyTrendSummary(rows, metric, 'top_10', 'File shared', 0.8)).toEqual(expected)
+        expect(accuracyTrendSummary(rows, metric, 'top_10', 'File shared')).toEqual(expected)
     })
 
-    test('pooledConfusion sums the current champion dates and counts pre-change dates apart', () => {
+    test.each([
+        {
+            name: 'every date within 0.02 of holdout, the edge included',
+            aucs: [0.838, 0.86],
+            holdout: 0.858,
+            expected:
+                'In line with training. On real outcomes the model scored 0.838 to 0.860 across 2 dates, against 0.858 when it was trained.',
+        },
+        {
+            name: 'one date further below holdout',
+            aucs: [0.83, 0.86],
+            holdout: 0.858,
+            expected:
+                'Below training. On real outcomes the model scored 0.830 to 0.860 across 2 dates, against 0.858 when it was trained.',
+        },
+        {
+            name: 'one date',
+            aucs: [0.85],
+            holdout: 0.858,
+            expected:
+                'In line with training. On real outcomes the model scored 0.850 on Feb 10, against 0.858 when it was trained.',
+        },
+        {
+            name: 'no holdout AUC',
+            aucs: [0.83, 0.86],
+            holdout: null,
+            expected: 'On real outcomes the model scored 0.830 to 0.860 across 2 dates.',
+        },
+    ])('holdoutSentence compares realized AUC with training for $name', ({ aucs, holdout, expected }) => {
+        expect(
+            holdoutSentence([...aucs.map((auc) => row({ realized_auc: auc })), row({ realized_auc: null })], holdout)
+        ).toEqual(expected)
+    })
+
+    test('liveModelRows keeps the live champion dates and pooledConfusion counts pre-change dates apart', () => {
         const rows = [
             row({ prediction_date: '2026-02-13', model_id: 'new', confusion: counts(3, 1, 2, 94) }),
             row({
                 prediction_date: '2026-02-13',
                 model_id: 'shadow',
-                emitted_role: 'shadow',
+                emitted_role: 'challenger',
                 confusion: counts(9, 0, 0, 91),
             }),
             row({ prediction_date: '2026-02-12', model_id: 'new', confusion: counts(1, 3, 2, 94) }),
             row({ prediction_date: '2026-02-11', model_id: 'new', confusion: null }),
             row({ prediction_date: '2026-02-10', model_id: 'old', confusion: counts(9, 0, 0, 91) }),
+            row({ prediction_date: '2026-02-09', model_id: 'new', emitted_role: 'challenger' }),
         ]
+        const live = liveModelRows(rows, 'new')
 
-        expect(pooledConfusion(rows, 'top_10')).toEqual({
+        expect(live.map((r) => r.prediction_date)).toEqual(['2026-02-13', '2026-02-12', '2026-02-11'])
+        expect(liveModelRows(rows, null)).toEqual(live)
+        expect(liveModelRows(rows, 'promoted-today')).toEqual([])
+        expect(pooledConfusion(live, 'top_10')).toEqual({
             tp: 4,
             fp: 4,
             fn: 4,
@@ -163,11 +209,7 @@ describe('onlinePerformance', () => {
             lastDate: '2026-02-13',
             datesWithoutCounts: 1,
         })
-        expect(pooledConfusion(rows, 'likely')).toMatchObject({ flagged: 0, precision: null, recall: 0 })
-        expect(accuracySummary(pooledConfusion(rows, 'top_10')!, 'top_10', 'File shared')).toEqual(
-            'For people scored from Feb 12 to Feb 13, 50.0% of the top 10% the model flagged did “File shared”, against 4.0% of everyone. They include 50.0% of everyone who did it.'
-        )
-        expect(accuracySummary(pooledConfusion(rows, 'likely')!, 'likely', 'File shared')).toBeNull()
+        expect(pooledConfusion(live, 'likely')).toMatchObject({ flagged: 0, precision: null, recall: 0 })
         expect(pooledConfusion([row({ model_id: 'new', confusion: null })], 'top_10')).toBeNull()
     })
 
@@ -214,21 +256,46 @@ describe('onlinePerformance', () => {
         },
     ])('accuracyStats names the scored date on every stat for $name', ({ overrides, expected }) => {
         const stats = accuracyStats(
-            row({ n_scored: 47000, n_positive: 1410, base_rate: 0.03, ...overrides }),
+            [row({ n_scored: 47000, n_positive: 1410, base_rate: 0.03, ...overrides })],
             'File shared'
         )
         expect(stats.map(({ value, detail }) => [value, detail])).toEqual(expected)
     })
 
-    test('validatedPredictionDates counts only completed validation runs that scored a model', () => {
+    test('accuracyStats pools several dates into predictions, with lift weighted by who did it', () => {
+        const stats = accuracyStats(
+            [
+                row({ n_scored: 1000, n_positive: 50, base_rate: 0.05, lift_at_10: 3, realized_auc: 0.82 }),
+                row({ n_scored: 1000, n_positive: 30, base_rate: 0.03, lift_at_10: 2, realized_auc: 0.78 }),
+            ],
+            'File shared'
+        )
+
+        // pluralize() joins the count and the noun with a non-breaking space.
+        expect(stats.map(({ label, value, detail }) => [label, value, detail.replace(/\s/g, ' ')])).toEqual([
+            ['Ranking', 'Strong', 'AUC 0.78 to 0.82 by date'],
+            ['Top 10% lift', '2.6×', '10.5% against 4.0%'],
+            ['Actual rate', '4.0%', '80 of 2,000 predictions'],
+            ['Predictions checked', '2,000', '2 dates, each person once a date'],
+        ])
+    })
+
+    test('validatedPredictionDates counts completed validation runs that scored a model, or the champion as champion', () => {
         const scored = { per_model: { champion: { n_scored: 100 } } }
         const runs = [
             { run_type: 'validation', status: 'completed', metrics: { prediction_date: '2026-02-10', ...scored } },
             { run_type: 'validation', status: 'failed', metrics: { prediction_date: '2026-02-11', ...scored } },
             { run_type: 'validation', status: 'completed', metrics: { prediction_date: '2026-02-12', per_model: {} } },
             { run_type: 'inference', status: 'completed', metrics: { prediction_date: '2026-02-13', ...scored } },
+            {
+                run_type: 'validation',
+                status: 'completed',
+                metrics: { prediction_date: '2026-02-14', per_model: { champion: { emitted_role: 'challenger' } } },
+            },
         ] as Pick<AutoresearchRunApi, 'run_type' | 'status' | 'metrics'>[]
+        runs[0].metrics = { ...runs[0].metrics, per_model: { champion: { emitted_role: 'champion' } } }
 
-        expect(validatedPredictionDates(runs)).toEqual(['2026-02-10'])
+        expect(validatedPredictionDates(runs)).toEqual(['2026-02-10', '2026-02-14'])
+        expect(validatedPredictionDates(runs, 'champion')).toEqual(['2026-02-10'])
     })
 })

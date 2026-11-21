@@ -91,9 +91,30 @@ const champion = {
 } as unknown as AutoresearchModelApi
 
 const runs = [
-    { id: 'score-1', run_type: 'inference', status: 'completed', created_at: '2026-02-10T03:00:00Z', metrics: {} },
-    { id: 'score-2', run_type: 'inference', status: 'completed', created_at: '2026-02-11T03:00:00Z', metrics: {} },
-    { id: 'score-3', run_type: 'inference', status: 'completed', created_at: '2026-03-01T03:00:00Z', metrics: {} },
+    {
+        id: 'score-1',
+        run_type: 'inference',
+        model: champion.id,
+        status: 'completed',
+        created_at: '2026-02-10T03:00:00Z',
+        metrics: {},
+    },
+    {
+        id: 'score-2',
+        run_type: 'inference',
+        model: champion.id,
+        status: 'completed',
+        created_at: '2026-02-11T03:00:00Z',
+        metrics: {},
+    },
+    {
+        id: 'score-3',
+        run_type: 'inference',
+        model: champion.id,
+        status: 'completed',
+        created_at: '2026-03-01T03:00:00Z',
+        metrics: {},
+    },
     {
         id: 'validate-1',
         run_type: 'validation',
@@ -115,6 +136,13 @@ const runs = [
             },
         },
     },
+    ...['2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14'].map((prediction_date, index) => ({
+        id: `validate-${index + 2}`,
+        run_type: 'validation',
+        status: 'completed',
+        created_at: '2026-02-21T03:00:00Z',
+        metrics: { prediction_date, per_model: { [champion.id]: { emitted_role: 'champion' } } },
+    })),
 ] as unknown as AutoresearchRunApi[]
 
 const challenger = {
