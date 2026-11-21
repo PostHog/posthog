@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -292,7 +294,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             return Response({"detail": "ids is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not isinstance(ids, list):
             return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
-        deleted_count = symbol_sets_facade.bulk_delete_symbol_sets(self.team.id, ids)
+        try:
+            symbol_set_ids = [UUID(str(symbol_set_id)) for symbol_set_id in ids]
+        except ValueError:
+            return Response({"detail": "ids must be valid UUIDs"}, status=status.HTTP_400_BAD_REQUEST)
+        deleted_count = symbol_sets_facade.bulk_delete_symbol_sets(self.team.id, symbol_set_ids)
         return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
 
     @extend_schema(responses={200: _SymbolSetDownloadResponseSerializer})

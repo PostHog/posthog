@@ -465,7 +465,7 @@ def assign_issue(
 
 def bulk_update_issues(
     team_id: int,
-    issue_ids: list[str],
+    issue_ids: list[UUID],
     *,
     action: str | None,
     status: str | None,

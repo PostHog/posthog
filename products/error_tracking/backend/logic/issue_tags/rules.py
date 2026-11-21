@@ -11,12 +11,12 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.logic.issue_tags.enabled import _rule_visibility
 from products.error_tracking.backend.logic.issue_tags.gate import require_issue_tags
 from products.error_tracking.backend.logic.rules import (
     MAX_SEVERITY_RULE_BYTECODE_OPS,
     ErrorTrackingInvalidBytecodeError,
-    _parse_rule_id,
     _reorder_rules,
     compile_filter_bytecode,
     has_filter_values,
@@ -56,7 +56,7 @@ def list_issue_tag_rules(team_id: int, user: User) -> list[ErrorTrackingIssueTag
 
 def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> ErrorTrackingIssueTagRule | None:
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return None
     rule = ErrorTrackingIssueTagRule.objects.for_team(team_id).filter(id=parsed_id).first()
@@ -109,7 +109,7 @@ def update_issue_tag_rule(
     filters, so an old tag could show a member which issues matched a property they may not read.
     """
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return None
     visibility = _rule_visibility(team_id, user)
@@ -146,7 +146,7 @@ def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
     tag definitions, so nothing reads them again.
     """
     require_issue_tags(team_id)
-    parsed_id = _parse_rule_id(rule_id)
+    parsed_id = parse_uuid(rule_id)
     if parsed_id is None:
         return False
     visibility = _rule_visibility(team_id, user)
@@ -165,7 +165,7 @@ def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) ->
     require_issue_tags(team_id)
     # The shared helper looks each rule up by its canonical id, so an uppercase or unhyphenated key would miss.
     canonical_orders = {
-        str(parsed_id): order for key, order in orders.items() if (parsed_id := _parse_rule_id(key)) is not None
+        str(parsed_id): order for key, order in orders.items() if (parsed_id := parse_uuid(key)) is not None
     }
     visibility = _rule_visibility(team_id, user)
     rules = ErrorTrackingIssueTagRule.objects.for_team(team_id)

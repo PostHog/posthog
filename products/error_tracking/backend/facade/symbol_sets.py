@@ -5,6 +5,7 @@ stay off the django.setup() path of the read-oriented main facade.
 """
 
 from typing import Any
+from uuid import UUID
 
 from posthog.event_usage import AnalyticsProps
 from posthog.paging import Page, PageRequest
@@ -69,7 +70,7 @@ def delete_symbol_set(team_id: int, symbol_set_id: str) -> bool:
     return _logic.delete_symbol_set(team_id, symbol_set_id)
 
 
-def bulk_delete_symbol_sets(team_id: int, ids: list[str]) -> int:
+def bulk_delete_symbol_sets(team_id: int, ids: list[UUID]) -> int:
     return _logic.bulk_delete_symbol_sets(team_id, ids)
 
 
