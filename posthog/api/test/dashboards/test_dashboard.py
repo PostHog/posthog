@@ -11,7 +11,7 @@ from unittest.mock import ANY, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models.signals import post_init
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
@@ -58,6 +58,7 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.presentation.views.dashboard import (
     DashboardSerializer,
     DashboardTileErrorSerializer,
+    _parse_tags_filter,
     serialize_tile_with_context,
 )
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
@@ -90,6 +91,20 @@ valid_template: dict = {
     "variables": [],
     # purposely missing tags as they are not required
 }
+
+
+class TestDashboardTagFilter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("leading_space", [' ["tag", "tag2"]'], ["tag", "tag2"]),
+            ("leading_json_whitespace", ['\t\r\n["tag"]'], ["tag"]),
+            ("literal_tag_whitespace", [" tag"], [" tag"]),
+            ("deeply_nested_array", ["[" * 100000], ["[" * 100000]),
+            ("oversized_integer", ["[" + "1" * 5000 + "]"], ["[" + "1" * 5000 + "]"]),
+        ]
+    )
+    def test_parse_tags_filter(self, _name: str, values: list[str], expected: list[str]) -> None:
+        assert _parse_tags_filter(values) == expected
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -157,7 +172,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response["count"] == 1
         assert response["results"][0]["name"] == "tagged"
 
-    def test_list_filter_by_multiple_tags(self):
+    @parameterized.expand(
+        [
+            ("repeated params", ["tag", "tag2"]),
+            ("json array", json.dumps(["tag", "tag2"])),
+        ]
+    )
+    def test_list_filter_by_multiple_tags(self, _name: str, tags_param: list[str] | str):
         self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
@@ -165,7 +186,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(12):
             response = self.dashboard_api.list_dashboards(
-                expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
+                expected_status=status.HTTP_200_OK, query_params={"tags": tags_param}
             )
 
         assert response["count"] == 2

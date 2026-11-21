@@ -15091,6 +15091,11 @@
                     "param": "search",
                     "key": "search",
                     "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
                 }
             ],
             "body": null,

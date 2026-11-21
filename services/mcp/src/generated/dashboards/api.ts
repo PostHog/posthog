@@ -90,6 +90,12 @@ export const DashboardsListQueryParams = () => zod.object({
         .describe(
             "Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
         ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Return only dashboards with at least one of these tags, as a JSON array, e.g. `[\"a\",\"b\"]`.'
+        ),
 })
 
 export const DashboardsCreateParams = () => zod.object({
