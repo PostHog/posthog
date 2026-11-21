@@ -323,7 +323,9 @@ export function ProductSetupPopover({
                                 visible
                                 referenceElement={hoveredTaskElement}
                                 placement="left-start"
-                                fallbackPlacements={['left-end', 'left']}
+                                // The quick start popover can open near the left edge of the window,
+                                // so the hint needs a right-side fallback to stay on screen
+                                fallbackPlacements={['left-end', 'left', 'right-start', 'right-end', 'right']}
                                 padded={false}
                                 floatingRef={hintPopoverRef}
                                 middleware={[offset(8)]}
