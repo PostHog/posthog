@@ -46,19 +46,9 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   protected async execute(input: ResumeInput): Promise<ResumeOutput> {
     const { taskId, runId, apiClient } = input;
 
-    // Step 1: Fetch task run (read-only)
-    const taskRun = await this.readOnlyStep("fetch_task_run", () =>
-      apiClient.getTaskRun(taskId, runId),
-    );
-
-    if (!taskRun.log_url) {
-      this.log.info("No log URL found, starting fresh");
-      return this.emptyResult();
-    }
-
-    // Step 2: Fetch log entries (read-only)
+    // Step 1: Fetch log entries (read-only)
     const entries = await this.readOnlyStep("fetch_logs", () =>
-      apiClient.fetchTaskRunLogs(taskRun),
+      apiClient.fetchTaskRunLogs(taskId, runId),
     );
 
     if (entries.length === 0) {
