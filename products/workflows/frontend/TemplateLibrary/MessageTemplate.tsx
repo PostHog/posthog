@@ -22,7 +22,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
-import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -327,7 +327,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 saving={isTemplateSubmitting || templateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
                                 onDiscard={() => resetTemplate(originalTemplate)}
-                                onSave={submitTemplate}
+                                onSave={() => void saveWithLatestEmailEdit(submitTemplate)}
                                 onSaveAsNew={() => setIsSaveTemplateModalOpen(true)}
                                 onDuplicate={duplicateTemplate}
                                 onDelete={deleteTemplate}
@@ -358,7 +358,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     type="primary"
                                     htmlType="submit"
                                     form="template"
-                                    onClick={submitTemplate}
+                                    onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
                                     loading={isTemplateSubmitting || templateLoading}
                                     disabledReason={saveDisabledReason}
                                     size="small"
