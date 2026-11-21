@@ -170,6 +170,7 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
+        { "path": "Investigations", "category": "Data", "iconType": "investigation", "type": null, "intents": [] },
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",

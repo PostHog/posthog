@@ -1784,6 +1784,7 @@ export namespace Schemas {
      * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
+     * * `investigation` - investigation
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
      * * `organization` - organization
      * * `organization_integration` - organization_integration
@@ -1912,6 +1913,7 @@ export namespace Schemas {
       MessagingPreference: 'messaging_preference',
       Metrics: 'metrics',
       Notebook: 'notebook',
+      Investigation: 'investigation',
       OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
       Organization: 'organization',
       OrganizationIntegration: 'organization_integration',
@@ -2040,6 +2042,7 @@ export namespace Schemas {
        * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
+       * * `investigation` - investigation
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
        * * `organization` - organization
        * * `organization_integration` - organization_integration
@@ -2291,6 +2294,7 @@ export namespace Schemas {
        * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
+       * * `investigation` - investigation
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
        * * `organization` - organization
        * * `organization_integration` - organization_integration
@@ -2451,6 +2455,7 @@ export namespace Schemas {
      * * `hog_flow` - hog_flow
      * * `inbox` - inbox
      * * `insight` - insight
+     * * `investigation` - investigation
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
      * * `llm_prompt` - llm_prompt
@@ -2513,6 +2518,7 @@ export namespace Schemas {
       HogFlow: 'hog_flow',
       Inbox: 'inbox',
       Insight: 'insight',
+      Investigation: 'investigation',
       LlmAnalytics: 'llm_analytics',
       LlmPlayground: 'llm_playground',
       LlmPrompt: 'llm_prompt',
@@ -2578,6 +2584,7 @@ export namespace Schemas {
        * * `hog_flow` - hog_flow
        * * `inbox` - inbox
        * * `insight` - insight
+       * * `investigation` - investigation
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
        * * `llm_prompt` - llm_prompt
@@ -2714,6 +2721,7 @@ export namespace Schemas {
        * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
+       * * `investigation` - investigation
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
        * * `organization` - organization
        * * `organization_integration` - organization_integration
@@ -2853,6 +2861,7 @@ export namespace Schemas {
        * * `hog_flow` - hog_flow
        * * `inbox` - inbox
        * * `insight` - insight
+       * * `investigation` - investigation
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
        * * `llm_prompt` - llm_prompt
@@ -2943,6 +2952,7 @@ export namespace Schemas {
        * * `hog_flow` - hog_flow
        * * `inbox` - inbox
        * * `insight` - insight
+       * * `investigation` - investigation
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
        * * `llm_prompt` - llm_prompt
@@ -28551,6 +28561,16 @@ export namespace Schemas {
       first_seen: string | null;
       scans: string | null;
     }
+
+    export type ChecksEnum = typeof ChecksEnum[keyof typeof ChecksEnum];
+
+
+    export const ChecksEnum = {
+      Definition: 'definition',
+      Maturity: 'maturity',
+      Tracking: 'tracking',
+      Population: 'population',
+    } as const;
 
     /**
      * * `code` - Code
@@ -67784,6 +67804,197 @@ export namespace Schemas {
       Number60: 60,
     } as const;
 
+    export type InvestigationStage = typeof InvestigationStage[keyof typeof InvestigationStage];
+
+
+    export const InvestigationStage = {
+      Investigating: 'investigating',
+      Review: 'review',
+      Monitoring: 'monitoring',
+      Closed: 'closed',
+    } as const;
+
+    export type InvestigationEvidenceKindEnum = typeof InvestigationEvidenceKindEnum[keyof typeof InvestigationEvidenceKindEnum];
+
+
+    export const InvestigationEvidenceKindEnum = {
+      Query: 'query',
+      Link: 'link',
+    } as const;
+
+    export interface InvestigationEvidence {
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      id: string;
+      /** @exclusiveMinimum 0 */
+      reference: number;
+      /** @maxLength 200 */
+      title: string;
+      kind: InvestigationEvidenceKindEnum;
+      /** @maxLength 10000 */
+      sql: string;
+      /** @maxLength 2000 */
+      url: string;
+      /** @maxLength 10000 */
+      note: string;
+    }
+
+    export type InvestigationHypothesisStatus = typeof InvestigationHypothesisStatus[keyof typeof InvestigationHypothesisStatus];
+
+
+    export const InvestigationHypothesisStatus = {
+      Open: 'open',
+      Supported: 'supported',
+      RuledOut: 'ruled_out',
+    } as const;
+
+    export interface InvestigationHypothesis {
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      id: string;
+      /** @maxLength 500 */
+      title: string;
+      status: InvestigationHypothesisStatus;
+      /** @maxLength 10000 */
+      reasoning: string;
+      /**
+         * @maxItems 12
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      evidenceIds: string[];
+    }
+
+    export interface InvestigationEvidenceResult {
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      evidenceId: string;
+      /** @maxLength 200 */
+      title: string;
+      /** @maxLength 10000 */
+      sql: string;
+      /**
+         * @maxItems 20
+         * @items.maxLength 500
+         */
+      columns: string[];
+      /**
+         * @maxItems 50
+         * @items.maxItems 20
+         */
+      rows: ((string | number | boolean | null)[])[];
+      truncated: boolean;
+      error: string | null;
+    }
+
+    export interface InvestigationRun {
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      id: string;
+      at: string;
+      /** @maxLength 10000 */
+      conclusion: string;
+      /** @maxItems 12 */
+      results: InvestigationEvidenceResult[];
+    }
+
+    export interface InvestigationDocument {
+      version: 1;
+      /** @maxLength 500 */
+      question: string;
+      status: InvestigationStage;
+      /** @maxLength 10000 */
+      context: string;
+      /** @maxItems 4 */
+      checks: ChecksEnum[];
+      /** @maxItems 12 */
+      evidence: InvestigationEvidence[];
+      /** @exclusiveMinimum 0 */
+      nextEvidenceNumber: number;
+      /** @maxItems 12 */
+      hypotheses: InvestigationHypothesis[];
+      /** @maxLength 10000 */
+      conclusion: string;
+      /** @maxLength 10000 */
+      decision: string;
+      /** @maxLength 2000 */
+      followUp: string;
+      /** @maxItems 10 */
+      runs: InvestigationRun[];
+      baselineId: string | null;
+      example: boolean;
+    }
+
+    export interface InvestigationCreate {
+      /** The investigation document to save. Version must be 1. */
+      document: InvestigationDocument;
+    }
+
+    export interface InvestigationError {
+      /** What prevented the operation and how to recover. */
+      detail: string;
+    }
+
+    /**
+     * * `investigating` - Investigating
+     * * `review` - Review
+     * * `monitoring` - Monitoring
+     * * `closed` - Closed
+     */
+    export type InvestigationStageEnum = typeof InvestigationStageEnum[keyof typeof InvestigationStageEnum];
+
+
+    export const InvestigationStageEnum = {
+      Investigating: 'investigating',
+      Review: 'review',
+      Monitoring: 'monitoring',
+      Closed: 'closed',
+    } as const;
+
+    export interface InvestigationSummary {
+      /** Current investigation stage.
+       *
+       * * `investigating` - Investigating
+       * * `review` - Review
+       * * `monitoring` - Monitoring
+       * * `closed` - Closed */
+      status: InvestigationStageEnum;
+      /** Stable identifier for this investigation. */
+      id: string;
+      /** The question this investigation answers. */
+      question: string;
+      /** Current revision to pass with the next update. */
+      revision: number;
+      /** Number of evidence queries and links. */
+      evidence_count: number;
+      /** Number of retained result snapshots. */
+      run_count: number;
+      /** When the investigation was last saved. */
+      updated_at: string;
+      /** When the investigation was created. */
+      created_at: string;
+      /**
+         * ID of the creator, or null if the account was deleted.
+         * @nullable
+         */
+      created_by: number | null;
+    }
+
+    export interface InvestigationList {
+      /** Investigations ordered by most recently updated first. */
+      results: InvestigationSummary[];
+      /** Total number of matching investigations. */
+      count: number;
+    }
+
     /**
      * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
      */
@@ -74720,6 +74931,7 @@ export namespace Schemas {
        * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
+       * * `investigation` - investigation
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
        * * `organization` - organization
        * * `organization_integration` - organization_integration
@@ -94338,6 +94550,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly needs_webhook_reconnect?: boolean | null;
+    }
+
+    export interface PatchedInvestigationUpdate {
+      /**
+         * Last read revision. Stale writes are rejected with HTTP 409.
+         * @minimum 1
+         */
+      revision?: number;
+      /** Replacement document, preserving existing evidence and run IDs. */
+      document?: InvestigationDocument;
+      /** Archive this investigation and remove it from the list. */
+      deleted?: boolean;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -115178,6 +115402,37 @@ export namespace Schemas {
       deleted?: boolean;
       /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
       block_consent_modals?: boolean;
+    }
+
+    export interface SavedInvestigation {
+      /** Current investigation stage.
+       *
+       * * `investigating` - Investigating
+       * * `review` - Review
+       * * `monitoring` - Monitoring
+       * * `closed` - Closed */
+      status: InvestigationStageEnum;
+      /** Question, evidence, hypotheses, decisions, and bounded result snapshots. */
+      document: InvestigationDocument;
+      /** Stable identifier for this investigation. */
+      id: string;
+      /** The question this investigation answers. */
+      question: string;
+      /** Current revision to pass with the next update. */
+      revision: number;
+      /** Number of evidence queries and links. */
+      evidence_count: number;
+      /** Number of retained result snapshots. */
+      run_count: number;
+      /** When the investigation was last saved. */
+      updated_at: string;
+      /** When the investigation was created. */
+      created_at: string;
+      /**
+         * ID of the creator, or null if the account was deleted.
+         * @nullable
+         */
+      created_by: number | null;
     }
 
     export interface SavedQueryAncestors {
@@ -146429,6 +146684,26 @@ export namespace Schemas {
      * Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.
      */
     include_email_setup?: boolean;
+    };
+
+    export type InvestigationsListParams = {
+    /**
+     * Maximum number of investigations to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of investigations to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search the investigation question.
+     * @minLength 1
+     * @maxLength 500
+     */
+    search?: string;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };

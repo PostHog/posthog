@@ -269,6 +269,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
     '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
+    '/investigations': ['Investigations', 'investigations'],
+    '/investigations/:id': ['Investigation', 'investigation'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/organization/legal': ['LegalDocuments', 'organizationLegalDocuments'],
@@ -1087,6 +1089,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'persons',
     },
     AIEnrichment: { name: 'AI enrichment', instanceLevel: true },
+    Investigations: {
+        name: 'Investigations',
+        description: 'Investigate a question, test explanations, and share the evidence behind your decision.',
+        projectBased: true,
+        iconType: 'investigation',
+    },
+    Investigation: { name: 'Investigation', projectBased: true, iconType: 'investigation' },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -1888,6 +1897,8 @@ export const productUrls = {
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
+    investigations: (): string => '/investigations',
+    investigation: (id: string): string => `/investigations/${encodeURIComponent(id)}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
@@ -2542,6 +2553,7 @@ export type ProductTreePath =
     | 'Heatmaps'
     | 'Identity matching'
     | 'Inbox'
+    | 'Investigations'
     | 'LLM analytics'
     | 'Logs'
     | 'Marketing analytics'
@@ -3075,6 +3087,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
+    },
+    {
+        path: 'Investigations',
+        intents: [],
+        href: urls.investigations(),
+        category: ProductItemCategory.DATA,
+        iconType: 'investigation',
+        iconColor: ['var(--color-product-investigations-light)', 'var(--color-product-investigations-dark)'],
+        searchKeywords: ['evidence', 'hypothesis', 'root cause', 'analysis'],
+        tags: ['beta'],
+        sceneKey: 'Investigations',
+        sceneKeys: ['Investigations', 'Investigation'],
     },
     {
         path: 'LLM analytics',

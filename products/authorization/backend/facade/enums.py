@@ -90,6 +90,7 @@ class ResourceType(StrEnum):
     LLM_SKILL = "llm_skill"
     AI_OBSERVABILITY_CLUSTERS = "ai_observability_clusters"
     NOTEBOOK = "notebook"
+    INVESTIGATION = "investigation"
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_RECORDING = "session_recording"
     LLM_PROVIDER_KEY = "llm_provider_key"
