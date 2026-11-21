@@ -10,6 +10,7 @@ import { WorkflowRejectedSuggestions } from './WorkflowRejectedSuggestions'
 import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
+import { WorkflowSuggestionsReadiness } from './WorkflowSuggestionsReadiness'
 import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
 
 function SuggestionsOffNotice(): JSX.Element {
@@ -156,7 +157,10 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
             return optimizationUnreadable ? (
                 <SuggestionsUnreadableNotice />
             ) : (
-                <WorkflowSuggestionsIntroduction id={id} enabled={false} sample={optimization?.sample} />
+                <div className="flex flex-col gap-4">
+                    <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+                    <WorkflowSuggestionsReadiness id={id} />
+                </div>
             )
         }
 
@@ -164,12 +168,8 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
             return (
                 <div className="flex flex-col gap-4">
                     {pausedNotice}
-                    <WorkflowSuggestionsIntroduction
-                        id={id}
-                        enabled
-                        scoutStatus={scoutStatus}
-                        sample={optimization?.sample}
-                    />
+                    <WorkflowSuggestionsIntroduction id={id} enabled scoutStatus={scoutStatus} />
+                    <WorkflowSuggestionsReadiness id={id} />
                 </div>
             )
         }
@@ -185,11 +185,12 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                     <WorkflowSuggestionsSwitch id={id} />
                 </div>
                 {pendingProposals.length === 0 ? (
-                    <p className="mb-0 text-secondary">
-                        Nothing to review. PostHog reads this workflow's metrics on a schedule and files a suggestion
-                        here when it finds a change worth making. Nothing reaches anyone until you approve a suggestion
-                        and publish it.
-                    </p>
+                    <div className="flex flex-col gap-2">
+                        <p className="mb-0 text-secondary">
+                            Nothing to review. Nothing reaches anyone until you approve a suggestion and publish it.
+                        </p>
+                        {optimizationEnabled ? <WorkflowSuggestionsReadiness id={id} /> : null}
+                    </div>
                 ) : (
                     <>
                         {/* The queue renders whole rather than paging, so say when it did not fit. */}

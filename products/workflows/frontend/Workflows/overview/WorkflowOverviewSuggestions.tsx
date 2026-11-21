@@ -6,6 +6,7 @@ import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { workflowProposalsLogic } from '../suggestions/workflowProposalsLogic'
+import { WorkflowSuggestionsReadiness } from '../suggestions/WorkflowSuggestionsReadiness'
 import { workflowLogic } from '../workflowLogic'
 
 const MAX_SUGGESTIONS = 3
@@ -15,6 +16,7 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
     const {
         pendingProposals,
         optimizationEnabled,
+        optimization,
         proposalsResponseLoading,
         approvedResponseLoading,
         appliedResponseLoading,
@@ -101,6 +103,8 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
                         Try again
                     </LemonButton>
                 </span>
+            ) : watching && optimization?.scout_status === 'running' ? (
+                <WorkflowSuggestionsReadiness id={id} compact />
             ) : watching ? (
                 <span className="text-sm text-muted">
                     No suggestions yet. PostHog is watching this workflow and will suggest changes here.
