@@ -10,7 +10,7 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
+from posthog.hogql.transforms.trino.expressions import expression_key, hide_inline_aliases, positional_index
 from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
 from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFinder, lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -284,26 +284,6 @@ class _InlineAliasCollector(TraversingVisitor):
         return None
 
 
-class _InlineAliasHider(TraversingVisitor):
-    def visit(self, node: ast.AST | None) -> None:
-        if isinstance(node, ast.Type):
-            return
-        super().visit(node)
-
-    def visit_alias(self, node: ast.Alias) -> None:
-        node.hidden = True
-        super().visit_alias(node)
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        return None
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        return None
-
-    def visit_lambda(self, node: ast.Lambda) -> None:
-        return None
-
-
 class _QualifiedFieldFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -481,7 +461,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 self.expanding.remove(alias)
             # ClickHouse allows a projection to name a part of itself, as in `(id AS y) + 1 AS x`. The copy must
             # not define `y` again in the same scope, while the projection it came from still does.
-            _InlineAliasHider().visit(expanded)
+            hide_inline_aliases(expanded)
             # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
             # alias would read that output column. The output column itself already holds this value.
             if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):
