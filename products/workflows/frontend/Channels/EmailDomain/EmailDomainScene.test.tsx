@@ -496,6 +496,22 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('email_verify')).toHaveLength(1)
     })
 
+    it('keeps the MAIL FROM subdomain that a repair adopted when the sender name is saved', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        backend.providerUsesMailFrom(DOMAIN, 'bounce')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        await flush()
+        expectStep(/You can send from/)
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expect(backend.senderConfig(SENDER_ID)).toMatchObject({ name: 'Acme Team', mail_from_subdomain: 'bounce' })
+    })
+
     it.each([
         ['a stopped domain whose records were fixed', true, 1],
         ['a verified domain', false, 0],

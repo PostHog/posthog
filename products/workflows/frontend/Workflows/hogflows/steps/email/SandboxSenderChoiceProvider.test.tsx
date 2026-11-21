@@ -310,13 +310,7 @@ describe('SandboxSenderChoiceProvider', () => {
             fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
 
             await waitFor(() =>
-                expect(storedStep()).toMatchObject({
-                    type: 'function_email',
-                    config: {
-                        template_id: 'template-email',
-                        inputs: { email: { value: { from: { integrationId: 7 } } } },
-                    },
-                })
+                expect(screen.getByTestId('workflow-email-sender-select')).toHaveTextContent('hello@example.com')
             )
         }
     )

@@ -291,6 +291,11 @@ export class FakeEmailDomainBackend {
         })
     }
 
+    /** The provider sends from another MAIL FROM subdomain than the sender's config names. */
+    providerUsesMailFrom(domain: string, mailFromSubdomain: string): void {
+        this.domainState(domain).mailFromSubdomain = mailFromSubdomain
+    }
+
     /** The sender health check found the domain's records gone: its senders keep `verified` but every send fails. */
     stopsSending(domain: string): void {
         this.verifyDomain(domain)
@@ -556,6 +561,8 @@ export class FakeEmailDomainBackend {
         if (state.ses === 'verified') {
             state.awaitingRecord = false
             this.verifyDomain(state.domain)
+            // Like the server, a recorded verification adopts the MAIL FROM subdomain the provider uses.
+            this.updateSender(sender, { mail_from_subdomain: state.mailFromSubdomain })
             return { status: 'success', dnsRecords: [] }
         }
         state.ses = 'pending'
