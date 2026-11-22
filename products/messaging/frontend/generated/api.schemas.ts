@@ -721,6 +721,10 @@ export interface ImportStepOptionApi {
     label: string
     /** What the step imports and where it lands in PostHog. */
     description: string
+    /** Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty. */
+    needs: string[]
+    /** Whether the step creates or updates people. Each of those counts as one event on the bill. */
+    counts_as_events: boolean
 }
 
 export interface ImportSettingChoiceApi {
