@@ -142,6 +142,7 @@
         "suggesting-data-imports": {},
         "suppressing-noisy-errors": {},
         "syncing-migrated-self-managed-tables": {},
+        "transcribing-slack-audio": {},
         "triaging-error-issues": {},
         "tuning-incremental-sync-config": {},
         "understanding-billing-usage": {},
