@@ -433,11 +433,13 @@ docker-compose stop
 # rewrite entrypoint
 # TODO: this is duplicated from bin/deploy-hobby. We should refactor this into a
 # single script.
+# exec makes the server PID 1, so it receives the SIGTERM that `docker stop` sends. Bash as PID 1
+# does not pass that signal to a child, and the server would be killed without a clean stop.
 cat > compose/start <<EOF
 #!/bin/bash
 ./compose/wait
 ./bin/migrate
-./bin/docker-server
+exec ./bin/docker-server
 EOF
 
 if [ ${DOCKER_VOLUMES_MISSING} == 'TRUE' ];

@@ -175,10 +175,12 @@ func CreateComposeScripts() error {
 		return err
 	}
 
+	// exec makes the server PID 1, so it receives the SIGTERM that `docker stop` sends. Bash as PID 1
+	// does not pass that signal to a child, and the server would be killed without a clean stop.
 	startScript := `#!/bin/bash
 ./compose/wait
 ./bin/migrate
-./bin/docker-server
+exec ./bin/docker-server
 `
 	if err := os.WriteFile("compose/start", []byte(startScript), 0755); err != nil {
 		return err
