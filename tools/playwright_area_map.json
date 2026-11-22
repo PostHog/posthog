@@ -55,6 +55,8 @@
         "posthog/test/repo_invariants/**",
         "posthog/clickhouse/hcl/**",
         "services/mcp/**",
+        "frontend/snapshots.yml",
+        "frontend/jest.*",
         "common/storybook/**",
         "products/messaging/backend/tests/**",
         "products/messaging/backend/**/test_*.py",
