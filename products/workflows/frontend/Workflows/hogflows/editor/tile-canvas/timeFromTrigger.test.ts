@@ -144,16 +144,99 @@ describe('timeFromTrigger', () => {
         ],
         ['a time window open at any time does not wait', chain(timeWindow('a', 'any', 'any')), 'target', undefined],
         [
-            'a daily time window waits up to a day, plus the hour a clock change can add',
+            'a daily time window waits while it is closed, plus the hour a clock change can add',
             chain(timeWindow('a', 'any', ['09:00', '17:00'])),
             'target',
-            'Reached up to 1 day 1 hour after the trigger',
+            'Reached up to 17 hours after the trigger',
         ],
         [
-            'a time window on some days waits up to a week, plus the hour a clock change can add',
+            'a time window on weekdays waits over the weekend',
             chain(timeWindow('a', 'weekday', 'any')),
             'target',
-            'Reached up to 7 days 1 hour after the trigger',
+            'Reached up to 2 days 1 hour after the trigger',
+        ],
+        [
+            'business hours wait from Friday evening to Monday morning',
+            chain(timeWindow('a', 'weekday', ['09:00', '17:00'])),
+            'target',
+            'Reached up to 2 days 17 hours after the trigger',
+        ],
+        [
+            'a time window on one day waits up to six days',
+            chain(timeWindow('a', ['monday'], 'any')),
+            'target',
+            'Reached up to 6 days 1 hour after the trigger',
+        ],
+        [
+            'a window past midnight waits through the day',
+            chain(timeWindow('a', 'any', ['22:00', '06:00'])),
+            'target',
+            'Reached up to 17 hours after the trigger',
+        ],
+        [
+            'a time window on every day does not wait',
+            chain(
+                timeWindow('a', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'any')
+            ),
+            'target',
+            undefined,
+        ],
+        [
+            'a window that starts as it ends is always open',
+            chain(timeWindow('a', 'any', ['09:00', '09:00'])),
+            'target',
+            undefined,
+        ],
+        [
+            'a time window with no days has no upper bound',
+            chain(delay('d', '1d'), timeWindow('a', [], 'any')),
+            'target',
+            'Reached 1 day or more after the trigger',
+        ],
+        [
+            'a wait with no timeout continues at once',
+            flow(
+                [step('trigger', 'trigger'), delay('a', '2d'), waitFor('w', ''), step('target')],
+                [next('trigger', 'a'), next('a', 'w'), branch('w', 'target')]
+            ),
+            'target',
+            'Reached 2 days after the trigger',
+        ],
+        [
+            'bounds that read the same show one time',
+            flow(
+                [step('trigger', 'trigger'), delay('a', '1d'), delay('b', '2h'), waitFor('w', '15m'), step('target')],
+                [next('trigger', 'a'), next('a', 'b'), next('b', 'w'), branch('w', 'target')]
+            ),
+            'target',
+            'Reached 1 day 2 hours after the trigger',
+        ],
+        [
+            'a date wait with a cap it cannot read uses the default',
+            chain(untilDate('a', 'whenever')),
+            'target',
+            'Reached up to 30 days after the trigger',
+        ],
+        [
+            'a wait that its filters can skip may not wait at all',
+            chain({ ...delay('a', '7d'), filters: { properties: [{ key: 'plan', value: 'free', type: 'person' }] } }),
+            'target',
+            'Reached up to 7 days after the trigger',
+        ],
+        [
+            'paths from two triggers join without a loop',
+            flow(
+                [step('t1', 'trigger'), step('t2', 'trigger'), delay('d1', '1d'), delay('d2', '2d'), step('joined')],
+                [next('t1', 'd1'), next('t2', 'd2'), next('d1', 'joined'), next('d2', 'joined')]
+            ),
+            'joined',
+            'Reached 1 day to 2 days after the trigger',
+        ],
+        [
+            'a tiny fraction of a second still names a time',
+            chain(delay('a', '.0004s')),
+            'target',
+            'Reached 1 second after the trigger',
         ],
         [
             'a delay under a second still names a time',
