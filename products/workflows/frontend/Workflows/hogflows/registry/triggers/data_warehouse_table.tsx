@@ -15,7 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
-import { recordCrossSellFromWorkflows } from 'products/workflows/frontend/workflowsCrossSell'
+import { crossSellLinkProps } from 'products/workflows/frontend/workflowsCrossSell'
 
 import { HogFlowAction } from '../../types'
 
@@ -103,12 +103,10 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
                                 to={urls.dataPipelinesNew('source')}
                                 target="_blank"
                                 className="font-semibold"
-                                onClick={() =>
-                                    recordCrossSellFromWorkflows(
-                                        ProductKey.DATA_WAREHOUSE,
-                                        ProductIntentContext.WORKFLOW_WAREHOUSE_TRIGGER_SET_UP_SOURCE
-                                    )
-                                }
+                                {...crossSellLinkProps(
+                                    ProductKey.DATA_WAREHOUSE,
+                                    ProductIntentContext.WORKFLOW_WAREHOUSE_TRIGGER_SET_UP_SOURCE
+                                )}
                             >
                                 Set up a source
                             </Link>

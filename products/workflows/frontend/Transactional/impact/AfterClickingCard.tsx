@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { recordCrossSellFromWorkflows } from '../../workflowsCrossSell'
+import { crossSellLinkProps } from '../../workflowsCrossSell'
 import { emailImpactLogic } from './emailImpactLogic'
 
 export function AfterClickingCard(): JSX.Element {
@@ -37,12 +37,10 @@ export function AfterClickingCard(): JSX.Element {
                             type="secondary"
                             size="small"
                             to={urls.settings('project-replay', 'replay')}
-                            onClick={() =>
-                                recordCrossSellFromWorkflows(
-                                    ProductKey.SESSION_REPLAY,
-                                    ProductIntentContext.TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY
-                                )
-                            }
+                            {...crossSellLinkProps(
+                                ProductKey.SESSION_REPLAY,
+                                ProductIntentContext.TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY
+                            )}
                             data-attr="email-impact-turn-on-replay"
                         >
                             Turn on session replay

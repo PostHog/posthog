@@ -75,6 +75,18 @@ const SURFACES = [
     },
 ]
 
+const CLICKS = [
+    { click: 'a click', follow: (link: HTMLElement): boolean => fireEvent.click(link) },
+    { click: 'a Cmd-click', follow: (link: HTMLElement): boolean => fireEvent.click(link, { metaKey: true }) },
+    {
+        click: 'a middle click',
+        follow: (link: HTMLElement): boolean =>
+            fireEvent(link, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })),
+    },
+]
+
+const CASES = SURFACES.flatMap((surface) => CLICKS.map((click) => ({ ...surface, ...click })))
+
 describe('cross-sell from workflows', () => {
     let intents: unknown[]
     let intentStatus: number
@@ -116,12 +128,12 @@ describe('cross-sell from workflows', () => {
         cleanup()
     })
 
-    it.each(SURFACES)(
-        'records a cross-sell intent when someone follows the link on $surface',
-        async ({ renderSurface, link, product, context }) => {
+    it.each(CASES)(
+        'records a cross-sell intent when $click follows the link on $surface',
+        async ({ renderSurface, link, follow, product, context }) => {
             renderSurface()
 
-            fireEvent.click(await screen.findByText(link))
+            follow(await screen.findByText(link))
 
             await waitFor(() => expect(intents).toHaveLength(1))
             expect(intents[0]).toEqual({

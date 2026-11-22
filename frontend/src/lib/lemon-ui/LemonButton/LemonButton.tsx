@@ -20,6 +20,8 @@ export interface LemonButtonPropsBase
         React.ButtonHTMLAttributes<HTMLElement>,
         | 'title'
         | 'onClick'
+        | 'onClickCapture'
+        | 'onAuxClick'
         | 'id'
         | 'tabIndex'
         | 'form'

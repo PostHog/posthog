@@ -20,7 +20,7 @@ import {
     registerTriggerType,
 } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
-import { recordCrossSellFromWorkflows } from 'products/workflows/frontend/workflowsCrossSell'
+import { crossSellLinkProps } from 'products/workflows/frontend/workflowsCrossSell'
 
 import { HogFlowAction } from '../../types'
 import { surveyTriggerLogic } from './surveyTriggerLogic'
@@ -287,12 +287,10 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                                     to={urls.survey('new')}
                                     target="_blank"
                                     className="font-semibold"
-                                    onClick={() =>
-                                        recordCrossSellFromWorkflows(
-                                            ProductKey.SURVEYS,
-                                            ProductIntentContext.WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY
-                                        )
-                                    }
+                                    {...crossSellLinkProps(
+                                        ProductKey.SURVEYS,
+                                        ProductIntentContext.WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY
+                                    )}
                                 >
                                     Create a survey <IconOpenInNew className="inline text-sm" />
                                 </Link>
