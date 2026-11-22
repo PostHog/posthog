@@ -28,7 +28,8 @@ def set_issue_tag(
 ) -> bool:
     """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
 
-    Return whether it was stored.
+    Return whether it was stored. An answer that the tag already holds, field for field, writes nothing and counts as
+    stored.
     """
     if not issue_tags_enabled(team_id):
         return False
@@ -40,7 +41,7 @@ def set_issue_tag(
         "probability": answer.probability,
         "model": answer.model,
         "question_version": answer.question_version,
-        "set_by": answer.set_by,
+        "set_by_id": answer.set_by.id if answer.set_by else None,
     }
     after: dict[str, object] = {"key": key, "value": answer.value, "source": source}
 
@@ -63,6 +64,8 @@ def set_issue_tag(
         if not created:
             if tag.source in sources_above:
                 return False
+            if all(getattr(tag, name) == value for name, value in fields.items()):
+                return True
             before, updated_at = _replace_tag(tags, tag, fields)
         # A rule answer tells whether the event matched a property that some members may not read, and every member
         # can read the activity log. So the log holds no rule answer, as a change or as the value a correction replaced.

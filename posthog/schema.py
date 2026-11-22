@@ -241,6 +241,7 @@ from posthog.schema_enums import (
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
     MetricsQueryLanguage as MetricsQueryLanguage,
+    MetricsQueryProvenanceMode as MetricsQueryProvenanceMode,
     MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
@@ -6725,6 +6726,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -7768,6 +7775,18 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsQueryProvenance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: MetricsQueryProvenanceMode
+    precomputedUntil: str | None = Field(
+        default=None,
+        description=("Buckets before this time came from precomputed metrics. Absent when no clause read them."),
+    )
+    reasons: list[str] | None = Field(default=None, description="Why clauses ran raw, one per clause.")
 
 
 class MetricsVariableValue(BaseModel):
@@ -9650,7 +9669,7 @@ class WebPageDirectorySiteTotals(BaseModel):
     bounceRate: float | None = None
     conversions: WebPageDirectoryValue | None = None
     googleSearch: WebPageDirectoryValue | None = None
-    serverLogs: int
+    serverLogs: int | None = None
     timeOnPageP90: float | None = None
     visitors: WebPageDirectoryValue | None = None
 
@@ -15605,6 +15624,7 @@ class CachedMetricsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    provenance: MetricsQueryProvenance | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -17745,6 +17765,8 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18138,6 +18160,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18148,6 +18171,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None
@@ -22484,6 +22508,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
@@ -22880,6 +22908,7 @@ class MetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24315,6 +24344,8 @@ class QueryResponseAlternative27(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26948,6 +26979,7 @@ class QueryResponseAlternative73(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30881,6 +30913,8 @@ class WebPageDirectoryQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),

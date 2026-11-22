@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -632,6 +633,122 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.post(f"{self._base()}/materialize/")
 
         self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def _view_node(self, dag: DAG, name: str, sql: str, *, reads: Node | None = None) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": sql},
+            columns={
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "ts": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "valid": True},
+            },
+            created_by=self.user,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, name=name, saved_query=saved_query, type=NodeType.VIEW)
+        if reads is not None:
+            Edge.objects.create(team=self.team, dag=dag, source=reads, target=node)
+        return node
+
+    def _downstream_of_a_view(self) -> dict[str, Node]:
+        dag = DAG.objects.create(team=self.team, name="dag")
+        picked = self._view_node(dag, "daily_events", "select event, timestamp as ts from events")
+        broken = self._view_node(
+            dag, "daily_counts", "select day, count() from daily_events group by day", reads=picked
+        )
+        return {
+            "picked": picked,
+            "sibling": self._view_node(dag, "event_names", "select event from daily_events", reads=picked),
+            "broken": broken,
+            "under_broken": self._view_node(dag, "weekly_counts", "select count() from daily_counts", reads=broken),
+        }
+
+    def _temporal(self, mock_sync_connect: Mock) -> AsyncMock:
+        client = AsyncMock()
+        not_running = Mock(describe=AsyncMock(side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b"")))
+        client.get_workflow_handle = Mock(return_value=not_running)
+        mock_sync_connect.return_value = client
+        return client
+
+    def _run(self, path: str, node: Node, body: dict):
+        if path == "node":
+            url = f"/api/environments/{self.team.pk}/data_modeling_nodes/{node.id}/run/"
+        else:
+            url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{node.saved_query_id}/run/"
+        return self.client.post(url, body, format="json")
+
+    RELATED_RUNS = [
+        ("node_run", "node", {"direction": "downstream"}),
+        ("saved_query_run", "saved_query", {"direction": "downstream"}),
+        ("trino_run", "saved_query", {"direction": "downstream", "engine": "trino"}),
+    ]
+
+    @parameterized.expand(RELATED_RUNS)
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_descendant_that_does_not_resolve_is_left_out_of_the_run_with_its_downstream(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+
+        response = self._run(path, nodes["picked"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        expected_run = sorted([str(nodes["picked"].id), str(nodes["sibling"].id)])
+        self.assertEqual(response.json()["node_ids"], expected_run)
+        self.assertEqual(client.start_workflow.call_args.args[1]["node_ids"], expected_run)
+        skipped = {entry["node_id"]: entry for entry in response.json()["skipped"]}
+        self.assertEqual(set(skipped), {str(nodes["broken"].id), str(nodes["under_broken"].id)})
+        self.assertEqual(skipped[str(nodes["broken"].id)]["name"], "daily_counts")
+        self.assertIn("Unable to resolve field: day", skipped[str(nodes["broken"].id)]["reason"])
+
+    @parameterized.expand(RELATED_RUNS)
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_descendant_that_reads_a_denied_table_still_refuses_the_run(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+        self._view_node(nodes["picked"].dag, "restricted_ids", "select id from restricted_table", reads=nodes["picked"])
+
+        response = self._run(path, nodes["picked"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("restricted_table", response.json()["detail"])
+        client.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            *RELATED_RUNS,
+            ("node_run_upstream", "node", {"direction": "upstream"}),
+            ("trino_run_of_one_view", "saved_query", {"engine": "trino"}),
+            ("saved_query_run_of_one_view", "saved_query", {}),
+            ("node_materialize", "node_materialize", {}),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_running_a_view_that_does_not_resolve_is_a_bad_request(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+
+        if path == "node_materialize":
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/data_modeling_nodes/{nodes['broken'].id}/materialize/"
+            )
+        else:
+            response = self._run(path, nodes["broken"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("Unable to resolve field: day", response.json()["detail"])
+        client.start_workflow.assert_not_called()
 
 
 @pytest.mark.ee

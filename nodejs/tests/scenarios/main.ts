@@ -3,7 +3,9 @@ import path from 'path'
 import { parseArgs } from 'util'
 
 import { seedBacklog } from './backlog/backlog'
-import { Backlog, CardError, LoadedCard, Profile, load, readProfile } from './cards'
+import { Backlog, CardError, LoadedCard, Profile, Target, load, readProfile } from './cards'
+import { DevConfig, devConfigOf } from './dev-target/config'
+import { devEnvironment, devTarget } from './dev-target/target'
 import { createEnvironment, defaultStateDir } from './environment/environment'
 import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
@@ -18,40 +20,56 @@ import { RunId } from './store/runs'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = [
-    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]',
+    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev]',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>... | --all',
 ].join('\n')
 
-function cardPathOf(card: string): string {
-    return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)
+function cardPathOf(card: string, target: Target): string {
+    const dir = target === 'dev' ? path.join(CARDS_DIR, 'dev') : CARDS_DIR
+    return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(dir, `${card}.yaml`)
 }
 
 function preflight(
     cards: string[],
     profilePath: string | undefined,
+    target: Target,
     env: NodeJS.ProcessEnv
-): { loaded: LoadedCard[] } | { problems: string[] } {
+): { loaded: LoadedCard[]; dev?: DevConfig } | { problems: string[] } {
     const { problem } = credentialsOf(env)
     const problems = problem === undefined ? [] : [problem]
+    let dev: DevConfig | undefined
+    try {
+        dev = target === 'dev' ? devConfigOf(env) : undefined
+    } catch (error) {
+        problems.push((error as Error).message)
+    }
     const loaded = cards.flatMap((card) => {
         try {
-            return [load(cardPathOf(card), { profilePath })]
+            return [load(cardPathOf(card, target), { profilePath, target })]
         } catch (error) {
             problems.push(error instanceof CardError ? error.message : `${card}: ${(error as Error).message}`)
             return []
         }
     })
-    return problems.length > 0 ? { problems } : { loaded }
+    return problems.length > 0 ? { problems } : { loaded, dev }
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
         allowPositionals: true,
-        options: { profile: { type: 'string' }, all: { type: 'boolean' } },
+        options: {
+            profile: { type: 'string' },
+            all: { type: 'boolean' },
+            target: { type: 'string' },
+        },
     })
     const [command, ...cards] = positionals
+    if (values.target !== undefined && command !== 'run') {
+        process.stderr.write(`${USAGE}\n`)
+        return EXIT_CODE.invalid
+    }
     if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
         return seedBacklogOf(values.profile, env)
     }
@@ -60,11 +78,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     if (command === 'publish' && publishesAll !== namesRuns) {
         return publishRuns(cards, env)
     }
-    if (command !== 'run' || cards.length === 0) {
+    const target = values.target ?? 'local'
+    if (command !== 'run' || cards.length === 0 || (target !== 'local' && target !== 'dev')) {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
-    const checked = preflight(cards, values.profile, env)
+    const checked = preflight(cards, values.profile, target, env)
     if ('problems' in checked) {
         process.stderr.write(`${checked.problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid
@@ -73,7 +92,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const interrupt = new AbortController()
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
-    return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
+    const { dev } = checked
+    const runner = dev
+        ? createRunner(devEnvironment(), env, { target: devTarget(dev) })
+        : createRunner(createEnvironment(), env)
+    return runCards(runner, checked.loaded, interrupt.signal)
 }
 
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
@@ -184,7 +207,7 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
     let code: number = EXIT_CODE.passed
     let ran = 0
     try {
-        await runner.up()
+        await runner.up(interrupt)
         for (const loaded of cards) {
             if (interrupt.aborted) {
                 break

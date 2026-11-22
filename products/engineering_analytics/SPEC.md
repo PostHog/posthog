@@ -109,6 +109,10 @@ Every endpoint follows the same practices.
 - A test is `confirmed_flake` only with proof of recovery on the same commit. A failure without that proof is `suspected_regression`.
 - A read over optional data degrades to a typed empty answer such as `has_membership_data: false`. It never returns a 500.
 - `logic/reverts.py` recognizes a reverting pull request by its title, because GitHub records no link from a revert to the change it undid.
+  - It links a revert to the pull request it undid through the `Reverts #N` line of the revert's description. A revert without that line stays unlinked.
+  - `revert_outcomes` counts reverted pull requests by authorship and by approval. Both cohorts are aggregates over pull requests and never name an author.
+  - `revert_outcomes` counts a revert merged after `date_to`, so a past window's reverted count can still grow. `dora` makes the opposite choice and bounds recovery by `date_to`.
+  - `logic/agent_context.py` defines agent authorship once: a person's pull request whose description fills the `**Agent:**` line of the pull request template.
 - The list reads cache a pull request's lifetime cost for 5 minutes, and CI status stays live.
   - The cache key carries a hash of the cost query, so a change to the query, the prices or the tables starts a new cache.
   - A cached value is served only when the reader's HogQL catalog grants every table that the query reads.

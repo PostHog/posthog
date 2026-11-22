@@ -142,11 +142,10 @@ describe('ToolExecutor analytics capture', () => {
                 expect(span.mock.calls[0]![0].properties?.suppress_analytics).toBe(capture === 'marked')
             }
             if (fails) {
-                expect(exception).toHaveBeenCalledWith(
-                    expect.any(Error),
-                    state.distinctId,
-                    expect.objectContaining({ suppress_analytics: capture !== 'ordinary' })
-                )
+                expect(exception).toHaveBeenCalledWith(expect.any(Error), {
+                    distinctId: state.distinctId,
+                    properties: expect.objectContaining({ suppress_analytics: capture !== 'ordinary' }),
+                })
             } else {
                 expect(exception).not.toHaveBeenCalled()
                 expect(JSON.stringify(result)).toContain('Synthetic report')

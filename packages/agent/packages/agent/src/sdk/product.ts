@@ -143,8 +143,14 @@ export function buildPullRequestFooter(
   const report = (options.sources ?? []).find(
     (source) => source?.label === "inbox report",
   );
+  const slackThread = (options.sources ?? []).find(
+    (source) => source?.label === "Slack thread",
+  );
   let createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
-  if (!report && mobile) {
+  if (!report && slackThread) {
+    createdWith =
+      "Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr)";
+  } else if (!report && mobile) {
     createdWith = "Created with [PostHog Mobile](https://posthog.com?ref=pr)";
   } else if (
     !report &&

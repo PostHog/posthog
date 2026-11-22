@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
@@ -428,10 +429,10 @@ export interface autoresearchPipelineLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     closeArtifact: () => any

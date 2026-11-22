@@ -151,6 +151,24 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         assert planned.unavailable == ()
         assert bool(planned.planned) == syncs
 
+    @parameterized.expand(
+        [
+            ("planned_tables", _proposal(ProposedSchema(name="events", should_sync=True, sync_type=None))),
+            ("posthog_default_tables", _proposal(schemas=None)),
+        ]
+    )
+    def test_a_table_without_a_key_syncs_in_full(self, _name: str, proposal: ItemProposal) -> None:
+        table = dataclasses.replace(
+            _table("events"), columns=[], detected_primary_keys=None, declares_primary_keys=True
+        )
+
+        planned = build_planned_schemas(proposal, [table], {})
+
+        assert planned.schemas == [
+            {"name": "events", "should_sync": True, "sync_type": "full_refresh", "sync_frequency": "6hour"}
+        ]
+        assert planned.keyless == ("events",)
+
     def test_matches_alternative_names_and_reports_webhook_only_tables(self) -> None:
         proposal = _proposal(
             ProposedSchema(name="public.orders", should_sync=True, sync_type=None, alternative_names=("orders",)),

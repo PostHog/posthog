@@ -188,6 +188,36 @@ ENDPOINTS: dict[str, AcculynxEndpoint] = {
             parent_field_renames={"id": "supplement_id"},
         ),
     ),
+    "supplement_notations": AcculynxEndpoint(
+        path="supplements/{supplementId}/notations",
+        primary_keys=("supplement_id", "id"),
+        partition_key="createdDate",
+        fanout=DependentEndpointConfig(
+            parent_name="supplements",
+            resolve_param="supplementId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "supplement_id"},
+        ),
+    ),
+    # The insurance response is one object per job with no identifier of its own.
+    "job_insurance": AcculynxEndpoint(
+        path="jobs/{jobId}/insurance",
+        offset_param=None,
+        data_selector="$",
+        primary_keys=("job_id",),
+        fanout=DependentEndpointConfig(
+            parent_name="jobs",
+            resolve_param="jobId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "job_id"},
+        ),
+    ),
+    "insurance_companies": AcculynxEndpoint(path="company-settings/job-file-settings/insurance-companies"),
+    "workflow_milestones": AcculynxEndpoint(
+        path="company-settings/job-file-settings/workflow-milestones", offset_param=None
+    ),
     "calendars": AcculynxEndpoint(path="calendars"),
     "calendar_appointments": AcculynxEndpoint(
         path="calendars/{calendarId}/appointments",

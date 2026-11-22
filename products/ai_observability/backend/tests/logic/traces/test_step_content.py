@@ -327,6 +327,23 @@ def test_failing_side_falls_back_to_json(_name, error, error_class, reported):
     assert capture.called is reported
 
 
+def test_a_json_span_side_shows_json_text_parsed_at_any_depth():
+    content = content_of("span", {"query": '{"q": "x"}'}, '{"answer": "ok"}')
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value={"query": {"q": "x"}})
+    assert content.output == contracts.TraceJsonSide(kind="json", value={"answer": "ok"})
+
+
+def test_a_json_side_whose_parse_runs_out_of_budget_shows_the_captured_text_and_is_not_a_recipe_failure():
+    captured = '{"answer": {"text": "ok"}}'
+
+    with patch.object(run_limits_module, "MAX_OUTPUT_NODES", 1):
+        reading = read_step("span", "node-1", {"k": 1}, captured, build_normalizer=RecipeNormalizer, team_id=TEAM_ID)
+
+    assert reading.content.output == contracts.TraceJsonSide(kind="json", value=captured)
+    assert (reading.output.recognized, reading.output.runtime_error) == (True, None)
+
+
 def test_span_failing_side_falls_back_to_the_original_value():
     wrapped = {"messages": REPLY}
 
@@ -381,6 +398,7 @@ AGENT_SAID = {"who": "agent", "said": "Hi"}
             (True, True),
         ),
         ("span output that is plain text", "span", AGENT_SAID, "done", RecipeNormalizer, (False, True)),
+        ("span output that is JSON text", "span", AGENT_SAID, '{"said": "done"}', RecipeNormalizer, (False, False)),
         ("span output that is a number", "span", AGENT_SAID, 42, RecipeNormalizer, (False, True)),
         ("span output that is an empty object", "span", AGENT_SAID, {}, RecipeNormalizer, (False, True)),
         ("span output that is an array", "span", AGENT_SAID, [1, 2], RecipeNormalizer, (False, False)),

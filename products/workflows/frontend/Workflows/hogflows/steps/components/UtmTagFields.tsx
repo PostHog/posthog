@@ -1,5 +1,7 @@
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { getUtmTagPreview, setUtmTagValue } from './utmTagPreview'
+
 export type UtmTagKey = 'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content'
 export type UtmTagValues = Partial<Record<UtmTagKey, string>>
 
@@ -14,20 +16,7 @@ export interface UtmTagFieldsProps {
 }
 
 export function UtmTagFields({ value, onChange, campaignDefault, contentDefault }: UtmTagFieldsProps): JSX.Element {
-    const defaults: Record<UtmTagKey, string> = {
-        utm_source: 'posthog',
-        utm_medium: 'email',
-        utm_campaign: campaignDefault,
-        utm_content: contentDefault,
-    }
-    const values = UTM_TAG_KEYS.map((key) => [key, (value[key] || defaults[key]).trim()] as const).filter(
-        ([, tagValue]) => tagValue
-    )
-    // Encoded like the sent links, except variables, which stay readable because they differ per person.
-    const example = values
-        .map(([key, tagValue]) => `${key}=${tagValue.includes('{{') ? tagValue : encodeURIComponent(tagValue)}`)
-        .join('&')
-    const hasVariables = values.some(([, tagValue]) => tagValue.includes('{{'))
+    const { defaults, example, hasVariables } = getUtmTagPreview(value, campaignDefault, contentDefault)
 
     return (
         <div className="flex flex-col gap-1">
@@ -39,10 +28,7 @@ export function UtmTagFields({ value, onChange, campaignDefault, contentDefault 
                             size="small"
                             value={value[key] ?? ''}
                             placeholder={defaults[key] || 'Not set'}
-                            onChange={(next) => {
-                                const { [key]: _, ...rest } = value
-                                onChange(next.trim() ? { ...rest, [key]: next } : rest)
-                            }}
+                            onChange={(next) => onChange(setUtmTagValue(value, key, next))}
                             data-attr={`email-utm-${key.replace('utm_', '')}`}
                         />
                     </div>

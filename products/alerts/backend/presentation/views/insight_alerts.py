@@ -48,6 +48,7 @@ def shown_insight_alerts(
         native_insight_alert_views,
     )
     from products.alerts.backend.presentation.views.alert import (  # noqa: PLC0415
+        _show_destination_counts,
         _show_platform_status,
         _show_platform_subscribers,
     )
@@ -71,6 +72,9 @@ def shown_insight_alerts(
             ]
             _show_platform_status(alerts, now=now)
             _show_platform_subscribers(alerts)
+            _show_destination_counts(
+                [*(alert for insight_id in insight_ids for alert in shown[insight_id]), *presented.values()]
+            )
         for insight_id, alert_ids in ids_by_insight.items():
             # An alert moved to another insight between the two reads belongs to that insight now, which
             # the caller has not checked the reader may view.

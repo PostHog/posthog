@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.lacework.settings import LACEWORK_ENDPOI
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -91,13 +92,6 @@ def _is_same_host(url: str, account_name: str) -> bool:
         return (parsed.hostname or "").lower() == expected.lower()
     except Exception:
         return False
-
-
-def _format_datetime(dt: datetime) -> str:
-    """Lacework accepts ``yyyy-MM-ddTHH:mm:ss.SSSZ``; millisecond precision keeps window
-    boundaries exact so watermark-derived starts don't truncate backwards."""
-    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -263,8 +257,8 @@ def _first_page_request(
     config: LaceworkEndpointConfig, api_base_url: str, window_start: datetime, window_end: datetime
 ) -> tuple[str, str, dict[str, Any] | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Build (method, url, body) for the first page of a time window."""
-    start = _format_datetime(window_start)
-    end = _format_datetime(window_end)
+    start = format_datetime(window_start, "iso_z_millis")
+    end = format_datetime(window_end, "iso_z_millis")
     if config.method == "GET":
         query = urlencode({"startTime": start, "endTime": end})
         return "GET", f"{api_base_url}{config.path}?{query}", None
@@ -372,7 +366,7 @@ def get_rows(
             if isinstance(total_rows, int | float) and total_rows >= RESULT_SET_ROW_CAP:
                 logger.warning(
                     f"Lacework: result set for {endpoint} window "
-                    f"{_format_datetime(window_start)}..{_format_datetime(window_end)} hit the API's "
+                    f"{format_datetime(window_start, 'iso_z_millis')}..{format_datetime(window_end, 'iso_z_millis')} hit the API's "
                     f"{RESULT_SET_ROW_CAP}-row cap; rows beyond the cap are not returned"
                 )
 
@@ -385,16 +379,18 @@ def get_rows(
             if next_page_url is not None:
                 resumable_source_manager.save_state(
                     LaceworkResumeConfig(
-                        window_start=_format_datetime(window_start),
-                        window_end=_format_datetime(window_end),
+                        window_start=format_datetime(window_start, "iso_z_millis"),
+                        window_end=format_datetime(window_end, "iso_z_millis"),
                         next_page_url=next_page_url,
                     )
                 )
             elif window_end < now:
                 resumable_source_manager.save_state(
                     LaceworkResumeConfig(
-                        window_start=_format_datetime(window_end),
-                        window_end=_format_datetime(min(window_end + timedelta(days=config.window_days), now)),
+                        window_start=format_datetime(window_end, "iso_z_millis"),
+                        window_end=format_datetime(
+                            min(window_end + timedelta(days=config.window_days), now), "iso_z_millis"
+                        ),
                         next_page_url=None,
                     )
                 )

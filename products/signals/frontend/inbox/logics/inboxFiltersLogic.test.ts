@@ -31,6 +31,7 @@ const DEFAULT_STATE: InboxFilterState = {
     scope: 'for-you',
     sourceProductFilter: [],
     scoutFilter: [],
+    tagFilter: [],
     priorityFilter: [],
     stateFilter: ['monitoring', 'needs-decision'],
     sortField: 'recommended',
@@ -65,7 +66,6 @@ describe('inboxFiltersLogic', () => {
         // The server ignores the `sort` preset whenever `ordering` is present.
         it.each([
             ['recommended', 'asc', { sort: 'recommended' }],
-            ['personal', 'asc', { sort: 'personal' }],
             ['priority', 'asc', { ordering: 'priority,status,-updated_at' }],
         ] as const)('sends %s:%s as %p', (field, direction, expected) => {
             expect(buildSignalReportListSortParams(field, direction)).toEqual(expected)
@@ -91,13 +91,14 @@ describe('inboxFiltersLogic', () => {
 
         it.each<[string, InboxFilterState, Record<string, string>]>([
             [
-                'scope + sources + scouts + priorities + states + custom sort + search',
+                'scope + sources + scouts + tags + priorities + states + custom sort + search',
                 {
                     scope: 'entire-project',
                     sourceProductFilter: ['error_tracking', 'github'],
                     // Scout slugs are team-specific and dynamic, so they round-trip without a
                     // static valid-set check — unlike sources.
                     scoutFilter: ['signals-scout-error-tracking', 'my-custom-scout'],
+                    tagFilter: ['billing', 'on-call'],
                     priorityFilter: ['P0', 'P2'],
                     stateFilter: ['monitoring', 'resolved'],
                     sortField: 'created_at',
@@ -109,6 +110,7 @@ describe('inboxFiltersLogic', () => {
                     scope: 'entire-project',
                     source: 'error_tracking,github',
                     scout: 'signals-scout-error-tracking,my-custom-scout',
+                    tags: 'billing,on-call',
                     priority: 'P0,P2',
                     state: 'monitoring,resolved',
                     sort: 'created_at:desc',
@@ -120,6 +122,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['needs-you scope only', { ...DEFAULT_STATE, scope: 'needs-you' }, { scope: 'needs-you' }],
             ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             [
                 'monitoring status only',
@@ -175,6 +178,13 @@ describe('inboxFiltersLogic', () => {
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
             [
+                'opens a link with the retired Personalized sort as Recommended',
+                'personal:asc',
+                true,
+                'recommended',
+                'asc',
+            ],
+            [
                 'moves a link with the old Fix sort name to the current one',
                 'ranking_fixed:desc',
                 true,
@@ -187,16 +197,6 @@ describe('inboxFiltersLogic', () => {
                 sortField,
                 sortDirection,
             })
-        })
-
-        it.each([
-            ['keeps the Personalized sort for a user with its flag', true, 'personal'],
-            ['falls back to the default sort for a user without its flag', false, 'recommended'],
-        ] as const)('%s', (_name, personalSortAvailable, sortField) => {
-            // The model sort flag does not unlock the Personalized sort.
-            expect(
-                parseFilterSearchParams({ sort: 'personal:asc' }, { modelSortAvailable: true, personalSortAvailable })
-            ).toEqual({ ...DEFAULT_STATE, sortField, sortDirection: 'asc' })
         })
     })
 
@@ -335,23 +335,44 @@ describe('inboxFiltersLogic', () => {
             }
         )
 
-        it('ignores a stored source selection while the flag is off and reloads when the flag changes', async () => {
-            logic.actions.setFilters({ ...DEFAULT_STATE, scoutFilter: ['my-custom-scout'] })
+        it.each<
+            [
+                string,
+                (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS],
+                Partial<InboxFilterState>,
+                'activeScoutFilter' | 'activeTagFilter',
+                'sourceFilterAvailabilityChanged' | 'tagFilterAvailabilityChanged',
+            ]
+        >([
+            [
+                'source',
+                FEATURE_FLAGS.INBOX_SOURCE_FILTER,
+                { scoutFilter: ['my-custom-scout'] },
+                'activeScoutFilter',
+                'sourceFilterAvailabilityChanged',
+            ],
+            [
+                'tag',
+                FEATURE_FLAGS.INBOX_TAG_FILTER,
+                { tagFilter: ['billing'] },
+                'activeTagFilter',
+                'tagFilterAvailabilityChanged',
+            ],
+        ])(
+            'ignores a stored %s selection while the flag is off and reloads when the flag changes',
+            async (_name, flag, stored, activeKey, availabilityAction) => {
+                const [storedValue] = Object.values(stored)
+                logic.actions.setFilters({ ...DEFAULT_STATE, ...stored })
 
-            expect(logic.values).toMatchObject({
-                scoutFilter: ['my-custom-scout'],
-                activeScoutFilter: [],
-                hasActiveFilters: false,
-            })
+                expect(logic.values).toMatchObject({ ...stored, [activeKey]: [], hasActiveFilters: false })
 
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
-                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                await expectLogic(logic, () => {
+                    featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
                 })
-            })
-                .toDispatchActions(['sourceFilterAvailabilityChanged'])
-                .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
-        })
+                    .toDispatchActions([availabilityAction])
+                    .toMatchValues({ [activeKey]: storedValue, hasActiveFilters: true })
+            }
+        )
 
         it('keeps a monitoring URL selection visible without a browser rollout flag', async () => {
             router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
@@ -476,23 +497,6 @@ describe('inboxFiltersLogic', () => {
                 })
             }
         )
-
-        // The reset reloads the lists, so rows that carry personal merge keys do not stay on screen.
-        it.each([
-            ['keeps a stored Personalized sort while its flag is on', true, 'personal', 'personal'],
-            ['resets a stored Personalized sort once its flag is off', false, 'recommended', 'recommended'],
-        ] as const)('%s', (_name, flagOn, sortField, activeSortField) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-            })
-            logic.actions.setSort('personal', 'asc')
-
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: flagOn,
-            })
-
-            expect(logic.values).toMatchObject({ sortField, activeSortField, activeSortDirection: 'asc' })
-        })
     })
 
     describe('stored sort migration', () => {
@@ -512,6 +516,7 @@ describe('inboxFiltersLogic', () => {
         it.each([
             ['moves the old Priority first default to Recommended', 'priority', 'asc', null, 'recommended', 'asc'],
             ['keeps a Priority first the user picked', 'priority', 'asc', true, 'priority', 'asc'],
+            ['moves the retired Personalized sort to Recommended', 'personal', 'asc', true, 'recommended', 'asc'],
             ['keeps Newest first from before Recommended existed', 'created_at', 'desc', null, 'created_at', 'desc'],
         ] as const)('%s', (_name, storedField, storedDirection, chosen, sortField, sortDirection) => {
             localStorage.setItem(`${STORAGE_PREFIX}.sortField`, JSON.stringify(storedField))

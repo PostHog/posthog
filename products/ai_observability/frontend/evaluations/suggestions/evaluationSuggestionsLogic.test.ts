@@ -41,6 +41,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         created_evaluation: null,
         target_evaluation: null,
         target_evaluation_name: null,
+        fix_problem: null,
         similar_evaluation: null,
         similar_evaluation_name: null,
         dismiss_reason: null,
