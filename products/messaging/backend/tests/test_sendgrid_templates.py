@@ -58,6 +58,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "{{#greaterThan a null}}x{{else}}{{token}}{{/greaterThan}}",
                 "{{token}}",
             ),
+            ("insert_default_with_an_entity", '{{insert x "default=&lt;b&gt;"}}', '{{insert x "default=&lt;b&gt;"}}'),
+            ("value_under_a_comparison_with_an_entity", '{{#equals a "&lt;b&gt;"}}{{token}}{{/equals}}', "{{token}}"),
+            (
+                "value_under_an_else_if_that_stays_as_written",
+                '{{#equals plan "gold"}}A{{else if (greaterThan spend 500)}}{{token}}{{/equals}}',
+                "{{token}}",
+            ),
             (
                 "value_under_a_comparison_with_a_number_too_large_to_hold",
                 "{{#notEquals a " + "9" * 400 + "}}{{token}}{{/notEquals}}",

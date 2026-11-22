@@ -48,7 +48,10 @@ _TAKEN_NAMES = frozenset(
 # Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
 _LIST_NAME = re.compile(r"(?:values|shape|string|raw)\d+")
 # Names the converter assigns before a comparison. A loop variable of the same name would hide them.
-_ASSIGNED_NAME = re.compile(r"(?:text|length|truthy)\d+")
+_ASSIGNED_NAME = re.compile(r"(?:text|length|truthy|probe)\d+")
+# An HTML editor can save a tag's quotes and other characters as entities. Which text a provider then compares or
+# prints is unclear, so a tag holding one stays as written.
+_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);", re.IGNORECASE)
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
 # Each provider adds its own helpers to Handlebars:
 # https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars and
@@ -189,6 +192,8 @@ class HandlebarsToLiquid:
                 yield _literal_text(piece.source)
 
     def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
+        if self.is_html and _ENTITY.search(node.source):
+            return self._literal(node.source)
         body, raw = node.body, node.raw
         self._converted_root = ""
         if body.startswith("&"):
@@ -233,7 +238,9 @@ class HandlebarsToLiquid:
                 raise _Unsupported
             return self._print(f"{value} | default: {fallback}", raw), raw
         if name == "length" and len(params) == 1:
-            return self._print(f"{self._value_path(params[0], frames)} | size", False, may_be_a_list=False), False
+            setup: list[str] = []
+            length = self._counted(self._value_path(params[0], frames), setup)
+            return "".join(setup) + self._print(length, False, may_be_a_list=False), False
         raise _Unsupported
 
     def _print(self, value: str, raw: bool, *, may_be_a_list: bool = True) -> str:
@@ -260,6 +267,8 @@ class HandlebarsToLiquid:
 
     def _block(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         try:
+            if self.is_html and _ENTITY.search(block.source_open):
+                raise _Unsupported
             if block.name == "each" and not block.inverted:
                 return self._each(block, frames)
             if block.name == "with" and not block.inverted:
@@ -310,6 +319,8 @@ class HandlebarsToLiquid:
             self._assigned = assigned
 
     def _condition(self, block: _Block, frames: tuple[_Frame, ...], setup: list[str]) -> str:
+        if self.is_html and _ENTITY.search(block.source_open):
+            raise _Unsupported
         params, hash_args = block.params, block.hash_args
         if not block.parsed or block.block_params:
             raise _Unsupported
@@ -522,14 +533,24 @@ class HandlebarsToLiquid:
                 raise _Unsupported
             return param.liquid
         if isinstance(param, _Call):
-            return self._assign(self._length(param, frames), "length", setup)
+            return self._counted(self._length(param, frames), setup)
         return self._value_path(param, frames)
 
     def _length(self, call: _Call, frames: tuple[_Frame, ...]) -> str:
         if self._dialect != "sendgrid" or call.name != "length" or len(call.params) != 1:
             raise _Unsupported
-        # The `size` filter gives 0 for a missing value or an object, as SendGrid's `length` does.
-        return f"{self._value_path(call.params[0], frames)} | size"
+        return self._value_path(call.params[0], frames)
+
+    def _counted(self, path: str, setup: list[str]) -> str:
+        """SendGrid's `length` counts a list's items or a string's characters, and gives 0 for anything else. Liquid's
+        `size` reads an object's `length` key, so an object, which `slice` reads as "[object Object]", counts 0."""
+        self._assigned += 1
+        length, probe = f"length{self._assigned}", f"probe{self._assigned}"
+        setup.append(
+            f"{{% assign {probe} = {path} | slice: 0, 16 %}}{{% assign {length} = 0 %}}"
+            f'{{% if {probe} != "[object Object]" %}}{{% assign {length} = {path} | size %}}{{% endif %}}'
+        )
+        return length
 
     def _as_text(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         """Both providers compare `equals` as text, so 5 equals "5". Liquid compares by type."""
