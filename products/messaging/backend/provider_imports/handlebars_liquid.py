@@ -350,7 +350,7 @@ class HandlebarsToLiquid:
             index_name=names[1] if len(names) == 2 else None,
         )
         untrusted = self._html is not None and self._html.untrusted
-        before = (len(self.unsupported), len(self.converted), self._written, self._after_raw_html)
+        before = (len(self.unsupported), len(self.converted), self._written, self._assigned, self._after_raw_html)
         # The second pass of the body follows whatever raw HTML the first pass printed.
         self._after_raw_html = self._after_raw_html or (self.is_html and _has_raw_output(block.body))
         start = self._snapshot()
@@ -385,7 +385,7 @@ class HandlebarsToLiquid:
             # Each pass after the first starts where the last one ended, so values converted for the first pass
             # could land somewhere else, such as an unquoted attribute. A condition in the body whose branches end
             # in different places hides where that is.
-            unsupported, converted, self._written, self._after_raw_html = before
+            unsupported, converted, self._written, self._assigned, self._after_raw_html = before
             del self.unsupported[unsupported:], self.converted[converted:]
             if self._html is not None and start is not None:
                 self._html.restore(start)
