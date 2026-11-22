@@ -2169,6 +2169,26 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const sesAcceptsTracked = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        }
+        const trackingOff = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
+        }
+        const sesRejectsTrackingOff = (): void => {
+            sesRejects()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
+        }
+        const codeSendTracked = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
+        }
+        const codeSendOpensOff = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
+        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -2907,7 +2927,22 @@ describe('EmailService', () => {
 
         type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
         const statusCases: StatusCase[] = [
-            ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
+            [
+                'a transactional email that SES accepts with tracking on',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesAcceptsTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a transactional email that SES accepts with open and click tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                trackingOff,
+                'sent',
+                'untracked',
+            ],
             [
                 'a transactional email that SES rejects',
                 TRANSACTIONAL_EMAIL_EVENT,
@@ -2915,6 +2950,30 @@ describe('EmailService', () => {
                 sesRejects,
                 'failed',
                 'provider_error',
+            ],
+            [
+                'a transactional email that SES rejects with tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesRejectsTrackingOff,
+                'failed',
+                'provider_error',
+            ],
+            [
+                'a code send that SES accepts with opens on and clicks off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a code send that SES accepts with opens off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendOpensOff,
+                'sent',
+                'untracked',
             ],
             [
                 'a transactional email skipped for a suspended team',
@@ -2977,7 +3036,7 @@ describe('EmailService', () => {
             pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
-            service['emailStatusService'] = emailStatusService
+            service = createService({}, {}, { emailStatusService })
             invocation.id = id
             invocation.state.globals.event.event = triggerEvent
             invocation.state.globals.event.timestamp = statusTriggerTime

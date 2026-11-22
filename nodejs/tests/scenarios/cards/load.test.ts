@@ -1,4 +1,4 @@
-import { CardError, LoadedCard, load } from '.'
+import { CardError, LoadedCard, Target, load } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -17,6 +17,11 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
+
+const TWICE_DECLARED_BARS = [
+    { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
+    { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
+]
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -42,14 +47,15 @@ describe('load', () => {
         return file
     }
 
-    const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
+    const loadCard = (content: object | string, profileContent?: object | string, target?: Target): LoadedCard =>
         load(write('card.yaml', content), {
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
+            target,
         })
 
-    const problemsOf = (content: object | string, profileContent?: object | string): string[] => {
+    const problemsOf = (content: object | string, profileContent?: object | string, target?: Target): string[] => {
         try {
-            loadCard(content, profileContent)
+            loadCard(content, profileContent, target)
         } catch (error) {
             if (error instanceof CardError) {
                 return error.problems
@@ -99,6 +105,23 @@ describe('load', () => {
             'bars.0.params.percent: ',
         ],
         [
+            'a bar declared twice on a card that stops on break',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                bars: TWICE_DECLARED_BARS,
+            },
+            undefined,
+            'bars: declare each bar once on a stopOnBreak card; pickup_p99_under is declared twice',
+        ],
+        [
             'ramp steps that do not add up to the drive',
             {
                 ...card,
@@ -144,6 +167,46 @@ describe('load', () => {
             },
             undefined,
             'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
+            'a stop on break without a ramp to climb',
+            { ...card, drive: { ...card.drive, stopOnBreak: true } },
+            undefined,
+            'drive.stopOnBreak: stopOnBreak needs a ramp of at least two steps',
+        ],
+        [
+            'a stop on break with a step that lasts no time',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '0ms' },
+                        { scale: 3, for: '20s' },
+                    ],
+                    stopOnBreak: true,
+                },
+            },
+            undefined,
+            'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
+        ],
+        [
+            'a stop on break with a valve the stop could leave due',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                valves: [emailWorkerKill],
+            },
+            undefined,
+            'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         ],
         [
             'an unknown valve',
@@ -318,6 +381,135 @@ describe('load', () => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
     })
 
+    const devCard = {
+        ...card,
+        profile: 'dev',
+        drive: { for: '11s', traffic: [{ name: 'capture_webhook' }] },
+        convergeWithin: '10m',
+        invariants: [{ name: 'at_least_once' }, { name: 'duplicate_sends' }, { name: 'refused_at_intake' }],
+        gates: { duplicate_sends: 0, refused_at_intake: 0 },
+    }
+    const devProfile = { name: 'dev', traffic: { capture_webhook: { ratePerSecond: 1 } } }
+    const devAt = (ratePerSecond: number): object => ({
+        ...devProfile,
+        traffic: { capture_webhook: { ratePerSecond } },
+    })
+
+    it.each<[string, object, object, string]>([
+        [
+            'a traffic kind other than capture_webhook',
+            { ...devCard, drive: card.drive },
+            profile,
+            'drive.traffic: dev does not run event_email',
+        ],
+        ['a valve', { ...devCard, valves: [emailWorkerKill] }, devProfile, 'valves: dev does not run role.kill'],
+        [
+            'a bar',
+            { ...devCard, bars: [TWICE_DECLARED_BARS[0]] },
+            devProfile,
+            'bars: dev does not run pickup_p99_under',
+        ],
+        [
+            'a measurement of local roles',
+            { ...devCard, measure: [{ name: 'role_cpu_seconds' }] },
+            devProfile,
+            'measure: dev does not run role_cpu_seconds',
+        ],
+        [
+            'profile settings',
+            devCard,
+            { ...devProfile, settings: { CDP_FETCH_RETRIES: '1' } },
+            'profile: dev does not run settings',
+        ],
+        ['a host block', devCard, { ...devProfile, host: { cpuCeiling: 0.5 } }, 'profile: dev does not run host'],
+        [
+            'parked flows, which the workflow on dev does not have',
+            devCard,
+            { ...devProfile, traffic: { capture_webhook: { ratePerSecond: 1, parks: 2 } } },
+            'profile: dev does not run parks',
+        ],
+        ['a second project', { ...devCard, setup: { teams: 2 } }, devProfile, 'setup.teams: '],
+        [
+            'the same traffic twice, whose first offers would start together',
+            {
+                ...devCard,
+                drive: { ...devCard.drive, traffic: [{ name: 'capture_webhook' }, { name: 'capture_webhook' }] },
+            },
+            devProfile,
+            'drive.traffic: dev drives one traffic entry',
+        ],
+        ['a rate above its cap', devCard, devAt(11), 'drive: 11 units a second is above the dev cap'],
+        [
+            'a ramp whose top step is above the rate cap',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '2m',
+                    ramp: [
+                        { scale: 1, for: '1m' },
+                        { scale: 3, for: '1m' },
+                    ],
+                },
+            },
+            devAt(4),
+            'drive: 12 units a second',
+        ],
+        [
+            'more units than its cap',
+            { ...devCard, drive: { ...devCard.drive, for: '10m' } },
+            devAt(4),
+            'drive: 2400 units is above the dev cap',
+        ],
+        [
+            'more units than its cap once each step is rounded as the generator schedules it',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '299950ms',
+                    ramp: [
+                        { scale: 0.5, for: '199900ms' },
+                        { scale: 1, for: '100050ms' },
+                    ],
+                },
+            },
+            devAt(10),
+            'drive: 2001 units is above the dev cap',
+        ],
+        ['a drive longer than 10m', { ...devCard, drive: { ...devCard.drive, for: '11m' } }, devAt(1), 'drive.for: '],
+        [
+            'a convergence window shorter than receipts take to become queryable',
+            { ...devCard, convergeWithin: '30s' },
+            devProfile,
+            'convergeWithin: dev allows 5m at least',
+        ],
+        [
+            'a ramp step shorter than a minute, where rounding bunches offers',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '90s',
+                    ramp: [
+                        { scale: 1, for: '1m' },
+                        { scale: 2, for: '30s' },
+                    ],
+                },
+            },
+            devProfile,
+            'drive.ramp: each dev step lasts 1m at least',
+        ],
+    ])('the dev target refuses %s', (_name, content, profileContent, problem) => {
+        expect(problemsOf(content, profileContent, 'dev')).toEqual([expect.stringContaining(problem)])
+    })
+
+    it('refuses capture_webhook on the local target, the one cloud run hosts use too', () => {
+        expect(problemsOf(devCard, devProfile)).toEqual([
+            'drive.traffic: capture_webhook sends to a deployment, so only --target dev runs it',
+        ])
+    })
+
     it('reports a profile path it cannot read as a problem of the card', () => {
         expect(() => load(write('card.yaml', card), { profilePath: dir })).toThrow(
             expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
@@ -335,6 +527,10 @@ describe('load', () => {
             'drive.traffic.0.name: unknown traffic kind event_sms',
             'invariants.0.name: unknown invariant exactly_twice',
         ])
+    })
+
+    it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
+        expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {
@@ -375,10 +571,12 @@ describe('load', () => {
         expect(left === right).toBe(same)
     })
 
-    it.each(readdirSync(__dirname).filter((file) => file.endsWith('.yaml')))(
-        'loads the shipped card %s with the shipped definitions and profile',
-        (file) => {
-            expect(load(path.join(__dirname, file)).card.id).toBe(path.basename(file, '.yaml'))
-        }
-    )
+    it.each([
+        ...readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => [file, 'local'] as const),
+        ...readdirSync(path.join(__dirname, 'dev')).map((file) => [path.join('dev', file), 'dev'] as const),
+    ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
+        expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
+    })
 })

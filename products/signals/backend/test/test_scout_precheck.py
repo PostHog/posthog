@@ -129,8 +129,14 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         assert result.row_count == PRECHECK_MAX_ROWS
         assert result.rows_text is not None and len(result.rows_text.splitlines()) == PRECHECK_MAX_ROWS
 
-    def test_reads_access_scoped_system_tables_as_the_acting_user(self) -> None:
-        self._config(DASHBOARDS_QUERY)
+    @parameterized.expand(
+        [
+            ("dashboards", DASHBOARDS_QUERY),
+            ("scout_scratchpad", "SELECT count() FROM system.scout_scratchpad"),
+        ]
+    )
+    def test_reads_access_scoped_system_tables_as_the_acting_user(self, _name, query) -> None:
+        self._config(query)
 
         result, capture = self._evaluate()
 

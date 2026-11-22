@@ -5,6 +5,7 @@ export interface TokenRule {
   // Replaces prefix and body for a complete string. Streamed chunks keep the prefix,
   // because a chunk can end before the part of the token that the shape requires.
   shape?: RegExp;
+  bodyLength?: number;
   /** The prefix also ends ordinary words ("alpha_"), so it must start one. */
   wordStart?: boolean;
 }
@@ -66,6 +67,86 @@ export const TOKEN_RULES: TokenRule[] = [
   {
     label: "posthog ai gateway session token",
     prefix: "phe_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "github oauth access token",
+    prefix: "gho_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "github user-to-server token",
+    prefix: "ghu_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "github refresh token",
+    prefix: "ghr_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "openai project api key",
+    prefix: "sk-proj-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "aws access key id",
+    prefix: "AKIA",
+    body: /[A-Z0-9]/,
+    bodyLength: 16,
+    wordStart: true,
+  },
+  {
+    label: "aws temporary access key id",
+    prefix: "ASIA",
+    body: /[A-Z0-9]/,
+    bodyLength: 16,
+    wordStart: true,
+  },
+  {
+    label: "slack bot token",
+    prefix: "xoxb-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack user token",
+    prefix: "xoxp-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack legacy workspace token",
+    prefix: "xoxa-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack refresh token",
+    prefix: "xoxr-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack legacy session token",
+    prefix: "xoxs-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack rotation refresh token",
+    prefix: "xoxe-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "gitlab personal access token",
+    prefix: "glpat-",
     body: URL_SAFE_BODY,
     wordStart: true,
   },

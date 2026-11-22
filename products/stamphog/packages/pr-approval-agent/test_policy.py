@@ -332,6 +332,13 @@ _ATTESTATION = {
     "paths": [r"(?:^|/)migrations/[^/]+\.py$"],
 }
 
+_WORKFLOW_PUBLISHER = {
+    "workflow": ".github/workflows/migration-risk.yml",
+    "job": "Publish the Migration risk check",
+    "events": ["pull_request_target"],
+}
+_WORKFLOW_ENTRY = {**{k: v for k, v in _ATTESTATION.items() if k != "app_id"}, **_WORKFLOW_PUBLISHER}
+
 
 def _set_attestations(d: dict, *, raw: object) -> None:
     d["attestations"] = raw
@@ -367,6 +374,13 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("issuer-beside-the-engine", [{**_ATTESTATION, "issuer": "tools/pr-approval-agent/x.yml"}]),
                 ("issuer-percent-escape", [{**_ATTESTATION, "issuer": "%2e%2e/x.yml"}]),
                 ("title-invalid-regex", [{**_ATTESTATION, "title": "^Revert ("}]),
+                ("app-id-and-workflow", [{**_ATTESTATION, **_WORKFLOW_PUBLISHER}]),
+                ("no-publisher", [{k: v for k, v in _ATTESTATION.items() if k != "app_id"}]),
+                ("workflow-on-pull-request", [{**_WORKFLOW_ENTRY, "events": ["pull_request"]}]),
+                ("workflow-on-dispatch", [{**_WORKFLOW_ENTRY, "events": ["workflow_dispatch"]}]),
+                ("workflow-outside-workflows", [{**_WORKFLOW_ENTRY, "workflow": "tools/proof.yml"}]),
+                ("workflow-without-job", [{k: v for k, v in _WORKFLOW_ENTRY.items() if k != "job"}]),
+                ("app-id-with-job", [{**_ATTESTATION, "job": "publish"}]),
                 ("issuer-outside-self-governance", [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml"}]),
             ]
         ],
@@ -568,7 +582,10 @@ def test_an_issuer_entry_reads_its_paths_from_the_manifest_in_the_tree(
 
 def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Path) -> None:
     data = _valid_policy_dict()
-    data["attestations"] = [{**_ATTESTATION, "sibling_files": ["max_migration.txt"]}]
+    data["attestations"] = [
+        {**_ATTESTATION, "sibling_files": ["max_migration.txt"]},
+        {**_WORKFLOW_ENTRY, "name": "migration_risk_workflow"},
+    ]
     policy_file = tmp_path / "policy.yml"
     policy_file.write_text(yaml.safe_dump(data))
 
@@ -583,6 +600,15 @@ def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Pat
             paths=(r"(?:^|/)migrations/[^/]+\.py$",),
             sibling_files=("max_migration.txt",),
             publisher_files=(),
+        ),
+        Attestation(
+            name="migration_risk_workflow",
+            check="Migration risk",
+            workflow=".github/workflows/migration-risk.yml",
+            job="Publish the Migration risk check",
+            events=("pull_request_target",),
+            lifts=("migrations",),
+            paths=(r"(?:^|/)migrations/[^/]+\.py$",),
         ),
     )
     shipped = load_policy(

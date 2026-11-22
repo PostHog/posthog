@@ -274,8 +274,6 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _senders(self, account: dict[str, Any], query: dict[str, str]) -> tuple[int, Any, dict[str, str]]:
         rows = account["verified_senders"]
-        if "id" in query:
-            rows = [row for row in rows if row["id"] == int(query["id"])]
         if "lastSeenID" in query:
             rows = [row for row in rows if row["id"] > int(query["lastSeenID"])]
         return 200, {"results": rows[: int(query.get("limit", 100))]}, {}

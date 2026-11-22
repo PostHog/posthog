@@ -217,6 +217,10 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.editableTarget = null as EventTarget | null
 
         cache.onKeyDown = (event: KeyboardEvent) => {
+            // Browser autofill dispatches a plain `keydown` Event that has no `key`.
+            if (typeof event.key !== 'string') {
+                return
+            }
             const target = event.composedPath()[0]
             if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
                 cache.sequenceKeys = []

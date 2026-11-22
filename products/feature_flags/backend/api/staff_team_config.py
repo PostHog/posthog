@@ -26,7 +26,7 @@ from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     UnknownIdsError,
     get_organizations_of_teams,
-    set_organization_flag_evaluations_mode,
+    set_organizations_flag_evaluations_mode,
 )
 from products.feature_flags.backend.flag_limits import (
     get_max_feature_flags_override_for_team,
@@ -432,12 +432,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
 
         # One transaction across organizations, so the request applies in full or not at all.
         with transaction.atomic():
-            changes = [
-                set_organization_flag_evaluations_mode(
-                    organization, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
-                )
-                for organization in organizations
-            ]
+            changes = set_organizations_flag_evaluations_mode(
+                organizations, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
+            )
 
         if not dry_run:
             logger.info(

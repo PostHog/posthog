@@ -112,7 +112,9 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 IncidentAction.TRIGGER: "$x_alert_incident_opened",
                 IncidentAction.RESOLVE: "$x_alert_incident_closed",
             },
-            native=NativeAlertLifecycle(check_interval_minutes=5, remove_destinations=MagicMock()),
+            native=NativeAlertLifecycle(
+                check_interval_minutes=5, platform_destinations=False, remove_destinations=MagicMock()
+            ),
         )
         for patcher in (
             patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=spec),

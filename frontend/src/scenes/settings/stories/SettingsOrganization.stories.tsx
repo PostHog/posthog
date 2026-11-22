@@ -11,6 +11,7 @@ import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -172,6 +173,8 @@ export default meta
 
 export const SettingsOrganizationDetails: Story = { args: { sectionId: 'organization-details' } }
 
+export const SettingsOrganizationDetailsQuill: Story = withTodayRailNav(SettingsOrganizationDetails)
+
 // A saved notice shows both the banner every member sees and the filled-in form with its preview.
 // The scene menu bar replaces the notice area, so it is off here to render the banner.
 export const SettingsOrganizationDetailsWithMemberNotice: Story = {
@@ -197,13 +200,23 @@ export const SettingsOrganizationDetailsWithMemberNotice: Story = {
 
 export const SettingsOrganizationMembers: Story = { args: { sectionId: 'organization-members' } }
 
+export const SettingsOrganizationMembersQuill: Story = withTodayRailNav(SettingsOrganizationMembers)
+
 export const SettingsOrganizationRoles: Story = { args: { sectionId: 'organization-roles' } }
+
+export const SettingsOrganizationRolesQuill: Story = withTodayRailNav(SettingsOrganizationRoles)
 
 export const SettingsOrganizationAuthentication: Story = { args: { sectionId: 'organization-authentication' } }
 
+export const SettingsOrganizationAuthenticationQuill: Story = withTodayRailNav(SettingsOrganizationAuthentication)
+
 export const SettingsOrganizationProxy: Story = { args: { sectionId: 'organization-proxy' } }
 
+export const SettingsOrganizationProxyQuill: Story = withTodayRailNav(SettingsOrganizationProxy)
+
 export const SettingsOrganizationDangerZone: Story = { args: { sectionId: 'organization-danger-zone' } }
+
+export const SettingsOrganizationDangerZoneQuill: Story = withTodayRailNav(SettingsOrganizationDangerZone)
 
 export const SettingsOrganizationBilling: Story = { args: { sectionId: 'organization-billing' } }
 
@@ -212,3 +225,7 @@ export const SettingsOrganizationStartupProgram: Story = { args: { sectionId: 'o
 export const SettingsOrganizationCimdVerificationTokens: Story = {
     args: { sectionId: 'organization-cimd-verification-tokens' },
 }
+
+export const SettingsOrganizationCimdVerificationTokensQuill: Story = withTodayRailNav(
+    SettingsOrganizationCimdVerificationTokens
+)

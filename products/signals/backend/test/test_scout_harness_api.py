@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
@@ -2398,6 +2399,13 @@ class TestWriteScopesValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("make_it_green", ["make_it_green"], True, ["make_it_green"]),
+            ("resolve_conflicts", ["resolve_conflicts"], True, ["resolve_conflicts"]),
+            (
+                "both_fixed_prompt_actions",
+                ["resolve_conflicts", "make_it_green"],
+                True,
+                ["make_it_green", "resolve_conflicts"],
+            ),
             # Both carry text a scout can write, and the run they start holds its acting user's full access.
             ("ask", ["ask"], False, None),
             ("suggested_prompt", ["suggested_prompt"], False, None),
@@ -2601,6 +2609,18 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == expected_status
         assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
+    def test_key_search_returns_an_expired_marker_and_remember_reports_the_revived_expiry(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        SignalScratchpad.objects.filter(team=self.team, key="k1").update(expires_at=timezone.now() - timedelta(days=1))
+
+        [marker] = self.client.get(self._list_url(), {"key": "k1"}).json()
+        prefix_search = self.client.get(self._list_url(), {"key_prefix": "k"}).json()
+        revived = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json").json()
+
+        assert (marker["content"], marker["expired"], marker["last_changed_by_skill"]) == ("", True, None)
+        assert prefix_search == []
+        assert revived["revived_expiry"]["expires_at"] == marker["expires_at"]
+
     def test_search_filters_by_creating_skill(self) -> None:
         errors_run = _make_run(self.team, skill_name="signals-scout-errors")
         flags_run = _make_run(self.team, skill_name="signals-scout-flags")
@@ -2611,6 +2631,15 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["key"] for row in response.json()] == ["errors"]
+
+    def test_search_filters_by_key_prefix(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="report:checkout", content="v")
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:checkout", content="filed as report:checkout")
+
+        response = self.client.get(self._list_url(), {"key_prefix": "report:"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["report:checkout"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -2845,6 +2874,27 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(named.id)
 
+    def test_revisions_name_the_sandbox_run_and_survive_a_forget(self) -> None:
+        # A body `run_id` can name a sibling's run, so a revision must name the token's run instead.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+        for content in ("v1", "v2"):
+            response = self.client.post(
+                self._list_url(), data={"key": "k1", "content": content, "run_id": str(named.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client.post(self._forget_url(), data={"key": "k1"}, format="json").json() == {"deleted": True}
+
+        response = self.client.get(self._list_url(), {"key": "k1", "include_revisions": "true"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [entry] = response.json()
+        assert [(r["content"], r["change"], r["changed_by_run_id"]) for r in entry["revisions"]] == [
+            ("v2", "forget", str(sandbox_run.id)),
+            ("v1", "overwrite", str(sandbox_run.id)),
+        ]
+
     @parameterized.expand(
         [
             ("not_in_use_key", "not-in-use:feature-flags", None, 1),
@@ -2899,6 +2949,25 @@ class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
 
         assert response.status_code == expected, response.content
         assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    @parameterized.expand([("live_entry", True), ("history_only", False)])
+    def test_editor_discard_removes_the_entry_and_its_history(self, _name: str, live: bool) -> None:
+        key = "dedupe:stale"
+        if live:
+            SignalScratchpad.objects.create(team=self.team, key=key, content="current")
+        for history_key in (key, "dedupe:keep"):
+            SignalScratchpadRevision.objects.create(
+                team=self.team, key=history_key, content="previous", change=SignalScratchpadRevision.Change.OVERWRITE
+            )
+
+        response = self.client.post(self._discard_url(), data={"key": key}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key=key).exists()
+        assert list(SignalScratchpadRevision.objects.filter(team=self.team).values_list("key", flat=True)) == [
+            "dedupe:keep"
+        ]
 
     def test_session_discard_requires_skill_editor_rbac(self) -> None:
         from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -5919,6 +5988,87 @@ def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHub
     return GitHubTeamMembership(
         member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
     )
+
+
+_CANCEL = "products.tasks.backend.facade.cancellation.cancel_task_run"
+
+
+class TestScoutHarnessConfigStopAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+    def _stop(self, config_id: str | None = None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/{config_id or self.config.id}/stop/"
+        )
+
+    @parameterized.expand(
+        [
+            ("accepted", "accepted", status.HTTP_202_ACCEPTED),
+            ("already_terminal", "already_terminal", status.HTTP_200_OK),
+            ("workflow_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("not_cloud", "not_cloud", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stop_cancels_the_lane_live_run(self, _name: str, outcome: str, expected_status: int) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        _make_run(self.team, skill_name="signals-scout-foo", task_run_status=TaskRun.Status.COMPLETED)
+        _make_run(self.team, skill_name="signals-scout-bar")
+        live = _make_run(self.team, skill_name="signals-scout-foo")
+
+        with patch(_CANCEL, return_value=(outcome, None)) as cancel:
+            response = self._stop()
+
+        assert response.status_code == expected_status, response.content
+        cancel.assert_called_once_with(
+            live.task_run_id,
+            live.task_run.task_id,
+            self.team.id,
+            source="scout_stop",
+            requested_by_user_id=self.user.id,
+            requested_by_distinct_id=self.user.distinct_id,
+        )
+        if expected_status < 300:
+            assert response.json()["run_id"] == str(live.id)
+
+    @parameterized.expand(
+        [
+            ("finished", {"task_run_status": "cancelled"}, False),
+            ("stale", {}, True),
+            ("trial", {"metadata": {"scout_trial": {"version": 1}}}, False),
+            ("other_scout", {"skill_name": "signals-scout-bar"}, False),
+        ]
+    )
+    def test_stop_without_a_live_run_returns_404_without_cancelling(
+        self, _name: str, run_overrides: dict, stale: bool
+    ) -> None:
+        run = _make_run(self.team, **{"skill_name": "signals-scout-foo", **run_overrides})
+        if stale:
+            old = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60)
+            apps.get_model("tasks", "TaskRun").objects.filter(id=run.task_run_id).update(created_at=old)
+
+        with patch(_CANCEL) as cancel:
+            response = self._stop()
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_config", "00000000-0000-0000-0000-000000000000", set()),
+            ("withheld_scout", None, {"signals-scout-foo"}),
+        ]
+    )
+    def test_stop_hidden_config_returns_404_without_cancelling(
+        self, _name: str, config_id: str | None, withheld: set[str]
+    ) -> None:
+        _make_run(self.team, skill_name="signals-scout-foo")
+        with patch(_WITHHELD, return_value=withheld), patch(_CANCEL) as cancel:
+            response = self._stop(config_id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
 
 
 class TestScoutHarnessMembersAPI(APIBaseTest):

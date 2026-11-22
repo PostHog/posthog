@@ -1008,7 +1008,13 @@ class TestNodeSuspension:
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
             'TrinoQueryError(type=INTERNAL_ERROR, name=PAGE_TRANSPORT_TIMEOUT, message="Page transport timed out. This is probably a transient issue, please retry.", query_id=20261024_000000_00000_abcde)',
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: this query was cancelled because the Trino instance running it was being replaced; please run it again\", query_id=20261119_000000_00000_abcde)",
+            "Trino restarted while it was building this model, and all 3 attempts failed. The model's query did not cause this. "
+            "The model builds again on its next scheduled run, or you can run it now. Trino query ID: 20261119_000000_00000_abcde",
             "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'",
+            "error 502: bad gateway",
+            "error 503: service unavailable",
+            "error 504: gateway timeout",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1060,7 +1066,10 @@ class TestNodeSuspension:
                     "error 403: b'This tenant is not admitted to the pool yet",
                     "name=CLUSTER_OUT_OF_MEMORY,",
                     "name=TOO_MANY_REQUESTS_FAILED,",
+                    "the Trino instance running it was being replaced",
+                    "Trino restarted while it was building this model",
                     "name=PAGE_TRANSPORT_TIMEOUT,",
+                    "error 503: service unavailable",
                 ]
             ),
         ],
@@ -1105,6 +1114,7 @@ class TestNodeSuspension:
             "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
             "ClickHouseError: Code: 32. DB::Exception: Cannot parse Int64 from String, because value is too short. "
             "(ATTEMPT_TO_READ_AFTER_EOF)",
+            "TrinoUserError(type=USER_ERROR, name=ADMINISTRATIVELY_KILLED, message=\"Query killed by user 'ops'. Message: runaway query\", query_id=20261119_000000_00000_abcde)",
         ],
     )
     async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
