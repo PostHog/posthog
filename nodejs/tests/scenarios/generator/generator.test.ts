@@ -546,43 +546,19 @@ describe('drive', () => {
         (delayMs: number, percent: number): LiveRamp['writerCpu'] =>
         ({ startedAt }) =>
             new Promise((resolve) => setTimeout(() => resolve([{ at: startedAt, percent }]), delayMs))
-    const BROKE_AT_1X = {
-        end: 'broke',
-        sustainedScale: null,
-        broke: {
-            scale: 1,
-            offeredPerSecond: 1,
-            by: 'writer_cpu_under',
-            kind: 'bar',
-            at: expect.any(String),
-            part: 'db:cyclotron',
-        },
-        reason: 'writer_cpu_under broke at the 1x step',
-    }
 
     it.each<[string, LiveRamp['writerCpu'], object]>([
         [
-            'its writer CPU broke the bar at the 1x step, read during the 2x step',
+            'its writer CPU broke the bar at the 1x step, which is no hard failure, read during the 2x step',
             cpuReadAfter(30_000, 90),
             {
-                offeredSteps: [0, 1],
+                offeredSteps: [0, 1, 2],
                 steps: [
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 105_000, firstOfferMs: MINUTE },
+                    { fromMs: MINUTE, toMs: 2 * MINUTE, firstOfferMs: MINUTE },
+                    { fromMs: 2 * MINUTE, toMs: 3 * MINUTE, firstOfferMs: 2 * MINUTE },
                 ],
-                ramp: BROKE_AT_1X,
-            },
-        ],
-        [
-            'its writer CPU broke the bar at the 1x step, read only after the 2x step was due to end',
-            cpuReadAfter(MINUTE, 90),
-            {
-                offeredSteps: [0, 1],
-                steps: [
-                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
-                ],
-                ramp: BROKE_AT_1X,
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
             },
         ],
         [
@@ -619,11 +595,16 @@ describe('drive', () => {
                         part: null,
                     },
                     reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
+                    stop: {
+                        failure: 'harness_limit',
+                        scale: 1,
+                        reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
+                    },
                 },
             },
         ],
     ])(
-        'a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, when %s',
+        'a hard failure at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, when %s',
         async (_story, writerCpu, expected) => {
             jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
             const ramped = rampedCard(
@@ -680,7 +661,7 @@ describe('drive', () => {
                     gates: {},
                     journal,
                     admissions: [],
-                    converged: true,
+                    convergence: { converged: true, unfinishedJobs: 0 },
                 }),
             }).toEqual(expected)
         }
