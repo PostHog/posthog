@@ -148,22 +148,35 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the_project_uuid_the_app_targets", "project", "uuid", status.HTTP_200_OK),
-            ("the_organization", "organization", "organization_id", status.HTTP_200_OK),
-            ("the_numeric_team_id_only", "project", "id", status.HTTP_404_NOT_FOUND),
+            ("the_project_uuid_the_app_targets", "project", "team.uuid", status.HTTP_200_OK),
+            ("the_organization", "organization", "team.organization_id", status.HTTP_200_OK),
+            ("the_users_email", "email", "user.email", status.HTTP_200_OK),
+            ("the_numeric_team_id_only", "project", "team.id", status.HTTP_404_NOT_FOUND),
             ("another_project", "project", None, status.HTTP_404_NOT_FOUND),
         ]
     )
     def test_opens_only_for_a_project_the_flag_targets(
-        self, _name: str, group_type: str, key_attr: str | None, expected: int
+        self, _name: str, targeted_input: str, targeted_attr: str | None, expected: int
     ):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
         flush_persons_and_events()
-        targeted_key = str(getattr(self.team, key_attr)) if key_attr else str(UUIDT())
+        if targeted_attr:
+            owner, attr = targeted_attr.split(".")
+            targeted_value = str(getattr(self.team if owner == "team" else self.user, attr))
+        else:
+            targeted_value = str(UUIDT())
 
-        def flag_targeting(flag: str, _distinct_id: str, *, groups: dict[str, str], **_kwargs: object) -> bool:
-            return flag == "workflows-email-activity" and groups.get(group_type) == targeted_key
+        def flag_targeting(
+            flag: str,
+            _distinct_id: str,
+            *,
+            groups: dict[str, str],
+            person_properties: dict[str, object] | None = None,
+            **_kwargs: object,
+        ) -> bool:
+            inputs = {**groups, "email": (person_properties or {}).get("email")}
+            return flag == "workflows-email-activity" and inputs.get(targeted_input) == targeted_value
 
         self.flag_enabled.side_effect = flag_targeting
 
