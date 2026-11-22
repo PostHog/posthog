@@ -12,6 +12,7 @@ so the last test groups as intended.
 
 `{{#each}}` becomes a `for` loop over the values Handlebars would loop over: a list's items or an object's values,
 and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once.
+The one value read wrongly is the exact string "[object Object]", which loops once over its second character.
 """
 
 import re
@@ -272,12 +273,13 @@ class HandlebarsToLiquid:
         values, shape, string, raw = f"values{n}", f"shape{n}", f"string{n}", f"raw{n}"
         # Handlebars loops over a list's items and an object's values, and over nothing else. Liquid loops over an
         # object's key and value pairs and over a string once. `slice: 0, 0` gives an empty list for a list or
-        # nothing, and "" for anything else. `first` gives a string's first character, and "" or nothing for an
-        # object. Neither reads past the start of the value, so a large list costs the renderer nothing.
+        # nothing, and "" for anything else. `slice` reads anything else as text, and an object reads as
+        # "[object Object]" whatever its keys. Neither reads past the start of the value, so a large list costs the
+        # renderer nothing.
         guard = self._spend(
-            f"{{% assign {values} = {source} | slice: 0, 0 %}}{{% assign {string} = {source} | first %}}"
-            f'{{% capture {shape} %}}{{% if {values} != "" %}}list'
-            f'{{% elsif {string} != "" and {string} != nil %}}text{{% endif %}}{{% endcapture %}}'
+            f"{{% assign {values} = {source} | slice: 0, 0 %}}{{% assign {string} = {source} | slice: 0, 16 %}}"
+            f'{{% capture {shape} %}}{{% if {values} != "" %}}list{{% elsif {string} == "[object Object]" %}}'
+            f'{{% elsif {string} != "" %}}text{{% endif %}}{{% endcapture %}}'
             f'{{% if {shape} == "text" %}}'
         )
         opening = self._spend(
