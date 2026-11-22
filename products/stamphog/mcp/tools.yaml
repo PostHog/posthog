@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: PostHog Review
 feature: code_review
-url_prefix: /stamphog
+url_prefix: /code-review
 ui_apps: {}
 tools:
     code-review-approvals-digests-list:
@@ -191,15 +191,18 @@ tools:
             (auto-approval approved the head), only pinned owners are requested, and `not_requested` means routing would
             have asked this owner without the approval, while `cut` means the model would have cut it anyway. On an
             older pinned run whose `llm_skipped` is `stamphog_approved`, no model ran, and `not_requested` means only
-            that the owner owns changed code. An owner missing from a run was not a candidate: it owns none of the
-            changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer
-            files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason`
-            or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at
-            all for a pull request means no run was recorded: read `routing` and `routing_mode` on
-            `code-review-approvals-pull-requests-list` with `pr_number` to see whether routing is off, waiting for
-            auto-approval's verdict, or still running. A `done` record whose head has no run means the log has no entry
-            for it, most often because the log write failed. Use `code-review-approvals-reviewer-routing-get` for the
-            files each owner owns and the ownership file that decided each one.
+            that the owner owns changed code. On a run with scope `attested`, a verified policy attestation covered
+            every changed file and the pull request already had a reviewer, so only pinned owners are requested, every
+            other owner is `not_requested` with reason `attested`, and no model ran. An owner missing from a run was not
+            a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are
+            skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result
+            with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop
+            those filters first. No runs at all for a pull request means no run was recorded: read `routing` and
+            `routing_mode` on `code-review-approvals-pull-requests-list` with `pr_number` to see whether routing is off,
+            waiting for auto-approval's verdict or an attestation check, or still running. A `done` record whose head
+            has no run means the log has no entry for it, most often because the log write failed. Use
+            `code-review-approvals-reviewer-routing-get` for the files each owner owns and the ownership file that
+            decided each one.
         feature_flag: stamphog
         response:
             informational_wrapper:

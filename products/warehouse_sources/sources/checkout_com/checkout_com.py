@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
@@ -10,6 +9,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -69,16 +69,6 @@ def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Au
     )
 
 
-def _format_timestamp(value: Any) -> str:
-    """Format an incremental cursor for the disputes `from` filter (ISO 8601 UTC)."""
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
-
-
 def _error_details(response: requests.Response) -> str:
     """Bounded body excerpt for API error logs.
 
@@ -122,7 +112,7 @@ def checkout_com_source(
     params: dict[str, Any] = {"limit": PAGE_SIZE}
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         # `from` filters on a dispute's last_update timestamp.
-        params["from"] = _format_timestamp(db_incremental_field_last_value)
+        params["from"] = format_datetime(db_incremental_field_last_value)
 
     config: RESTAPIConfig = {
         "client": {

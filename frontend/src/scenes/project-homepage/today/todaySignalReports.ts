@@ -1,5 +1,7 @@
+import { withScoutNoun } from '@posthog/agent-contracts/scout-names'
+
 import { dayjs } from 'lib/dayjs'
-import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { scoutNameFromSlug } from 'lib/signals/signalCardSourceLine'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
@@ -96,33 +98,29 @@ export function lowerFirst(text: string): string {
 const SHOWN_SOURCES = 2
 const SOURCE_LINE_CHARS = 32
 
-const PROPER_WORDS: Record<string, string> = {
-    ai: 'AI',
-    api: 'API',
-    github: 'GitHub',
-    llm: 'LLM',
-    mcp: 'MCP',
-    posthog: 'PostHog',
-    pr: 'PR',
-    sql: 'SQL',
-    ui: 'UI',
-    ux: 'UX',
-}
-
-export function scoutLabel(skillName: string | null | undefined): string | null {
-    const name = scoutDisplayName(skillName)
+/** Pass `scoutNames` (skill name → display name) so a team's own name wins over the prettified slug. */
+export function scoutLabel(
+    skillName: string | null | undefined,
+    scoutNames?: Readonly<Record<string, string>>
+): string | null {
+    if (!skillName) {
+        return null
+    }
+    const name = (scoutNames?.[skillName] ?? scoutNameFromSlug(skillName))?.replace(/\b(self) (driving)\b/i, '$1-$2')
     if (!name) {
         return null
     }
-    const words = name.split(' ').map((word) => PROPER_WORDS[word.toLowerCase()] ?? word)
-    return `${words.join(' ').replace(/\b(self) (driving)\b/i, '$1-$2')} scout`
+    return withScoutNoun(name)
 }
 
-export function reportSourceLine(report: Pick<SignalReport, 'source_products' | 'scout_name'>): {
+export function reportSourceLine(
+    report: Pick<SignalReport, 'source_products' | 'scout_name'>,
+    scoutNames?: Readonly<Record<string, string>>
+): {
     line: string
     title: string
 } {
-    const scout = scoutLabel(report.scout_name)
+    const scout = scoutLabel(report.scout_name, scoutNames)
     const labels = [
         ...new Set(
             (report.source_products ?? []).map((source) =>

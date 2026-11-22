@@ -94,6 +94,7 @@ _LAZY = {
     "discover_trino_catalog": "sources.trino.trino",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
+    "lacks_merge_key": "sources.common.schema",
     "ambiguous_masked_columns": "pipelines.core.masking",
     "collision_alias_masked_columns": "pipelines.core.masking",
     "fold_column_name": "naming_convention",

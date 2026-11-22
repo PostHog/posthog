@@ -29,6 +29,7 @@ describe('host boot', () => {
         SCENARIO_EVIDENCE_BUCKET: BUCKET,
         SCENARIO_BOOTSTRAP_LOG: path.join(dir, 'bootstrap.log'),
         SCENARIO_HOST_ROOT: path.join(dir, 'host'),
+        SCENARIO_HOSTS_FILE: path.join(dir, 'hosts'),
     })
 
     const poweredOff = (): boolean => existsSync(path.join(dir, 'powered-off'))
@@ -90,6 +91,31 @@ describe('host boot', () => {
         expect(existsSync(path.join(prefix, 'host', 'ready'))).toBe(false)
         const downloads = existsSync(path.join(dir, 'curl.log')) ? readFileSync(path.join(dir, 'curl.log'), 'utf8') : ''
         expect(downloads.includes('https://nodejs.org/')).toBe(verified)
+    })
+
+    it("maps the stack's service names to this host, which no dev setup ran on", () => {
+        const hosts = path.join(dir, 'hosts')
+        writeFileSync(hosts, '127.0.0.1 localhost\n')
+        tool('apt-get', 'exit 0')
+        tool(
+            'aws',
+            'if [ "$1" = --version ]; then echo "aws-cli/2.22.0 Python/3.12.6 Linux/6.8.0 exe/x86_64"; exit 0; fi\nexit 1'
+        )
+
+        spawnSync('bash', [BOOTSTRAP], { env: env(), encoding: 'utf8' })
+
+        const addressOf = (name: string): string[] =>
+            readFileSync(hosts, 'utf8')
+                .split('\n')
+                .map((line) => line.split('#')[0].trim().split(/\s+/))
+                .filter(([, ...names]) => names.includes(name))
+                .map(([address]) => address)
+        expect(['db', 'redis7', 'kafka', 'clickhouse'].map(addressOf)).toEqual([
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+            ['127.0.0.1'],
+        ])
     })
 
     it('powers the host off when the checkout of the run commit fails', () => {

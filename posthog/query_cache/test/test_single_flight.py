@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from unittest import mock
 
@@ -100,6 +101,52 @@ class TestQuerySingleFlight(SimpleTestCase):
             self.addCleanup(leader.release)
             leader.acquire()  # still running, and its heartbeat never stopped
             assert QuerySingleFlight(key, BUDGET_INTERACTIVE).wait(timeout_seconds=2) == FlightWait(outcome="released")
+
+    @parameterized.expand(
+        [
+            ("leader_never_queries_interactive", BUDGET_INTERACTIVE, False, FlightWait(outcome="timeout")),
+            ("leader_never_queries_extended", BUDGET_EXTENDED, False, FlightWait(outcome="timeout")),
+            (
+                "leader_queries",
+                BUDGET_EXTENDED,
+                True,
+                FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC)),
+            ),
+        ]
+    )
+    def test_a_follower_waits_past_the_short_limit_only_for_a_leader_that_queries(
+        self, _name, budget, leader_queries, expected
+    ):
+        key = _cache_key()
+        leader = QuerySingleFlight(key, budget)
+        self.addCleanup(leader.release)
+        leader.acquire()
+        if leader_queries:
+            leader.mark_querying()
+        publish_at = single_flight.FLIGHT_MAX_WAIT_BEFORE_LEADER_QUERIES_SECONDS + 30
+        clock = SimpleNamespace(now=0.0)
+
+        def advance(seconds: float) -> None:
+            clock.now += seconds
+            if clock.now >= publish_at:
+                leader.succeed(datetime(2026, 1, 1, tzinfo=UTC))
+
+        fake_time = SimpleNamespace(monotonic=lambda: clock.now, sleep=advance)
+        with mock.patch.object(single_flight, "time", fake_time):
+            assert QuerySingleFlight(key, budget).wait() == expected
+
+    def test_a_querying_marker_lost_to_a_storage_error_returns_with_the_next_heartbeat(self):
+        leader = QuerySingleFlight(_cache_key(), BUDGET_INTERACTIVE)
+        self.addCleanup(leader.release)
+        leader.acquire()
+        with mock.patch.object(storage, "query_cache_raw_client", side_effect=ConnectionError):
+            leader.mark_querying()
+        client = storage.query_cache_raw_client()
+        assert not client.exists(leader.querying_key)
+
+        leader.extend()
+
+        assert client.exists(leader.querying_key)
 
     def test_acquire_drops_the_previous_flights_published_result(self):
         key = _cache_key()

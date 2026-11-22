@@ -41,7 +41,6 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
     RESUME_SNAPSHOT_KIND,
     InitialPermissionMode,
-    filter_user_sandbox_env_vars,
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
 )
@@ -52,6 +51,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.facade.agent_run_starts import AGENT_PARENT_TASK_ID_STATE_KEY
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, GithubAccess, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
@@ -583,6 +583,7 @@ _UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
     "server_disabled": "a project admin turned this server off",
     "revoked": "a project admin turned this server off for you",
     "not_shared": "share it with this agent in the MCP Store",
+    "owner_only": "only the person who connected it can use it",
 }
 
 
@@ -610,14 +611,18 @@ def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstalla
     ]
 
 
-def include_personal_mcp_for_task(task: Task) -> bool:
+def include_personal_mcp_for_task(task: Task, state: dict[str, Any] | None) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
     resolved member's personal creds. Agent-specific grant filtering happens
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
+    A run that an agent started is autonomous whatever its task's profile says,
+    because no person chose to start it.
     """
+    if AGENT_PARENT_TASK_ID_STATE_KEY in (state or {}):
+        return False
     profile = task.stored_profile
     if profile is not None:
         return profile.personal_mcp
@@ -1644,52 +1649,6 @@ def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
 
 def get_sandbox_name_for_task(task_id: str) -> str:
     return f"task-sandbox-{task_id}"
-
-
-def build_sandbox_environment_variables(
-    github_token: str | None,
-    access_token: str,
-    ctx,
-    task,
-    sandbox_environment: Optional[Any] = None,
-    otel_telemetry_enabled: bool = False,
-) -> dict[str, str]:
-    """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
-
-    Takes the run's ctx/task wholesale so the gateway routing/mint env is derived by
-    ``run_gateway_env_vars`` and no caller can drop part of the context.
-
-    User-provided env vars are applied first so system vars always take precedence,
-    preventing a malicious SandboxEnvironment from overriding security-critical values.
-    """
-    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
-
-    env_vars: dict[str, str] = {}
-
-    if sandbox_environment and sandbox_environment.environment_variables:
-        safe_vars, _ = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
-        env_vars.update(safe_vars)
-
-    if github_token:
-        env_vars["GITHUB_TOKEN"] = github_token
-        env_vars["GH_TOKEN"] = github_token
-
-    env_vars.update(
-        {
-            "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(ctx.team_id),
-            "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
-        }
-    )
-
-    env_vars.update(run_gateway_env_vars(ctx, task))
-    env_vars.update(mcp_exec_skills_env_vars(ctx))
-
-    if otel_telemetry_enabled and task.is_scout_experiment is not True:
-        env_vars.update(get_sandbox_otel_env_vars())
-
-    return env_vars
 
 
 def get_sandbox_otel_env_vars() -> dict[str, str]:

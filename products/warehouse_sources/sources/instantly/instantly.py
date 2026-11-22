@@ -39,6 +39,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookDeletionResult,
     WebhookSourceManager,
     frozen,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -293,7 +294,7 @@ def _list_request(config: InstantlyEndpointConfig) -> tuple[dict[str, Any], Base
 
 
 def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    """Walk every parent (campaign, lead list, or inbox placement test) and fetch the endpoint once per parent.
+    """Walk every parent (campaign, account, lead list, or inbox placement test) and fetch the endpoint once per parent.
 
     Fan-out endpoints don't resume: a retry re-walks the parents from scratch.
     """
@@ -306,7 +307,7 @@ def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterat
         data_selector="items",
     ):
         for parent in parent_page:
-            parent_id = parent.get("id")
+            parent_id = parent.get(fanout.parent_field)
             if not parent_id:
                 continue
             params, paginator = _list_request(config)
@@ -323,6 +324,8 @@ def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterat
             ):
                 if fanout.stamp_field:
                     page = [{**row, fanout.stamp_field: parent_id} for row in page]
+                if config.lift_field:
+                    page = [lift_nested(row, config.lift_field) for row in page]
                 if page:
                     yield page
 
@@ -434,6 +437,8 @@ def _probe_endpoint(session: requests.Session, endpoint: str) -> requests.Respon
             f"{BASE_URL}/api/v2{config.fanout.parent_path}", params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS
         )
     url = f"{BASE_URL}/api/v2{config.path}"
+    if config.probe_without_params:
+        return session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     if config.method == "POST":
         return session.post(url, json={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
     if config.pagination == "single":

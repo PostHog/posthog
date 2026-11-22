@@ -63,6 +63,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeLibraries: () =>
+        import('../../products/business_knowledge/frontend/scenes/libraries/BusinessKnowledgeLibrariesScene'),
+    BusinessKnowledgeLibrary: () =>
+        import('../../products/business_knowledge/frontend/scenes/library/KnowledgeLibraryScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
@@ -90,6 +94,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     WarehouseProperties: () =>
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
+    DashboardV2: () => import('../../products/dashboards_v2/frontend/DashboardV2Scene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
@@ -188,19 +193,15 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
     SlackAppWorkspaceSetup: () =>
         import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
-    Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
-    StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
-    StamphogArea: () => import('../../products/stamphog/frontend/scenes/StamphogAreaScene/StamphogAreaScene'),
-    StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
     StreamlitAppEdit: () => import('../../products/streamlit_apps/frontend/StreamlitAppEdit'),
     Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
-    TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
-    TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
-    TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
+    TaskSpaces: () => import('../../products/today/frontend/spaces/SpacesScene'),
+    TaskNewSession: () => import('../../products/today/frontend/spaces/NewSessionScene'),
+    TaskSpace: () => import('../../products/today/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     TracingRetentionNew: () =>

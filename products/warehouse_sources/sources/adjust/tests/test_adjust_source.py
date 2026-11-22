@@ -29,16 +29,24 @@ class TestAdjustSource:
         assert self.source.api_docs_url is not None
         assert self.source.api_docs_url.startswith("https://")
 
-    def test_exhausted_connection_pool_error_is_classified_retryable(self) -> None:
-        # Matches the message urllib3 raises once the tracked session's own GET retries
-        # (read timeouts, connection failures) exhaust — keeps this transient, self-recovering
-        # failure out of error tracking instead of reaching `logger.aexception`.
-        observed_error = (
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # The message urllib3 raises once the tracked session's own GET retries (read
+            # timeouts, connection failures) exhaust.
             "HTTPSConnectionPool(host='automate.adjust.com', port=443): Max retries exceeded with "
             'url: /reports-service/report?dimensions=day (Caused by ReadTimeoutError("HTTPSConnectionPool'
-            "(host='automate.adjust.com', port=443): Read timed out. (read timeout=300)\"))"
-        )
-        assert any(key in observed_error for key in self.source.get_retryable_errors())
+            "(host='automate.adjust.com', port=443): Read timed out. (read timeout=300)\"))",
+            "HTTPSConnectionPool(host='api.adjust.com', port=443): Max retries exceeded with "
+            "url: /public/v2/partners (Caused by NewConnectionError('Failed to establish a new connection'))",
+            # `AdjustRetryableError`, raised once a 429/5xx response survives those same retries.
+            "Adjust API error (retryable): status=429, url=https://automate.adjust.com/reports-service/report",
+        ],
+    )
+    def test_exhausted_retries_are_classified_retryable(self, observed_error: str) -> None:
+        # Keeps this transient, self-recovering failure out of error tracking instead of
+        # reaching `logger.aexception` (see import_data_sync.py's `get_retryable_errors` check).
+        assert any(key.lower() in observed_error.lower() for key in self.source.get_retryable_errors())
 
     def test_validate_credentials_success(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

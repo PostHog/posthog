@@ -400,13 +400,34 @@ The `stamphog_policy` category cannot carry the key, because a team that may app
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 A deny category can be lifted by a CI check that the policy names under `attestations`.
-Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files` and the `publisher_files` the check runs from.
+Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files`.
+Instead of an App, an entry may name a default-branch `workflow`, its publishing `job` (the name Actions shows) and its `events` (`workflow_run` or `pull_request_target` only).
+Any job can post or edit a check run under any name, so StampHog trusts such a result only when the publishing job signed it with a GitHub Actions OIDC token:
+
+- Only the publishing job gets `permissions: id-token: write`, and no other job of the workflow has its name. The job that reads PR data concludes without permissions and stays security code, because the publisher signs whatever it hands over.
+- The publishing job requests a token with the audience `stamphog-` plus the sha256 of `stamphog:v1\n<check>\n<conclusion>\n<marker JSON>` (`proof_audience` in the backend's `logic/workflow_proofs.py`), and posts the marker and `<!-- stamphog-oidc:v1 <token> -->` in the check run's summary.
+- It signs every result it posts, including the fallback when the conclude job broke, and always uses the object marker that names the PR and head.
+- A `workflow_run` publisher proves the PR itself and never trusts the triggering run's data, because a writer can edit that workflow on a branch.
+- The StampHog App needs "Actions: read" to look up the publishing job. Without it the entry stays pending.
+
+The token expires after five minutes and is checked later, so StampHog does not check its expiry; its audience binds it to one result.
+A writer can still strip the token from a newer result and post an older signed result of the same PR, head and merge base again, which matters only for a publisher that can answer differently on the same inputs.
+The check name and App identify the publisher, and the categories and paths are what the policy lets it lift.
+An entry may also say what the publisher runs from, in one of two ways, never both.
+`issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
+A path that ends in `/` is a directory, pinned by its git tree id, and any other path is a file, pinned by its blob id.
+The manifest must cover itself, hold at most 32 unique plain paths, and stay under 16 KiB. A missing or invalid manifest makes the entry lift nothing.
+The manifest path must match a `stamphog_policy` path pattern, or the policy fails to load, because the manifest decides what a proof pins.
+`publisher_files` lists those paths in the policy itself instead.
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
 The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
-An entry with `publisher_files` accepts only a result that pins those files to blob shas, and only while the default branch still holds every blob the result pins, so a proof made by an older publisher or under older rules lifts nothing.
+A lifted file never rides the allow-list or the test-only route to a T0 approval, because an attestation lifts the deny, not the review.
+An entry may set `title`, a pattern for the PR titles its publisher posts a result for, such as `^Revert` for a revert proof.
+A PR whose title does not match never waits for that check.
+An entry that pins its publisher accepts only a result whose `blobs` hold every one of those paths, and only while the default branch still holds every object the result pins, so a proof made by an older publisher or under older rules lifts nothing.
 The shipped default names no attestation.
-This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
+This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category, `Dependency proof` for `deps_toolchain`, and `Revert proof` for the categories a clean revert may lift.
 The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
 If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
@@ -416,7 +437,7 @@ A retry against the now-classified head commit reviews it properly.
 
 A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
 The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
-That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+That gate refuses the PR unless an attestation that pins its publisher proved every file in it, because a bot carries no author trust for a file no such check covers.
 A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership

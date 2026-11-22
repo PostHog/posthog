@@ -11,7 +11,7 @@ certifi = false
 posthoganalytics = false
 
 [manifest]
-constraints = [{ name = "posthoganalytics", specifier = "<8" }]
+constraints = [{ name = "posthoganalytics", specifier = "<9" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -730,6 +730,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
+    { name = "backoff" },
     { name = "boto3" },
     { name = "cachetools" },
     { name = "fastapi" },
@@ -767,6 +768,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "backoff", specifier = ">=2.2.1" },
     { name = "boto3", specifier = ">=1.42.65" },
     { name = "cachetools", specifier = ">=5.5.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -774,7 +776,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "litellm", specifier = "==1.93.2" },
     { name = "orjson", specifier = ">=3.10.0" },
-    { name = "posthoganalytics", specifier = ">=7.91.1" },
+    { name = "posthoganalytics", specifier = ">=8.0.1" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
@@ -982,17 +984,16 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.91.1"
+version = "8.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "backoff" },
     { name = "distro" },
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/1c/28aa50017e82fa72011cc5e0dfe70d7c7f0d34cda67e6a1438acddb93420/posthoganalytics-7.91.1.tar.gz", hash = "sha256:3a904c0a4604694b5a05928bab74b11a1956ed4119d344ce41249ad20000a2ec", size = 1000318, upload-time = "2026-11-13T14:24:02.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/11/231418492902994895b63585211aa221d49c348a4c0a055a5475cceab605/posthoganalytics-8.0.1.tar.gz", hash = "sha256:a59594677609d4301ff8fe5167dc09f11afadad684252cb26723653d9a1a2f07", size = 1039002, upload-time = "2026-11-17T20:09:56.956Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/68/96bd5b4dc4c370d58ed279f1a0191656e54919ee553eecb89e43685b0184/posthoganalytics-7.91.1-py3-none-any.whl", hash = "sha256:033f6720c1244b53aa7e24542fe4f3a1db4df1c3d0d91bf8428b311a376c08fe", size = 1156636, upload-time = "2026-11-13T14:24:00.483Z" },
+    { url = "https://files.pythonhosted.org/packages/01/bc/25e6ce51e1423c8f90214b056c55eb31f3df7390688b78aecae0345e26fa/posthoganalytics-8.0.1-py3-none-any.whl", hash = "sha256:a7fe88ad5504f26aa9a0e007ca825b7d2bbb611d56e75e5208c0c7414fa7411d", size = 1197307, upload-time = "2026-11-17T20:09:55.207Z" },
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.checkmarx.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -72,15 +73,6 @@ def get_region_hosts(region: str) -> RegionHosts:
     if hosts is None:
         raise ValueError(f"Unknown Checkmarx One region: {region}")
     return hosts
-
-
-def _format_datetime(value: Any) -> str:
-    if isinstance(value, datetime):
-        utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return utc_value.strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return str(value)
 
 
 class CheckmarxAuth:
@@ -238,7 +230,7 @@ def _build_incremental_value(
         if isinstance(value, datetime):
             value = value - config.incremental_lookback
 
-    return _format_datetime(value)
+    return format_datetime(value)
 
 
 def _result_id(item: dict[str, Any]) -> str:

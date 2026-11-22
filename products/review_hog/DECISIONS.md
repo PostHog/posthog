@@ -198,6 +198,18 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-19: each repository picks its review cadence
+
+- **What.** Two repository switches set when automatic reviews run (`review_cadence.py`): `review_drafts` (a review when a draft opens) and `review_pushes` (reviews of later pushes, through the push gate).
+  The four combinations are the four options of one "Reviews" select per repository: When ready, When ready + pushes, and the same two plus drafts.
+  With drafts and no pushes, a reviewed draft gets one more review when it is marked ready.
+- **Defaults.** A repository with no row, or with both switches off, gets one review when the PR is ready.
+  Repositories that reviewed drafts before keep `review_drafts` and get no push reviews, so they land on "When ready + drafts". Both come from the column defaults, with no data migration.
+- **Why.** Every push to an opted-in PR started another review run, and teams want to ask for re-reviews instead. Turning follow-ups off for every repository (the first version of #138784) also dropped the review at ready for repositories that review drafts.
+- **Rejected.** A per-repository follow-up select next to the draft switch could express "a draft review and nothing at ready" and "re-review on every return to ready". Neither had a use, and the settings row has room for one control.
+  Two switches ("Drafts", "Pushes") give the same four modes. The select was chosen, with both sections showing the same two options and the second marked as adding drafts.
+- **One decision point.** The webhook dispatch, the push gate's `follow_up` rule and the note a review ends with all ask `ReviewCadence`, and `test_review_cadence.py` holds the whole table.
+
 ### ✅ BUILT 2026-11-17: review rules come from the base commit, and repository hooks are off
 
 - **What.**

@@ -41,6 +41,7 @@ jest.mock('~/common/kafka/producer', () => {
     return {
         KafkaProducerWrapper: MockKafkaProducer,
         _producer: kafkaProducer,
+        _kafkaClient: mockHighLevelProducer,
     }
 })
 
@@ -48,3 +49,4 @@ export const mockProducer = require('~/common/kafka/producer')._producer as Kafk
 export const MockKafkaProducerWrapper = require('~/common/kafka/producer')
     .KafkaProducerWrapper as typeof KafkaProducerWrapper
 export const mockProducerObserver = new KafkaProducerObserver(mockProducer)
+export const mockKafkaClient = require('~/common/kafka/producer')._kafkaClient as jest.Mocked<HighLevelProducer>

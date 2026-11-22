@@ -46,6 +46,8 @@ const release = (id: string, name: string): Record<string, unknown> => ({
     survey_ids: [],
     surveys: [],
     insight_ids: [],
+    metric_insight_ids: [],
+    metric_goals: [],
     insights: [],
     has_hidden_flags: false,
     created_at: '2026-11-01T00:00:00Z',
@@ -66,7 +68,9 @@ describe('releaseMergeLogic', () => {
         mockedMerge.mockReset()
         mockedMerge.mockResolvedValue(release('r1', 'Checkout v2') as never)
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         releaseLogic.mount()
         logic = releaseMergeLogic()
         logic.mount()

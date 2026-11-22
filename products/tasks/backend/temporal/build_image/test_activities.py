@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.build_image.activities import (
@@ -25,6 +27,7 @@ class TestParseScanVerdict:
         assert verdict.findings == []
 
 
+@override_settings(AI_GATEWAY_API_KEY="phs_worker_key")
 @patch("posthog.llm.gateway_client.build_ai_gateway_openai_client")
 def test_security_scan_uses_glm_json_output(mock_build_client: MagicMock) -> None:
     response = mock_build_client.return_value.chat.completions.create.return_value
@@ -33,14 +36,12 @@ def test_security_scan_uses_glm_json_output(mock_build_client: MagicMock) -> Non
         0
     ].message.content = '{"passed":true,"findings":[{"severity":"low","detail":"Pinned development tool"}]}'
 
-    result = _judge_spec_safety(
-        "apt_packages:\n  - git", team_id=42, gateway_token="pha_user_token", repository="posthog/posthog"
-    )
+    result = _judge_spec_safety("apt_packages:\n  - git", team_id=42, repository="posthog/posthog")
 
     assert result.passed is True
     assert result.findings == [{"severity": "low", "detail": "Pinned development tool"}]
     mock_build_client.assert_called_once_with(
-        api_key="pha_user_token",
+        api_key="phs_worker_key",
         ai_product=SCAN_JUDGE_AI_PRODUCT,
         properties={"team_id": "42"},
         distinct_id="team-42",

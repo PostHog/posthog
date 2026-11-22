@@ -98,6 +98,13 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+# Same name and choices as `matchedOn` on the logs and traces attribute endpoints,
+# so that all three share the `MatchedOnEnum` schema component.
+class MatchedOn(models.TextChoices):
+    KEY = "key", "key"
+    VALUE = "value", "value"
+
+
 class MetricQueryAggregation(models.TextChoices):
     NONE = "none", "none"
     SUM = "sum", "sum"
@@ -985,6 +992,11 @@ class _MetricCatalogListParamsSerializer(_MetricValuesParamsSerializer):
         default=False,
         help_text="Add `first_seen`: the earliest hour each name arrived in, within retention.",
     )
+    series_stats = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Add `series_count` and `tag_key_count` for each name, over the last 24 hours.",
+    )
     fold_histograms = serializers.BooleanField(
         required=False,
         default=False,
@@ -1034,6 +1046,20 @@ class _MetricNameSerializer(serializers.Serializer):
         help_text=(
             "Start of the earliest hour this metric arrived in, within retention, ISO 8601. "
             "Only present when `first_seen` was requested."
+        ),
+    )
+    series_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Approximate number of distinct series (label sets) in the last 24 hours. "
+            "Only present when `series_stats` was requested."
+        ),
+    )
+    tag_key_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Number of distinct datapoint attribute keys in the last 24 hours. "
+            "Only present when `series_stats` was requested."
         ),
     )
     classic_histogram = _MetricClassicHistogramSerializer(
@@ -1097,6 +1123,15 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         default="",
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
+    )
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also list keys whose values contain the search term, on searches of 4 or more "
+            "characters. Value matches come after key matches and carry matchedOn='value' with "
+            "the matching matchedValue."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         required=False,
@@ -1164,6 +1199,16 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
     value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
+    matchedOn = serializers.ChoiceField(
+        choices=MatchedOn.choices,
+        required=False,
+        help_text="Set to 'value' when the key matched through one of its values. Absent when its name matched.",
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="One value that matched the search; only set when matchedOn is 'value'.",
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
@@ -1525,6 +1570,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 match=params.validated_data.get("match", "substring"),
                 include_sparklines=params.validated_data.get("sparklines", True),
                 include_first_seen=params.validated_data.get("first_seen", False),
+                include_series_stats=params.validated_data.get("series_stats", False),
                 fold_histograms=params.validated_data.get("fold_histograms", False),
             )
         except ValueError as exc:
@@ -1612,6 +1658,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
+                search_values=params.validated_data["search_values"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],

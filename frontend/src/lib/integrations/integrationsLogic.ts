@@ -24,6 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import {
     integrationsCreate,
@@ -37,7 +38,6 @@ import type {
     GitHubAvailableInstallationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubRepoApi,
-    InstallationStatusEnumApi,
     IntegrationConfigApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -133,58 +133,7 @@ export interface integrationsLogicValues {
     getGitHubRepositories: (integrationId: number) => string[]
     getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
     getGitHubRepositoriesTotal: (integrationId: number) => number | null
-    getIntegrationsByKind: (
-        kinds: (
-            | 'apns'
-            | 'apple-ads'
-            | 'aws-redshift'
-            | 'aws-s3'
-            | 'azure-blob'
-            | 'bing-ads'
-            | 'clickup'
-            | 'customerio-app'
-            | 'customerio-track'
-            | 'customerio-webhook'
-            | 'databricks'
-            | 'email'
-            | 'email_sandbox'
-            | 'firebase'
-            | 'github'
-            | 'gitlab'
-            | 'google-ads'
-            | 'google-analytics'
-            | 'google-calendar'
-            | 'google-cloud-service-account'
-            | 'google-cloud-storage'
-            | 'google-pubsub'
-            | 'google-search-console'
-            | 'google-sheets'
-            | 'helpscout'
-            | 'hubspot'
-            | 'instagram'
-            | 'intercom'
-            | 'jira'
-            | 'linear'
-            | 'linkedin-ads'
-            | 'meta-ads'
-            | 'motherduck'
-            | 'pardot'
-            | 'pinterest-ads'
-            | 'postgresql'
-            | 'reddit-ads'
-            | 's3-compatible'
-            | 'salesforce'
-            | 'slack'
-            | 'snapchat'
-            | 'snowflake'
-            | 'stripe'
-            | 'tiktok-ads'
-            | 'twilio'
-            | 'twitter-ads'
-            | 'vercel'
-            | 'youtube-analytics'
-        )[]
-    ) => IntegrationType[]
+    getIntegrationsByKind: (kinds: IntegrationKind[]) => IntegrationType[]
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
     githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
     githubAvailableInstallationsResponseLoading: boolean
@@ -235,10 +184,10 @@ export interface integrationsLogicActions {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
     } // globalSetupLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     clearIntegrations: () => {
@@ -388,64 +337,16 @@ export interface integrationsLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: UserBasicType | null | undefined
+            created_by?: UserBasicType | null
             display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
+            errors?: string
+            files_write_requestable?: IntegrationConfigApi['files_write_requestable']
             icon_url: any
             id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?: InstallationStatusEnumApi | null | undefined
-            kind:
-                | 'apns'
-                | 'apple-ads'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'email_sandbox'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'helpscout'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'motherduck'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'twitter-ads'
-                | 'vercel'
-                | 'youtube-analytics'
-            needs_webhook_reconnect?: boolean | null | undefined
+            installation_shared?: IntegrationConfigApi['installation_shared']
+            installation_status?: IntegrationConfigApi['installation_status']
+            kind: IntegrationKind
+            needs_webhook_reconnect?: IntegrationConfigApi['needs_webhook_reconnect']
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -456,64 +357,16 @@ export interface integrationsLogicActions {
         integrations: {
             config: any
             created_at: string
-            created_by?: UserBasicType | null | undefined
+            created_by?: UserBasicType | null
             display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
+            errors?: string
+            files_write_requestable?: IntegrationConfigApi['files_write_requestable']
             icon_url: any
             id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?: InstallationStatusEnumApi | null | undefined
-            kind:
-                | 'apns'
-                | 'apple-ads'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'email_sandbox'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'helpscout'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'motherduck'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'twitter-ads'
-                | 'vercel'
-                | 'youtube-analytics'
-            needs_webhook_reconnect?: boolean | null | undefined
+            installation_shared?: IntegrationConfigApi['installation_shared']
+            installation_status?: IntegrationConfigApi['installation_status']
+            kind: IntegrationKind
+            needs_webhook_reconnect?: IntegrationConfigApi['needs_webhook_reconnect']
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -746,58 +599,7 @@ export interface integrationsLogicMeta {
         ) => boolean | null
         getIntegrationsByKind: (
             providerIntegrations: IntegrationType[] | null
-        ) => (
-            kinds: (
-                | 'apns'
-                | 'apple-ads'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'email_sandbox'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'helpscout'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'motherduck'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'twitter-ads'
-                | 'vercel'
-                | 'youtube-analytics'
-            )[]
-        ) => IntegrationType[]
+        ) => (kinds: IntegrationKind[]) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined
         getGitHubRepositories: (
             githubRepositories: Record<number, GitHubRepoApi[]>

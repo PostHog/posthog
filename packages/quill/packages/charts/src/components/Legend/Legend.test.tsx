@@ -21,6 +21,16 @@ describe('Legend', () => {
         expect(rowsOf(container).map((r) => r.textContent)).toEqual(ITEMS.map((i) => i.label))
     })
 
+    it.each([
+        ['list', undefined],
+        ['table', { values: ['last' as const] }],
+    ])('shows a row tag as a pill in the %s legend', (_, table) => {
+        const items: LegendItem[] = [ITEMS[0], { ...ITEMS[1], tag: 'Previous' }]
+        const { container } = render(<Legend items={items} table={table} />)
+        const tags = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-tag"]'), (t) => t.textContent)
+        expect(tags).toEqual(['Previous'])
+    })
+
     it('renders nothing when items is empty', () => {
         const { container } = render(<Legend items={[]} />)
         expect(container.firstChild).toBeNull()

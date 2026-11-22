@@ -1,13 +1,26 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 import pyarrow as pa
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    EVENT_ID_COLUMN,
+    EVENT_TIME_COLUMN,
+    WEBHOOK_EVENT_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import latest_event_per_key
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
+    GithubAuthMethodConfig,
+    GithubSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _make_webhook_dedupe_transformer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 
 _JOB_VERSION_KEYS = ["completed_at", "started_at", "created_at"]
 _JOB_FIELDS: dict[str, pa.DataType] = {
@@ -176,3 +189,59 @@ def test_no_composite_key_endpoint_declares_version_keys() -> None:
         if config.version_keys and not isinstance(config.primary_key, str)
     ]
     assert offenders == []
+
+
+_JOB_FILES = [
+    [_job(7, "queued", created="2026-01-01T00:00:00Z")],
+    [
+        _job(
+            7,
+            "completed",
+            created="2026-01-01T00:00:00Z",
+            started="2026-01-01T00:00:05Z",
+            completed="2026-01-01T00:01:00Z",
+        ),
+        _job(7, "in_progress", created="2026-01-01T00:00:00Z", started="2026-01-01T00:00:05Z"),
+    ],
+    [
+        _job(
+            7,
+            "completed",
+            created="2026-01-01T00:00:00Z",
+            started="2026-01-01T00:00:05Z",
+            completed="2026-01-01T00:01:00Z",
+        )
+    ],
+]
+
+
+def _webhook_rows(*, webhook_history: bool) -> pa.Table:
+    config = GithubSourceConfig(
+        auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="tok"),
+        repository="acme/widgets",
+        repositories=None,
+    )
+    result = SourceDriver(GithubSource(), config, webhook_files=_JOB_FILES).run(
+        "workflow_jobs", [], webhook_history=webhook_history
+    )
+    assert result.raised is None
+    return pa.concat_tables(result.items)
+
+
+def test_history_read_keeps_every_job_event_once() -> None:
+    rows = _webhook_rows(webhook_history=True)
+
+    assert [(row["status"], row[EVENT_TIME_COLUMN]) for row in rows.to_pylist()] == [
+        ("queued", datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)),
+        ("in_progress", datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC)),
+        ("completed", datetime(2026, 1, 1, 0, 1, 0, tzinfo=UTC)),
+    ]
+    assert len(set(rows.column(EVENT_ID_COLUMN).to_pylist())) == 3
+    assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["completed"]
+
+
+def test_read_without_history_keeps_the_latest_job_only() -> None:
+    rows = _webhook_rows(webhook_history=False)
+
+    assert rows.column("status").to_pylist() == ["completed"]
+    assert not set(WEBHOOK_EVENT_COLUMNS) & set(rows.column_names)

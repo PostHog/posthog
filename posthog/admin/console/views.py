@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
-from django.db.models import Model, Q
+from django.db.models import Model
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -200,8 +200,19 @@ def _search_teams(query: str) -> list[Team]:
     by_token = list(teams.filter(api_token=query)[:1])
     if by_token:
         return by_token
-    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
-    return list(matches.order_by("-id")[:SEARCH_LIMIT])
+    # Team names and organization names are searched in two queries, so each one can use the trigram index on its
+    # own table. One query with an OR across the join cannot use either index and scans every team.
+    by_team_name = Team.objects.filter(name__icontains=query)
+    by_organization_name = Team.objects.filter(
+        organization_id__in=Organization.objects.filter(name__icontains=query).values("id")
+    )
+    team_ids = {
+        *by_team_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+        *by_organization_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+    }
+    newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
+    found = teams.in_bulk(newest_ids)
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
@@ -291,12 +302,12 @@ def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
     }
 
 
-def _gate(operation: Operation | ToolOperation, owner: Owner) -> Gate | None:
+def _gate(operation: Operation | ToolOperation, owner: Owner | None) -> Gate | None:
     return operation.gate.resolve(owner) if operation.gate is not None else None
 
 
 def _rendered_operation(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, url: str
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, url: str
 ) -> RenderedOperation:
     gate = _gate(operation, owner)
     return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
@@ -373,7 +384,7 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
 
 
 def _require_gate(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, audit: structlog.BoundLogger
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, audit: structlog.BoundLogger
 ) -> None:
     # The page only disables the button. This check is the one that keeps a hand-built request out.
     gate = _gate(operation, owner)
@@ -595,10 +606,13 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         if form is not None and _is_offered(panel, obj, operation.key):
             return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
+            next_step = "Try again."
+            if panel.owner is not None:
+                next_step = f"Try again, or ask the {panel.owner.name} team if it keeps failing."
             messages.error(
                 request,
                 f"{operation.label} failed with status {response.status_code}. The page below shows the current "
-                f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
+                f"state. {next_step}",
             )
         return redirect(record_url)
     return response

@@ -415,6 +415,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("ceil(-1.234, 2)", "(ceil(-1.234 * power(10, 2)) / power(10, 2))"),
         ("md5(user_id AS TEXT)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", %(hogql_val_0)s), 1, 2) END'),
+        ("splitByString('', user_id)", 'regexp_extract_all("users"."user_id", \'(?s).\')'),
         ("arraySlice([1, 2, 3], -2, -1)", "element_at(transform(ARRAY[ROW(ARRAY[1, 2, 3], -2, -1)]"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
         ("toStartOfInterval(created_at, INTERVAL 10 MINUTE)", " / 600e0) AS BIGINT) * 600"),
@@ -610,6 +611,22 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
         ),
+        (
+            "WITH u AS (SELECT is_active FROM flagged UNION ALL SELECT 2 AS is_active) SELECT u.is_active FROM u",
+            'CAST("flagged"."is_active" AS BIGINT) AS "is_active"',
+        ),
+        (
+            "SELECT properties.color FROM (SELECT properties FROM users)",
+            'json_extract_scalar("properties", \'$["color"]\')',
+        ),
+        (
+            "SELECT p.color FROM (SELECT properties AS p FROM users)",
+            'json_extract_scalar("p", \'$["color"]\')',
+        ),
+        (
+            "WITH c AS (SELECT properties FROM users) SELECT q.properties.color FROM (SELECT properties FROM c) AS q",
+            'json_extract_scalar("q"."properties", \'$["color"]\')',
+        ),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -650,6 +667,24 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT p.key FROM (SELECT properties.nested AS p FROM users)",
+        "WITH c AS (SELECT properties.nested AS p FROM users) SELECT q.p.key FROM (SELECT p FROM c) AS q",
+        "SELECT properties.key FROM (SELECT properties.nested AS properties FROM users)",
+        "SELECT p.key FROM (SELECT properties AS p FROM users UNION ALL SELECT properties.nested AS p FROM users)",
+        "SELECT q.properties.key FROM (SELECT b.properties, a.properties FROM users AS a "
+        "JOIN (SELECT id, properties.nested AS properties FROM users) AS b ON a.id = b.id) AS q",
+        "SELECT r.p.key FROM users AS l "
+        "LEFT ANY JOIN (SELECT id, properties.nested AS p FROM users) AS r ON l.id = r.id",
+    ],
+)
+def test_rejects_property_read_on_a_value_a_subquery_already_extracted(query: str) -> None:
+    with pytest.raises(TrinoLoweringError, match="TRINO_PROPERTY_NOT_LOWERED"):
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
 
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
@@ -3135,14 +3170,14 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
 
 
 @pytest.mark.parametrize(
-    "people_column, error",
+    "people_column, expected, unread_hidden_columns",
     [
-        ("people.created_at", None),
-        # Property reads through a derived table are not lowered yet, but the hidden column must still resolve.
-        ("people.raw.key", "TRINO_PROPERTY_NOT_LOWERED"),
+        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw"]),
+        # A property read through a derived table reads the hidden column by its logical name.
+        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id"]),
     ],
 )
-def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -> None:
+def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_hidden_columns: list[str]) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -3167,15 +3202,11 @@ def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -
     query = parse_select(
         f"SELECT users.user_id, {people_column} FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
     )
-    if error is not None:
-        with pytest.raises(TrinoLoweringError, match=error):
-            prepare_and_print_ast(query, context, "trino")
-        return
     sql, _ = prepare_and_print_ast(query, context, "trino")
 
     assert "LEFT ANY JOIN" not in sql
-    assert "_sync_id" not in sql
-    assert "_raw" not in sql
+    assert expected in sql
+    assert not [column for column in unread_hidden_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 

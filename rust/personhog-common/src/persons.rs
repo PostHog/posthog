@@ -41,8 +41,6 @@ pub struct Person {
     pub uuid: Uuid,
     pub team_id: i64,
     pub properties: Option<String>,
-    pub properties_last_updated_at: Option<String>,
-    pub properties_last_operation: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub version: Option<i64>,
     pub is_identified: bool,
@@ -58,14 +56,6 @@ impl From<Person> for personhog_proto::personhog::types::v1::Person {
             team_id: person.team_id,
             properties: person
                 .properties
-                .map(|v| v.into_bytes())
-                .unwrap_or_default(),
-            properties_last_updated_at: person
-                .properties_last_updated_at
-                .map(|v| v.into_bytes())
-                .unwrap_or_default(),
-            properties_last_operation: person
-                .properties_last_operation
                 .map(|v| v.into_bytes())
                 .unwrap_or_default(),
             created_at: person.created_at.timestamp_millis(),

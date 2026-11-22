@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterable
+from dataclasses import replace
 from enum import StrEnum
 from typing import Any
 
@@ -40,7 +41,8 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 
 logger = structlog.get_logger(__name__)
 
-# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
+# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
+# "control_threshold": 0.7}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -66,6 +68,7 @@ class ScoredHogFunction:
     verdict: AbuseVerdict | None
     failure: FailureReason | None
     rule_hits: tuple[rules.Rule, ...]
+    outbound_call: bool
 
     @property
     def would_alert(self) -> bool:
@@ -156,7 +159,10 @@ def thresholds_for(team: Team) -> Thresholds:
         if isinstance(payload, str):
             payload = json.loads(payload)
         if isinstance(payload, dict):
-            return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]))
+            control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
+            return Thresholds(
+                alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control
+            )
     except Exception:
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
     return Thresholds()
@@ -251,10 +257,13 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
+    runtime_content = _with_secret_inputs(hog_function, content)
+    rule_hits = rules.matched_rules(runtime_content)
+    outbound_call = rules.has_outbound_call(runtime_content)
+    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits, outbound_call):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -269,14 +278,23 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
-    return _score(hog_function, content_of(hog_function, hog_function.template))
+    content = content_of(hog_function, hog_function.template)
+    runtime_content = _with_secret_inputs(hog_function, content)
+    return _score(hog_function, content, rules.matched_rules(runtime_content), rules.has_outbound_call(runtime_content))
 
 
-def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogFunction:
+def _score(
+    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], outbound_call: bool
+) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
-        verdict = classify(content, team_id=hog_function.team_id, thresholds=thresholds_for(hog_function.team))
+        verdict = classify(
+            content,
+            team_id=hog_function.team_id,
+            thresholds=thresholds_for(hog_function.team),
+            outbound_call=outbound_call,
+        )
     except ClassificationFailed as error:
         failure = error.reason
     return ScoredHogFunction(
@@ -284,8 +302,35 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
-        rule_hits=rules.matched_rules(content),
+        rule_hits=rule_hits,
+        outbound_call=outbound_call,
     )
+
+
+def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:
+    """The content with the values of secret inputs, which run as Hog templates like any other input. Only the
+    rules read it, here in the worker, so the values never reach Jev, the content hash or the event."""
+    config = comparable_content(
+        {
+            "inputs": {**(hog_function.inputs or {}), **_decrypted_secret_inputs(hog_function)},
+            "mappings": hog_function.mappings,
+        }
+    )
+    return replace(content, inputs=config["inputs"] or {}, mappings=config["mappings"] or [])
+
+
+def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
+    """Empty when the field returns the ciphertext as a string because its key is unavailable, so the public inputs
+    still score."""
+    secret_inputs = hog_function.encrypted_inputs
+    return secret_inputs if isinstance(secret_inputs, dict) else {}
+
+
+def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
+    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
+    cache holds nothing more about a secret value than the event does."""
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}"
 
 
 def report(
@@ -327,7 +372,11 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), scored.content_hash, _HASH_TTL_SECONDS)
+    cache.set(
+        _hash_key(str(hog_function.id)),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call),
+        _HASH_TTL_SECONDS,
+    )
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
@@ -340,6 +389,7 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict
         "hog_function_type": hog_function.type,
         "template_id": hog_function.template_id,
         "code_modified_from_template": scored.code_modified_from_template,
+        "outbound_call": scored.outbound_call,
         "enabled": hog_function.enabled,
         "content_hash": scored.content_hash,
         "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),

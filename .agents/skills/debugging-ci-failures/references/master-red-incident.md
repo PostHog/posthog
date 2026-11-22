@@ -53,7 +53,10 @@ The commands above read the same evidence.
 
 ### The lane on Depot CI
 
-`Backend CI (scheduled)` is the hourly full test matrix.
+Backend CI runs the full test matrix every 3 hours (00:23, 03:23, … UTC) and only the default-variant Core shards in the hours between.
+`Backend CI (scheduled, full matrix)` is the 3-hourly run.
+`Backend CI (scheduled)` is the Core-only run in the hours between.
+A failure in products, Temporal, compat, persons-on-events off or the events_json rows shows only in the full-matrix lane.
 `Backend CI` without the suffix is the master push run.
 Depot stores both types of runs and their logs; GitHub receives job checks.
 The alert includes a Depot run ID, such as `b1c2d3f4g5`, and a depot.dev URL.
@@ -99,7 +102,7 @@ A run that ends with no gate verdict posts no gate check.
 - **The run list can be stale.** GitHub sometimes serves an old run index for one request. A push list whose newest run is more than three hours older than the newest master commit is stale, and so is a scheduled list more than six hours older, which are the bounds the alerter uses. A second request usually returns the current list. Do not diagnose from a list that stays stale.
 - **Most master runs are cancelled by the next push.** A page of runs can hold no settled run on one side of the green-to-red boundary. Add `status=success&per_page=1` for the newest green run, and `created=%3E<time>` for the runs after a time, which can span several pages. Only `failure` and `timed_out` are failing conclusions.
 - **A failed-job log is several megabytes.** A printed log is cut off before the error. Save it to a file and search the file for the failure markers of the runner and for the failing test's name.
-- **A green run can contain the failure.** A test that passes on retry leaves its run green, and so does a test that Trunk has quarantined. The first red run is then later than the change that broke the test, sometimes by hours. Trunk's `status` time is the latest reclassification, so the failures started at or before it.
+- **A green run can contain the failure.** A test that passes on retry leaves its run green, and so does a test that Trunk has quarantined, except in the E2E Playwright job and the backend Core, Temporal, and product test jobs, which rerun a quarantined failure and red the job when it still fails. The first red run is then later than the change that broke the test, sometimes by hours. Trunk's `status` time is the latest reclassification, so the failures started at or before it.
 - **The cause can be outside the failing code's directory.** A dependency, an image version in `docker-compose.base.yml`, or a CI change breaks tests that it does not touch. The error text usually says which: a service that behaves differently points at the file that sets its version.
 
 ## Verdicts

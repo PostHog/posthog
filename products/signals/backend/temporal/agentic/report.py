@@ -36,6 +36,7 @@ from products.signals.backend.assignment_flags import assignment_writer_enabled
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
@@ -85,6 +86,7 @@ from products.signals.backend.report_monitoring_signals import (
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
+from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.startup_failure import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE as RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
@@ -785,6 +787,7 @@ def _append_agentic_report_artefacts(
                         attribution=draft.attribution,
                         reviewer_proposal=reviewer_proposal
                         or ReviewerProposal(expected_state=service.read().state, source="research"),
+                        implementation_authorization=ImplementationAuthorization(mode="reviewer"),
                         reevaluate_autostart=False,
                     )
                 except StaleReviewerProposal:
@@ -1325,6 +1328,13 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             implementation_context = await database_sync_to_async(
                 research_implementation_context, thread_sensitive=False
             )(input.team_id, input.report_id)
+            # The issues a scout filed this report from. With the GitHub issue signals, they keep the
+            # in-flight check from reading the requester's own assigned issue as competing work.
+            source_issues = (
+                await database_sync_to_async(source_issues_by_report, thread_sensitive=False)(
+                    team_id=input.team_id, report_ids=[input.report_id]
+                )
+            ).get(input.report_id, [])
             research_signals: list[SignalData] = []
             monitoring_signals: list[SignalData] = []
             evidence_budget = MONITORING_EVIDENCE_MAX_CHARS
@@ -1390,6 +1400,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 suggestable_products=suggestable_products,
                 current_tags=tag_context.current_tags,
                 team_tags=tag_context.team_tags,
+                source_issues=source_issues,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

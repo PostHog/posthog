@@ -18,6 +18,8 @@
                 "backend/scopes.py",
                 "backend/apps.py",
                 "backend/services/template_file_guard.py",
+                "backend/services/people_import.py",
+                "backend/services/provider_contacts.py",
                 "backend/console.py"
             ],
             "outputs": [],

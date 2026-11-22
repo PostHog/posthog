@@ -497,7 +497,8 @@ def _enqueue_quarantine_lift_check(run: Run) -> None:
         logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
-# A clean window does not end within an hour, so a busy default branch skips the grouped read on most runs.
+# A clean window does not end within an hour, and an extension has a window of days before the expiry,
+# so a busy default branch skips the grouped reads on most runs.
 _CLEAN_RELEASE_THROTTLE_SECONDS = 60 * 60
 
 

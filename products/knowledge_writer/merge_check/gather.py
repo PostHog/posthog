@@ -235,8 +235,8 @@ def gather_merge(
     )
     return MergeEvidence(
         change=change,
-        title=listed.get("title") or "",
-        body=listed.get("body") or "",
+        title=author_text(listed, "title"),
+        body=author_text(listed, "body"),
         url=listed.get("html_url") or "",
         labels=tuple(str((label or {}).get("name", "")) for label in listed.get("labels") or []),
         diff_by_path=diff_by_path,
@@ -507,6 +507,12 @@ def read_docs_pull_requests(
                 url=listed["html_url"], is_opened_by_knowledge_writer=True
             )
     return tuple(found_by_url.values()), scan.is_partial
+
+
+def author_text(listed: Mapping[str, Any], field: str) -> str:
+    if listed.get("author_association") not in TRUSTED_AUTHOR_ASSOCIATIONS:
+        return ""
+    return listed.get(field) or ""
 
 
 def title_and_body(listed: Mapping[str, Any]) -> str:

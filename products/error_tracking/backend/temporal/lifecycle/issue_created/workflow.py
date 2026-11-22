@@ -49,7 +49,10 @@ ISSUE_TAGS_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=3,
 )
 ISSUE_TAGS_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
-ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
+# Alerts do not wait for tags, so this bound only has to outlast a lifecycle queue backlog
+# while the worker pool scales up.
+ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
+MERGE_TARGET_TAGS_PATCH = "error-tracking-merge-target-tags-activity"
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
@@ -123,13 +126,29 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
             if merge_result.merged_count > 0:
-                # The exception belongs to the target issue now. A dormant target that the merge
-                # put back to active owes its subscribers a reopened notification; an already
-                # active target owes nothing, which matches a fingerprint that links directly.
-                if merge_result.reopened_target is None:
-                    return IssueCreatedWorkflowResult(merged=True)
-                await run_issue_reopened_side_effects(_reopened_inputs(inputs, merge_result.reopened_target))
-                return IssueCreatedWorkflowResult(merged=True, notified=True)
+                tags = (
+                    asyncio.create_task(
+                        self._tag_issue(
+                            "tag_issue_created_merge_target_activity",
+                            inputs,
+                            fail_open_counter="error_tracking_issue_created_merge_target_tags_fail_open",
+                            description="Issue-created workflows whose merge target tag activity failed",
+                        )
+                    )
+                    if workflow.patched(MERGE_TARGET_TAGS_PATCH)
+                    else None
+                )
+                try:
+                    # The exception belongs to the target issue now. A dormant target that the merge
+                    # put back to active owes its subscribers a reopened notification; an already
+                    # active target owes nothing, which matches a fingerprint that links directly.
+                    if merge_result.reopened_target is None:
+                        return IssueCreatedWorkflowResult(merged=True)
+                    await run_issue_reopened_side_effects(_reopened_inputs(inputs, merge_result.reopened_target))
+                    return IssueCreatedWorkflowResult(merged=True, notified=True)
+                finally:
+                    if tags is not None:
+                        await tags
 
         # Runs before the alert and the side effects so that they carry the inferred severity.
         inputs = await self._with_inferred_severity(inputs)
@@ -166,7 +185,18 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             else None
         )
         # Patched, and awaited like the summary: nothing on the alert path reads tags.
-        tags = asyncio.create_task(self._tag_issue(inputs)) if workflow.patched(ISSUE_TAGS_PATCH) else None
+        tags = (
+            asyncio.create_task(
+                self._tag_issue(
+                    "tag_issue_created_activity",
+                    inputs,
+                    fail_open_counter="error_tracking_issue_created_tags_fail_open",
+                    description="Issue-created workflows whose tag activity failed",
+                )
+            )
+            if workflow.patched(ISSUE_TAGS_PATCH)
+            else None
+        )
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
@@ -220,25 +250,20 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             return inputs
         return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.stored_severity))
 
-    async def _tag_issue(self, inputs: IssueCreatedWorkflowInputs) -> None:
+    async def _tag_issue(
+        self, activity: str, inputs: IssueCreatedWorkflowInputs, *, fail_open_counter: str, description: str
+    ) -> None:
         try:
             await workflow.execute_activity(
-                "tag_issue_created_activity",
+                activity,
                 inputs,
                 schedule_to_close_timeout=ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT,
                 start_to_close_timeout=ISSUE_TAGS_START_TO_CLOSE_TIMEOUT,
                 retry_policy=ISSUE_TAGS_RETRY_POLICY,
             )
         except ActivityError:
-            workflow.logger.warning("Issue tagging failed; some tags may be missing")
-            (
-                workflow.metric_meter()
-                .create_counter(
-                    "error_tracking_issue_created_tags_fail_open",
-                    "Issue-created workflows whose tag activity failed",
-                )
-                .add(1)
-            )
+            workflow.logger.warning("Issue tag activity %s failed; some tags may be missing", activity)
+            workflow.metric_meter().create_counter(fail_open_counter, description).add(1)
 
 
 def _reopened_inputs(

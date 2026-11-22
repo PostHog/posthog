@@ -81,6 +81,7 @@ from .activities.materialize_context_layer import MaterializeContextLayerInput, 
 from .activities.persist_agent_memory import MemoryEventIdentity, PersistAgentMemoryInput, persist_agent_memory
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    GITHUB_TOKEN_RETRY_DELAYS_SECONDS,
     REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
@@ -111,14 +112,6 @@ from .activities.send_followup_to_sandbox import (
     TURN_IN_FLIGHT_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
-)
-from .activities.send_permission_response_to_sandbox import (
-    PostPermissionDeliveryFailureInput,
-    SendPermissionDenialGuidanceInput,
-    SendPermissionResponseToSandboxInput,
-    post_permission_delivery_failure_notice,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
 )
 from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
@@ -288,17 +281,6 @@ class PendingFollowup:
 
 
 @dataclass
-class PendingPermissionResponse:
-    request_id: str
-    option_id: str
-    actor_user_id: int
-    actor_slack_user_id: str | None = None
-    is_denial: bool = False
-    denial_message: str | None = None
-    broker_reason: str | None = None
-
-
-@dataclass
 class ProcessTaskOutput:
     success: bool
     task_result: Optional[ExecuteTaskOutput] = None
@@ -439,7 +421,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._active_followup_task: asyncio.Task[None] | None = None
         self._agent_egress_observation_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
-        self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._ci_idle_skips: int = 0
         self._last_active_time: Optional[datetime] = None
@@ -538,7 +519,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 or self._client_activity_received
                 or self._turn_ended_received
                 or self._has_dispatchable_followup()
-                or len(self._pending_permission_responses) > 0
             )
         )
         if self._sandbox_gone and not self._task_completed:
@@ -1228,7 +1208,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._opening_person_message = self._slack_thread_context.pop("person_message")
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
-        permission_response_task: asyncio.Task[None] | None = None
         preview_task: asyncio.Task[None] | None = None
         agent_shadow_task: asyncio.Task[None] | None = None
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
@@ -1282,12 +1261,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url, sandbox_connect_token, sandbox_id
             )
 
-            # Delivered concurrently with the main loop: an approval can arrive while
-            # the loop is parked inside a followup activity whose turn is blocked on
-            # that very approval — delivering inline would livelock until the
-            # followup read-times-out.
-            permission_response_task = asyncio.ensure_future(self._deliver_pending_permission_responses())
-
             if self.context.has_github_credentials:
                 credential_refresh_task = asyncio.ensure_future(
                     self._run_credential_refresh_until_sandbox_gone(sandbox_id)
@@ -1324,7 +1297,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     for task in (
                         relay_task,
                         credential_refresh_task,
-                        permission_response_task,
                         preview_task,
                         agent_shadow_task,
                         self._agent_memory_persist_task,
@@ -1559,15 +1531,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
                 credential_refresh_task = None
-            if permission_response_task is not None:
-                if self._task_completed:
-                    # The drainer exits on its own once the queue is empty, so a response
-                    # that raced the completion signal is delivered (or its failure
-                    # surfaced in the thread) instead of silently dropped.
-                    await permission_response_task
-                else:
-                    await self._cancel_relay(permission_response_task)
-                permission_response_task = None
 
             if self._task_completed:
                 await self._update_task_run_status(
@@ -1713,8 +1676,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         self._active_followup_task = None
                     if credential_refresh_task is not None:
                         await self._cancel_relay(credential_refresh_task)
-                    if permission_response_task is not None:
-                        await self._cancel_relay(permission_response_task)
                     if preview_task is not None:
                         await self._cancel_relay(preview_task)
                     if agent_shadow_task is not None:
@@ -1962,7 +1923,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if (
             self._pending_followup is not None
             or self._pending_followups
-            or self._pending_permission_responses
             or self._heartbeat_received
             or self._client_activity_received
             or self._current_slack_relay_workflow_id is not None
@@ -2100,7 +2060,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             prepare_sandbox_for_repository,
             PrepareSandboxForRepositoryInput(context=self.context),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(maximum_attempts=len(GITHUB_TOKEN_RETRY_DELAYS_SECONDS) + 1),
         )
 
         created = await self._run_sandbox_creation_activity(prepared)
@@ -2594,113 +2554,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-
-    async def _deliver_pending_permission_responses(self) -> None:
-        """Drain queued human permission responses, concurrently with the main loop.
-
-        Exits once the run completes and the queue is empty, so a response that
-        raced the completion signal is still delivered.
-        """
-        while True:
-            await workflow.wait_condition(lambda: len(self._pending_permission_responses) > 0 or self._task_completed)
-            while self._pending_permission_responses:
-                response = self._pending_permission_responses.pop(0)
-                self._last_active_time = workflow.now()
-                workflow.logger.info(
-                    "Pending permission response received, sending to sandbox",
-                    extra={
-                        "run_id": self.context.run_id,
-                        "request_id": response.request_id,
-                        "option_id": response.option_id,
-                        "actor_user_id": response.actor_user_id,
-                        "is_denial": response.is_denial,
-                    },
-                )
-                await self._send_permission_response_to_sandbox(response)
-            if self._task_completed:
-                return
-
-    async def _send_permission_response_to_sandbox(self, response: PendingPermissionResponse) -> None:
-        if response.is_denial and response.denial_message:
-            # Best-effort and single-attempt: the guidance message is not idempotent,
-            # so it must not share a retry boundary with the response delivery below,
-            # and a failure to deliver it must not block the rejection itself.
-            try:
-                await workflow.execute_activity(
-                    send_permission_denial_guidance,
-                    SendPermissionDenialGuidanceInput(
-                        run_id=self.context.run_id,
-                        request_id=response.request_id,
-                        actor_user_id=response.actor_user_id,
-                        denial_message=response.denial_message,
-                    ),
-                    start_to_close_timeout=timedelta(seconds=20),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            except Exception as e:
-                workflow.logger.warning(
-                    "permission_denial_guidance_failed",
-                    extra={
-                        "run_id": self.context.run_id,
-                        "request_id": response.request_id,
-                        "error": str(e),
-                    },
-                )
-
-        try:
-            await workflow.execute_activity(
-                send_permission_response_to_sandbox,
-                SendPermissionResponseToSandboxInput(
-                    run_id=self.context.run_id,
-                    request_id=response.request_id,
-                    option_id=response.option_id,
-                    actor_user_id=response.actor_user_id,
-                    actor_slack_user_id=response.actor_slack_user_id,
-                    is_denial=response.is_denial,
-                    broker_reason=response.broker_reason,
-                ),
-                start_to_close_timeout=timedelta(seconds=45),
-                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=3),
-            )
-        except Exception as e:
-            # A failed delivery must not fail the run: the sandbox is usually still
-            # healthy (transient tunnel blip) and the request can still be answered
-            # from the task UI. The Slack card already shows the response as
-            # recorded, so surface the miss in the thread instead.
-            workflow.logger.warning(
-                "permission_response_delivery_failed",
-                extra={
-                    "run_id": self.context.run_id,
-                    "request_id": response.request_id,
-                    "option_id": response.option_id,
-                    "error": str(e),
-                },
-            )
-            await self._notify_permission_delivery_failure(response)
-
-    async def _notify_permission_delivery_failure(self, response: PendingPermissionResponse) -> None:
-        if not self._slack_thread_context:
-            return
-        try:
-            await workflow.execute_activity(
-                post_permission_delivery_failure_notice,
-                PostPermissionDeliveryFailureInput(
-                    run_id=self.context.run_id,
-                    request_id=response.request_id,
-                    slack_thread_context=self._slack_thread_context,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-        except Exception as e:
-            workflow.logger.warning(
-                "permission_response_delivery_failure_notice_failed",
-                extra={
-                    "run_id": self.context.run_id,
-                    "request_id": response.request_id,
-                    "error": str(e),
-                },
-            )
 
     def _should_forward_pending_user_message(self) -> bool:
         if not self._context:
@@ -3962,52 +3815,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         self._next_followup_sequence += 1
         self._pending_followups.append(pending_followup)
-
-    @temporalio.workflow.signal
-    async def send_permission_response(self, response: dict[str, Any]) -> None:
-        request_id = response.get("request_id")
-        option_id = response.get("option_id")
-        actor_user_id = response.get("actor_user_id")
-        if not isinstance(request_id, str) or not request_id:
-            workflow.logger.warning("permission_response_signal_ignored", extra={"reason": "missing_request_id"})
-            return
-        if not isinstance(option_id, str) or not option_id:
-            workflow.logger.warning(
-                "permission_response_signal_ignored",
-                extra={"request_id": request_id, "reason": "missing_option_id"},
-            )
-            return
-        if not isinstance(actor_user_id, int) or isinstance(actor_user_id, bool):
-            workflow.logger.warning(
-                "permission_response_signal_ignored",
-                extra={"request_id": request_id, "reason": "missing_actor_user_id"},
-            )
-            return
-
-        actor_slack_user_id = response.get("actor_slack_user_id")
-        denial_message = response.get("denial_message")
-        broker_reason = response.get("broker_reason")
-        pending_response = PendingPermissionResponse(
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_user_id,
-            actor_slack_user_id=actor_slack_user_id if isinstance(actor_slack_user_id, str) else None,
-            is_denial=bool(response.get("is_denial")),
-            denial_message=denial_message if isinstance(denial_message, str) else None,
-            broker_reason=broker_reason if isinstance(broker_reason, str) else None,
-        )
-        self._pending_permission_responses.append(pending_response)
-        context = self._context
-        workflow.logger.info(
-            "permission_response_signal_received",
-            extra={
-                "run_id": context.run_id if context is not None else None,
-                "request_id": request_id,
-                "option_id": option_id,
-                "actor_user_id": actor_user_id,
-                "is_denial": pending_response.is_denial,
-            },
-        )
 
     async def _send_followup_to_sandbox(
         self,

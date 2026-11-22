@@ -5,6 +5,7 @@ import type { Secrets } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { HOG_CLIENT_ID } from '@/posthog/oauth'
 import { readJson, runHog } from '@/testing'
+import { VERSION } from '@/version'
 
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
@@ -543,18 +544,40 @@ describe('hog auth login', () => {
         expect(result.json()).toMatchObject(expected)
     })
 
-    test('status tells a person which posthog.json picked the login and why', async () => {
+    test.each([
+        ['posthog.json names the project', '/repo/apps/web', 'Config    /repo/apps/web/posthog.json', 'picked'],
+        [
+            'nothing names a project',
+            '/repo',
+            'hog picked this login because nothing sets a project in posthog.json or HOG_PROJECT_ID',
+            'Config    /repo',
+        ],
+    ])('status tells a person which login it uses when %s', async (_name, cwd, shown, hidden) => {
         const result = await runHog(['auth', 'status'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
-            cwd: '/repo/apps/web',
+            cwd,
             ...MONOREPO,
             respond: () => ({ status: 200, body: { email: 'ana@example.com', name: 'Web' } }),
         })
 
-        expect(result.stdout).toContain('Project: Web (1)')
-        expect(result.stdout).toContain('Config: /repo/apps/web/posthog.json')
-        expect(result.stdout).toContain('Login picked because posthog.json sets the host and the project.')
+        expect(result.stdout).toStartWith('✓ Logged in as ana@example.com\n')
+        expect(result.stdout).toContain(shown)
+        expect(result.stdout).not.toContain(hidden)
+    })
+
+    test('status counts the scopes of a login for a person instead of listing them', async () => {
+        const scopes = ['openid', 'insight:write', 'dashboard:write', 'query:read', 'person:read', 'user:read']
+        const result = await runHog(['auth', 'status'], {
+            stdoutIsTTY: true,
+            env: { NO_COLOR: '1' },
+            files: { [SETTINGS_FILE]: settingsJson(EU, { ...OAUTH_RECORD, scopes }) },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: () => ({ status: 200, body: { email: 'ana@example.com', name: 'Shop' } }),
+        })
+
+        expect(result.stdout).toContain('Access    2 write and 3 read scopes. hog api access lists them')
+        expect(result.stdout).not.toContain('insight:write')
     })
 
     test.each([
@@ -699,17 +722,34 @@ describe('hog auth login', () => {
         }
     )
 
-    test('status escapes terminal control characters in the project name', async () => {
+    test.each([
+        ['the project name', KEYCHAIN_LOGIN, '\u001b]52;c;eA==\u0007Shop', 'Project   \\x1b]52;c;eA==\\x07Shop (42)'],
+        [
+            'a scope',
+            {
+                files: {
+                    [SETTINGS_FILE]: settingsJson(EU, {
+                        ...OAUTH_RECORD,
+                        scopes: ['\u001b]52;c;eA==\u0007query:read'],
+                    }),
+                },
+                keychain: OAUTH_LOGIN.keychain,
+            },
+            'Shop',
+            'Access    \\x1b]52;c;eA==\\x07query:read',
+        ],
+    ])('status escapes terminal control characters in %s', async (_name, login, projectName, shown) => {
         const result = await runHog(['auth', 'status'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
-            ...KEYCHAIN_LOGIN,
+            ...login,
             respond: (url) =>
                 url.endsWith('/api/users/@me/')
                     ? { status: 200, body: { email: 'ana@example.com' } }
-                    : { status: 200, body: { name: '\u001b]52;c;eA==\u0007Shop' } },
+                    : { status: 200, body: { name: projectName } },
         })
-        expect(result.stdout).toContain('Project: \\x1b]52;c;eA==\\x07Shop (42)')
+
+        expect(result.stdout).toContain(shown)
         expect(result.stdout).not.toContain('\u001b')
     })
 
@@ -726,7 +766,13 @@ describe('hog auth login', () => {
     test('status without a key exits 1 and points to login', async () => {
         const result = await runHog(['auth', 'status'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(EXIT_FAILURE)
-        expect(result.json()).toEqual({ authenticated: false, next: 'hog auth login', config: null, login: null })
+        expect(result.json()).toEqual({
+            authenticated: false,
+            next: 'hog auth login',
+            config: null,
+            login: null,
+            hog: { version: VERSION, latest: null, updateAvailable: false, command: null },
+        })
     })
 
     test.each([

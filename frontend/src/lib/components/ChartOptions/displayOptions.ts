@@ -105,6 +105,12 @@ export const DISPLAY_OPTIONS = [
     { name: 'lifecycleStacking', label: 'Stack bars', group: 'display', control: 'checkbox' },
     { name: 'valuesOnSeries', label: 'Show values on series', group: 'display', control: 'checkbox' },
     {
+        name: 'funnelSummaryOnDashboards',
+        label: 'Show summary on dashboards',
+        group: 'display',
+        control: 'checkbox',
+    },
+    {
         name: 'valueLabelPosition',
         label: 'Value position',
         group: 'display',
@@ -359,7 +365,7 @@ export const DISPLAY_OPTIONS = [
     {
         name: 'movingAverageIntervals',
         label: 'Intervals',
-        info: "The number of data points to use for calculating the moving average. A larger number will create a smoother line but with more lag. You can't use a number greater than the amount of intervals in your date range.",
+        info: 'Number of data points in the moving average. A larger window produces a smoother line.',
         nested: true,
         group: 'overlays',
         control: 'number',
