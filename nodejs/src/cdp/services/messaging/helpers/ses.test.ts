@@ -571,14 +571,15 @@ describe('SesWebhookHandler', () => {
     })
 
     it.each([
-        ['has no To header', { subject: 'Hi' }],
-        ['names no address in its To header', { to: ['"Jane Doe"'] }],
-    ])('records email_delivered for a Delivery whose mail %s', async (_desc, commonHeaders) => {
+        ['mail has no To header', { subject: 'Hi' }, ['to@example.com']],
+        ['mail names no address in its To header', { to: ['"Jane Doe"'] }, ['to@example.com']],
+        ['delivery names no recipients', { to: ['to@example.com'] }, undefined],
+    ])('records email_delivered for a Delivery whose %s', async (_desc, commonHeaders, recipients) => {
         const body = [
             {
                 eventType: 'Delivery',
                 mail: { ...baseMail, commonHeaders },
-                delivery: { timestamp: '2025-10-03T12:03:00Z', recipients: ['to@example.com'] },
+                delivery: { timestamp: '2025-10-03T12:03:00Z', recipients },
             },
         ]
 

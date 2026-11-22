@@ -146,10 +146,11 @@ const sesDeliveriesNotToRecipientCounter = new Counter({
 })
 
 // SES reports one Delivery per receiving server, so a send with cc or bcc set gets several, while email_sent counts
-// the send once. Without a To header the copies can't be told apart, so the record counts.
+// the send once. Without a To address or a recipient the copies can't be told apart, so the record counts.
 const countsAsDelivered = (rec: Extract<SesEventRecord, { eventType: 'Delivery' }>): boolean => {
     const to = toHeaderAddresses(rec)
-    if (to.size === 0 || reachesToRecipient(to, rec.delivery.recipients ?? [])) {
+    const recipients = rec.delivery.recipients ?? []
+    if (to.size === 0 || recipients.length === 0 || reachesToRecipient(to, recipients)) {
         return true
     }
     sesDeliveriesNotToRecipientCounter.inc()
