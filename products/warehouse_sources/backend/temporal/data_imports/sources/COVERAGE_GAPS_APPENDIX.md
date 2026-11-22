@@ -3499,22 +3499,22 @@ Note: The official reference index and embedded OpenAPI definitions distinguish 
 
 ## Clockify — gaps
 
-Today (15): `approval_requests`, `clients`, `custom_fields`, `expense_categories`, `expenses`, `invoice_payments`, `invoices`, `projects`, `tags`, `tasks`, `time_entries`, `time_off_requests`, `user_groups`, `users`, `workspaces`
+Today (18): `approval_requests`, `clients`, `custom_fields`, `expense_categories`, `expenses`, `holidays`, `invoice_payments`, `invoices`, `projects`, `tags`, `tasks`, `time_entries`, `time_off_balances`, `time_off_policies`, `time_off_requests`, `user_groups`, `users`, `workspaces`
 
 Diffed against: <https://docs.clockify.me/>
 
 - [x] `GET /v1/workspaces/{workspaceId}/expenses (+ /expenses/categories)` — expense transactions and their category lookup - the cost side of project profitability (high)
 - [x] `GET /v1/workspaces/{workspaceId}/invoices (+ /payments)` — invoice headers and payments, the billing fact tables for revenue reporting (high)
 - [x] `POST /v1/workspaces/{workspaceId}/time-off/requests` — time off requests - required to separate absence from unlogged time in capacity analysis (high)
-- [ ] `GET /v1/workspaces/{workspaceId}/projects/{projectId}/memberships` — project-to-user membership join table; today projects and users cannot be linked (high)
+- [ ] `GET /v1/workspaces/{workspaceId}/projects/{projectId}/memberships` — project-to-user membership join table; today projects and users cannot be linked (high) Skipped: the path serves POST and PATCH only; members already arrive on each `projects` row.
 - [x] `GET /v1/workspaces/{workspaceId}/custom-fields` — custom field definitions resolving the custom field IDs stored on time entries and projects (high)
 - [x] `GET /v1/workspaces/{workspaceId}/approval-requests` — timesheet approval state and history per user and period (medium)
 - [x] `GET /v1/workspaces/{workspaceId}/user-groups (+ /{userGroupId}/users)` — team grouping and its membership rows for rolling time up by team (medium)
-- [ ] `GET /v1/workspaces/{workspaceId}/time-off/policies` — policy lookup that resolves the policy IDs on time off requests and balances (medium)
-- [ ] `GET /v1/workspaces/{workspaceId}/time-off/balance/user/{userId}` — accrued vs used leave balances per user (medium)
-- [ ] `GET /v1/workspaces/{workspaceId}/holidays` — holiday calendar needed to compute working days and utilization denominators (medium)
+- [x] `GET /v1/workspaces/{workspaceId}/time-off/policies` — policy lookup that resolves the policy IDs on time off requests and balances (medium)
+- [x] `GET /v1/workspaces/{workspaceId}/time-off/balance/user/{userId}` — accrued vs used leave balances per user (medium)
+- [x] `GET /v1/workspaces/{workspaceId}/holidays` — holiday calendar needed to compute working days and utilization denominators (medium)
 - [ ] `GET /v1/workspaces/{workspaceId}/scheduling/assignments/all` — planned/scheduled assignments to compare planned against tracked time (medium)
-- [ ] `GET /v1/workspaces/{workspaceId}/audit-log` — workspace audit event stream for admin and compliance reporting (medium)
+- [ ] `GET /v1/workspaces/{workspaceId}/audit-log` — workspace audit event stream for admin and compliance reporting (medium) Skipped: the path serves POST only, as a filtered report with no row identifier.
 
 Note: `/projects/{projectId}/memberships` serves POST and PATCH only — there is no GET, so no `project_memberships` table. The project-to-user link is already synced: every `projects` row carries a `memberships` array of user id, membership status and rate. `/user-groups/{userGroupId}/users` is likewise POST and DELETE only, and unnecessary — the group's members arrive as `userIds` on the `user_groups` row. `/audit-log` is a POST report, not a listing: the request body must carry an explicit allow-list of audit action types (so a type Clockify adds later is silently dropped), an author filter, and a bounded date window, the rows carry no identifier to merge on, and nothing is recorded at all unless the workspace turns auditing on per entity type. Left out on the same grounds as the other POST reports below.
 
