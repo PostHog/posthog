@@ -60,6 +60,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("style_attribute", "handlebars", '<p style="color: {{x}}">'),
             ("raw_in_an_attribute", "handlebars", '<a title="{{{x}}}">'),
             ("tag_name", "handlebars", "<{{x}}>"),
+            ("no_break_space_inside_an_unquoted_value", "handlebars", '<img alt=x\u00a0title="{{x}}">'),
             ("go_link", "go", '<a href="{{.x}}">'),
             ("go_data_attribute", "go", '<a data-href="{{.x}}">'),
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),

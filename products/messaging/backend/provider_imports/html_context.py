@@ -7,6 +7,9 @@ import re
 _RAW_ELEMENTS = frozenset(
     {"script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"}
 )
+# HTML separates attributes only by these. Python's isspace() also matches characters such as U+00A0, which a browser
+# reads as part of a name or an unquoted value.
+_HTML_SPACE = frozenset("\t\n\f\r ")
 # Long enough to hold the longest closing tag or comment end that a search could split.
 _SEARCH_OVERLAP = 16
 
@@ -110,17 +113,17 @@ class HtmlContext:
             self.untrusted = self.untrusted or (opened_raw and self.tag_name == "script")
             return
         if state == "tag_name":
-            if character.isspace() or character == "/":
+            if character in _HTML_SPACE or character == "/":
                 self.state = "before_attribute"
             else:
                 self.tag_name = (self.tag_name + character.lower())[:20]
         elif state == "before_attribute":
-            if not character.isspace() and character != "/":
+            if character not in _HTML_SPACE and character != "/":
                 self.state, self.attribute = "attribute", character.lower()
         elif state == "attribute":
             if character == "=":
                 self.state = "before_value"
-            elif character.isspace():
+            elif character in _HTML_SPACE:
                 self.state = "after_attribute"
             elif character == "/":
                 self.state = "before_attribute"
@@ -129,19 +132,19 @@ class HtmlContext:
         elif state == "after_attribute":
             if character == "=":
                 self.state = "before_value"
-            elif not character.isspace() and character != "/":
+            elif character not in _HTML_SPACE and character != "/":
                 self.state, self.attribute = "attribute", character.lower()
         elif state == "before_value":
             if character == '"':
                 self.state = "dq"
             elif character == "'":
                 self.state = "sq"
-            elif not character.isspace():
+            elif character not in _HTML_SPACE:
                 self.state = "unquoted"
-        elif state == "unquoted" and character.isspace():
+        elif state == "unquoted" and character in _HTML_SPACE:
             self.state = "before_attribute"
 
 
 def _find_end_tag(text: str, name: str, start: int) -> int:
-    match = re.compile(rf"</{re.escape(name)}[\s/>]", re.IGNORECASE).search(text, start)
+    match = re.compile(rf"</{re.escape(name)}[\t\n\f\r />]", re.IGNORECASE).search(text, start)
     return match.start() if match else -1
