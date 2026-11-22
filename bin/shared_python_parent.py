@@ -23,8 +23,6 @@ bin/test/test_shared_python_parent.py checks the fork, restart and shutdown beha
 
 import gc
 import os
-import grp
-import pwd
 import sys
 import time
 import signal
@@ -62,21 +60,11 @@ def log(message: str) -> None:
     sys.stderr.flush()
 
 
-def drop_privileges() -> None:
-    # The same change as `setpriv --reuid=nobody --regid=nogroup --clear-groups` in bin/docker-server.
-    if os.geteuid() != 0:
-        return
-    os.setgroups([])
-    os.setgid(grp.getgrnam("nogroup").gr_gid)
-    os.setuid(pwd.getpwnam("nobody").pw_uid)
-
-
 def run_web(prometheus_dir: str | None) -> None:
     import granian_preload
 
     if prometheus_dir:
         os.environ["PROMETHEUS_MULTIPROC_DIR"] = prometheus_dir
-    drop_privileges()
     metrics_server = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "granian_metrics.py")])
     try:
         sys.argv = ["granian", APP_TARGET]
