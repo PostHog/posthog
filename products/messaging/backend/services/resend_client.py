@@ -193,7 +193,7 @@ class ResendClient:
         if not limit or limit < 1:
             return
         window = _policy_window_seconds(response)
-        reset = _int_header(response, "ratelimit-reset")
+        reset = min(_int_header(response, "ratelimit-reset") or 0, MAX_RETRY_AFTER_SECONDS)
         remaining = _int_header(response, "ratelimit-remaining")
         squeezed = response.status_code == 429 or remaining == 0
         with self._lock:
