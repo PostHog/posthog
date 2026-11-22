@@ -32,7 +32,6 @@ const sesRecordedMarksUnavailableCounter = new Counter({
     labelNames: ['operation'],
 })
 
-// Notifications already recorded by an earlier batch or earlier in this batch, and those this batch records.
 type BatchMarks = { skip: Set<string>; recorded: string[] }
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
