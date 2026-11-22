@@ -30,10 +30,10 @@ jobs:
             contents: write
             deployments: read
         # The job only coordinates: it waits for the backend deploy and pushes a tag. A hosted
-        # runner keeps up to an hour of waiting off the Depot pool.
+        # runner keeps up to two hours of waiting off the Depot pool.
         runs-on: ubuntu-24.04
-        # Sized for the 60-minute backend deploy wait plus a margin for the checkout and the tag push.
-        timeout-minutes: 75
+        # Sized for the 120-minute backend deploy wait plus a margin for the checkout and the tag push.
+        timeout-minutes: 135
         steps:
             - name: Get app token
               id: app-token
@@ -76,6 +76,10 @@ jobs:
 
             - name: Compute version
               id: version
+              env:
+                  # The backend wait below checks this commit, so the tag must point at it and not at a
+                  # newer master. A re-run keeps github.sha, so it waits for the same commit again.
+                  TARGET: ${{ github.sha }}
               run: |
                   # Find the latest agent base version tag (agent-vX.Y or agent-vX.Y.0 format)
                   LATEST_TAG=$(git tag --list 'agent-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^agent-v[0-9]+\.[0-9]+(\.0)?$' | head -1)
@@ -90,12 +94,6 @@ jobs:
                   MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
                   MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
 
-                  # The backend wait below checks this commit, so the tag must point at it and
-                  # not at a newer master.
-                  # This fetch runs before the backend wait, so the checkout's App token is still valid.
-                  git fetch --quiet --no-tags origin refs/heads/master
-                  TARGET=$(git rev-parse 'FETCH_HEAD^{commit}')
-
                   # Count commits touching the agent or harness package since the base tag. In the
                   # monorepo an unscoped count would include every PostHog commit and
                   # inflate patch numbers meaninglessly. The old paths stay in the pathspec so
@@ -108,6 +106,14 @@ jobs:
 
                   if [ "$PATCH" -eq 0 ]; then
                     echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
+                    exit 0
+                  fi
+
+                  # A re-run of an older run must not tag a lower version after a newer release,
+                  # because the publish moves the npm `latest` dist-tag to the version it publishes.
+                  RELEASED_IN=$(git tag --list 'agent-v*' --contains "$TARGET")
+                  if [ -n "$RELEASED_IN" ]; then
+                    echo "A release already includes $TARGET: ${RELEASED_IN//$'\n'/, }. Nothing new to release."
                     exit 0
                   fi
 
@@ -126,9 +132,10 @@ jobs:
 
             # The agent tag publishes @posthog/agent to npm, and its users call the Django backend,
             # so the tag must not exist before prod-us and prod-eu run a build with its commit.
-            # The 60-minute wait is a policy: it allows for a prod deploy of the commit plus one more
-            # deploy cycle. This run comes from a push and nothing retries it, so a timeout fails the
-            # job rather than passing quietly: the red run shows that the release did not go out.
+            # The 120-minute wait is a policy: it allows for a full prod deploy of the commit plus
+            # one more slow deploy cycle, in case the commit misses the first one. This run
+            # comes from a push and nothing retries it, so a timeout fails the job rather than
+            # passing quietly: the red run shows that the release did not go out.
             # The next push to the agent packages releases a newer commit that includes this one.
             - name: Wait for the backend to run the release commit
               if: steps.version.outputs.tag != '' && github.event.inputs.ignore_backend_deploy != 'true'
@@ -137,7 +144,7 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   COMMIT_SHA: ${{ steps.version.outputs.target }}
                   TAG: ${{ steps.version.outputs.tag }}
-                  TIMEOUT_SECONDS: '3600'
+                  TIMEOUT_SECONDS: '7200'
                   # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
                   INTERVAL_SECONDS: '120'
               run: |

@@ -187,13 +187,44 @@ Admission needs the login and the numeric account id to match one entry, `user.t
 A draft stays skipped before admission is considered.
 An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
 The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
-The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
-An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that pins its publisher (`Attestation.pins_publisher`) proved every file in the PR.
+An attestation pins its publisher through `publisher_files` or through an `issuer` manifest, never both, and one that does neither never counts for a bot, because a job of any PR could post it.
 Neither does a `sibling_files` companion, because the publisher did not name it.
 That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
 A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
 Removing the policy entry is enough to stop reviews.
 The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
+## Attestation issuers (who the publisher is, and what it may lift)
+
+An attestation entry splits who the publisher is from what it may do.
+`check` with an `app_id`, or with a `workflow` (see "Workflow publishers" below), identifies the publisher, and `paths` and `lifts` say what it may lift.
+The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
+A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
+The manifest must cover its own path, so an edit to it changes a pin as well.
+The policy only names the manifest. It never copies the list, so the two cannot drift apart.
+
+- Only trusted configuration selects the source. An entry with both `issuer` and `publisher_files` fails the policy load, and nothing falls back from one to the other.
+- The manifest path must match a `stamphog_policy` path pattern (not `edit_paths`), or the policy load fails. The manifest decides what a proof pins, so an edit to it needs the human review an edit to the policy gets.
+- The engine has no network, so the server reads each manifest the default-branch policy names (`logic/issuer_manifests.py`) from the default branch with the policy files, as the git blob at its path (`get_default_branch_blob_text`). A symlink reads as its link text and leaves the entry unusable, because the contents API would follow it to a target that neither self-governance nor the pins cover. The server stores it in `run.output["policy_files"]`, and writes it into both the sandbox payload and the worker's pre-check and attest tree. The sandbox payload command wipes the PR head's copy first, as it does for the optional policy files, so a manifest the default branch lacks is absent rather than read from the PR.
+- A missing or invalid manifest leaves the entry with no required pins (`Attestation.usable` is false). Such an entry lifts nothing, never counts as pending, and never proves a bot's file.
+- A result counts only when its `blobs` keys hold every manifest path verbatim and the server confirmed every pinned object still current. `logic/attestation_pins.py` compares a `/` key against the default branch's tree id and any other key against the blob id. A type mismatch, or an object that is gone, is not current. The posting-time `_attest_gates` reads the check runs through the same function, so the final check uses the same comparison.
+- The policy, the manifest and the pins are each read from the default branch by name, not from one resolved commit. The manifest covers itself, so an edit to it changes a pinned id and a proof made before the edit reads as stale. A proof made after it is checked against the copy the run read: it lifts when it pins every path that copy lists, and lifts nothing when the edit dropped one.
+
+## Workflow publishers (identity without an App)
+
+An entry names either an `app_id` or a default-branch `workflow` with its publishing `job` and the `events` it runs on, never both.
+Any job's built-in token can create a check run under any name and edit any check run a workflow wrote, so a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC token.
+`logic/workflow_proofs.py` verifies it, and its module docstring lists the accepted limits. Read it before you change how a result is selected or verified. The publisher's side of the contract is in the engine README's attestation section.
+
+A change to the verification keeps these true:
+
+- Every completed check run of the name is read with `filter=all` and verified once per signed content (token, conclusion, marker). No window of the newest check run ids is safe, because a writer orders them. A listing at the API page cap, or on a commit with more than 1000 check suites, proves nothing.
+- The claims name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. The expiry is not checked, on purpose.
+- The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
+- A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
+- A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
+- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
 
 ## The manual trigger (the one exception to label mode)
 
@@ -351,7 +382,7 @@ any failing gate other than the deny-list, and a migrations deny always drags th
 T2-never with it, so it answers False for every PR it exists to catch.
 
 The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
-After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, or for a workflow entry a result the server verified, the engine's own test for pending.
 It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
 Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
 A run that no report can wake, an inbox run or one at the per-head cap, does not poll.

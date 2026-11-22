@@ -159,6 +159,7 @@ class AnomalyScoringTickPlan:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    due_unread: int | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
@@ -232,6 +233,8 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    # Due rows that the read caps left out, so the backlog counts above do not include them.
+    due_unread: int | None = None
     first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
@@ -289,6 +292,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        due_unread=selection.due_unread,
         first_train=selection.first_train,
         cpu=selection.cpu,
     )
@@ -652,6 +656,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
+        due_unread=result.due_unread,
         first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
@@ -698,6 +703,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
+            "due_unread": result.due_unread,
             "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
             "picked_first_train": first_train.picked if first_train else None,
             "never_scored_due": first_train.never_scored_due if first_train else None,
@@ -810,6 +816,7 @@ class AnomalyScoringTickWorkflow:
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
+            due_unread=plan.due_unread,
             first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),

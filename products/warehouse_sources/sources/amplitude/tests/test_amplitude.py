@@ -5,7 +5,7 @@ import base64
 import zipfile
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import time_machine
@@ -30,14 +30,24 @@ from products.warehouse_sources.sources.amplitude.settings import (
     COHORTS_ENDPOINT,
     COMPOSITION_ENDPOINT,
     COMPOSITION_PROPERTIES,
+    DEPLOYMENTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    EXPERIMENTS_ENDPOINT,
+    FLAGS_ENDPOINT,
     GROUP_PROPERTIES_ENDPOINT,
+    LOOKUP_TABLES_ENDPOINT,
     RETENTION_ENDPOINT,
     REVENUE_LTV_ENDPOINT,
 )
-from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.amplitude.source import MISSING_MANAGEMENT_KEY_MESSAGE, AmplitudeSource
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _make_export_zip(files: list[list[dict[str, Any]]]) -> bytes:
@@ -69,8 +79,19 @@ def _response(status: int = 200, content: bytes = b"", json_body: Any = None, te
     return response
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(AmplitudeSource(), AmplitudeSourceConfig(api_key="key", secret_key="secret", region="us"))
+def _driver(region: Literal["us", "eu"] = "us", management_api_key: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        AmplitudeSource(),
+        AmplitudeSourceConfig(api_key="key", secret_key="secret", region=region, management_api_key=management_api_key),
+    )
+
+
+def _non_retryable_messages(error: BaseException | None) -> list[str | None]:
+    return [
+        message
+        for pattern, message in AmplitudeSource().get_non_retryable_errors().items()
+        if error_message_matches(str(error), [pattern])
+    ]
 
 
 class TestParseAmplitudeTimestamp:
@@ -312,6 +333,17 @@ class TestListRows:
                 "group_property",
                 [],
             ),
+            (
+                LOOKUP_TABLES_ENDPOINT,
+                [
+                    {"name": "sku_to_product", "columnHeaders": ["Category"], "keyColumnHeader": "SKU", "rowCount": 3},
+                    {"name": "store_to_region", "columnHeaders": ["Region"], "keyColumnHeader": "Store", "rowCount": 9},
+                ],
+                "/api/3/lookup_table",
+                "name",
+                ["sku_to_product", "store_to_region"],
+            ),
+            (LOOKUP_TABLES_ENDPOINT, [], "/api/3/lookup_table", "name", []),
         ]
     )
     def test_data_selector_extraction(
@@ -384,6 +416,110 @@ class TestFanoutRows:
         result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, forbidden])
 
         assert isinstance(result.raised, requests.HTTPError)
+
+
+class TestApiHosts:
+    @parameterized.expand(
+        [
+            (LOOKUP_TABLES_ENDPOINT, "us", None, [], "https://data-api.amplitude.com"),
+            (LOOKUP_TABLES_ENDPOINT, "eu", None, [], "https://data-api.eu.amplitude.com"),
+            (FLAGS_ENDPOINT, "us", "mgmt-key", {"flags": []}, "https://experiment.amplitude.com"),
+            (FLAGS_ENDPOINT, "eu", "mgmt-key", {"flags": []}, "https://experiment.eu.amplitude.com"),
+        ]
+    )
+    def test_endpoint_uses_its_regional_host(
+        self,
+        endpoint: str,
+        region: Literal["us", "eu"],
+        management_api_key: str | None,
+        body: Any,
+        expected_origin: str,
+    ) -> None:
+        result = _driver(region=region, management_api_key=management_api_key).run(
+            endpoint, [ScriptedResponse(json=body)]
+        )
+
+        assert [request.origin for request in result.requests] == [expected_origin]
+        assert result.raised is None
+
+
+class TestExperimentManagementRows:
+    @parameterized.expand(
+        [
+            (EXPERIMENTS_ENDPOINT, "experiments", "true"),
+            (FLAGS_ENDPOINT, "flags", "true"),
+            (DEPLOYMENTS_ENDPOINT, "deployments", None),
+        ]
+    )
+    def test_walks_cursor_pages_with_the_management_key(
+        self, endpoint: str, selector: str, include_archived: str | None
+    ) -> None:
+        pages = [
+            ScriptedResponse(json={selector: [{"id": "101"}, {"id": "102"}], "nextCursor": 2}),
+            ScriptedResponse(json={selector: [{"id": "103"}], "nextCursor": None}),
+        ]
+
+        result = _driver(management_api_key="mgmt-key").run(endpoint, pages)
+
+        assert [row["id"] for row in result.rows] == ["101", "102", "103"]
+        assert result.paths == [f"/api/1/{endpoint}"] * 2
+        assert result.params("cursor") == [None, "2"]
+        assert result.params("limit") == ["1000", "1000"]
+        assert result.params("includeArchived") == [include_archived] * 2
+        assert {request.headers["authorization"] for request in result.requests} == {"Bearer mgmt-key"}
+        assert any("mgmt-key" in options.get("redact_values", ()) for options in result.session_options)
+        assert result.raised is None
+
+    @parameterized.expand(
+        [
+            ("null_cursor", {"flags": [{"id": "2"}], "nextCursor": None}),
+            ("empty_cursor", {"flags": [{"id": "2"}], "nextCursor": ""}),
+            ("no_cursor_key", {"flags": [{"id": "2"}]}),
+            ("repeated_cursor", {"flags": [{"id": "2"}], "nextCursor": 1}),
+        ]
+    )
+    def test_stops_at_the_last_page(self, _name: str, last_page: dict[str, Any]) -> None:
+        pages = [ScriptedResponse(json={"flags": [{"id": "1"}], "nextCursor": 1}), ScriptedResponse(json=last_page)]
+
+        result = _driver(management_api_key="mgmt-key").run(FLAGS_ENDPOINT, pages)
+
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert len(result.requests) == 2
+        assert result.raised is None
+
+    def test_deployment_keys_are_not_synced(self) -> None:
+        body = {
+            "deployments": [
+                {
+                    "id": "11",
+                    "projectId": "200",
+                    "label": "production",
+                    "key": "server-fake-deployment-key",
+                    "deleted": False,
+                }
+            ]
+        }
+
+        result = _driver(management_api_key="mgmt-key").run(DEPLOYMENTS_ENDPOINT, [ScriptedResponse(json=body)])
+
+        assert result.rows == [{"id": "11", "projectId": "200", "label": "production", "deleted": False}]
+
+    def test_missing_management_key_fails_without_a_request(self) -> None:
+        result = _driver(management_api_key=None).run(EXPERIMENTS_ENDPOINT, always(ScriptedResponse(json={})))
+
+        assert result.requests == []
+        assert result.rows == []
+        assert _non_retryable_messages(result.raised) == [MISSING_MANAGEMENT_KEY_MESSAGE]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_rejected_management_key_maps_to_its_own_message(self, status: int) -> None:
+        result = _driver(management_api_key="mgmt-key").run(
+            FLAGS_ENDPOINT, [ScriptedResponse(status=status, json={"error": "Unauthorized"})]
+        )
+
+        messages = _non_retryable_messages(result.raised)
+        assert len(messages) == 1
+        assert messages[0] is not None and "Management API key" in messages[0]
 
 
 class TestParseChartDate:

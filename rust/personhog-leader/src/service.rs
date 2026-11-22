@@ -1025,8 +1025,6 @@ fn cached_person_into_proto(p: CachedPerson) -> Person {
         uuid: p.uuid,
         team_id: p.team_id,
         properties: p.properties,
-        properties_last_updated_at: Vec::new(),
-        properties_last_operation: Vec::new(),
         created_at: p.created_at,
         version: p.version,
         is_identified: p.is_identified,

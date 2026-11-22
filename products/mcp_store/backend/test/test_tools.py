@@ -112,7 +112,7 @@ class TestBoundedUpstreamResponses(SimpleTestCase):
             patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=responses),
             self.assertRaisesRegex(ToolCallError, message),
         ):
-            call_upstream_tool(installation, "search", {})
+            call_upstream_tool(installation, "search", {}, borrowed=False)
         self.assertTrue(all(response.is_closed for response in responses))
 
     @parameterized.expand([("discovery", True), ("handshake", False)])
@@ -375,7 +375,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
                     if operation == "fetch":
                         fetch_upstream_tools(installation)
                     else:
-                        call_upstream_tool(installation, "alpha", {})
+                        call_upstream_tool(installation, "alpha", {}, borrowed=False)
                 assert seen == []
                 return
             tools = fetch_upstream_tools(installation).tools
@@ -551,7 +551,7 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         call_body = json.dumps({"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "ok"}]}})
         client = _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=call_body))
 
-        result = call_upstream_tool(installation, "create_issue", {"title": "Bug"})
+        result = call_upstream_tool(installation, "create_issue", {"title": "Bug"}, borrowed=False)
 
         assert result["content"] == [{"type": "text", "text": "ok"}]
         call_post = client.post.call_args_list[2]
@@ -589,7 +589,9 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
             mock_client_cls, tools_list_response=_build_response(body=body, content_type=content_type)
         )
 
-        assert call_upstream_tool(installation, "create_issue", {})["content"] == [{"type": "text", "text": "ok"}]
+        assert call_upstream_tool(installation, "create_issue", {}, borrowed=False)["content"] == [
+            {"type": "text", "text": "ok"}
+        ]
 
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
     @patch("products.mcp_store.backend.tools.pinned_client")
@@ -606,7 +608,7 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         )
         _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
 
-        result = call_upstream_tool(installation, "create_issue", {})
+        result = call_upstream_tool(installation, "create_issue", {}, borrowed=False)
 
         assert result["isError"] is True
         assert result["content"] == [{"type": "text", "text": "title is required"}]
@@ -628,7 +630,7 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
 
         with pytest.raises(ToolCallError, match=expected_message):
-            call_upstream_tool(installation, "create_issue", {})
+            call_upstream_tool(installation, "create_issue", {}, borrowed=False)
 
     @patch(
         "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
@@ -637,7 +639,7 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
     def test_call_refuses_a_blocked_url(self, _allow):
         installation = self._installation()
         with pytest.raises(ToolCallError, match="URL not allowed"):
-            call_upstream_tool(installation, "create_issue", {})
+            call_upstream_tool(installation, "create_issue", {}, borrowed=False)
 
 
 class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):

@@ -28,13 +28,13 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     probe_status_message,
     retry_with_deadline,
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d+")
 TRANSPORT_RETRY = BoundedRetry(
     total=3,
@@ -146,14 +146,10 @@ class AwsEndUserMessagingClient:
         return self.request(operation, payload)
 
 
-def _column(key: str) -> str:
-    return _CAMEL_BOUNDARY.sub("_", key).lower()
-
-
 def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {}
     for key, value in item.items():
-        column = _column(key)
+        column = camel_to_snake(key)
         # The JSON protocol sends timestamps as epoch seconds.
         if column.endswith("timestamp") and isinstance(value, (int, float)) and not isinstance(value, bool):
             value = datetime.fromtimestamp(value, tz=UTC)

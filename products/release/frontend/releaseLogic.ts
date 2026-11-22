@@ -53,6 +53,7 @@ interface ReleaseLogicValues {
     currentProjectId: number | null
     featureFlags: FeatureFlagsSet
     releasesEnabled: boolean
+    releasesAreaEnabled: boolean
     user: UserType | null
     releases: ReleaseDTOApi[]
     releasesLoading: boolean
@@ -720,11 +721,16 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
         releasesEnabled: [
             (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASE_OBJECTS],
+        ],
+        releasesAreaEnabled: [
+            (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],
         ],
         canEditReleases: [
-            () => [],
-            (): boolean => userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
+            (s) => [s.releasesEnabled],
+            (releasesEnabled: boolean): boolean =>
+                releasesEnabled && userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
         ],
         partialLoadFailed: [
             (s) => [
@@ -858,12 +864,17 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setFeatureFlags: () => {
-            if (values.releasesEnabled && !cache.lastReloadAt) {
-                actions.reload()
+            if (
+                values.releasesEnabled !== cache.releasesEnabled ||
+                values.releasesAreaEnabled !== cache.releasesAreaEnabled
+            ) {
+                actions.reload(true)
             }
         },
         reload: ({ force }) => {
-            if (!values.releasesEnabled) {
+            cache.releasesEnabled = values.releasesEnabled
+            cache.releasesAreaEnabled = values.releasesAreaEnabled
+            if (!values.releasesEnabled && !values.releasesAreaEnabled) {
                 return
             }
             const now = Date.now()
@@ -871,7 +882,9 @@ export const releaseLogic = kea<releaseLogicType>([
                 return
             }
             cache.lastReloadAt = now
-            actions.loadReleases()
+            if (values.releasesEnabled) {
+                actions.loadReleases()
+            }
             actions.loadFlagCount()
             actions.loadExperimentCount()
             actions.loadEarlyAccessCount()
@@ -1058,6 +1071,9 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadEarlyAccessFeatures()
         },
         loadReleasesSuccess: () => {
+            if (!values.releasesEnabled) {
+                return
+            }
             actions.loadFlags()
             actions.loadScheduledChanges()
             actions.loadBroadcastSends()

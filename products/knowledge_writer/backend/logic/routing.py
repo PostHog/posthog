@@ -12,7 +12,7 @@ from products.business_knowledge.backend.facade import api as business_knowledge
 
 from ..facade.contracts import DocsRequest
 
-DOCS_SECTION_PATTERN = re.compile(r"^https://posthog\.com/docs/([a-z0-9-]+)")
+DOCS_PAGE_URL_PATTERN = re.compile(r"^https://posthog\.com/docs/[a-z0-9-]+")
 DOCS_PAGE_PATTERN = re.compile(r"^https://posthog\.com/docs/(.+)$")
 SEARCH_QUERY_MAX_LENGTH = 500
 SOURCE_REPOSITORY = "PostHog/posthog"
@@ -39,15 +39,13 @@ class GitHubReader(Protocol):
 
 
 @frozen
-class SectionRouting:
-    section: str | None
+class PageRouting:
     page_urls: tuple[str, ...]
     is_every_page_in_source_repository: bool = False
 
 
-def docs_section(page_url: str) -> str | None:
-    match = DOCS_SECTION_PATTERN.match(page_url)
-    return match.group(1) if match else None
+def is_docs_page_url(page_url: str) -> bool:
+    return DOCS_PAGE_URL_PATTERN.match(page_url) is not None
 
 
 def is_published_from_repository(github: GitHubReader, page_path: str, *, ref: str | None = None) -> bool:
@@ -85,20 +83,18 @@ def is_from_source_repository(request: DocsRequest) -> bool:
     return request.source_url.lower().startswith(f"https://github.com/{SOURCE_REPOSITORY}/".lower())
 
 
-def route_request(request: DocsRequest, *, team_id: int, github: GitHubReader | None) -> SectionRouting:
+def route_request(request: DocsRequest, *, team_id: int, github: GitHubReader | None) -> PageRouting:
     page_urls = request.suggested_page_urls
     if not page_urls:
         query = f"{request.trigger_instructions} {request.evidence}"[:SEARCH_QUERY_MAX_LENGTH]
         hits = business_knowledge_facade.search_knowledge(team_id=team_id, query=query)
-        docs_urls = [hit.url for hit in hits if docs_section(hit.url)]
+        docs_urls = [hit.url for hit in hits if is_docs_page_url(hit.url)]
         page_urls = tuple(dict.fromkeys(docs_urls))
     location_by_page_url = {page_url: page_location(github, page_url) for page_url in page_urls}
     writable_page_urls = tuple(
         page_url for page_url, location in location_by_page_url.items() if location == "docs_site"
     )
-    sections = [section for section in map(docs_section, writable_page_urls) if section]
-    return SectionRouting(
-        section=sections[0] if sections else None,
+    return PageRouting(
         page_urls=writable_page_urls,
         is_every_page_in_source_repository=is_from_source_repository(request)
         and bool(location_by_page_url)

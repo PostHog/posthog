@@ -2449,6 +2449,12 @@ class MetricsQueryLanguage(StrEnum):
     SQL = "sql"
 
 
+class MetricsQueryProvenanceMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"
+
+
 class MetricsRangeFunction(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
