@@ -162,7 +162,7 @@ def compare_flag_evaluations_json_parity(
     flags = flags_cluster(cluster)
     host = flags.cluster.any_host_in_shard_by_roles(min(flags.cluster.shards), [flags.node_role], flags.workload)
     query_tags = dagster_tags(context)
-    ingested_before = datetime.now(UTC) - timedelta(minutes=config.ingestion_margin_minutes)
+    ingested_before = f"{datetime.now(UTC) - timedelta(minutes=config.ingestion_margin_minutes):%Y-%m-%d %H:%M:%S}"
     query_settings = {
         "max_execution_time": config.max_execution_time_seconds,
         "max_memory_usage": config.max_memory_usage_bytes,
@@ -182,7 +182,7 @@ def compare_flag_evaluations_json_parity(
         params = {
             "start": f"{day:%Y-%m-%d} 00:00:00",
             "end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
-            "ingested_before": f"{ingested_before:%Y-%m-%d %H:%M:%S}",
+            "ingested_before": ingested_before,
         }
         day_diffs += compare_counts(counts(_day_query(legacy), params), counts(_day_query(new), params))
         flag_diffs += compare_counts(counts(_flag_query(legacy), params), counts(_flag_query(new), params))
