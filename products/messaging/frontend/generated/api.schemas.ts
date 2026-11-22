@@ -1427,7 +1427,7 @@ export interface CodeEmailApi {
     description: string
     /** Tags for organizing transactional emails. */
     tags: string[]
-    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    /** True when PostHog keeps no copy of each sent email's body and records only the site address of a clicked link. */
     sensitive: boolean
     /**
      * A link to the file in your repository that sends this email. Null when unlinked.

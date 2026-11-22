@@ -102,8 +102,8 @@ def get_settings(team_id: int) -> SupabaseAuthEmailSettings:
 
 
 def _sendable_template_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
-    # Auth emails carry sign-in codes and reset links, and only a sensitive template keeps them out of stored
-    # sends and click tracking.
+    # Auth emails carry sign-in codes and reset links. Only a sensitive template keeps them out of stored sends,
+    # and its click events record only the link's site address.
     return set(
         MessageTemplate.objects.filter(
             team_id=team_id,
