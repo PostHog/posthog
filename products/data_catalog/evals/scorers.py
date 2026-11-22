@@ -137,11 +137,13 @@ def _query_text(call: ToolCall) -> str:
     return query.lower() if isinstance(query, str) else ""
 
 
-_SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+# One pass reads string literals and comments, so a `--` inside a literal does not start a comment.
+_SQL_LITERAL_OR_COMMENT = re.compile(rf"({_STRING_LITERAL_RE.pattern})|--[^\n]*|/\*.*?\*/", re.DOTALL)
 
 
 def _query_code(call: ToolCall) -> str:
-    return " ".join(_SQL_COMMENT.sub(" ", _query_text(call)).split())
+    code = _SQL_LITERAL_OR_COMMENT.sub(lambda match: match.group(1) or " ", _query_text(call))
+    return " ".join(code.split())
 
 
 def _successful_sql(parser: LogParser) -> list[ToolCall]:
@@ -1209,6 +1211,10 @@ class QueryTermsUsed(Scorer):
     of a governed metric, or that it reached every source a markdown definition names. A term is a string or
     a list of strings, and a list counts as found when any one of its strings is in a query. The match skips SQL
     comments and treats any run of whitespace as one space, so a term in a comment does not count.
+
+    A string with no space can be a value, such as an event name, so it matches anywhere, string literals included.
+    A string with a space is SQL syntax, such as ``group by plan``. It matches only outside string literals and
+    only as whole words, so ``group by plan`` does not match ``group by plan_id``.
     """
 
     def _name(self) -> str:
@@ -1219,6 +1225,14 @@ class QueryTermsUsed(Scorer):
         if isinstance(term, str):
             return bool(term)
         return isinstance(term, list) and bool(term) and all(isinstance(option, str) and option for option in term)
+
+    @staticmethod
+    def _option_in(option: str, code: str) -> bool:
+        option = option.lower()
+        if " " not in option:
+            return option in code
+        phrase = re.compile(rf"(?<!\w){re.escape(option)}(?!\w)")
+        return phrase.search(_STRING_LITERAL_RE.sub("''", code)) is not None
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = expected_spec(expected, self._name())
@@ -1235,7 +1249,9 @@ class QueryTermsUsed(Scorer):
             term
             for term in terms
             if any(
-                option.lower() in query for option in ([term] if isinstance(term, str) else term) for query in queries
+                self._option_in(option, query)
+                for option in ([term] if isinstance(term, str) else term)
+                for query in queries
             )
         ]
         return Score(

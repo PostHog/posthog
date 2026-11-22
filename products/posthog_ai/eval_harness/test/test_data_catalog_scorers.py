@@ -916,6 +916,33 @@ _BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", _BUSINESS_MRR_PLAN_OPTIONS]
             0.5,
             [_BUSINESS_MRR_PLAN_OPTIONS],
         ),
+        (
+            "group_by_longer_column_name",
+            [
+                "SELECT properties.plan_id, sum(amount) FROM events WHERE event = 'paid_bill' "
+                "GROUP BY properties.plan_id"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_string_literal",
+            ["SELECT 'group by plan' AS note, sum(amount) FROM events WHERE event = 'paid_bill'"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "comment_marker_in_string_literal",
+            [
+                "SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill' AND note != 'a--b' "
+                "GROUP BY properties.plan"
+            ],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
     ]
 )
 def test_query_terms_used_scores_terms_in_data_queries(
