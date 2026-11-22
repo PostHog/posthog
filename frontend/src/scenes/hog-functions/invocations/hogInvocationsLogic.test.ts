@@ -183,41 +183,16 @@ describe('hogInvocationsLogic', () => {
         ]
 
         it.each([
-            {
-                lines: 'a hard bounce',
-                row: [
-                    'inv-1',
-                    0,
-                    ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
-                    [],
-                ],
-                level: null,
-                outcome: 'bounced',
-            },
+            { lines: 'a hard bounce', row: ['inv-1', 0, 1, 0], level: null, outcome: 'bounced' },
             {
                 lines: 'a soft bounce and an unrelated error',
-                row: ['inv-1', 2, ['Transient bounce to a@example.com'], []],
+                row: ['inv-1', 2, 1, 0],
                 level: 'error',
                 outcome: 'bounced',
             },
-            {
-                lines: 'a spam complaint',
-                row: ['inv-1', 0, [], ['[Action:send_1] Complaint from a@example.com, feedback type: abuse']],
-                level: null,
-                outcome: 'complained',
-            },
-            {
-                lines: 'a complaint and a bounce',
-                row: [
-                    'inv-1',
-                    0,
-                    ['[Action:send_2] Undetermined bounce to b@example.com'],
-                    ['Complaint from a@example.com'],
-                ],
-                level: null,
-                outcome: 'bounced',
-            },
-            { lines: 'a warning and no email lines', row: ['inv-1', 1, [], []], level: 'warn', outcome: null },
+            { lines: 'a spam complaint', row: ['inv-1', 0, 0, 1], level: null, outcome: 'complained' },
+            { lines: 'a complaint and a bounce', row: ['inv-1', 0, 1, 1], level: null, outcome: 'bounced' },
+            { lines: 'a warning and no email lines', row: ['inv-1', 1, 0, 0], level: 'warn', outcome: null },
             {
                 lines: 'a destination error',
                 functionKind: 'hog_function' as const,
