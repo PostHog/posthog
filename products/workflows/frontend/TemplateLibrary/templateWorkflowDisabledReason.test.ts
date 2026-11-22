@@ -1,4 +1,4 @@
-import { TemplateEditState, templateWorkflowDisabledReason } from './templateWorkflowDisabledReason'
+import { SENSITIVE_REASON, TemplateEditState, templateWorkflowDisabledReason } from './templateWorkflowDisabledReason'
 
 const saved: TemplateEditState = {
     draftsEnabled: true,
@@ -6,12 +6,14 @@ const saved: TemplateEditState = {
     hasUnsavedChanges: false,
     templateChanged: false,
     isSavingSensitive: false,
+    sensitive: false,
 }
 
 describe('templateWorkflowDisabledReason', () => {
     test.each<[string, Partial<TemplateEditState>, string | undefined]>([
         ['a published template', {}, undefined],
         ['a sensitive setting still saving', { isSavingSensitive: true }, 'Saving the setting'],
+        ['a sensitive template, whose values an event would store', { sensitive: true }, SENSITIVE_REASON],
         ['an unpublished draft', { hasDraft: true }, 'Publish your changes first'],
         ['unsaved edits with drafts on', { hasUnsavedChanges: true }, 'Publish your changes first'],
         ['unsaved edits with drafts off', { draftsEnabled: false, templateChanged: true }, 'Save your changes first'],

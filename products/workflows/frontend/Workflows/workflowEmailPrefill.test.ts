@@ -57,6 +57,22 @@ describe('workflowEmailPrefill', () => {
             '{{ person.properties.variables.x }}',
         ],
         ['a hyphenated name that ends in variables', '{{ my-variables.x }}', '{{ my-variables.x }}'],
+        ['an assignment of all variables', '{% assign data = variables %}', '{% assign data = event.properties %}'],
+        [
+            'a quoted key that names variables',
+            "{{ variables['variables.name'] }}",
+            "{{ event.properties['variables.name'] }}",
+        ],
+        [
+            'a quoted fallback link',
+            '{{ variables.link | default: "https://example.com/variables.html" }}',
+            '{{ event.properties.link | default: "https://example.com/variables.html" }}',
+        ],
+        [
+            'a fallback the email editor saved with encoded quotes',
+            '{{ variables.link | default: &quot;/variables.html&quot; }}',
+            '{{ event.properties.link | default: &quot;/variables.html&quot; }}',
+        ],
     ])('copies a template email with %s', (_, html, expected) => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',

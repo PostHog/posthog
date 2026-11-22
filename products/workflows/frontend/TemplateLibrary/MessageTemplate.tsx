@@ -156,6 +156,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             hasUnsavedChanges,
             templateChanged,
             isSavingSensitive,
+            sensitive: !!originalTemplate.sensitive,
         })
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)

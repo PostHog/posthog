@@ -55,14 +55,24 @@ export function templatePrefilledWorkflow(
     return { ...withEmailStep(base, trigger, emailAction), name: template.name }
 }
 
-// `variables` as a name of its own, not the end of `person.properties.variables` or `my-variables`. The email
+// `variables` as a name of its own, not part of `person.properties.variables` or `my-variables`. The email
 // editor saves a space in a link as `%20`, and `{{-` and `{%-` trim whitespace.
-const API_VARIABLE = /(^|[^\w.-]|[{%]-|%20)variables(?=[.[])/g
+const API_VARIABLE = /(^|[^\w.-]|[{%]-|%20)variables(?![\w-])/g
+// A quoted string is a value, such as a key or a fallback link, so it keeps its text. The email editor saves quotes
+// in its HTML as entities.
+const QUOTED = /('[^']*'|"[^"]*"|&quot;[\s\S]*?&quot;|&#x27;[\s\S]*?&#x27;|&#39;[\s\S]*?&#39;)/
+
+function withEventPropertiesInTag(tag: string): string {
+    return tag
+        .split(QUOTED)
+        .map((part, index) => (index % 2 ? part : part.replace(API_VARIABLE, '$1event.properties')))
+        .join('')
+}
 
 /** An event run gets no send API `variables`, so the copied email reads the same names from the event's properties. */
 function withEventPropertiesForVariables<T>(value: T): T {
     if (typeof value === 'string') {
-        return value.replace(LIQUID_EXPRESSION, (tag) => tag.replace(API_VARIABLE, '$1event.properties')) as T
+        return value.replace(LIQUID_EXPRESSION, withEventPropertiesInTag) as T
     }
     if (Array.isArray(value)) {
         return value.map(withEventPropertiesForVariables) as T
