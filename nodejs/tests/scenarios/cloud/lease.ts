@@ -105,22 +105,29 @@ async function register(
     }))
     const target = { Arn: DELETE_STACK, RoleArn: schedulerRole, Input: inputOf(manifest.stackName) }
     for (const { name, expression } of schedules) {
-        await controller.aws.call([
-            'scheduler',
-            'create-schedule',
-            '--name',
-            name,
-            '--schedule-expression',
-            expression,
-            '--schedule-expression-timezone',
-            'UTC',
-            '--flexible-time-window',
-            'Mode=OFF',
-            '--action-after-completion',
-            'DELETE',
-            '--target',
-            JSON.stringify(target),
-        ])
+        await controller.aws
+            .call([
+                'scheduler',
+                'create-schedule',
+                '--name',
+                name,
+                '--schedule-expression',
+                expression,
+                '--schedule-expression-timezone',
+                'UTC',
+                '--flexible-time-window',
+                'Mode=OFF',
+                '--action-after-completion',
+                'DELETE',
+                '--target',
+                JSON.stringify(target),
+            ])
+            .catch((error: unknown) => {
+                if (!(error instanceof AwsError && error.code === 'ConflictException')) {
+                    created.push(name)
+                }
+                throw error
+            })
         created.push(name)
     }
 }

@@ -373,9 +373,12 @@ describe('cloud controller', () => {
         }
     })
 
-    it('deletes the schedule it created and names the run when the second schedule fails', async () => {
+    it.each<[string, (fake: FakeCloud) => void]>([
+        ['the second schedule fails', (fake) => fake.failOnCall('create-schedule', 2)],
+        ['the second schedule is made but its answer is lost', (fake) => fake.loseResponseOf('create-schedule', 2)],
+    ])('deletes the schedules it made and names the run when %s', async (_story, arrange) => {
         const { controller } = prepare()
-        cloud.failOnCall('create-schedule', 2)
+        arrange(cloud)
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
 
@@ -388,13 +391,16 @@ describe('cloud controller', () => {
 
     it.each<[string, NodeJS.ProcessEnv, unknown]>([
         [
-            'a new run id',
+            'a new run id, on a CLI without create-only writes',
             {},
             expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
         ],
         ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
     ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
         const { controller } = prepare({ env })
+        if (env.SCENARIO_RUN_ID === undefined) {
+            cloud.failWhen('put-object', (args) => args.includes('--if-none-match'), 'UnknownOption')
+        }
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
@@ -431,19 +437,29 @@ describe('cloud controller', () => {
         expect(cloud.stacks.size).toBe(0)
     })
 
-    it('keeps the expiry schedules of a given run id that a lease in another evidence bucket cannot take', async () => {
-        const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
-        await leaseAt(T, controller)
-        const schedules = schedulesFor(GIVEN_RUN_ID)
-        cloud.objects.clear()
-        now = new Date(T.getTime() + 60 * 60 * 1000)
+    it.each<[string, (fake: FakeCloud) => void]>([
+        ['holds both schedules', () => undefined],
+        [
+            'holds only the retry schedule, after the expiry fired',
+            (fake) => fake.schedules.delete(`scn-${GIVEN_RUN_ID}-expiry`),
+        ],
+    ])(
+        "keeps the first run's schedules when a lease of its id in another evidence bucket fails, while the first run %s",
+        async (_story, arrange) => {
+            const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            await leaseAt(T, controller)
+            arrange(cloud)
+            const schedules = schedulesFor(GIVEN_RUN_ID)
+            cloud.objects.clear()
+            now = new Date(T.getTime() + 60 * 60 * 1000)
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.not.toBe(0)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.not.toBe(0)
 
-        expect(err.join('\n')).toContain(`Run ${GIVEN_RUN_ID} was not leased`)
-        expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
-        expect(cloud.stacks.size).toBe(0)
-    })
+            expect(err.join('\n')).toContain(`Run ${GIVEN_RUN_ID} was not leased`)
+            expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
+            expect(cloud.stacks.size).toBe(0)
+        }
+    )
 
     it('runs on the profile the account pin checked, even when the file changes during the identity check', async () => {
         const { controller } = prepare()
