@@ -593,12 +593,12 @@ def shard_workload() -> tuple[Workload, NodeRole]:
     return (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
 
 
-def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Client], T]:
+def tagged(
+    query_tags: DagsterTags, fn: Callable[[Client], T], *, feature: Feature = Feature.BACKFILL
+) -> Callable[[Client], T]:
     # The cluster runs fn on a pool thread. The query tags do not cross into that thread.
     def run(client: Client) -> T:
-        with tags_context(
-            kind="dagster", dagster=query_tags, product=ProductKey.FEATURE_FLAGS, feature=Feature.BACKFILL
-        ):
+        with tags_context(kind="dagster", dagster=query_tags, product=ProductKey.FEATURE_FLAGS, feature=feature):
             return fn(client)
 
     return run
