@@ -251,8 +251,13 @@ class TestMailgunImport(BaseTest):
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
         assert templates["welcome"].content["email"]["subject"] == 'Welcome {{ variables.name | join: "," }}'
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
-        # It has a condition, so it stays as text for a person to rewrite.
-        assert templates["welcome"].content["email"]["html"].startswith("&lt;h1&gt;Hello")
+        assert (
+            templates["welcome"]
+            .content["email"]["html"]
+            .startswith(
+                '<h1>Hello {{ variables.name | join: "," }}</h1>{% if variables.vip != nil and variables.vip != false and variables.vip != 0 and variables.vip.length != 0 or variables.vip != empty %}'
+            )
+        )
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]
         assert templates[DOMAIN_WELCOME].content["email"]["html"].startswith("&lt;p&gt;Hi")
         assert "Hallo" in templates[EU_WELCOME].content["email"]["html"]
@@ -260,7 +265,7 @@ class TestMailgunImport(BaseTest):
 
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
         assert any("Still in Mailgun: v1" in note for note in items["welcome"]["notes"])
-        assert any("only converts plain values" in note for note in items["welcome"]["notes"])
+        assert not any("convert" in note for note in items["welcome"]["notes"])
         assert any("Go templates" in note for note in items["welcome (mg.example.com)"]["notes"])
         unicode_item = items["reçu 🧾 mensuel (mg.example.com)"]
         assert any("{{lookup a b}}" in note for note in unicode_item["notes"])
