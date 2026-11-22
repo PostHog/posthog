@@ -5624,15 +5624,15 @@ Today (17): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts
 Diffed against: <https://developers.featurebase.app/llms.txt>
 
 - [x] `support/conversations (list)` — the entire support inbox - conversation volume, first response and resolution analysis (high)
-- [ ] `support/conversations (search)` — a POST query endpoint over the collection `conversations` already syncs, returning a slimmer inbox row; declined as a separate table (high)
+- [ ] `support/conversations (search)` — a POST query endpoint over the collection `conversations` already syncs, returning a slimmer inbox row; declined as a separate table (high) Skipped: POST search over the already-synced conversations collection, not a separate table.
 - [x] `support/tickets (list)` — ticket workload and lifecycle, the other half of the support product (high)
 - [x] `support/tickets/statuses` — lookup table resolving the status id on every ticket (high)
 - [x] `support/conversation_tags (list)` — lookup table for tags applied to conversations - the main support breakdown dimension (high)
 - [x] `surveys and surveys/list_responses` — survey responses are raw analytical rows (NPS/CSAT style) with no equivalent in the synced tables (high)
 - [x] `support/tickets/categories` — lookup resolving ticket category ids (medium)
-- [ ] `help_center/articles (list)` — article inventory for content and deflection analysis (medium)
-- [ ] `organization/teams` — lookup resolving the team an admin or conversation is assigned to (medium)
-- [ ] `audit_logs (list)` — workspace change history (medium)
+- [x] `help_center/articles (list)` — article inventory for content and deflection analysis (medium) → `help_center_articles` (full refresh, live and draft)
+- [x] `organization/teams` — lookup resolving the team an admin or conversation is assigned to (medium) → `teams` (full refresh)
+- [x] `audit_logs (list)` — workspace change history (medium) → `audit_logs` (incremental on `createdAt` via `startDate`)
 - [ ] `users/companies/{id}/contacts` — company-to-contact membership table joining the companies and contacts we already sync (medium)
 - [ ] `support/conversations/{id}/participants` — participant membership per conversation. No read endpoint exists: the participants subresource only exposes add and remove, and the conversation row already carries its participants (medium)
 - [ ] `help_center/collections` — lookup grouping articles into collections (low)
