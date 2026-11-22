@@ -25,6 +25,9 @@ export interface ImpactLift {
 export const LINK_TAGGING_DETAIL =
     "PostHog follows a click into your product through a tag on the email's links. Link tagging isn't on for this project yet. Conversions still count, because they go through the person on each send."
 
+const TRACKING_OFF_DETAIL =
+    "Every send in this period went out with tracking off, so PostHog couldn't record opens or clicks."
+
 function share(value: number, of: number): number | null {
     return of > 0 ? value / of : null
 }
@@ -68,12 +71,11 @@ export function stepBarPercents(steps: ImpactStep[]): (number | null)[] {
 }
 
 export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
-    const conversions = impact.after_click
     return [
         { key: 'sent', label: 'Sent', value: impact.sent, share: null },
         { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
-        { key: 'opened', label: 'Opened', value: impact.opened, share: null },
-        { key: 'clicked', label: 'Clicked', value: impact.clicked, share: null },
+        trackedStep('opened', 'Opened', impact.opened, impact),
+        trackedStep('clicked', 'Clicked', impact.clicked, impact),
         {
             key: 'session',
             label: 'Started a session',
@@ -82,16 +84,66 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
             missing: 'Needs link tagging',
             missingDetail: LINK_TAGGING_DETAIL,
         },
-        event && conversions
-            ? {
-                  key: 'converted',
-                  label: event,
-                  value: conversions.converted,
-                  share: share(conversions.converted, conversions.sends),
-                  ...conversionBase(conversions.sends, impact.clicked),
-              }
-            : { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' },
+        conversionStep(impact, event),
     ]
+}
+
+function everySendUntracked(impact: TransactionalEmailImpactApi): boolean {
+    return impact.untracked > 0 && impact.untracked >= impact.sent
+}
+
+function trackedStep(
+    key: ImpactStepKey,
+    label: string,
+    value: number,
+    impact: TransactionalEmailImpactApi
+): ImpactStep {
+    if (value === 0 && everySendUntracked(impact)) {
+        return { key, label, value: null, share: null, missing: 'Tracking off', missingDetail: TRACKING_OFF_DETAIL }
+    }
+    return { key, label, value, share: null }
+}
+
+function conversionStep(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep {
+    const conversions = impact.after_click
+    if (!event || !conversions) {
+        return { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' }
+    }
+    if (conversions.sends === 0) {
+        return { key: 'converted', label: event, value: null, share: null, ...noClickToFollow(impact) }
+    }
+    return {
+        key: 'converted',
+        label: event,
+        value: conversions.converted,
+        share: share(conversions.converted, conversions.sends),
+        ...conversionBase(conversions.sends, impact.clicked),
+    }
+}
+
+function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 'missing' | 'missingDetail'> {
+    if (impact.clicked > 0) {
+        return {
+            missing: 'None followed',
+            missingDetail: `PostHog follows the sends that name a person, and none of the ${humanFriendlyNumber(impact.clicked)} clicked sends in this period did.`,
+        }
+    }
+    if (everySendUntracked(impact)) {
+        return {
+            missing: 'Tracking off',
+            missingDetail: `This counts conversions after a click. ${TRACKING_OFF_DETAIL}`,
+        }
+    }
+    return {
+        missing: 'No clicks',
+        missingDetail: 'This counts conversions after a click, and no send in this period was clicked.',
+    }
+}
+
+export function noClickReason(impact: TransactionalEmailImpactApi): string {
+    return everySendUntracked(impact)
+        ? 'No clicks were recorded, because every send in this period went out with tracking off.'
+        : 'No clicks were recorded in this period.'
 }
 
 function conversionBase(followed: number, of: number): Pick<ImpactStep, 'shareOf' | 'shareDetail'> {
