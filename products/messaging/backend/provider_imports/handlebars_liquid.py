@@ -10,8 +10,8 @@ each false value instead. `x.length == 0 and x == empty` matches only "" and an 
 matches an empty object, and `length` alone an object with a `length` key. Liquid reads `and` and `or` from the right,
 so the last test groups as intended.
 
-`{{#each}}` becomes a `for` loop. Over a list it matches. Over an object Handlebars loops over its values and Liquid
-over its key and value pairs, which an import can't tell apart.
+`{{#each}}` becomes a `for` loop over the values Handlebars would loop over: a list's items or an object's values,
+and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once.
 """
 
 import re
@@ -41,6 +41,8 @@ _TAKEN_NAMES = frozenset(
     # Liquid reads these as operators inside a condition.
     | {"and", "or", "contains", "in"}
 )
+# Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
+_LIST_NAME = re.compile(r"(?:kind|values|pair)\d+")
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
 _MAX_OUTPUT_CHARS = 5_000_000
 HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
@@ -96,6 +98,7 @@ class HandlebarsToLiquid:
         self._loop_names: list[str] = []
         self._after_raw_html = False
         self._written = 0
+        self._lists = 0
 
     def convert(self, nodes: tuple[object, ...]) -> str:
         converted = self._nodes(nodes, (_Frame(this="variables"),))
@@ -264,7 +267,7 @@ class HandlebarsToLiquid:
         start = self._snapshot()
         # A loop body that runs zero times or many times has to leave the HTML where it found it.
         ends: list[Place | None] = [start]
-        opening = self._spend(f"{{% for {loop_name} in {source} %}}")
+        opening = self._spend(self._loop_values(source, loop_name))
         self._loop_names.append(loop_name)
         try:
             body = self._branch(start, ends, block.body, (*frames, frame))
@@ -419,7 +422,25 @@ class HandlebarsToLiquid:
         return f"{path} == nil or {path} == false{zero} or {path}.length == 0 and {path} == empty"
 
     def _free_name(self, name: str) -> bool:
-        return bool(_SEGMENT.fullmatch(name)) and name not in _TAKEN_NAMES and name not in self._loop_names
+        return (
+            bool(_SEGMENT.fullmatch(name))
+            and name not in _TAKEN_NAMES
+            and name not in self._loop_names
+            and not _LIST_NAME.fullmatch(name)
+        )
+
+    def _loop_values(self, source: str, loop_name: str) -> str:
+        """Opens a loop over what Handlebars loops over. The value's JSON starts with `[` for a list and `{` for an
+        object, whose values are gathered first. Anything else has nothing to loop over."""
+        self._lists += 1
+        kind, values, pair = f"kind{self._lists}", f"values{self._lists}", f"pair{self._lists}"
+        return (
+            f"{{% assign {kind} = {source} | json | slice: 0 %}}{{% assign {values} = {source} %}}"
+            f'{{% if {kind} == "{{" %}}{{% assign {values} = "" | split: "," %}}'
+            f"{{% for {pair} in {source} %}}{{% assign {values} = {values} | push: {pair}[1] %}}{{% endfor %}}"
+            f'{{% elsif {kind} != "[" %}}{{% assign {values} = "" | split: "," %}}{{% endif %}}'
+            f"{{% for {loop_name} in {values} %}}"
+        )
 
     def _next_loop_name(self) -> str:
         count = 1
