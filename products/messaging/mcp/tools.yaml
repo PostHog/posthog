@@ -125,8 +125,8 @@ tools:
             idempotent: false
         title: Start an import from another email tool
         description: >
-            Start a background import from another email tool, such as Resend, Postmark, SendGrid or Mailgun, into the
-            active project. Before the first call, tell the user the project's name and id and ask whether the data
+            Start a background import from another email tool, such as Resend, Postmark, SendGrid, Mailgun or Mailchimp,
+            into the active project. Before the first call, tell the user the project's name and id and ask whether the data
             belongs there. Check for an active run first, then ask the user to create the API key themselves and treat
             it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers,
             and any `settings` it lists: ask the user for a setting whose `default` is null, such as Mailgun's region,

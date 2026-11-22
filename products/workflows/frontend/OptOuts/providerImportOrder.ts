@@ -5,9 +5,9 @@ export type ImportEntryPoint = 'workflows' | 'templates' | 'transactional' | 'br
 
 const STEPS_FIRST: Record<ImportEntryPoint, string[]> = {
     workflows: ['automations'],
-    templates: ['templates'],
+    templates: ['templates', 'campaigns'],
     transactional: ['templates'],
-    broadcasts: ['contacts', 'lists', 'mailing_lists'],
+    broadcasts: ['contacts', 'lists', 'mailing_lists', 'audiences'],
     'opt-outs': [],
 }
 
