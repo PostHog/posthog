@@ -73,7 +73,7 @@ const transactionalTemplate = {
     id: 'message-template-1',
     name: 'Order receipt',
     description: '',
-    sensitive: true,
+    sensitive: false,
     transactional_hog_flow_id: 'transactional-flow-1',
     content: {
         templating: 'liquid',
@@ -218,7 +218,7 @@ describe('workflowLogic pages opened from a link or a template', () => {
             config: {
                 template_id: 'template-email',
                 message_category_type: 'transactional',
-                sensitive: true,
+                sensitive: false,
                 inputs: {
                     email: {
                         templating: 'liquid',
@@ -244,9 +244,15 @@ describe('workflowLogic pages opened from a link or a template', () => {
         })
     })
 
-    it('opens the event workflow without an email step when the template no longer exists', async () => {
+    it.each([
+        ['the template no longer exists', () => [404, { detail: 'Not found.' }]],
+        [
+            'the template is sensitive, as its values would come from a stored event',
+            () => [200, { ...transactionalTemplate, sensitive: true }],
+        ],
+    ])('opens the event workflow without an email step when %s', async (_, respond) => {
         useMocks({
-            get: { '/api/projects/:team_id/messaging_templates/:id/': () => [404, { detail: 'Not found.' }] },
+            get: { '/api/projects/:team_id/messaging_templates/:id/': respond },
         })
         const logic = workflowLogic({
             id: 'new',

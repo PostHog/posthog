@@ -82,6 +82,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { SENSITIVE_REASON } from '../TemplateLibrary/templateWorkflowDisabledReason'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import {
     EmailSendingPause,
@@ -243,6 +244,10 @@ async function loadEmailTemplate(templateId: string | undefined): Promise<Messag
     }
     try {
         const template = await messagingTemplatesRetrieve(String(ApiConfig.getCurrentTeamId()), templateId)
+        if (template.sensitive) {
+            lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
+            return null
+        }
         return template.content?.email ? template : null
     } catch {
         lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
