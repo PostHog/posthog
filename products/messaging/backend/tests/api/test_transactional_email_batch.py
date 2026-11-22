@@ -341,6 +341,13 @@ class TestTransactionalEmailBatch(APIBaseTest):
                 "recipients__0__identifiers",
             ),
             ("recipient_cc", "code", {"recipients": [{**RECIPIENT, "cc": []}]}, "recipients__0__cc"),
+            ("shared_field_name_not_valid_unicode", "template", {"\ud800": 1}, "\\ud800"),
+            (
+                "recipient_field_name_not_valid_unicode",
+                "template",
+                {"recipients": [{**RECIPIENT, "\ud800": 1}]},
+                "recipients__0__\\ud800",
+            ),
             (
                 "recipient_message_data_with_template_key",
                 "code",
