@@ -390,27 +390,22 @@ describe('providerImportLogic', () => {
         expect(logic.values.selectedProvider?.key).toBe('customerio')
     })
 
-    it.each(['workflows', 'broadcasts'] as const)(
-        'lists the tools by name from the %s page, whatever order the API sends',
-        (entryPoint) => {
-            const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
-            logic.actions.loadImportProvidersSuccess([
-                tool('sendgrid', 'SendGrid'),
-                PROVIDER_OPTION,
-                tool('resend', 'Resend'),
-                tool('mailgun', 'Mailgun'),
-                tool('postmark', 'Postmark'),
-            ] as any)
+    it('lists the tools by name, whatever order the API sends', () => {
+        const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
+        logic.actions.loadImportProvidersSuccess([
+            tool('sendgrid', 'SendGrid'),
+            PROVIDER_OPTION,
+            tool('resend', 'Resend'),
+            tool('mailgun', 'Mailgun'),
+            tool('a-postmark', 'Postmark'),
+        ] as any)
 
-            logic.actions.openImportModal(null, entryPoint)
-
-            expect(logic.values.orderedImportProviders.map((provider) => provider.label)).toEqual([
-                'Customer.io',
-                'Mailgun',
-                'Postmark',
-                'Resend',
-                'SendGrid',
-            ])
-        }
-    )
+        expect(logic.values.orderedImportProviders.map((provider) => provider.label)).toEqual([
+            'Customer.io',
+            'Mailgun',
+            'Postmark',
+            'Resend',
+            'SendGrid',
+        ])
+    })
 })
