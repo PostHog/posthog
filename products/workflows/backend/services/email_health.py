@@ -176,13 +176,15 @@ def _recent_allowance_changes(team_id: int, now: datetime) -> tuple[EmailSending
     ).order_by("-created_at")[:RECENT_ALLOWANCE_CHANGES_LIMIT]
     changes: list[EmailSendingAllowanceChange] = []
     for row in rows:
-        tier_change = next(change for change in row.detail["changes"] if change["field"] == "email_sending_tier")
+        # The filter above only matches rows with a detail.
+        detail = row.detail or {}
+        tier_change = next(change for change in detail["changes"] if change["field"] == "email_sending_tier")
         changes.append(
             EmailSendingAllowanceChange(
                 changed_at=row.created_at,
                 previous_emails_per_day=get_email_sending_tier_limits(tier_change["before"]).per_day,
                 emails_per_day=get_email_sending_tier_limits(tier_change["after"]).per_day,
-                reason=row.detail.get("context", {}).get("reason", ""),
+                reason=detail.get("context", {}).get("reason", ""),
             )
         )
     return tuple(changes)
