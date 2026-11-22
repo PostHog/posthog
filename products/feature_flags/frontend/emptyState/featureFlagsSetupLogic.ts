@@ -31,6 +31,7 @@ export const featureFlagsSetupLogic = createSetupDetectionLogic({
     // Undo of a deleted flag brings it back without remounting the gate, so no flag check runs on its own.
     // The flag list reloads after Undo, and that reload is the signal to check again.
     recheckActionTypes: () => [featureFlagsLogic.actionTypes.loadFeatureFlagsSuccess],
+    statusFromRecheck: ({ featureFlags }) => (featureFlags.count > 0 ? 'has-data' : null),
     cacheHasData: true,
     revalidateCachedHasData: true,
 })

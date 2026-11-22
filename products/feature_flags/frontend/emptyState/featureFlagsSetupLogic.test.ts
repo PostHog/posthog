@@ -50,7 +50,7 @@ describe('featureFlagsSetupLogic', () => {
 
     // Undo of a project's only deleted flag reloads the flag list without remounting the gate.
     it.each([
-        [0, 'needs-setup', 3],
+        [0, 'needs-setup', 2],
         [1, 'has-data', 1],
     ])(
         'on a flag list reload after mounting with %i live flags (%s), makes %i requests and ends has-data',
