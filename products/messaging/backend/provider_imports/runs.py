@@ -220,7 +220,7 @@ def finish_run(team_id: int, run_id: UUID) -> None:
     _close_run(team_id, run_id)
 
 
-def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int]) -> None:
+def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int | None]) -> None:
     """Save how sending a step's contact lists went. A list that failed fails the step, so the run shows it."""
     with transaction.atomic():
         run = _runs(team_id).select_for_update().get(id=run_id)
@@ -228,7 +228,24 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
             return
         progress = run.progress.setdefault(step, _new_step_progress())
         progress["people_import"] = dict(outcome)
-        if outcome.get("failed_lists"):
+        not_sent = 0
+        if (sent := outcome.get("sent")) is not None:
+            counts = progress.setdefault("counts", {})
+            if "people_to_send" not in counts:
+                # Stored before this count existed: its contacts sit in `people`, and its parts don't say who is new.
+                counts["people_to_send"] = counts.get("people", 0)
+            else:
+                counts["new_people"] = outcome.get("new_people") or 0
+            not_sent = max(counts["people_to_send"] - sent, 0)
+            counts.update(people=sent, not_sent=not_sent)
+            progress["imported"] = sent
+        if not_sent:
+            progress.update(
+                status=ImportStepStatus.FAILED.value,
+                last_error=f"{not_sent:,} {'contact' if not_sent == 1 else 'contacts'} didn't reach PostHog, so their "
+                "people weren't created or updated. Import again to retry.",
+            )
+        elif outcome.get("failed_lists"):
             progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
         run.save(update_fields=["progress"])
 
