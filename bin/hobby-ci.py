@@ -148,20 +148,20 @@ class HobbyTester:
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
-        ci-nodejs-container.yml tags images as pr-<number> for PRs.
-        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
-        so the hobby-installer writes it to .env and docker-compose uses
-        the branch image. Otherwise falls back to 'latest'.
+        ci-nodejs-container.yml tags images as pr-<number> for PRs, and builds one only when the
+        PR changes the Node code. Checks GHCR for that tag; if found, exports POSTHOG_NODE_TAG
+        so the hobby-installer writes it to .env and docker-compose uses the branch image.
+        Otherwise falls back to 'latest', the newest master build. check_node_image_age fails
+        the smoke test when that fallback is an old image.
         """
         if self.pr_number and self.pr_number != "unknown":
             tag = f"pr-{self.pr_number}"
         else:
             tag = "$CURRENT_COMMIT"
         return (
-            "if curl -sf "
-            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
+            f"if docker manifest inspect ghcr.io/posthog/posthog-node:{tag} "
             "> /dev/null 2>&1; then "
-            f"echo posthog-node image found on DockerHub with tag {tag}; "
+            f"echo posthog-node image found on GHCR with tag {tag}; "
             f"export POSTHOG_NODE_TAG={tag}; "
             "else "
             "echo posthog-node image not found, using latest; "
@@ -1017,7 +1017,7 @@ runcmd:
         pr_tag = f"pr-{self.pr_number}" if self.pr_number and self.pr_number != "unknown" else None
         candidate_tag = pr_tag or new_sha
         print(f"🔍 Checking if node image exists with tag: {candidate_tag}...")
-        check_node_cmd = f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{candidate_tag}" > /dev/null 2>&1'
+        check_node_cmd = f"docker manifest inspect ghcr.io/posthog/posthog-node:{candidate_tag} > /dev/null 2>&1"
         result = self.run_ssh_command(check_node_cmd, timeout=30)
         if result["exit_code"] == 0:
             node_tag = candidate_tag
@@ -1048,7 +1048,7 @@ runcmd:
         update_compose_cmd = (
             f"cd /hobby && "
             f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
-            f"sed -i 's|posthog/posthog-node:[^[:space:]]*|posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+            f"sed -i 's|ghcr.io/posthog/posthog-node:[^[:space:]]*|ghcr.io/posthog/posthog-node:{node_tag}|g' docker-compose.yml"
         )
         result = self.run_ssh_command(update_compose_cmd, timeout=30)
         if result["exit_code"] != 0:
