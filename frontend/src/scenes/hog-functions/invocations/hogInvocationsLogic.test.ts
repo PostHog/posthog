@@ -182,7 +182,8 @@ describe('hogInvocationsLogic', () => {
             '',
         ]
 
-        // The messages are the warn and error log lines of the run, as the SES feedback handler writes them.
+        // The messages are the run's warn and error log lines that mention a bounce or a complaint, as the SES
+        // feedback handler writes them.
         it.each([
             {
                 messages: ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
@@ -190,6 +191,7 @@ describe('hogInvocationsLogic', () => {
             },
             { messages: ['Transient bounce to a@example.com'], outcome: 'bounced' },
             { messages: ['[Action:send_1] Complaint from a@example.com, feedback type: abuse'], outcome: 'complained' },
+            { messages: ['[Action:send_1] Complaint from a@example.com, feedback type: not-spam'], outcome: null },
             {
                 messages: ['Complaint from a@example.com', '[Action:send_2] Undetermined bounce to b@example.com'],
                 outcome: 'bounced',

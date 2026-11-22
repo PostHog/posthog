@@ -89,13 +89,15 @@ interface RunProblems {
 // nodejs/src/cdp/services/messaging/helpers/ses.ts writes, with the optional [Action:<id>] prefix.
 const BOUNCE_LOG_PATTERN = /^(\[Action:[\w-]+\] )?(Permanent|Transient|Undetermined) bounce to /
 const COMPLAINT_LOG_PATTERN = /^(\[Action:[\w-]+\] )?Complaint from /
+// A "not-spam" feedback type corrects an earlier spam report, so the SES handler does not count it as a complaint.
+const NOT_SPAM_FEEDBACK_PATTERN = /, feedback type: not-spam$/i
 
 // A bounce outranks a complaint: a complaint means the email arrived.
-export const emailOutcomeFromLogMessages = (messages: string[]): EmailOutcome | null => {
+const emailOutcomeFromLogMessages = (messages: string[]): EmailOutcome | null => {
     if (messages.some((message) => BOUNCE_LOG_PATTERN.test(message))) {
         return 'bounced'
     }
-    if (messages.some((message) => COMPLAINT_LOG_PATTERN.test(message))) {
+    if (messages.some((message) => COMPLAINT_LOG_PATTERN.test(message) && !NOT_SPAM_FEEDBACK_PATTERN.test(message))) {
         return 'complained'
     }
     return null
@@ -806,13 +808,21 @@ async function fetchRunProblems(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
-    // Return only the start of each message to keep the response small. The start holds the
-    // [Action:<id>] prefix and the words that mark a bounce or complaint line.
+    // Return at most 10 candidate bounce and complaint lines per run, cut to 400 characters, so the
+    // response stays small however many problems a run logs. The cut keeps the [Action:<id>] prefix,
+    // the recipient and the complaint feedback type.
     const severityQuery = hogql`
         SELECT
             instance_id,
             max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev,
-            groupUniqArrayIf(substring(message, 1, 200), lower(level) IN ('warn', 'error')) AS problem_messages
+            arraySlice(
+                groupUniqArrayIf(
+                    substring(message, 1, 400),
+                    lower(level) IN ('warn', 'error') AND (message LIKE '%bounce to %' OR message LIKE '%Complaint from %')
+                ),
+                1,
+                10
+            ) AS email_messages
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
