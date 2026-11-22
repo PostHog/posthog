@@ -2957,7 +2957,7 @@ Note: Parsed the OpenAPI YAML served at /docs/openapi.en.yaml (Scalar page). The
 
 ## Chargebee — gaps
 
-Today (13): `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `Subscriptions`, `Transactions`
+Today (17): `Coupons`, `CreditNotes`, `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `PaymentSources`, `Subscriptions`, `Transactions`, `Usages`
 
 Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
@@ -2971,18 +2971,20 @@ Note: `metered_features` has only write endpoints (create, archive, reactivate, 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
-- [ ] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
-- [ ] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
+- [x] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
+- [x] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
 - [ ] `Coupon codes (GET /coupon_codes)` — individual redeemable codes under each coupon set (low)
 - [ ] `Item families (GET /item_families)` — lookup resolving the item_family_id carried on items (medium)
 - [ ] `Promotional credits (GET /promotional_credits)` — credit grants and deductions on customer accounts (medium)
-- [ ] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
+- [x] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
 - [ ] `Quotes (GET /quotes)` — sales quotes and their status for quote-to-subscription analysis (low)
-- [ ] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
+- [x] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
 - [ ] `Features (GET /features)` — feature catalog behind entitlements (low)
 - [ ] `Unbilled charges (GET /unbilled_charges)` — charges queued for the next invoice (low)
 
 Note (2026-11-19): Listed all GET routes in the pc_v2 OpenAPI spec and removed the ones we sync or that need a parent id (ledger_operations, grant_blocks, ramps, addresses). The list routes above need no required filter. Usages may need a filter such as subscription id in practice, so check before building. Existing appendix skips (email_logs, ledger_entries, metered_features) are not repeated. Gateway logs, hosted pages and webhook endpoints were excluded as plumbing.
+
+Note (2026-11-22): Credit notes, coupons, payment sources and usages were built. The pc_v2 spec gives `GET /usages` no required filter, so it is a site-wide list. A usage is read through `/subscriptions/{id}/usages`, so the table keys on `subscription_id` and `id`. Coupons sync as full refresh only, because a coupon's `updated_at` does not change when its `redemptions` count changes.
 
 ## Chargedesk — adequate
 
