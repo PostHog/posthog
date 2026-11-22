@@ -712,8 +712,77 @@ jobs:
 
     # The warehouse source vendors under products/warehouse_sources/sources/ need no service:
     # no Postgres, ClickHouse, Redis or Kafka. So a pull request that changes only vendors
-    # runs this job, and Backend CI does not start (its `backend` filter excludes that
+    # runs these jobs, and Backend CI does not start (its `backend` filter excludes that
     # directory). code-quality and mypy already run ruff, ty and mypy on the vendors.
+    #
+    # Two jobs, not one. The boundary checks read the whole tree and share nothing with the
+    # vendor pytest suites, and a serial job adds the two up: measured over 9 pull-request
+    # runs, the checks are 80 s and the suites 104 s of a 206 s job. On two runners both
+    # halves run at once, so the job stops ending the pull-request lane ~80 s late.
+    # Overlapping them as steps in one job does not work: this runner has 2 vCPUs and a
+    # `parallel:` block of CPU-bound steps regresses on it (see "Run the python static
+    # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
+    warehouse-boundaries:
+        needs: changes
+        # Same condition as the suites: a vendor-only diff is the one that needs this, and a
+        # master push already ran it in the merge queue.
+        if: needs.changes.outputs.warehouse_sources == 'true' && github.event_name != 'push'
+        name: Warehouse source boundaries
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # hoglint compares the pull request against its first parent, the base.
+                  fetch-depth: 2
+                  persist-credentials: false
+
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check module boundaries (tach)
+              run: ./bin/hogli lint:tach
+
+            # tach leaves test files out of its dependency pass. The import-linter contracts
+            # for the vendors also check the vendor tests, and one of them fails a vendor that
+            # imports a sibling vendor.
+            - name: Check vendor imports (import-linter)
+              run: lint-imports
+
+            # hoglint takes over from the two steps above, and runs in shadow until then. A
+            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
+            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
+            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
+            - name: Check boundaries (hoglint, shadow)
+              env:
+                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+              run: |
+                  output="$RUNNER_TEMP/hoglint.txt"
+                  errors="$RUNNER_TEMP/hoglint-stderr.txt"
+                  status=0
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                  else
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                  fi
+
+    # The vendor suites. Their selection below narrows a vendor-only diff to the changed
+    # vendors, so this job is the one that knows which vendors the pull request touches.
     warehouse-sources:
         needs: changes
         # Skipped on master push: the merge queue already ran this for every landed commit,
@@ -775,34 +844,6 @@ jobs:
                   else
                       git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
                   fi | tee -a "$GITHUB_OUTPUT"
-
-            - name: Check module boundaries (tach)
-              run: ./bin/hogli lint:tach
-
-            # tach leaves test files out of its dependency pass. The import-linter contracts
-            # for the vendors also check the vendor tests, and one of them fails a vendor that
-            # imports a sibling vendor.
-            - name: Check vendor imports (import-linter)
-              run: lint-imports
-
-            # hoglint takes over from the two steps above, and runs in shadow until then. A
-            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
-            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
-            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
-              run: |
-                  output="$RUNNER_TEMP/hoglint.txt"
-                  errors="$RUNNER_TEMP/hoglint-stderr.txt"
-                  status=0
-                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
-                  else
-                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
-                  fi
 
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
@@ -895,7 +936,7 @@ jobs:
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality, mypy, api-ratchet, warehouse-sources]
+        needs: [changes, code-quality, mypy, api-ratchet, warehouse-sources, warehouse-boundaries]
         name: Python code quality checks
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -920,6 +961,12 @@ jobs:
                   # has its own filter, and a vendor change with no Python file still runs it.
                   if [[ "${{ needs.warehouse-sources.result }}" != "success" && "${{ needs.warehouse-sources.result }}" != "skipped" ]]; then
                     echo "Warehouse sources checks and tests did not succeed (result: ${{ needs.warehouse-sources.result }})."
+                    exit 1
+                  fi
+
+                  # Same vendor filter as the suites above, so it skips and runs with them.
+                  if [[ "${{ needs.warehouse-boundaries.result }}" != "success" && "${{ needs.warehouse-boundaries.result }}" != "skipped" ]]; then
+                    echo "Warehouse source boundaries did not succeed (result: ${{ needs.warehouse-boundaries.result }})."
                     exit 1
                   fi
 
