@@ -195,6 +195,10 @@ jobs:
                         - 'packages/quill/**'
                         # The setup step builds the plugin transpiler from source
                         - 'common/plugin_transpiler/**'
+                        # Django reads the MCP tool catalogue for OAuth consent scopes
+                        - 'services/mcp/schema/**'
+                        # Tailwind scans these for classes, so they change the compiled frontend CSS
+                        - 'services/mcp/src/ui-apps/lib/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json

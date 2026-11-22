@@ -91,6 +91,7 @@
         "frontend/src/layout/**",
         "frontend/src/types.ts",
         "frontend/src/globals.ts",
+        "services/mcp/src/ui-apps/lib/**",
         "posthog/migrations/**",
         "posthog/**/migrations/**",
         "ee/migrations/**",

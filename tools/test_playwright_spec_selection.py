@@ -332,6 +332,9 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         )
         self.assertEqual(result["mode"], "selected")
         self.assertEqual(result["spec_files"], ["playwright/e2e/oauth-mcp-consent.spec.ts"])
+        # Tailwind scans this tree for classes, so it reaches the compiled frontend CSS
+        tailwind_source = selection.select(["services/mcp/src/ui-apps/lib/theme.ts"], area_map, all_specs)
+        self.assertEqual(tailwind_source["full_run_reason_category"], "force_full")
 
     def test_real_map_runs_the_full_suite_for_generated_messaging_clients(self) -> None:
         area_map = selection.load_map(selection.MAP_PATH)
