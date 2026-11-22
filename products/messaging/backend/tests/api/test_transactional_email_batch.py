@@ -391,10 +391,14 @@ class TestTransactionalEmailBatch(APIBaseTest):
         (forward,) = mock_post.call_args_list
         assert len(_forwarded(forward)["recipients"]) == count
 
-    def test_refuses_a_batch_body_not_labelled_json(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [("text_plain", "text/plain"), ("any_type", "*/*"), ("any_application_type", "application/*")]
+    )
+    def test_refuses_a_batch_body_not_labelled_json(self, mock_post, _flag, _capture, _name, content_type):
+        mock_post.return_value = self._queued_answer(1)
         body = {**self._email("template"), "recipients": self._recipients(1)}
 
-        response = self.psak.post(BATCH_URL, json.dumps(body), content_type="text/plain")
+        response = self.psak.post(BATCH_URL, json.dumps(body), content_type=content_type)
 
         assert response.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json()
         mock_post.assert_not_called()
@@ -651,7 +655,8 @@ class TestTransactionalEmailBatch(APIBaseTest):
     def test_is_hidden_while_a_flag_it_needs_is_off(self, mock_post, flag, _capture, _name, form, enabled_flags):
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
 
-        response = self._batch(form)
+        with self._enforce_rate_limits(), patch.object(TransactionalEmailTeamBurstThrottle, "rate", "1/minute"):
+            responses = [self._batch(form), self._batch(form)]
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert [response.status_code for response in responses] == [status.HTTP_404_NOT_FOUND] * 2
         mock_post.assert_not_called()

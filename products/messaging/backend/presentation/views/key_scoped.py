@@ -1,5 +1,6 @@
 """The transactional email viewsets at /api/messaging/, with the project taken from the project secret API key."""
 
+from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +9,7 @@ from django.core.exceptions import RequestDataTooBig
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import UnsupportedMediaType
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
@@ -61,6 +63,22 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
                 raise RequestDataTooBig()
         super().initial(request, *args, **kwargs)
 
+    def check_throttles(self, request: Any) -> None:
+        if self.action == "email_batch":
+            self._check_batch_before_throttles(request)
+        super().check_throttles(request)
+
+    def _check_batch_before_throttles(self, request: Any) -> None:
+        with transactional_email_stage("feature_flag"):
+            require_email_batch_sends(self.team)
+        if request.content_type.split(";")[0].strip().lower() != JSONParser.media_type:
+            raise UnsupportedMediaType(request.content_type)
+        with transactional_email_stage("feature_flag"):
+            if isinstance(request.data, Mapping) and "template_key" in request.data:
+                require_email_from_code(self.team)
+            else:
+                self._require_transactional_email_flag()
+
     def body_too_large(self) -> ExplainedRefusal:
         return batch_too_large() if self.action == "email_batch" else super().body_too_large()
 
@@ -98,12 +116,6 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
             "has_idempotency_key": True,
         }
         email = code_email(data) if "template_key" in data else None
-        with transactional_email_stage("feature_flag"):
-            require_email_batch_sends(self.team)
-            if email is None:
-                self._require_transactional_email_flag()
-            else:
-                require_email_from_code(self.team)
         try:
             recipients = check_email_batch(data["recipients"], message_data=data["message_data"], email=email)
             reserve_units(transactional_email_throttles(), request, self, len(recipients) - 1)
