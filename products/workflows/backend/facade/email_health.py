@@ -1,9 +1,11 @@
 """Email health: sending rates, the AWS SES tenant verdict, the per-ISP breakdown, the sending
-allowance, the project-wide suspension and the per-workflow pause."""
+allowance, the shared infrastructure's health, the project-wide suspension and the per-workflow pause."""
 
 from products.workflows.backend.services.email_health import (
     email_domain_sharers,
+    email_infrastructure_health_enabled,
     fetch_aws_tenant_reputation,
+    fetch_email_infrastructure_health,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
     fold_email_totals,
@@ -15,7 +17,9 @@ from products.workflows.backend.services.workflow_email_health import pause_requ
 
 __all__ = [
     "email_domain_sharers",
+    "email_infrastructure_health_enabled",
     "fetch_aws_tenant_reputation",
+    "fetch_email_infrastructure_health",
     "fetch_email_totals_by_source",
     "fetch_isp_metrics",
     "fold_email_totals",

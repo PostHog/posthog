@@ -5,7 +5,6 @@ import type { RunVerdict } from '../runner/runner'
 import type { Provenance } from './provenance'
 
 export const SCHEMA_VERSION = 1
-export const TARGET = 'local'
 export const ADAPTERS: readonly string[] = ['workflows']
 
 type Property = string | number | boolean | null | readonly string[] | unknown[]
@@ -76,7 +75,9 @@ export function scorecardOf(
     const fingerprint = versions.includes(null)
         ? null
         : createHash('sha256')
-              .update(JSON.stringify([TARGET, provenance.hostCpu, provenance.hostMemoryGb, ...versions, card.seed]))
+              .update(
+                  JSON.stringify([result.target, provenance.hostCpu, provenance.hostMemoryGb, ...versions, card.seed])
+              )
               .digest('hex')
     return {
         schema_version: SCHEMA_VERSION,
@@ -92,7 +93,7 @@ export function scorecardOf(
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,
-        target: TARGET,
+        target: result.target,
         fingerprint,
         host_cpu: provenance.hostCpu,
         host_memory_gb: provenance.hostMemoryGb,
@@ -107,6 +108,7 @@ export function scorecardOf(
         duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,
         units_target: result.units?.targetUnits ?? null,
         units_offered: result.units?.offeredUnits ?? null,
+        send_retries: result.units?.sendRetries ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
         janitor_resets: result.janitorResets ?? null,

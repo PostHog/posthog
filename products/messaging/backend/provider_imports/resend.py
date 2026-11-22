@@ -39,6 +39,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
@@ -77,6 +78,7 @@ from products.messaging.backend.services.resend_client import (
     ResendRateLimited,
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, resend_segment_description
 from products.workflows.backend.facade.workflow_imports import import_resend_automation, reuse_import_access
 from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
@@ -92,6 +94,12 @@ SENDING_ONLY_KEY_MESSAGE = (
     "This Resend API key can only send email, so it can't read your data. Create a key with full access and try again."
 )
 RATE_LIMITED_MESSAGE = "Resend kept asking PostHog to slow down. Import again later."
+# Each segment becomes its own cohort, and the contacts step saves them all in one transaction.
+MAX_SEGMENTS = 500
+TOO_MANY_SEGMENTS_MESSAGE = (
+    f"This account has more than {MAX_SEGMENTS} segments, more than one import takes. Upload the segments you need "
+    "as CSV files instead."
+)
 TOPIC_KEY_PREFIX = "resend_"
 # Sending by key caps it at 256 characters, the longest tag value SES takes.
 TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")
@@ -119,10 +127,7 @@ class ResendImportProvider(ImportProvider):
         "afterward if you'd like."
     )
     api_key_url = "https://resend.com/api-keys"
-    not_imported = (
-        "A segment an automation adds people to becomes an empty static cohort. API keys, webhooks, send history and "
-        "stats stay in Resend, so rebuild what you need."
-    )
+    not_imported = "API keys, webhooks, send history and stats stay in Resend, so rebuild what you need."
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
         "this needs new records. Leave your Resend records in place, because both tools can sign mail for one domain "
@@ -171,31 +176,6 @@ class ResendImportProvider(ImportProvider):
             ),
         ),
         ImportStepSpec(
-            key="topic_opt_outs",
-            label="Topic preferences",
-            description=(
-                "Opts contacts out of each topic they left in Resend. Resend only shares this one contact at a "
-                "time, so PostHog reads about 7,000 contacts an hour. Large lists can take a day."
-            ),
-            count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
-        ),
-        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
-        # they left in Resend.
-        ImportStepSpec(
-            key="contacts",
-            label="Contacts",
-            description=(
-                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts. Each person updated counts as one event. "
-                "Needs Suppression list, Unsubscribed contacts and Topic preferences selected too, so no one who left in "
-                "Resend gets marketing email."
-            ),
-            count_labels=CONTACT_COUNT_LABELS,
-            requires=("suppressions", "opt_outs", "topic_opt_outs"),
-            needs=("suppressions", "opt_outs", "topic_opt_outs"),
-        ),
-        new_people_step("Resend"),
-        ImportStepSpec(
             key="templates",
             label="Templates",
             description=(
@@ -230,6 +210,32 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("ready", "Ready to send from PostHog"), ("needs_setup", "Need new DNS records")),
         ),
+        ImportStepSpec(
+            key="topic_opt_outs",
+            label="Topic preferences",
+            description=(
+                "Opts contacts out of each topic they left in Resend. Resend only shares this one contact at a "
+                "time, so PostHog reads up to about 25,000 contacts an hour."
+            ),
+            count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
+        ),
+        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
+        # they left in Resend.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
+                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. "
+                "Needs Suppression list, Unsubscribed contacts and Topic "
+                "preferences selected too, so no one who left in Resend gets marketing email."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=("suppressions", "opt_outs", "topic_opt_outs"),
+            needs=("suppressions", "opt_outs", "topic_opt_outs"),
+            counts_as_events=True,
+        ),
+        new_people_step("Resend"),
         # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
         ImportStepSpec(
             key="contact_properties",
@@ -237,11 +243,12 @@ class ResendImportProvider(ImportProvider):
             description=(
                 "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
                 "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
+                "PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),
             needs=("contacts",),
+            counts_as_events=True,
         ),
     )
 
@@ -347,20 +354,33 @@ def _save_topics(context: ImportContext, topics: list[dict[str, Any]]) -> SavedP
     return SavedPage(
         imported=result.created,
         counts={"created": result.created, "already_present": result.already_present, "private": len(private)},
-        warnings=(
-            *(
-                f"{topic.get('name') or topic.get('id')}: Resend only sends this topic to people who opted in. "
-                "PostHog sends a category to everyone who hasn't opted out, so check who you send it to."
-                for topic in public
-                if topic.get("default_subscription") == "opt_out"
-            ),
-            *(
-                f"{topic.get('name') or topic.get('id')}: private in Resend, so it wasn't imported. PostHog shows "
-                "every category on the preferences page. Create it yourself if your recipients may see it."
-                for topic in private
-            ),
+        warnings=tuple(
+            warning
+            for warning in (
+                _named(
+                    "Resend sends these only to people who opted in",
+                    [topic for topic in public if topic.get("default_subscription") == "opt_out"],
+                    "Your Resend contacts keep their choice once Topic preferences finishes. Until then, and for people "
+                    "you add later, PostHog sends these to everyone who hasn't opted out."
+                    if "topic_opt_outs" in context.steps
+                    else "PostHog sends them to everyone who hasn't opted out, so import Topic preferences too to keep "
+                    "your contacts' choices.",
+                ),
+                _named(
+                    "Private in Resend, so not imported",
+                    private,
+                    "PostHog shows every category on the preferences page, so create one yourself if your recipients "
+                    "may see it.",
+                ),
+            )
+            if warning
         ),
     )
+
+
+def _named(lead: str, topics: list[dict[str, Any]], follow_up: str) -> str | None:
+    names = [str(topic.get("name") or topic.get("id")) for topic in topics]
+    return f"{lead}: {', '.join(names)}. {follow_up}" if names else None
 
 
 def _fetch_suppressions(
@@ -421,14 +441,49 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             for contact in page.data
             if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
         )
+    # The opt-out steps saw only these contacts, so a contact added to Resend later waits for the next import.
+    scanned = {row["email"].lower() for row in contacts.everyone}
+    segments: list[ContactList] = []
+    for page in client.pages("/segments"):
+        for segment in page.data:
+            segment_id = str(segment.get("id") or "")
+            if not segment_id:
+                continue
+            if len(segments) >= MAX_SEGMENTS:
+                raise ImportTooLarge(TOO_MANY_SEGMENTS_MESSAGE)
+            name = str(segment.get("name") or segment_id)
+            members = []
+            for members_page in client.pages(f"/segments/{_path_part(segment_id)}/contacts"):
+                known = [
+                    contact
+                    for contact in members_page.data
+                    if (email := exact_email(contact.get("email"))) and email.lower() in scanned
+                ]
+                unsubscribed.update(
+                    email.lower()
+                    for contact in known
+                    if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
+                )
+                members += _collect(contacts, known)
+            segments.append(
+                ContactList(
+                    cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
+                    cohort_description=resend_segment_description(segment_id),
+                    source=f'the Resend segment "{name}"',
+                    rows=tuple(members),
+                )
+            )
     everyone = contacts.everyone
+    # One shared set, so a large opt-out list isn't copied once per segment.
+    non_members = frozenset(unsubscribed)
     yield ImportPage(
         processed=len(everyone),
         save=partial(
             save_contact_lists,
             context,
-            replace(_everyone(everyone), non_members=frozenset(unsubscribed)),
-            (),
+            replace(_everyone(everyone), non_members=non_members),
+            # Unsubscribed contacts stay out of every cohort, as they do for the cohort of all contacts.
+            [replace(segment, non_members=non_members) for segment in segments],
             contacts.other_spellings,
         ),
     )
@@ -457,19 +512,10 @@ def _fetch_contact_properties(
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
         return
     for page in client.pages("/contacts", _after(checkpoint)):
+        listed = [contact for contact in page.data if contact.get("id")]
         contacts = ContactCollector()
-        for contact in page.data:
-            contact_id = contact.get("id")
-            if not contact_id:
-                continue
-            try:
-                properties = client.get(f"/contacts/{quote(str(contact_id), safe='')}").get("properties")
-            except ResendAPIError as e:
-                # The contact was deleted after the page listed it.
-                if e.status_code == 404:
-                    continue
-                raise
-            if isinstance(properties, dict) and properties:
+        for contact, properties in zip(listed, client.each(partial(_read_properties, client), listed)):
+            if properties:
                 contacts.add(contact.get("email"), {name: _property_value(value) for name, value in properties.items()})
         rows = tuple(row for row in contacts.everyone if len(row) > 1)
         yield ImportPage(
@@ -477,6 +523,17 @@ def _fetch_contact_properties(
             save=partial(save_contact_properties, context, _everyone(rows), len(page.data)),
             checkpoint=_next_checkpoint(page.next_after),
         )
+
+
+def _read_properties(client: ResendClient, contact: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        properties = client.get(f"/contacts/{_path_part(contact['id'])}").get("properties")
+    except ResendAPIError as e:
+        # The contact was deleted after the page listed it.
+        if e.status_code == 404:
+            return None
+        raise
+    return properties if isinstance(properties, dict) else None
 
 
 def _collect(contacts: ContactCollector, page: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
@@ -521,40 +578,46 @@ def _fetch_topic_opt_outs(
     client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
     topics = [topic for page in client.pages("/topics") for topic in page.data]
-    # Each contact costs one request, so an account without topics shouldn't read its whole contact list.
-    if not topics:
-        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
-        return
     # A contact's topic list doesn't say which topics are private, and the topics step leaves those out.
     private = {str(topic.get("id")) for topic in topics if topic.get("visibility") == "private"}
+    # Each contact costs one request, so an account without public topics shouldn't read its whole contact list.
+    if all(str(topic.get("id")) in private for topic in topics):
+        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
+        return
     # A contact's topic list may leave out the name and description, so categories come from the topic itself.
     topics_by_id = {str(topic.get("id")): topic for topic in topics if topic.get("id")}
     for page in client.pages("/contacts", _after(checkpoint)):
         opted_out_of_all = _emails_opted_out_of_all(context.team_id, page.data)
-        topics_by_email: dict[str, list[dict[str, Any]]] = {}
-        for contact in page.data:
-            email = exact_email(contact.get("email"))
-            contact_id = contact.get("id")
-            if email and contact_id and email not in opted_out_of_all:
-                try:
-                    contact_topics = [
-                        topic for topics in client.pages(f"/contacts/{contact_id}/topics") for topic in topics.data
-                    ]
-                except ResendAPIError as e:
-                    # The contact was deleted after the page listed it, so it has no choices left to import.
-                    if e.status_code == 404:
-                        continue
-                    raise
-                topics_by_email[email] = [
-                    topics_by_id.get(str(topic.get("id")), topic)
-                    for topic in contact_topics
-                    if topic.get("subscription") == "opt_out" and str(topic.get("id")) not in private
-                ]
+        to_read = [
+            (email, contact)
+            for contact in page.data
+            if (email := exact_email(contact.get("email"))) and contact.get("id") and email not in opted_out_of_all
+        ]
+        choices = client.each(partial(_read_topic_choices, client), [contact for _, contact in to_read])
+        topics_by_email = {
+            email: [
+                topics_by_id.get(str(topic.get("id")), topic)
+                for topic in contact_topics
+                if topic.get("subscription") == "opt_out" and str(topic.get("id")) not in private
+            ]
+            for (email, _), contact_topics in zip(to_read, choices)
+            if contact_topics is not None
+        }
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_topic_opt_outs, context, topics_by_email, len(page.data)),
             checkpoint=_next_checkpoint(page.next_after),
         )
+
+
+def _read_topic_choices(client: ResendClient, contact: dict[str, Any]) -> list[dict[str, Any]] | None:
+    try:
+        return [topic for page in client.pages(f"/contacts/{_path_part(contact['id'])}/topics") for topic in page.data]
+    except ResendAPIError as e:
+        # The contact was deleted after the page listed it, so it has no choices left to import.
+        if e.status_code == 404:
+            return None
+        raise
 
 
 def _emails_opted_out_of_all(team_id: int, contacts: list[dict[str, Any]]) -> set[str]:
@@ -597,7 +660,9 @@ def _fetch_templates(
 ) -> Iterator[ImportPage]:
     for page in client.pages("/templates", _after(checkpoint)):
         # The list has no content, so each template costs one more request.
-        templates = [client.get(f"/templates/{template['id']}") for template in page.data if template.get("id")]
+        templates = [
+            client.get(f"/templates/{_path_part(template['id'])}") for template in page.data if template.get("id")
+        ]
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_templates, context, templates),
@@ -743,7 +808,7 @@ def _fetch_automations(
     templates: dict[str, dict[str, Any] | None] = {}
     segments: dict[str, str | None] = {}
     for page in client.pages("/automations", _after(checkpoint)):
-        automations = [client.get(f"/automations/{item['id']}") for item in page.data if item.get("id")]
+        automations = [client.get(f"/automations/{_path_part(item['id'])}") for item in page.data if item.get("id")]
         references = {reference for automation in automations for reference in _template_references(automation)}
         for reference in references:
             if reference not in templates:
@@ -775,6 +840,12 @@ def _template_references(automation: dict[str, Any]) -> set[str]:
     return references
 
 
+def _path_part(value: object) -> str:
+    # Resend ids go into request paths, so `/` and a bare `.` or `..` must not move the request to another endpoint.
+    part = quote(str(value), safe="")
+    return part.replace(".", "%2E") if part in {".", ".."} else part
+
+
 def _segment_references(automation: dict[str, Any]) -> set[str]:
     return {
         str(step["config"]["segment_id"])
@@ -788,7 +859,7 @@ def _segment_references(automation: dict[str, Any]) -> set[str]:
 
 def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
     try:
-        return str(client.get(f"/segments/{segment_id}").get("name") or segment_id)
+        return str(client.get(f"/segments/{_path_part(segment_id)}").get("name") or segment_id)
     except ResendAPIError as e:
         # A step can name a deleted segment. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:
@@ -798,7 +869,7 @@ def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
 
 def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | None:
     try:
-        return client.get(f"/templates/{reference}")
+        return client.get(f"/templates/{_path_part(reference)}")
     except ResendAPIError as e:
         # A step can name a deleted template. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:
@@ -827,6 +898,8 @@ def _save_automations(
                 emails,
                 step_emails=_step_emails(automation, senders),
                 segments={segment_id: segments[segment_id] for segment_id in _segment_references(automation)},
+                # Automations run before the slow contact steps, so the contacts step fills the cohorts afterwards.
+                segment_members_imported="contacts" in context.steps,
             )
             counts["already_present" if result.status == "skipped" else result.status] += 1
             items.append(
@@ -904,7 +977,7 @@ def _fetch_domains(
     client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
     for page in client.pages("/domains", _after(checkpoint)):
-        details = [client.get(f"/domains/{domain['id']}") for domain in page.data if domain.get("id")]
+        details = [client.get(f"/domains/{_path_part(domain['id'])}") for domain in page.data if domain.get("id")]
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_domains, context, details),

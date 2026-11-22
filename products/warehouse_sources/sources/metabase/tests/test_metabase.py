@@ -1,6 +1,7 @@
 import ssl
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import time_machine
@@ -304,18 +305,92 @@ class TestGetRows:
         assert result.paths == ["/api/permissions/membership"]
         assert [(r["membership_id"], r["user_id"]) for r in result.rows] == [(10, 1), (11, 2), (12, 2)]
 
-    def test_fields_fan_out_over_databases(self):
+    @pytest.mark.parametrize(
+        "endpoint, parent_body, child_bodies, expected_urls, parent_key, expected_rows",
+        [
+            (
+                "fields",
+                {"data": [{"id": 1}, {"id": 2}], "total": 2},
+                [[{"id": 100, "name": "email"}], [{"id": 200, "name": "amount"}]],
+                ["/api/database", "/api/database/1/fields", "/api/database/2/fields"],
+                "database_id",
+                [(100, 1), (200, 2)],
+            ),
+            (
+                "card_revisions",
+                [{"id": 7}, {"id": 8}],
+                [[{"id": 31, "is_creation": False}, {"id": 30, "is_creation": True}], []],
+                ["/api/card", "/api/revision?entity=card&id=7", "/api/revision?entity=card&id=8"],
+                "card_id",
+                [(31, 7), (30, 7)],
+            ),
+            (
+                "dashboard_revisions",
+                [{"id": 4}],
+                [[{"id": 50, "is_creation": True}]],
+                ["/api/dashboard", "/api/revision?entity=dashboard&id=4"],
+                "dashboard_id",
+                [(50, 4)],
+            ),
+            (
+                # The root collection's string id and integer ids land in one column as text.
+                "collection_items",
+                [{"id": "root"}, {"id": 12}],
+                [
+                    {"total": 1, "data": [{"id": 3, "model": "card"}], "models": ["card"]},
+                    {"total": 1, "data": [{"id": 3, "model": "dashboard"}], "models": ["dashboard"]},
+                ],
+                ["/api/collection", "/api/collection/root/items", "/api/collection/12/items"],
+                "collection_id",
+                [(3, "root"), (3, "12")],
+            ),
+        ],
+    )
+    def test_fan_out_copies_parent_id_into_child_rows(
+        self,
+        endpoint: str,
+        parent_body: Any,
+        child_bodies: list[Any],
+        expected_urls: list[str],
+        parent_key: str,
+        expected_rows: list[tuple[int, Any]],
+    ):
+        responses = [ScriptedResponse(json=parent_body)] + [ScriptedResponse(json=body) for body in child_bodies]
+        result = _driver().run(endpoint, responses)
+        assert result.raised is None
+        assert [urlsplit(url)._replace(scheme="", netloc="").geturl() for url in result.urls] == expected_urls
+        assert [(r["id"], r[parent_key]) for r in result.rows] == expected_rows
+
+    def test_fan_out_skips_a_parent_deleted_before_its_child_fetch(self):
         result = _driver().run(
-            "fields",
+            "card_revisions",
             [
-                ScriptedResponse(json={"data": [{"id": 1}, {"id": 2}], "total": 2}),
-                ScriptedResponse(json=[{"id": 100, "table_id": 5, "name": "email"}]),
-                ScriptedResponse(json=[{"id": 200, "table_id": 9, "name": "amount"}]),
+                ScriptedResponse(json=[{"id": 7}, {"id": 8}]),
+                ScriptedResponse(status=404, json={"message": "Not found."}),
+                ScriptedResponse(json=[{"id": 40, "is_creation": True}]),
             ],
         )
         assert result.raised is None
-        assert result.paths == ["/api/database", "/api/database/1/fields", "/api/database/2/fields"]
-        assert [(r["id"], r["database_id"]) for r in result.rows] == [(100, 1), (200, 2)]
+        assert [(r["id"], r["card_id"]) for r in result.rows] == [(40, 8)]
+
+    def test_task_history_pages_by_offset_and_drops_rows_repeated_across_pages(self):
+        # A task added mid-sync shifts the newest-first list, so id 1501 comes back on the second page.
+        first = [{"id": i} for i in range(2500, 1500, -1)]
+        second = [{"id": i} for i in range(1501, 501, -1)]
+        last = [{"id": i} for i in range(501, 0, -1)]
+        result = _driver().run(
+            "task_history",
+            [
+                ScriptedResponse(json={"total": 2500, "limit": 1000, "offset": 0, "data": first}),
+                ScriptedResponse(json={"total": 2501, "limit": 1000, "offset": 1000, "data": second}),
+                ScriptedResponse(json={"total": 2501, "limit": 1000, "offset": 2000, "data": last}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/task"] * 3
+        assert result.params("offset") == ["0", "1000", "2000"]
+        assert result.params("limit") == ["1000"] * 3
+        assert [r["id"] for r in result.rows] == list(range(2500, 0, -1))
 
     @pytest.mark.parametrize(
         "last_value, resume_month, expected_ids, expected_requests",
