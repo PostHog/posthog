@@ -4259,10 +4259,10 @@ Today (8): `conversations`, `helpdesk_articles`, `helpdesk_locales`, `messages`,
 
 Diffed against: <https://docs.crisp.chat/references/rest-api/v1/>
 
-- [ ] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high)
-- [ ] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium)
-- [ ] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium)
-- [ ] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium)
+- [x] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high) → `teams` (full refresh)
+- [x] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium) → `inboxes` (full refresh)
+- [x] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium) → `conversation_events` (full refresh, fan-out over `conversations`)
+- [x] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium) → `helpdesk_feedbacks` (full refresh, fan-out over `helpdesk_locales`, `articles` type only)
 - [ ] `Campaign templates (GET /v1/website/{website_id}/campaigns/templates/{page_number})` — Campaign template catalog for the website (low)
 - [ ] `Conversation files (GET /v1/website/{website_id}/conversation/{session_id}/files/{page_number})` — File attachment metadata per conversation (low)
 
