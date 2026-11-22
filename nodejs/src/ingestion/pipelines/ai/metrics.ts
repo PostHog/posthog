@@ -37,7 +37,7 @@ export const aiToolCallExtractionCounter = new Counter({
 
 export const aiToolUsageExtractionCounter = new Counter({
     name: 'llma_ai_tool_usage_extraction_total',
-    help: 'AI tool result, unknown tool and intent extraction outcomes',
+    help: 'AI tool result and unknown tool extraction outcomes',
     labelNames: ['kind', 'status'],
 })
 

@@ -31,7 +31,7 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
  * 3. Calculate costs (generation/embedding events only)
  * 4. Extract model parameters (generation/embedding events only)
  * 5. Extract tool calls (generation events only)
- * 6. Extract tool results, unknown tools and intent (generation events only)
+ * 6. Extract tool results and unknown tools (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
     // Map OTel attribute names to PostHog property names before any other processing.

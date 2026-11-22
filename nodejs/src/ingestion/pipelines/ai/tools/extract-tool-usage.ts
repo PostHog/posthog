@@ -3,8 +3,6 @@
 // generation that received them.
 import { MAX_TOOLS_PER_EVENT, sanitizeToolName } from './extract-tool-calls'
 
-export const MAX_TOOL_INTENT_LENGTH = 500
-
 export interface ToolResult {
     name: string | null
     isError: boolean
@@ -301,56 +299,4 @@ export function findUnknownTools(called: string[], defined: Set<string>): string
         }
     }
     return [...unknown]
-}
-
-const TEXT_PART_TYPES = new Set(['text', 'output_text'])
-
-// Structured output (JSON mode) is data for the caller, not a statement of intent.
-const looksLikeJson = (text: string): boolean => /^\s*[[{]/.test(text)
-
-function collectText(value: unknown, texts: string[]): void {
-    if (typeof value === 'string') {
-        if (!looksLikeJson(value)) {
-            texts.push(value)
-        }
-        return
-    }
-    if (!Array.isArray(value)) {
-        return
-    }
-    for (const part of value) {
-        if (!isObject(part) || typeof part.type !== 'string' || !TEXT_PART_TYPES.has(part.type)) {
-            continue
-        }
-        const text = part.text ?? part.content
-        if (typeof text === 'string' && !looksLikeJson(text)) {
-            texts.push(text)
-        }
-    }
-}
-
-export function extractToolCallIntent(outputChoices: unknown): string | null {
-    const choices = unwrapMessages(outputChoices)
-    if (!choices) {
-        return null
-    }
-
-    const texts: string[] = []
-    for (const choice of choices) {
-        if (!isObject(choice)) {
-            continue
-        }
-        const message = isObject(choice.message) ? choice.message : choice
-        if (message.role !== undefined && message.role !== 'assistant' && message.role !== 'model') {
-            continue
-        }
-        collectText(message.content, texts)
-        collectText(message.parts, texts)
-    }
-
-    const intent = texts.join(' ').replace(/\s+/g, ' ').trim()
-    if (intent.length === 0) {
-        return null
-    }
-    return intent.length > MAX_TOOL_INTENT_LENGTH ? `${intent.slice(0, MAX_TOOL_INTENT_LENGTH - 1)}…` : intent
 }

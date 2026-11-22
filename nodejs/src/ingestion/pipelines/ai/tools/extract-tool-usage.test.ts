@@ -1,6 +1,5 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { MAX_TOOL_INTENT_LENGTH } from './extract-tool-usage'
 import { processAiToolUsageExtraction } from './index'
 
 const generation = (properties: Record<string, unknown>): PluginEvent =>
@@ -205,58 +204,6 @@ describe('processAiToolUsageExtraction', () => {
                 generation({ $ai_tools: tools, $ai_tools_called: called })
             ).properties!
             expect(out['$ai_tools_unknown']).toEqual(expected)
-        })
-    })
-
-    describe('intent', () => {
-        it.each([
-            [
-                'Anthropic text before a tool_use, without the thinking',
-                [
-                    {
-                        role: 'assistant',
-                        content: [
-                            { type: 'thinking', thinking: 'private reasoning' },
-                            { type: 'text', text: 'Let me look up\nthat invoice.' },
-                            { type: 'tool_use', id: 't', name: 'find_invoice', input: {} },
-                        ],
-                    },
-                ],
-                'Let me look up that invoice.',
-            ],
-            [
-                'OpenAI message content next to tool_calls',
-                [{ message: { role: 'assistant', content: 'Checking the weather.', tool_calls: [] } }],
-                'Checking the weather.',
-            ],
-            [
-                'OpenAI Responses output_text',
-                [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Searching now.' }] }],
-                'Searching now.',
-            ],
-            ['structured JSON output', [{ role: 'assistant', content: '{"answer": 4}' }], undefined],
-        ])('%s', (_, outputChoices, expected) => {
-            const out = processAiToolUsageExtraction(
-                generation({ $ai_output_choices: outputChoices, $ai_tools_called: 'find_invoice' })
-            ).properties!
-            expect(out['$ai_tool_intent']).toEqual(expected)
-        })
-
-        it('is only set when the generation called tools', () => {
-            const out = processAiToolUsageExtraction(
-                generation({ $ai_output_choices: [{ role: 'assistant', content: 'Hello there' }] })
-            ).properties!
-            expect(out['$ai_tool_intent']).toBeUndefined()
-        })
-
-        it('is truncated', () => {
-            const out = processAiToolUsageExtraction(
-                generation({
-                    $ai_output_choices: [{ role: 'assistant', content: 'a'.repeat(MAX_TOOL_INTENT_LENGTH * 2) }],
-                    $ai_tools_called: 'calc',
-                })
-            ).properties!
-            expect(out['$ai_tool_intent']).toHaveLength(MAX_TOOL_INTENT_LENGTH)
         })
     })
 

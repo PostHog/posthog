@@ -3,12 +3,7 @@ import { aiToolCallExtractionCounter, aiToolUsageExtractionCounter } from '~/ing
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
-import {
-    extractDefinedToolNames,
-    extractToolCallIntent,
-    extractToolResults,
-    findUnknownTools,
-} from './extract-tool-usage'
+import { extractDefinedToolNames, extractToolResults, findUnknownTools } from './extract-tool-usage'
 
 const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
@@ -202,7 +197,7 @@ const isSet = (value: unknown): boolean => value !== undefined && value !== null
 
 const RESULT_PROPERTIES = ['$ai_tool_result_count', '$ai_tool_error_count', '$ai_tool_results', '$ai_tool_errors']
 
-// Runs after processAiToolCallExtraction, because unknown tools and intent read $ai_tools_called.
+// Runs after processAiToolCallExtraction, because unknown tools read $ai_tools_called.
 export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T {
     if (!event.properties || event.event !== '$ai_generation') {
         return event
@@ -264,19 +259,6 @@ export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T
             }
         } catch {
             aiToolUsageExtractionCounter.labels({ kind: 'unknown', status: 'error' }).inc()
-        }
-    }
-
-    if (!isSet(properties['$ai_tool_intent']) && isSet(properties['$ai_output_choices'])) {
-        try {
-            const output = parseIfString(properties['$ai_output_choices'], MAX_OUTPUT_CHOICES_LENGTH)
-            const intent = 'skipped' in output ? null : extractToolCallIntent(output.value)
-            if (intent !== null) {
-                properties['$ai_tool_intent'] = intent
-            }
-            aiToolUsageExtractionCounter.labels({ kind: 'intent', status: intent !== null ? 'found' : 'none' }).inc()
-        } catch {
-            aiToolUsageExtractionCounter.labels({ kind: 'intent', status: 'error' }).inc()
         }
     }
 
