@@ -181,6 +181,32 @@ describe('providerImportLogic', () => {
         expect(retrieveCalls).toBe(2)
     })
 
+    it('stops retrying details that keep failing, says so once, and tries again when the window opens', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        runResponses = [[200, [importRun('completed')]]]
+        let retrieveCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => {
+                    retrieveCalls += 1
+                    return [500, { detail: 'boom' }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.loadImportRuns()
+        await jest.advanceTimersByTimeAsync(30000)
+
+        expect(retrieveCalls).toBe(6)
+        expect(toastError).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => logic.actions.openImportModal()).toDispatchActions(['loadImportRunsSuccess'])
+        expect(retrieveCalls).toBe(7)
+        toastError.mockRestore()
+    })
+
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
         const templatesLogic = messageTemplatesLogic()
         await expectLogic(templatesLogic, () => {

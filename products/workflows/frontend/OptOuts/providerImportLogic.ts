@@ -26,6 +26,7 @@ import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
+const MAX_RUN_DETAIL_RETRIES = 5
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
 
 export interface ImportFormValues {
@@ -34,7 +35,7 @@ export interface ImportFormValues {
 
 const isActive = (run: ProviderImportRunApi): boolean => ACTIVE_IMPORT_RUN_STATUSES.includes(run.status)
 
-type RunDetailsCache = { runDetails?: Record<string, ProviderImportRunApi> }
+type RunDetailsCache = { runDetails?: Record<string, ProviderImportRunApi>; runDetailRetries?: number }
 
 const hasDetails = (run: ProviderImportRunApi, cache: RunDetailsCache): boolean =>
     cache.runDetails?.[run.id]?.status === run.status
@@ -560,6 +561,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         openImportModal: ({ entryPoint }) => {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('workflows import window opened', { entry_point: entryPoint })
+            cache.runDetailRetries = 0
             actions.loadImportRuns()
             actions.loadImportProviders()
         },
@@ -623,11 +625,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 }
             }
             actions.setTrackedImportRunIds(activeIds)
-            // A finished run whose details failed to load would otherwise show no items, so keep polling until they load.
+            // A finished run whose details failed to load would otherwise show no items, so retry a few times.
             const missingDetails = Object.values(values.latestImportRunByProvider).some(
-                (run) => !hasDetails(run, cache)
+                (run) => !isActive(run) && !hasDetails(run, cache)
             )
-            if (activeIds.length > 0 || missingDetails) {
+            cache.runDetailRetries = missingDetails ? (cache.runDetailRetries ?? 0) + 1 : 0
+            if (cache.runDetailRetries === MAX_RUN_DETAIL_RETRIES + 1) {
+                lemonToast.error("Couldn't load the import results. Open the import again to retry.")
+            }
+            if (activeIds.length > 0 || (missingDetails && cache.runDetailRetries <= MAX_RUN_DETAIL_RETRIES)) {
                 cache.disposables.add(() => {
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)
