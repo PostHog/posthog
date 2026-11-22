@@ -357,7 +357,7 @@ class TestBillingConsumerAIReloadOutcome(SimpleTestCase):
         mock_delete.assert_not_called()
 
 
-class TestBillingConsumerUnreadableBody(SimpleTestCase):
+class TestBillingConsumerUnhandledMessage(SimpleTestCase):
     def _build_consumer(self) -> BillingConsumer:
         with patch("ee.sqs.SQSConsumer.boto3"):
             return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
@@ -366,10 +366,11 @@ class TestBillingConsumerUnreadableBody(SimpleTestCase):
         [
             ("invalid_json", "not json", {}),
             ("invalid_gzip", "bm90IGd6aXA=", {"content_encoding": {"StringValue": "gzip"}}),
+            ("unknown_type", json.dumps({"type": "ai_withdrawal_requested"}), {}),
         ]
     )
     @patch(f"{CONSUMER}.capture_exception")
-    def test_an_unreadable_body_is_captured_with_its_message_id_and_left_on_the_queue(
+    def test_a_message_it_cannot_handle_is_captured_with_its_message_id_and_left_on_the_queue(
         self, _name, raw_body, attributes, mock_capture
     ):
         consumer = self._build_consumer()

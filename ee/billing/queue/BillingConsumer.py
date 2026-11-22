@@ -86,10 +86,13 @@ class BillingConsumer(SQSConsumer):
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
             else:
+                # Billing can send a type before this consumer handles it. Leaving the message on the queue lets
+                # SQS move it to the dead-letter queue, so a redrive delivers it once PostHog handles the type.
                 logger.warning(f"Unknown message type: {message_type} for message {message_id}")
                 capture_exception(
                     Exception("Unknown message type"), {"message_id": message_id, "message_type": message_type}
                 )
+                return
 
             # Delete the message after successful processing
             if self.delete_message(message["ReceiptHandle"]):
