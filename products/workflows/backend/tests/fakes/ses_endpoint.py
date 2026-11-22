@@ -48,6 +48,8 @@ class FakeSesEndpoint:
         self.reputation_aggregates: dict[str, str] = {}
         # Account-wide VDM totals per metric, answered for queries that carry no dimension.
         self.account_metrics: dict[str, int] = {}
+        # Metrics whose queries SES answers in the batch's Errors rather than its Results.
+        self.failing_metrics: set[str] = set()
         self.denied = False
 
     @contextmanager
@@ -107,8 +109,13 @@ class FakeSesEndpoint:
                         "Values": [0 if query.get("Dimensions") else self.account_metrics.get(query["Metric"], 0)],
                     }
                     for query in queries
+                    if query["Metric"] not in self.failing_metrics
                 ],
-                "Errors": [],
+                "Errors": [
+                    {"Id": query["Id"], "Code": "INTERNAL_FAILURE", "Message": "Internal failure"}
+                    for query in queries
+                    if query["Metric"] in self.failing_metrics
+                ],
             },
         )
 

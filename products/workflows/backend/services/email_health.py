@@ -264,7 +264,10 @@ def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHe
         return None
 
     value = _rounded_infrastructure_health(metrics) if metrics is not None else None
-    cache.set(cache_key, {"value": value}, INFRASTRUCTURE_HEALTH_CACHE_SECONDS)
+    # A query SES answered with an error comes back as a missing rate, not an exception, so a
+    # missing value takes the short lifetime too rather than hiding the card for hours.
+    lifetime = INFRASTRUCTURE_HEALTH_CACHE_SECONDS if value is not None else INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS
+    cache.set(cache_key, {"value": value}, lifetime)
     return value
 
 

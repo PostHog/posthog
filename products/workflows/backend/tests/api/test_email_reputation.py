@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -130,6 +133,19 @@ class TestEmailReputationAPI(APIBaseTest):
         }
         assert second == first
         assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
+        with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.failing_metrics.add("DELIVERY")
+            during_the_failure = self._get_reputation_from_ses()["infrastructure"]
+
+            ses.failing_metrics.clear()
+            clock.shift(timedelta(minutes=2))
+            after_it_clears = self._get_reputation_from_ses()["infrastructure"]
+
+        assert during_the_failure is None
+        assert after_it_clears is not None
 
     @parameterized.expand([("ses_unreachable", True, True), ("not_released_to_the_project", False, False)])
     def test_reputation_loads_without_the_infrastructure_health(self, _name: str, released: bool, denied: bool):
