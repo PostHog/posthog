@@ -58,6 +58,8 @@ class ImportStepOption:
     key: str
     label: str
     description: str
+    needs: tuple[str, ...] = ()
+    counts_as_events: bool = False
 
 
 @frozen
@@ -140,7 +142,13 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             key=provider.key,
             label=provider.label,
             steps=tuple(
-                ImportStepOption(key=spec.key, label=spec.label, description=spec.description)
+                ImportStepOption(
+                    key=spec.key,
+                    label=spec.label,
+                    description=spec.description,
+                    needs=spec.needs,
+                    counts_as_events=spec.counts_as_events,
+                )
                 for spec in provider.steps
             ),
             retains_credentials=provider.retains_credentials,
