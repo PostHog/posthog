@@ -1,6 +1,6 @@
 import { getEdgeId } from '../../edgeId'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
-import { reachedAfterTriggerText, timeFromTrigger } from './timeFromTrigger'
+import { labelTooltip, reachedAfterTriggerText, timeFromTrigger } from './timeFromTrigger'
 
 type Config = Record<string, unknown>
 
@@ -224,6 +224,30 @@ describe('timeFromTrigger', () => {
         expect(reachedAfterTriggerText(edges.get(getEdgeId(branch('wait_upgrade', 'converted'))))).toEqual(
             'Reached 10 days to 14 days after the trigger'
         )
+    })
+
+    test.each([
+        ['a label the canvas shows in full has no tooltip', 'Event received', undefined, undefined],
+        [
+            'a shortened label shows its full text and the time',
+            'If the person opened the upgrade email within the trial',
+            'Reached 2 days after the trigger',
+            'If the person opened the upgrade email within the trial. Reached 2 days after the trigger',
+        ],
+        [
+            'a label the canvas shows in full shows only the time',
+            'Event received',
+            'Reached 2 days after the trigger',
+            'Reached 2 days after the trigger',
+        ],
+        [
+            'an arrow without a label shows the time',
+            undefined,
+            'Reached 2 days after the trigger',
+            'Reached 2 days after the trigger',
+        ],
+    ])('tooltip: %s', (_, label, reachedAfter, expected) => {
+        expect(labelTooltip(label, reachedAfter)).toEqual(expected)
     })
 
     it('leaves out steps the trigger cannot reach', () => {

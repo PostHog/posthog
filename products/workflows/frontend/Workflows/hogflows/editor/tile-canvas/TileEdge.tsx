@@ -14,7 +14,7 @@ import {
 } from './tileCanvasLayout'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { edgeLabelText, type TileEdgeType } from './tileCanvasNodes'
-import { reachedAfterTriggerText } from './timeFromTrigger'
+import { labelTooltip, reachedAfterTriggerText } from './timeFromTrigger'
 
 export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null {
     const routed = data?.routed
@@ -26,8 +26,6 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
     const { edge } = data
     const label = edgeLabelText(edge, routed)
     const reachedAfter = reachedAfterTriggerText(timesFromTrigger.edges.get(edge.originalEdgeKeys[0]))
-    const labelTitle =
-        [label && label !== shortLabel(label) ? label : undefined, reachedAfter].filter(Boolean).join('. ') || undefined
     const isDropTarget = !!edge.insertEdge && dropTargetEdgeKey === getEdgeId(edge.insertEdge)
     const stroke = isDropTarget ? 'var(--color-accent)' : 'var(--tile-canvas-edge)'
     return (
@@ -66,7 +64,7 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
                             minWidth: edgeLabelWidth(label),
                             pointerEvents: 'all',
                         }}
-                        title={labelTitle}
+                        title={labelTooltip(label, reachedAfter)}
                     >
                         {shortLabel(label)}
                     </div>

@@ -1,6 +1,7 @@
 import { getEdgeId } from '../../edgeId'
 import type { HogFlowAction, HogFlowEdge } from '../../types'
 import { ActionOf } from './stepValues'
+import { shortLabel } from './tileCanvasLayout'
 import { executionOrder, FlowGraph, outgoingEdges } from './tileCanvasModel'
 
 /** How long after the trigger a person reaches a step, over every path that leads there. */
@@ -22,8 +23,7 @@ const SECONDS_PER_UNIT: Record<DurationUnit, number> = { d: 86400, h: 3600, m: 6
 const DURATION_PATTERN = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([dhms])$/
 
 // The executor holds each wait to the ceiling of its unit and stores a larger amount unchanged, so the
-// totals use the same ceilings to name the time a run really waits. A fixed delay and the cap of a date
-// wait use the delay ceilings; a wait for a condition uses the lower wait ceilings.
+// totals use the same ceilings to name the time a run really waits.
 const DELAY_CEILINGS: Record<DurationUnit, number> = { d: 365, h: 24, m: 60, s: 60 }
 const WAIT_CEILINGS: Record<DurationUnit, number> = { d: 30, h: 24, m: 60, s: 60 }
 const DEFAULT_DATE_WAIT_CEILING = '30d'
@@ -108,9 +108,8 @@ export function timeFromTrigger(workflow: FlowGraph): TimesFromTrigger {
     const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
     const triggerIds = workflow.actions.filter((action) => action.type === 'trigger').map((action) => action.id)
     triggerIds.forEach((id) => steps.set(id, NO_WAIT))
-    // Each step comes before the steps it leads to, so one pass counts every path into a step before the step is
-    // read. An arrow back to an earlier step, which the API allows to build a retry loop, breaks that order: a
-    // shorter path can reach the loop after the steps in it were read.
+    // The API allows an arrow back to an earlier step for a retry loop, so a shorter path can reach a step after
+    // a pass read it. Waits are never negative, so repeating the pass settles the times within one pass per step.
     const order = executionOrder(workflow, triggerIds)
     const position = new Map(order.map((id, index) => [id, index]))
     const isLoopBack = (edge: HogFlowEdge): boolean => (position.get(edge.to) ?? 0) <= (position.get(edge.from) ?? 0)
@@ -121,8 +120,6 @@ export function timeFromTrigger(workflow: FlowGraph): TimesFromTrigger {
     )
     // A person can go round a loop any number of times, so the steps from a loop onwards have no upper bound.
     const afterLoop = new Set(executionOrder(workflow, loopStarts))
-    // So the passes repeat until no time changes. Waits are never negative, so a shortest path visits each step
-    // at most once and the times settle within one pass per step.
     let changed = true
     for (let pass = 0; changed && pass <= order.length; pass++) {
         changed = false
@@ -155,8 +152,7 @@ const UNIT_NAMES: [seconds: number, one: string, many: string][] = [
 
 /** The two largest units of a duration, such as "1 day 4 hours". */
 function durationText(totalSeconds: number): string {
-    // Round up so that a wait under a second still names a time. The rounding to milliseconds first keeps a
-    // floating point product such as 1.1 * 3600 = 3960.0000000000005 from gaining a second.
+    // Round up so that a wait under a second still shows, after rounding off float drift such as 1.1 * 3600.
     let rest = Math.ceil(Math.round(totalSeconds * 1000) / 1000)
     const parts: string[] = []
     for (const [seconds, one, many] of UNIT_NAMES) {
@@ -188,4 +184,10 @@ export function reachedAfterTriggerText(time: TimeFromTrigger | undefined): stri
         return `Reached up to ${durationText(maxSeconds)} after the trigger`
     }
     return `Reached ${durationText(minSeconds)} to ${durationText(maxSeconds)} after the trigger`
+}
+
+/** The tooltip of an arrow or path label: its full text when the canvas shortens it, then the time people take it. */
+export function labelTooltip(label: string | undefined, reachedAfter: string | undefined): string | undefined {
+    const fullLabel = label && label !== shortLabel(label) ? label : undefined
+    return [fullLabel, reachedAfter].filter(Boolean).join('. ') || undefined
 }
