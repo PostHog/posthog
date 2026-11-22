@@ -38,8 +38,9 @@ UNCONFIRMED_EMAIL = (
 )
 
 
-def _field_name(name: str) -> str:
-    return name.encode("utf-8", "backslashreplace").decode("utf-8")
+def _refuse_unknown_field(serializer: serializers.Serializer, message: str) -> None:
+    if (unknown := next((name for name in serializer.initial_data if name not in serializer.fields), None)) is not None:
+        raise serializers.ValidationError({unknown.encode("utf-8", "backslashreplace").decode("utf-8"): message})
 
 
 class EmailBatchRecipientSerializer(serializers.Serializer):
@@ -71,14 +72,7 @@ class EmailBatchRecipientSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if (unknown := next((name for name in self.initial_data if name not in self.fields), None)) is not None:
-            raise serializers.ValidationError(
-                {
-                    _field_name(unknown): (
-                        "A recipient takes only `to`, `distinct_id`, `message_data` and `idempotency_key`."
-                    )
-                }
-            )
+        _refuse_unknown_field(self, "A recipient takes only `to`, `distinct_id`, `message_data` and `idempotency_key`.")
         return attrs
 
 
@@ -142,15 +136,11 @@ class SendEmailBatchSerializer(SendEmailSerializer):
         return fields
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        if (unknown := next((field for field in self.initial_data if field not in self.fields), None)) is not None:
-            raise serializers.ValidationError(
-                {
-                    _field_name(
-                        unknown
-                    ): "A batch send doesn't take this field, so PostHog didn't send it. Each recipient's `to` "
-                    "and `distinct_id` go in `recipients`."
-                }
-            )
+        _refuse_unknown_field(
+            self,
+            "A batch send doesn't take this field, so PostHog didn't send it. Each recipient's `to` "
+            "and `distinct_id` go in `recipients`.",
+        )
         data = super().validate(data)
         if "template_key" in data and any("message_data" in item for item in self.initial_data["recipients"]):
             raise serializers.ValidationError(

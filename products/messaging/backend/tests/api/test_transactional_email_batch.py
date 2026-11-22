@@ -675,16 +675,26 @@ class TestTransactionalEmailBatch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("batch_flag_off", "template", {TRANSACTIONAL_EMAIL_API_FLAG, EMAIL_FROM_CODE_FLAG}),
-            ("template_flag_off", "template", {EMAIL_BATCH_FLAG, EMAIL_FROM_CODE_FLAG}),
-            ("code_flag_off", "code", {EMAIL_BATCH_FLAG, TRANSACTIONAL_EMAIL_API_FLAG}),
+            ("batch_flag_off", "template", {TRANSACTIONAL_EMAIL_API_FLAG, EMAIL_FROM_CODE_FLAG}, "application/json"),
+            ("batch_flag_off_any_type", "template", {TRANSACTIONAL_EMAIL_API_FLAG, EMAIL_FROM_CODE_FLAG}, "*/*"),
+            (
+                "batch_flag_off_any_application_type",
+                "template",
+                {TRANSACTIONAL_EMAIL_API_FLAG, EMAIL_FROM_CODE_FLAG},
+                "application/*",
+            ),
+            ("template_flag_off", "template", {EMAIL_BATCH_FLAG, EMAIL_FROM_CODE_FLAG}, "application/json"),
+            ("code_flag_off", "code", {EMAIL_BATCH_FLAG, TRANSACTIONAL_EMAIL_API_FLAG}, "application/json"),
         ]
     )
-    def test_is_hidden_while_a_flag_it_needs_is_off(self, mock_post, flag, _capture, _name, form, enabled_flags):
+    def test_is_hidden_while_a_flag_it_needs_is_off(
+        self, mock_post, flag, _capture, _name, form, enabled_flags, content_type
+    ):
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
+        body = json.dumps({**self._email(form), "recipients": self._recipients(2)})
 
         with self._enforce_rate_limits(), patch.object(TransactionalEmailTeamBurstThrottle, "rate", "1/minute"):
-            responses = [self._batch(form), self._batch(form)]
+            responses = [self.psak.post(BATCH_URL, body, content_type=content_type) for _ in range(2)]
 
         assert [response.status_code for response in responses] == [status.HTTP_404_NOT_FOUND] * 2
         mock_post.assert_not_called()
