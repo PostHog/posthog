@@ -518,7 +518,14 @@ export function createRunner(
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
-            let writerCpu: WriterCpu | undefined
+            const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
+            const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
+                const read = await writerCpuFor(card.bars, window, readSignal)
+                if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
+                    writerCpuReads.push({ startedAt: window.startedAt, endedAt: window.endedAt, read })
+                }
+                return read
+            }
             try {
                 await opened.connect()
                 live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
@@ -598,7 +605,7 @@ export function createRunner(
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
                               profile,
-                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                              writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
                           liveSignal
@@ -649,11 +656,10 @@ export function createRunner(
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )
-                writerCpu = await writerCpuFor(card.bars, driveWindow, signal)
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu,
+                    writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
                 })
                 const ramp = card.drive.stopOnBreak
@@ -755,8 +761,8 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
-                if (writerCpu !== undefined && card.bars.some(({ name }) => name === 'writer_cpu_under')) {
-                    writeJson(evidenceDir, 'writer-cpu.json', writerCpu)
+                if (writerCpuReads.length > 0) {
+                    writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
                 }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
