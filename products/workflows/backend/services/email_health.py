@@ -219,7 +219,6 @@ INFRASTRUCTURE_HEALTH_FLAG = "workflows-email-infrastructure-health"
 
 
 def email_infrastructure_health_enabled(team: Team) -> bool:
-    # A flag service error hides the card rather than failing the page.
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -264,8 +263,7 @@ def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHe
         return None
 
     value = _rounded_infrastructure_health(metrics) if metrics is not None else None
-    # A query SES answered with an error comes back as a missing rate, not an exception, so a
-    # missing value takes the short lifetime too rather than hiding the card for hours.
+    # SES reports a failed query as a missing rate rather than an exception, so retry it soon.
     lifetime = INFRASTRUCTURE_HEALTH_CACHE_SECONDS if value is not None else INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS
     cache.set(cache_key, {"value": value}, lifetime)
     return value

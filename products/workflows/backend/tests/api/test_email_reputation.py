@@ -123,8 +123,6 @@ class TestEmailReputationAPI(APIBaseTest):
             first = self._get_reputation_from_ses()["infrastructure"]
             second = self._get_reputation_from_ses()["infrastructure"]
 
-        # Volume is a lower bound to one significant figure. The delivery rate rounds down and the
-        # bounce and complaint rates round up, so no rounding flatters the infrastructure.
         assert first == {
             "emails_sent_at_least": 4_000_000,
             "delivery_rate": 0.994,

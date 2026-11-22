@@ -456,7 +456,6 @@ export function WorkflowsReputation(): JSX.Element {
         ispSharedDomains,
         ispWithheldDomains,
         workflowSnapshots,
-        infrastructureHealth,
         reputationResponseLoading,
         search,
     } = useValues(workflowsReputationLogic)
@@ -566,7 +565,7 @@ export function WorkflowsReputation(): JSX.Element {
                     },
                 ]}
             />
-            {infrastructureHealth && <EmailInfrastructureCard health={infrastructureHealth} />}
+            <EmailInfrastructureCard />
         </div>
     )
 }

@@ -48,7 +48,6 @@ class FakeSesEndpoint:
         self.reputation_aggregates: dict[str, str] = {}
         # Account-wide VDM totals per metric, answered for queries that carry no dimension.
         self.account_metrics: dict[str, int] = {}
-        # Metrics whose queries SES answers in the batch's Errors rather than its Results.
         self.failing_metrics: set[str] = set()
         self.denied = False
 

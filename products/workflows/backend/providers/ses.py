@@ -74,8 +74,7 @@ ISP_IDENTITY_TOTAL = "__identity_total__"
 # the only way to show that volume is to derive it.
 ISP_OTHER = "__other__"
 
-# Subject for the account-wide queries, which carry no dimension at all: every email this SES
-# account sent, across every project.
+# Account-wide queries carry no dimension, so they count every email this SES account sent.
 ACCOUNT_TOTAL = "__account_total__"
 
 # SES caps a BatchGetMetricData request at ten queries.

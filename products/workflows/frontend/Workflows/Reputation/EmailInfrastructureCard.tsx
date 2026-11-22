@@ -1,10 +1,15 @@
+import { useValues } from 'kea'
+
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 
-import type { EmailInfrastructureHealthApi } from 'products/workflows/frontend/generated/api.schemas'
-
 import { MetricLabel } from './MetricLabel'
+import { workflowsReputationLogic } from './workflowsReputationLogic'
 
-export function EmailInfrastructureCard({ health }: { health: EmailInfrastructureHealthApi }): JSX.Element {
+export function EmailInfrastructureCard(): JSX.Element | null {
+    const { infrastructureHealth: health } = useValues(workflowsReputationLogic)
+    if (!health) {
+        return null
+    }
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-reputation-infrastructure">
             <h3 className="mb-0">PostHog email infrastructure</h3>
