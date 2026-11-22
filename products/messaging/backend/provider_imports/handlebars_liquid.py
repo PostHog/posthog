@@ -543,12 +543,14 @@ class HandlebarsToLiquid:
 
     def _counted(self, path: str, setup: list[str]) -> str:
         """SendGrid's `length` counts a list's items or a string's characters, and gives 0 for anything else. Liquid's
-        `size` reads an object's `length` key, so an object, which `slice` reads as "[object Object]", counts 0."""
+        `size` reads an object's `length` key, so an object, which `slice` reads as "[object Object]" but never equals
+        that text, counts 0."""
         self._assigned += 1
         length, probe = f"length{self._assigned}", f"probe{self._assigned}"
         setup.append(
             f"{{% assign {probe} = {path} | slice: 0, 16 %}}{{% assign {length} = 0 %}}"
-            f'{{% if {probe} != "[object Object]" %}}{{% assign {length} = {path} | size %}}{{% endif %}}'
+            f'{{% if {probe} != "[object Object]" or {path} == {probe} %}}{{% assign {length} = {path} | size %}}'
+            "{% endif %}"
         )
         return length
 
@@ -571,8 +573,9 @@ class HandlebarsToLiquid:
             return condition
         self._assigned += 1
         name = f"truthy{self._assigned}"
-        setup.append(f"{{% capture {name} %}}{{% if {condition} %}}1{{% endif %}}{{% endcapture %}}")
-        return f'{name} == "1"'
+        # An assign, unlike a capture, holds no text, so the plain text part keeps it when it drops text from tags.
+        setup.append(f"{{% assign {name} = false %}}{{% if {condition} %}}{{% assign {name} = true %}}{{% endif %}}")
+        return f"{name} == true"
 
     def _assign(self, expression: str, prefix: str, setup: list[str]) -> str:
         self._assigned += 1

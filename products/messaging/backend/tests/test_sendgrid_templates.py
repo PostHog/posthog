@@ -347,6 +347,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_plain_text_built_from_converted_html(self, _name: str, html: str, text: str) -> None:
         assert convert_version({"html_content": html}).text == text
 
+    def test_plain_text_keeps_each_test_of_an_and_whole(self) -> None:
+        html = '<a title="{{#and a b}}">{{token}}<a title="{{/and}}">x</a>'
+
+        converted = convert_version({"html_content": html})
+
+        assert "{% assign truthy1 = true %}" in converted.text
+
     def test_plain_text_keeps_how_a_loop_reads_its_value(self) -> None:
         html = '<a title="{{#each items}}">{{#unless restricted}}{{../token}}{{/unless}}<a title="{{/each}}">x</a>'
 
