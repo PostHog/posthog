@@ -313,6 +313,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_plain_text_built_from_converted_html(self, _name: str, html: str, text: str) -> None:
         assert convert_version({"html_content": html}).text == text
 
+    def test_plain_text_keeps_how_a_loop_reads_its_value(self) -> None:
+        html = '<a title="{{#each items}}">{{#unless restricted}}{{../token}}{{/unless}}<a title="{{/each}}">x</a>'
+
+        converted = convert_version({"html_content": html})
+
+        assert '{% assign shape1 = "list" %}' in converted.text
+
     def test_plain_text_prints_values_without_html_escaping(self) -> None:
         converted = convert_version({"html_content": '<p>{{name}} <a href="<%asm_preferences_raw_url%>">Go</a></p>'})
 

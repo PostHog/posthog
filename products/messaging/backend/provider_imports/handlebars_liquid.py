@@ -277,8 +277,9 @@ class HandlebarsToLiquid:
         # of the value, so a large list costs the renderer nothing.
         guard = self._spend(
             f"{{% assign {values} = {source} | slice: 0, 0 %}}{{% assign {string} = {source} | slice: 0, 16 %}}"
-            f'{{% capture {shape} %}}{{% if {values} != "" %}}list{{% elsif {string} == "[object Object]" and {source} != {string} %}}'
-            f'{{% elsif {string} != "" %}}text{{% endif %}}{{% endcapture %}}'
+            f'{{% assign {shape} = "" %}}{{% if {values} != "" %}}{{% assign {shape} = "list" %}}'
+            f'{{% elsif {string} == "[object Object]" and {source} != {string} %}}'
+            f'{{% elsif {string} != "" %}}{{% assign {shape} = "text" %}}{{% endif %}}'
             f'{{% if {shape} == "text" %}}'
         )
         opening = self._spend(
