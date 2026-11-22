@@ -90,9 +90,16 @@ class TestEmailReputationAPI(APIBaseTest):
             "infrastructure": None,
         }
 
-    def _get_reputation_from_ses(self) -> dict:
-        with patch(
-            "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source", return_value={}
+    def _get_reputation_from_ses(self, *, released: bool = True) -> dict:
+        with (
+            patch(
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
+                return_value={},
+            ),
+            patch(
+                "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
+                return_value=released,
+            ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
@@ -124,12 +131,16 @@ class TestEmailReputationAPI(APIBaseTest):
         assert second == first
         assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
 
-    def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
+    @parameterized.expand([("ses_unreachable", True, True), ("not_released_to_the_project", False, False)])
+    def test_reputation_loads_without_the_infrastructure_health(self, _name: str, released: bool, denied: bool):
         with FakeSesEndpoint().installed() as ses:
-            ses.denied = True
-            data = self._get_reputation_from_ses()
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.denied = denied
+            data = self._get_reputation_from_ses(released=released)
 
         assert data["infrastructure"] is None
+        if not released:
+            assert not [request for request in ses.requests if request.path == METRICS_BATCH_PATH]
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_MODE="enforce",

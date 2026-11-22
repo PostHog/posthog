@@ -3,6 +3,7 @@ allowance, the shared infrastructure's health, the project-wide suspension and t
 
 from products.workflows.backend.services.email_health import (
     email_domain_sharers,
+    email_infrastructure_health_enabled,
     fetch_aws_tenant_reputation,
     fetch_email_infrastructure_health,
     fetch_email_totals_by_source,
@@ -16,6 +17,7 @@ from products.workflows.backend.services.workflow_email_health import pause_requ
 
 __all__ = [
     "email_domain_sharers",
+    "email_infrastructure_health_enabled",
     "fetch_aws_tenant_reputation",
     "fetch_email_infrastructure_health",
     "fetch_email_totals_by_source",

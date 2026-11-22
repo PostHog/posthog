@@ -235,6 +235,7 @@ from products.workflows.backend.facade.email_design import (
 )
 from products.workflows.backend.facade.email_health import (
     email_domain_sharers,
+    email_infrastructure_health_enabled,
     fetch_aws_tenant_reputation,
     fetch_email_infrastructure_health,
     fetch_email_totals_by_source,
@@ -3461,7 +3462,8 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Sending health across every project in this PostHog region over the last 30 whole days, which "
-            "all send through the same infrastructure. Null when AWS is unreachable or has no data."
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
+            "while the feature is not yet released to this project."
         ),
     )
 
@@ -8186,7 +8188,11 @@ class HogFlowViewSet(
                     # not enough to read it.
                     "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
                     # Not project data, so no access gate: it covers every project in the region.
-                    "infrastructure": fetch_email_infrastructure_health(self.REPUTATION_WINDOW_DAYS),
+                    "infrastructure": (
+                        fetch_email_infrastructure_health(self.REPUTATION_WINDOW_DAYS)
+                        if email_infrastructure_health_enabled(self.team)
+                        else None
+                    ),
                 }
             ).data
         )

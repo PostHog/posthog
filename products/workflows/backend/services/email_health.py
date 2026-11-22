@@ -11,9 +11,11 @@ from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
 from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.models.team.team import Team
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
@@ -211,6 +213,28 @@ def fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> lis
     ]
     cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
     return value
+
+
+INFRASTRUCTURE_HEALTH_FLAG = "workflows-email-infrastructure-health"
+
+
+def email_infrastructure_health_enabled(team: Team) -> bool:
+    # A flag service error hides the card rather than failing the page.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                INFRASTRUCTURE_HEALTH_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
 
 
 # VDM counts whole days, so the numbers move once a day; refreshing every few hours is plenty.
