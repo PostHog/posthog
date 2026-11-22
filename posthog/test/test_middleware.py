@@ -53,6 +53,7 @@ from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
+    MissingStaticFileMiddleware,
     SignedClientIPOutcome,
     UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
@@ -827,6 +828,20 @@ class TestMissingStaticFileMiddleware(SimpleTestCase):
         response = self.client.get(path)
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("static_inside_another_path", "/api/static/chunk.js"),
+            ("prefix_without_the_slash", "/staticfiles/chunk.js"),
+            ("app_route", "/insights"),
+        ]
+    )
+    def test_a_path_outside_static_reaches_the_rest_of_the_app(self, _name: str, path: str) -> None:
+        reached = HttpResponse()
+
+        response = MissingStaticFileMiddleware(lambda request: reached)(RequestFactory().get(path))
+
+        assert response is reached
 
 
 class TestUnversionedStaticPathMiddleware(SimpleTestCase):
