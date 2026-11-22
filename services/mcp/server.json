@@ -8,13 +8,33 @@
     "repository": {
         "url": "https://github.com/PostHog/posthog",
         "source": "github",
+        "id": "235901813",
         "subfolder": "services/mcp"
     },
     "icons": [
         {
-            "src": "https://posthog.com/brand/posthog-logomark.svg",
+            "src": "https://brand.posthog.com/logo/posthog-logomark-square.svg",
             "mimeType": "image/svg+xml",
-            "sizes": ["any"]
+            "sizes": ["any"],
+            "theme": "light"
+        },
+        {
+            "src": "https://brand.posthog.com/logo/posthog-logomark-square.png",
+            "mimeType": "image/png",
+            "sizes": ["1600x1600"],
+            "theme": "light"
+        },
+        {
+            "src": "https://brand.posthog.com/logo/posthog-logomark-square-white.svg",
+            "mimeType": "image/svg+xml",
+            "sizes": ["any"],
+            "theme": "dark"
+        },
+        {
+            "src": "https://brand.posthog.com/logo/posthog-logomark-square-white.png",
+            "mimeType": "image/png",
+            "sizes": ["1600x1600"],
+            "theme": "dark"
         }
     ],
     "remotes": [
