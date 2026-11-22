@@ -183,7 +183,7 @@ describe('hogInvocationsLogic', () => {
         ]
 
         // The messages are the run's warn and error log lines that mention a bounce or a complaint, as the SES
-        // feedback handler writes them.
+        // feedback handler writes them. The mock splits them into the query's bounce and complaint columns.
         it.each([
             {
                 messages: ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
@@ -204,7 +204,9 @@ describe('hogInvocationsLogic', () => {
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
                         const sql: string = ((await request.json()) as any).query.query
                         if (sql.includes('FROM log_entries') && sql.includes('GROUP BY instance_id')) {
-                            return [200, { results: [['inv-1', 2, messages]] }]
+                            const bounces = messages.filter((message) => message.includes('bounce to '))
+                            const others = messages.filter((message) => !message.includes('bounce to '))
+                            return [200, { results: [['inv-1', 2, bounces, others]] }]
                         }
                         if (sql.includes('argMax(error_message, version)')) {
                             return [200, { results: [succeededRun] }]

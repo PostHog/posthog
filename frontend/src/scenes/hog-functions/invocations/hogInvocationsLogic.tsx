@@ -808,21 +808,29 @@ async function fetchRunProblems(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
-    // Return at most 10 candidate bounce and complaint lines per run, cut to 400 characters, so the
-    // response stays small however many problems a run logs. The cut keeps the [Action:<id>] prefix,
-    // the recipient and the complaint feedback type.
+    // Return at most 5 candidate bounce lines and 5 candidate complaint lines per run, cut to 400
+    // characters, so the response stays small however many problems a run logs. Each kind has its own
+    // cap because groupUniqArray has no order: one shared cap could drop the bounce that outranks
+    // many complaints. The cut keeps the [Action:<id>] prefix, the recipient and the feedback type.
     const severityQuery = hogql`
         SELECT
             instance_id,
             max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev,
             arraySlice(
+                groupUniqArrayIf(substring(message, 1, 400), lower(level) IN ('warn', 'error') AND message LIKE '%bounce to %'),
+                1,
+                5
+            ) AS bounce_messages,
+            arraySlice(
                 groupUniqArrayIf(
                     substring(message, 1, 400),
-                    lower(level) IN ('warn', 'error') AND (message LIKE '%bounce to %' OR message LIKE '%Complaint from %')
+                    lower(level) IN ('warn', 'error')
+                        AND message LIKE '%Complaint from %'
+                        AND NOT message ILIKE '%feedback type: not-spam'
                 ),
                 1,
-                10
-            ) AS email_messages
+                5
+            ) AS complaint_messages
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
@@ -843,10 +851,15 @@ async function fetchRunProblems(
     )
     const problemsByInvocationId: Record<string, RunProblems> = {}
     for (const severityRow of severityResponse.results ?? []) {
-        const [instanceId, sev, messages] = severityRow as unknown as [string, number, string[] | null]
+        const [instanceId, sev, bounceMessages, complaintMessages] = severityRow as unknown as [
+            string,
+            number,
+            string[] | null,
+            string[] | null,
+        ]
         problemsByInvocationId[instanceId] = {
             level: Number(sev) >= 2 ? 'error' : 'warn',
-            emailOutcome: emailOutcomeFromLogMessages(messages ?? []),
+            emailOutcome: emailOutcomeFromLogMessages([...(bounceMessages ?? []), ...(complaintMessages ?? [])]),
         }
     }
     return problemsByInvocationId
