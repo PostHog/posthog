@@ -1,12 +1,12 @@
 import os
 import json
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import IntegrityError, models, transaction
+from django.db import connection, models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 
 import requests
 import structlog
@@ -463,9 +463,15 @@ class RemoteConfig(UUIDTModel):
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
         try:
+            build_started_at = _database_now()
             config = self.build_config(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
+            written = self._store_unless_superseded(config, build_started_at, force=force)
+            # From here on, self.config is the stored config. It differs from the built config
+            # when a sync that started later already stored its own, and writing the built config
+            # to the cache would then put the older one back.
+            config = self.config
 
-            if not force and config == self.config:
+            if not (written or force):
                 # Content is unchanged: skip S3 + CDN purge, but still re-stamp the Redis
                 # TTL and expiry entry so an unchanged team's cache never silently expires.
                 try:
@@ -478,10 +484,6 @@ class RemoteConfig(UUIDTModel):
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
                 return True
-
-            self.config = config
-            self.synced_at = timezone.now()
-            self._save_config()
 
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
@@ -503,20 +505,45 @@ class RemoteConfig(UUIDTModel):
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
 
-    def _save_config(self) -> None:
-        if not self._state.adding:
-            self.save()
-            return
-        try:
-            with transaction.atomic():
-                self.save()
-        except IntegrityError:
-            # Creating a team enqueues several syncs that run at once after the same commit.
-            # Each one finds no row and inserts, so all but the first hit the unique team_id constraint.
-            # They all read the same committed state, so this config goes onto the row that won.
-            self.pk = RemoteConfig.objects.values_list("pk", flat=True).get(team_id=self.team_id)
-            self._state.adding = False
-            self.save()
+    def _store_unless_superseded(self, config: dict, build_started_at: datetime, force: bool) -> bool:
+        """
+        Store config unless the stored config is newer or the same, and return whether this sync stored it.
+
+        Syncs for one team can overlap: creating a team enqueues several at once, and a change can
+        enqueue a sync while an older one still builds. synced_at holds the database time at which
+        the stored config started to build, and the upsert stores a config only when it started later.
+        A config that started earlier missed changes that the stored config includes.
+        One statement does the insert, the comparison and the update, so overlapping syncs need no lock
+        and a sync that finds no row cannot fail on the unique team_id.
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_remoteconfig (id, team_id, config, updated_at, synced_at)
+                VALUES (%(id)s, %(team_id)s, %(config)s::jsonb, now(), %(build_started_at)s)
+                ON CONFLICT (team_id) DO UPDATE
+                SET config = EXCLUDED.config, synced_at = EXCLUDED.synced_at, updated_at = now()
+                WHERE COALESCE(posthog_remoteconfig.synced_at, '-infinity') < EXCLUDED.synced_at
+                AND (%(force)s OR posthog_remoteconfig.config IS DISTINCT FROM EXCLUDED.config)
+                RETURNING id
+                """,
+                {
+                    "id": RemoteConfig._meta.pk.get_default(),
+                    "team_id": self.team_id,
+                    "config": json.dumps(config),
+                    "build_started_at": build_started_at,
+                    "force": force,
+                },
+            )
+            written = cursor.fetchone() is not None
+
+        stored = RemoteConfig.objects.get(team_id=self.team_id)
+        self.pk = stored.pk
+        self.config = stored.config
+        self.synced_at = stored.synced_at
+        self.updated_at = stored.updated_at
+        self._state.adding = False
+        return written
 
     def sync_after_token_change(self, old_token: str) -> None:
         """
@@ -613,6 +640,13 @@ class RemoteConfig(UUIDTModel):
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
+
+
+def _database_now() -> datetime:
+    # The database clock orders the builds. Worker clocks can differ by more than the time between two builds.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT clock_timestamp()")
+        return cursor.fetchone()[0]
 
 
 def _update_team_remote_config(team_id: int):
