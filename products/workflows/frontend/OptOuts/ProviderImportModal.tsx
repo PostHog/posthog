@@ -115,7 +115,7 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
             ) : isCustomerIO ? (
                 <CustomerIOImportSteps provider={provider} />
             ) : (
-                <ProviderImportPanel provider={provider} />
+                <ProviderImportPanel provider={provider} pinActions />
             )}
         </div>
     )
