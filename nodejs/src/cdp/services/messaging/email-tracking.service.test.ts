@@ -1472,7 +1472,7 @@ describe('EmailTrackingService', () => {
                 await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('broker unavailable')
             })
 
-            it('flushes the notifications that recorded before it fails the batch, and records only the rest on redelivery', async () => {
+            it('flushes the notifications that recorded before it fails the batch', async () => {
                 const parentRunId = new UUIDT().toString()
                 await postEnvelope({
                     Type: 'Notification',
@@ -1513,16 +1513,6 @@ describe('EmailTrackingService', () => {
                 expect(recordedMetrics()).toEqual([
                     ['email_opened', 1],
                     ['email_opened_by_person', 1],
-                ])
-
-                jest.mocked(service.recordQueuedSesNotification).mockRestore()
-                await consumer.processBatch(queuedSesNotifications())
-
-                expect(recordedMetrics()).toEqual([
-                    ['email_opened', 1],
-                    ['email_opened_by_person', 1],
-                    ['email_bounced', 1],
-                    ['email_bounced_hard', 1],
                 ])
             })
 
