@@ -64,6 +64,8 @@ class ImportStepSpec:
     requires: tuple[str, ...] = ()
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
+    # Creates or updates people, and each of those counts as an event on the bill.
+    counts_as_events: bool = False
     # Left unselected until the person picks it, because it changes more than what PostHog stores about the import.
     opt_in: bool = False
     # A step this one does everything of. Selecting both runs only this one.

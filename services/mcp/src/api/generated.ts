@@ -65355,6 +65355,10 @@ export namespace Schemas {
       description: string;
       /** Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it. */
       opt_in: boolean;
+      /** Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty. */
+      needs: string[];
+      /** Whether the step creates or updates people. Each of those counts as one event on the bill. */
+      counts_as_events: boolean;
     }
 
     export interface ImportSettingChoice {
@@ -147744,6 +147748,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingEmailsStatusRetrieveParams = {
+    /**
+     * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string;
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string;
     };
 
     export type MessagingCategoriesListParams = {

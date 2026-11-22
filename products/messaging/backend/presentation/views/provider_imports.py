@@ -46,6 +46,13 @@ class ImportStepOptionSerializer(serializers.Serializer):
     opt_in = serializers.BooleanField(
         help_text="Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it."
     )
+    needs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty.",
+    )
+    counts_as_events = serializers.BooleanField(
+        help_text="Whether the step creates or updates people. Each of those counts as one event on the bill."
+    )
 
 
 class ImportSettingChoiceSerializer(serializers.Serializer):

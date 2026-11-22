@@ -11394,7 +11394,7 @@ Note (2026-11-19): Parsed the full OpenAPI JSON. Report endpoints are POST with 
 
 ## Pendo — **thin**
 
-Today (13): `accounts`, `events`, `feature_events`, `features`, `guides`, `page_events`, `pages`, `product_areas`, `reports`, `survey_responses`, `track_events`, `track_types`, `visitors`
+Today (17): `accounts`, `events`, `feature_events`, `features`, `guide_events`, `guide_history`, `guides`, `page_events`, `pages`, `poll_events`, `product_areas`, `reports`, `segments`, `survey_responses`, `track_events`, `track_types`, `visitors`
 
 Diffed against: <https://engageapi.pendo.io/api/collections/16265887/Tzm6jvKG>
 
@@ -11403,13 +11403,13 @@ Diffed against: <https://engageapi.pendo.io/api/collections/16265887/Tzm6jvKG>
 - [x] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
 - [x] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
 - [x] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
-- [ ] `aggregation source: guideEvents (plus guidesSeen)` — guide impressions and interactions for the guides table already synced (medium)
-- [ ] `aggregation source: pollEvents / pollsSeen` — poll and NPS responses, the source of Pendo's NPS reporting (medium)
+- [x] `aggregation source: guideEvents (plus guidesSeen)` — guide impressions and interactions for the guides table already synced (medium) (guideEvents as guide_events; guidesSeen not added, it is a per-visitor rollup of guideEvents)
+- [x] `aggregation source: pollEvents / pollsSeen` — poll and NPS responses, the source of Pendo's NPS reporting (medium) (pollEvents as poll_events; pollsSeen not added, it is the latest response per visitor from pollEvents)
 - [x] `aggregation source: surveyResponses` — survey response rows for voice-of-customer analysis (medium)
-- [ ] `GET /api/v1/segment` — segment definitions, the lookup used to slice visitors and accounts already synced (medium)
+- [x] `GET /api/v1/segment` — segment definitions, the lookup used to slice visitors and accounts already synced (medium)
 - [x] `aggregation source: groups` — page/feature group (product area) lookup used to roll up features and pages (medium)
 - [x] `GET /api/v1/report and /api/v1/report/{reportId}/results.json` — saved report definitions plus their materialized results (medium) (definitions only; results.json has a different column set per report and re-projects the visitors and accounts tables)
-- [ ] `GET /api/v1/guide/{guideId}/history` — guide state/version transition history (low)
+- [x] `GET /api/v1/guide/{guideId}/history` — guide state/version transition history (low)
 
 Note: engageapi.pendo.io is a Postman-published doc; I pulled the raw collection JSON from the documenter API it loads. PostHog does NOT discover tables dynamically - PENDO_ENDPOINTS in products/warehouse_sources/sources/pendo/settings.py is a fixed dict of 5. It already POSTs to /api/v1/aggregation for visitors and accounts, so every aggregation event source below is a config-level addition on machinery that already exists. Pendo's entire behavioral dataset (events, pageEvents, featureEvents, trackEvents, guideEvents, pollEvents, surveyResponses) is currently unavailable, so the source syncs only the object metadata and none of the usage.
 
@@ -13143,14 +13143,14 @@ Note (2026-11-19): Parsed every operation in the current Graph swagger.json. The
 
 ## Semaphore (Semaphore CI) — gaps
 
-Today (3): `deployment_targets`, `pipelines`, `workflows`
+Today (7): `deployment_history`, `deployment_targets`, `flaky_test_disruptions`, `flaky_tests`, `members`, `pipelines`, `workflows`
 
 Diffed against: <https://docs.semaphore.io/reference/api>
 
-- [ ] `Organization members (GET /api/v1alpha/members)` — resolve workflow requester IDs to people and compare build activity across organization members (high)
-- [ ] `Deployment target history (GET /api/v1alpha/deployment_targets/{target_id}/history)` — measure deployment frequency and outcomes, with links to the pipelines that caused each deployment (high)
-- [ ] `Flaky tests (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests)` — identify unreliable tests and measure their failure rates and disruption counts (high)
-- [ ] `Flaky test disruptions (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests/{id}/disruptions)` — connect unreliable tests to affected pipeline runs, branches, and commits (medium)
+- [x] `Organization members (GET /api/v1alpha/members)` — resolve workflow requester IDs to people and compare build activity across organization members (high) → `members` (full refresh, human users only)
+- [x] `Deployment target history (GET /api/v1alpha/deployment_targets/{target_id}/history)` — measure deployment frequency and outcomes, with links to the pipelines that caused each deployment (high) → `deployment_history` (full refresh, fan-out over `deployment_targets`)
+- [x] `Flaky tests (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests)` — identify unreliable tests and measure their failure rates and disruption counts (high) → `flaky_tests` (full refresh)
+- [x] `Flaky test disruptions (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests/{id}/disruptions)` — connect unreliable tests to affected pipeline runs, branches, and commits (medium) → `flaky_test_disruptions` (full refresh, fan-out over `flaky_tests`)
 - [ ] `Promotions (GET /api/v1alpha/promotions?pipeline_id={pipeline_id})` — compare promotion outcomes across pipelines and find failed release steps (medium)
 - [ ] `Project members (GET /api/v1alpha/projects/{project_id}/members)` — connect project access and roles to development activity (medium)
 - [ ] `Flaky test history (GET /api/v1alpha/projects/{project_id}/test_results/flaky_history)` — track changes in test reliability over time without reconstructing historical test states (medium)
