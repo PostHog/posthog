@@ -108,8 +108,9 @@ export function timeFromTrigger(workflow: FlowGraph): TimesFromTrigger {
     const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
     const triggerIds = workflow.actions.filter((action) => action.type === 'trigger').map((action) => action.id)
     triggerIds.forEach((id) => steps.set(id, NO_WAIT))
-    // Each step comes before the steps it leads to, so every path into a step is counted before the step is read.
-    // The one exception is an arrow back to an earlier step, which the API allows to build a retry loop.
+    // Each step comes before the steps it leads to, so one pass counts every path into a step before the step is
+    // read. An arrow back to an earlier step, which the API allows to build a retry loop, breaks that order: a
+    // shorter path can reach the loop after the steps in it were read.
     const order = executionOrder(workflow, triggerIds)
     const position = new Map(order.map((id, index) => [id, index]))
     const isLoopBack = (edge: HogFlowEdge): boolean => (position.get(edge.to) ?? 0) <= (position.get(edge.from) ?? 0)
@@ -120,19 +121,28 @@ export function timeFromTrigger(workflow: FlowGraph): TimesFromTrigger {
     )
     // A person can go round a loop any number of times, so the steps from a loop onwards have no upper bound.
     const afterLoop = new Set(executionOrder(workflow, loopStarts))
-    order.forEach((id) => {
-        const counted = steps.get(id)
-        if (!counted) {
-            return
-        }
-        const reached = afterLoop.has(id) ? { ...counted, maxSeconds: null } : counted
-        steps.set(id, reached)
-        outgoingEdges(workflow, id).forEach((edge) => {
-            const taken = plus(reached, waitAlong(actionsById.get(id), edge))
-            edges.set(getEdgeId(edge), taken)
-            steps.set(edge.to, spanning(steps.get(edge.to), taken))
+    // So the passes repeat until no time changes. Waits are never negative, so a shortest path visits each step
+    // at most once and the times settle within one pass per step.
+    let changed = true
+    for (let pass = 0; changed && pass <= order.length; pass++) {
+        changed = false
+        order.forEach((id) => {
+            const counted = steps.get(id)
+            if (!counted) {
+                return
+            }
+            const reached = afterLoop.has(id) ? { ...counted, maxSeconds: null } : counted
+            steps.set(id, reached)
+            outgoingEdges(workflow, id).forEach((edge) => {
+                const taken = plus(reached, waitAlong(actionsById.get(id), edge))
+                edges.set(getEdgeId(edge), taken)
+                const before = steps.get(edge.to)
+                const after = spanning(before, taken)
+                changed ||= !before || before.minSeconds !== after.minSeconds || before.maxSeconds !== after.maxSeconds
+                steps.set(edge.to, after)
+            })
         })
-    })
+    }
     return { steps, edges }
 }
 

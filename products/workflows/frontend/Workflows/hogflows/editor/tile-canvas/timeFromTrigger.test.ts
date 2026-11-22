@@ -186,6 +186,32 @@ describe('timeFromTrigger', () => {
             'exit',
             'Reached 1 day or more after the trigger',
         ],
+        [
+            'a shorter path into a loop still sets the earliest time',
+            flow(
+                [
+                    step('trigger', 'trigger'),
+                    step('split', 'conditional_branch'),
+                    delay('one_day', '1d'),
+                    delay('ten_days', '10d'),
+                    delay('retry_delay', '1d'),
+                    step('retry', 'conditional_branch'),
+                    step('exit', 'exit'),
+                ],
+                [
+                    next('trigger', 'split'),
+                    branch('split', 'one_day'),
+                    next('split', 'ten_days'),
+                    next('one_day', 'retry_delay'),
+                    next('ten_days', 'retry'),
+                    next('retry_delay', 'retry'),
+                    branch('retry', 'retry_delay'),
+                    next('retry', 'exit'),
+                ]
+            ),
+            'exit',
+            'Reached 2 days or more after the trigger',
+        ],
     ])('%s', (_, workflow, id, expected) => {
         expect(stepText(workflow, id)).toEqual(expected)
     })
