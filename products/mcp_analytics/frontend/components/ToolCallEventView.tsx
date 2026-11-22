@@ -1,16 +1,21 @@
+import { BindLogic, useActions } from 'kea'
 import { useState } from 'react'
 
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ExpandedEventRow } from '~/queries/nodes/DataTable/ExpandedEventRow'
-import { EventType } from '~/types'
+import { EventType, PropertyDefinitionType } from '~/types'
 
 import { formatMs } from '../dashboard/formatters'
 import { CapturedJson } from '../sessions/MCPToolCallRow'
+import { sessionCallDrawerLogic } from '../sessions/sessionCallDrawerLogic'
+import { SessionTimeline } from '../sessions/SessionDrawer'
+import { toolCallSessionLogic } from '../sessions/toolCallSessionLogic'
 
-type ToolCallTab = 'overview' | 'properties'
+type ToolCallTab = 'overview' | 'session' | 'properties' | 'raw'
 
 // The SDK sends payloads as an object or a JSON string.
 function asJson(value: unknown): string {
@@ -77,16 +82,66 @@ function ToolCallOverview({ event }: { event: EventType }): JSX.Element {
     )
 }
 
-/** A tool call's event in a drawer: the MCP fields first, then every property. */
-export function ToolCallEventView({ event }: { event: EventType }): JSX.Element {
+function ToolCallSession({ sessionId, event }: { sessionId: string; event: EventType }): JSX.Element {
+    const { openCall } = useActions(sessionCallDrawerLogic)
+    return (
+        <BindLogic logic={toolCallSessionLogic} props={{ sessionId, timestamp: event.timestamp }}>
+            <div className="h-[calc(100dvh-12rem)] min-h-0">
+                <SessionTimeline focusedEventId={event.uuid ?? event.id} onOpenToolCall={openCall} />
+            </div>
+        </BindLogic>
+    )
+}
+
+/**
+ * A tool call's event in a drawer, in one row of tabs: the MCP fields, its session, then every property.
+ * Built from the event view's parts rather than the event view, which nests its own tabs.
+ */
+export function ToolCallEventView({
+    event,
+    showSession = false,
+}: {
+    event: EventType
+    /** Off where the drawer already sits over the call's session. */
+    showSession?: boolean
+}): JSX.Element {
     const [tab, setTab] = useState<ToolCallTab>('overview')
+    const sessionId: string | undefined = showSession ? event.properties?.$session_id : undefined
     return (
         <LemonTabs<ToolCallTab>
             activeKey={tab}
             onChange={setTab}
             tabs={[
                 { key: 'overview', label: 'Overview', content: <ToolCallOverview event={event} /> },
-                { key: 'properties', label: 'All properties', content: <ExpandedEventRow event={event} /> },
+                sessionId
+                    ? {
+                          key: 'session',
+                          label: 'Session',
+                          content: <ToolCallSession sessionId={sessionId} event={event} />,
+                      }
+                    : null,
+                {
+                    key: 'properties',
+                    label: 'Properties',
+                    content: (
+                        <PropertiesTable
+                            type={PropertyDefinitionType.Event}
+                            properties={event.properties}
+                            useDetectedPropertyType
+                            filterable
+                            sortProperties
+                            searchable
+                            collapsible
+                        />
+                    ),
+                },
+                {
+                    key: 'raw',
+                    label: 'Raw',
+                    content: (
+                        <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    ),
+                },
             ]}
         />
     )

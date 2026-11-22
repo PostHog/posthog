@@ -1,26 +1,27 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
-import { IconArrowUpRight, IconOpenSidebar } from '@posthog/icons'
+import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import { ToolCallEventView } from '../components/ToolCallEventView'
-import { SessionDrawer } from '../sessions/SessionDrawer'
+import { SessionCallDrawer } from '../sessions/SessionCallDrawer'
+import { sessionCallDrawerLogic } from '../sessions/sessionCallDrawerLogic'
 import { activityDrawerLogic } from './activityDrawerLogic'
 
 export function ActivityDrawer(): JSX.Element | null {
     const { openedRow, position, previousRow, nextRow, event, loadedEventLoading, eventFailed, fullPageHref } =
         useValues(activityDrawerLogic)
     const { stepTo, close, loadEvent } = useActions(activityDrawerLogic)
-    const [sessionOpen, setSessionOpen] = useState(false)
-    useEffect(() => setSessionOpen(false), [openedRow])
+    const { close: closeCallDrawer } = useActions(sessionCallDrawerLogic)
+    // A call opened from another row's session would sit over the wrong call.
+    useEffect(() => closeCallDrawer, [openedRow, closeCallDrawer])
 
     if (!openedRow || !fullPageHref) {
         return null
     }
 
-    const { sessionId, timestamp, eventId } = openedRow
     const toolName = event?.properties?.$mcp_tool_name
 
     return (
@@ -38,20 +39,7 @@ export function ActivityDrawer(): JSX.Element | null {
                 data-attr="mcp-activity-drawer"
             >
                 {event ? (
-                    <div className="flex flex-col items-start gap-2">
-                        {sessionId ? (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconOpenSidebar />}
-                                onClick={() => setSessionOpen(true)}
-                                data-attr="mcp-activity-drawer-view-session"
-                            >
-                                View session
-                            </LemonButton>
-                        ) : null}
-                        <ToolCallEventView event={event} />
-                    </div>
+                    <ToolCallEventView event={event} showSession />
                 ) : loadedEventLoading ? (
                     <div className="flex flex-col gap-2" aria-busy>
                         <LemonSkeleton className="h-8 w-2/3" />
@@ -68,16 +56,7 @@ export function ActivityDrawer(): JSX.Element | null {
                     <div className="text-sm text-secondary">This tool call is no longer available.</div>
                 )}
             </MCPDetailDrawer>
-            {sessionOpen && sessionId ? (
-                <SessionDrawer
-                    sessionId={sessionId}
-                    timestamp={timestamp}
-                    focusedEventId={eventId}
-                    stacked
-                    onClose={() => setSessionOpen(false)}
-                    dataAttr="mcp-activity-session-drawer"
-                />
-            ) : null}
+            <SessionCallDrawer stacked />
         </>
     )
 }

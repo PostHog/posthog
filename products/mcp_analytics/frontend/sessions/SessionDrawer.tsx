@@ -15,7 +15,8 @@ import { SessionCallDrawer } from './SessionCallDrawer'
 import { sessionCallDrawerLogic } from './sessionCallDrawerLogic'
 import { toolCallSessionLogic } from './toolCallSessionLogic'
 
-function SessionTimeline({
+/** A session's calls with one in focus. Mount it under a `toolCallSessionLogic`. */
+export function SessionTimeline({
     focusedEventId,
     focusedReport,
     onOpenToolCall,
