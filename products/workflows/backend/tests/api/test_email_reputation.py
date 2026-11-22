@@ -162,16 +162,21 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["infrastructure"] is None
         assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
 
-    @parameterized.expand([("ses_unreachable", True, True), ("not_released_to_the_project", False, False)])
-    def test_reputation_loads_without_the_infrastructure_health(self, _name: str, released: bool, denied: bool):
+    def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
         with FakeSesEndpoint().installed() as ses:
             ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
-            ses.denied = denied
-            data = self._get_reputation_from_ses(released=released)
+            ses.denied = True
+            data = self._get_reputation_from_ses()
 
         assert data["infrastructure"] is None
-        if not released:
-            assert not [request for request in ses.requests if request.path == METRICS_BATCH_PATH]
+
+    def test_reputation_asks_ses_nothing_for_a_project_without_the_flag(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            data = self._get_reputation_from_ses(released=False)
+
+        assert data["infrastructure"] is None
+        assert not [request for request in ses.requests if request.path == METRICS_BATCH_PATH]
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_MODE="enforce",
