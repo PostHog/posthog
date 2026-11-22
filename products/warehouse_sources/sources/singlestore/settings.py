@@ -7,6 +7,9 @@ REGIONS_ENDPOINT = "regions"
 WORKSPACE_GROUPS_ENDPOINT = "workspace_groups"
 WORKSPACES_ENDPOINT = "workspaces"
 BILLING_USAGE_ENDPOINT = "billing_usage"
+PROJECTS_ENDPOINT = "projects"
+STARTER_CLUSTERS_ENDPOINT = "starter_clusters"
+AUDIT_LOGS_ENDPOINT = "audit_logs"
 
 # Bounds how far back the first `billing_usage` sync (or any full-refresh run) reaches. The
 # Management API requires an explicit startTime/endTime window on every call; this isn't a claim
@@ -22,9 +25,11 @@ BILLING_USAGE_AGGREGATE_BY = "day"
 @dataclass(frozen=True)
 class SinglestoreEndpointConfig:
     name: str
-    # Path appended to the versioned base URL (https://api.singlestore.com/v1).
+    # Path appended to the versioned base URL (https://api.singlestore.com/{api_version}).
     path: str
     primary_keys: list[str]
+    # Newer resources are only published under /v2; the original tables keep their /v1 paths.
+    api_version: str = "v1"
     # True when the response body is a single JSON object rather than an array
     # (`organizations/current`) — the row list is that one object.
     is_single_object: bool = False
@@ -80,6 +85,40 @@ SINGLESTORE_ENDPOINTS: dict[str, SinglestoreEndpointConfig] = {
                 "label": "startTime",
                 "type": IncrementalFieldType.DateTime,
                 "field": "startTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # GET /v2/projects -> raw array of Project objects (projectID, name, edition, createdAt). No
+    # pagination or filter is documented, so this is full refresh.
+    PROJECTS_ENDPOINT: SinglestoreEndpointConfig(
+        name=PROJECTS_ENDPOINT,
+        path="projects",
+        primary_keys=["projectID"],
+        api_version="v2",
+        partition_key="createdAt",
+    ),
+    # GET /v2/sharedtier/virtualClusters -> raw array of Shared Edition (starter) clusters. These
+    # are not in the workspace inventory. The objects carry no timestamp, so there is no partition.
+    STARTER_CLUSTERS_ENDPOINT: SinglestoreEndpointConfig(
+        name=STARTER_CLUSTERS_ENDPOINT,
+        path="sharedtier/virtualClusters",
+        primary_keys=["virtualClusterID"],
+        api_version="v2",
+    ),
+    # GET /v2/auditLogs?startDate&nextToken -> {"auditLogs": [...], "nextToken": "..."}. `startDate`
+    # is an inclusive RFC3339 lower bound on `createdAt`, so this is the incremental stream.
+    AUDIT_LOGS_ENDPOINT: SinglestoreEndpointConfig(
+        name=AUDIT_LOGS_ENDPOINT,
+        path="auditLogs",
+        primary_keys=["auditID"],
+        api_version="v2",
+        partition_key="createdAt",
+        incremental_fields=[
+            {
+                "label": "createdAt",
+                "type": IncrementalFieldType.DateTime,
+                "field": "createdAt",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
