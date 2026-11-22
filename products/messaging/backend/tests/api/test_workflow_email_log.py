@@ -4,7 +4,9 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+import posthoganalytics
 from parameterized import parameterized
+from posthoganalytics import Client, feature_enabled
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -18,6 +20,32 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.workflows.backend.facade.testing import create_batch_job_for_test, create_workflow_for_test
 
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+
+ORGANIZATION, PROJECT = 0, 2
+CONDITIONS: dict[str, tuple[int | None, dict[str, object]]] = {
+    "project_key": (PROJECT, {"key": "$group_key", "type": "group", "group_type_index": PROJECT}),
+    "organization_key": (ORGANIZATION, {"key": "$group_key", "type": "group", "group_type_index": ORGANIZATION}),
+    "project_id": (PROJECT, {"key": "id", "type": "group", "group_type_index": PROJECT}),
+    "email": (None, {"key": "email", "type": "person"}),
+}
+
+
+def _email_activity_flag(condition: tuple[int | None, dict[str, object]], value: str) -> dict[str, object]:
+    aggregation, prop = condition
+    return {
+        "id": 1,
+        "key": "workflows-email-activity",
+        "active": True,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [{**prop, "value": [value], "operator": "exact"}],
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": aggregation,
+                }
+            ]
+        },
+    }
 
 
 @time_machine.travel(NOW, tick=False)
@@ -148,15 +176,16 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the_project_uuid_the_app_targets", "project", "team.uuid", status.HTTP_200_OK),
-            ("the_organization", "organization", "team.organization_id", status.HTTP_200_OK),
+            ("the_project_uuid_the_app_targets", "project_key", "team.uuid", status.HTTP_200_OK),
+            ("the_organization", "organization_key", "team.organization_id", status.HTTP_200_OK),
             ("the_users_email", "email", "user.email", status.HTTP_200_OK),
-            ("the_numeric_team_id_only", "project", "team.id", status.HTTP_404_NOT_FOUND),
-            ("another_project", "project", None, status.HTTP_404_NOT_FOUND),
+            ("the_project_id_property", "project_id", "team.id", status.HTTP_200_OK),
+            ("the_numeric_team_id_as_project_key", "project_key", "team.id", status.HTTP_404_NOT_FOUND),
+            ("another_project", "project_key", None, status.HTTP_404_NOT_FOUND),
         ]
     )
     def test_opens_only_for_a_project_the_flag_targets(
-        self, _name: str, targeted_input: str, targeted_attr: str | None, expected: int
+        self, _name: str, condition: str, targeted_attr: str | None, expected: int
     ):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
@@ -166,23 +195,17 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
             targeted_value = str(getattr(self.team if owner == "team" else self.user, attr))
         else:
             targeted_value = str(UUIDT())
+        flags = Client(
+            "phc_test", personal_api_key="phx_test", host="http://127.0.0.1:9", send=False, poll_interval=100000
+        )
+        flags.group_type_mapping = {"0": "organization", "1": "instance", "2": "project"}
+        flags.feature_flags = [_email_activity_flag(CONDITIONS[condition], targeted_value)]
+        self.flag_enabled.side_effect = feature_enabled
 
-        def flag_targeting(
-            flag: str,
-            _distinct_id: str,
-            *,
-            groups: dict[str, str],
-            person_properties: dict[str, object] | None = None,
-            **_kwargs: object,
-        ) -> bool:
-            inputs = {**groups, "email": (person_properties or {}).get("email")}
-            return flag == "workflows-email-activity" and inputs.get(targeted_input) == targeted_value
-
-        self.flag_enabled.side_effect = flag_targeting
-
-        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
-        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
-        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+        with patch.object(posthoganalytics, "default_client", flags), patch.object(posthoganalytics, "disabled", False):
+            listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+            detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+            activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
         assert {listed.status_code, detail.status_code, activity.status_code} == {expected}
 
