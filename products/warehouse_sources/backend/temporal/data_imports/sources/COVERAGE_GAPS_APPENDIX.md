@@ -5333,10 +5333,10 @@ Diffed against: <https://docs.envzero.com/llms.txt>
 - [x] `deployment-logs/find-all-steps-by-deployment-id` — per-step timing and status within a deployment, needed for duration and failure-stage analysis (medium)
 - [x] `cost/get-a-projects-budget and cost/get-projects-budget-summary-of-the-current-period` — budget targets to compare actual spend against (medium)
 - [x] `audit-events/fetch-audit-logs` — state and transition history across the organization (medium)
-- [ ] `modules/list-modules and modules/list-module-versions` — module registry inventory that templates and environments reference (medium)
-- [ ] `cloud-compass/find-cloud-resources and cloud-compass/get-resource-events` — cloud resource inventory and change events across linked cloud accounts (medium)
-- [ ] `cost/get-weekly-costs-for-projects-or-environments` — pre-bucketed weekly cost series for trend reporting (low)
-- [ ] `modules/list-module-test-runs` — module test run history for module reliability tracking (low)
+- [x] `modules/list-modules and modules/list-module-versions` — module registry inventory that templates and environments reference (medium)
+- [ ] `cloud-compass/find-cloud-resources and cloud-compass/get-resource-events` — cloud resource inventory and change events across linked cloud accounts (medium) Skipped: find-cloud-resources is a POST search that pages through a nested JSON body, and get-resource-events needs one request for each cloud resource in every linked account.
+- [ ] `cost/get-weekly-costs-for-projects-or-environments` — pre-bucketed weekly cost series for trend reporting (low) Skipped: returns one undated cost figure per requested project or environment id, not a series; the daily cost tables already cover this data.
+- [x] `modules/list-module-test-runs` — module test run history for module reliability tracking (low)
 
 Note: env0 is now branded 'env zero'; docs.env0.com and docs.envzero.com serve the same llms.txt index (~300 API reference pages). Mintlify openapi.json is not exposed at the root, so the llms.txt index was used as the resource list.
 
