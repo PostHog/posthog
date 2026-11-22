@@ -16515,10 +16515,23 @@ export namespace Schemas {
       top_series: AnomalyTopSeries[];
     }
 
+    export interface AnomalyIntervalRange {
+      /** The bucket interval.
+       *
+       * * `hour` - Hour
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: AnomalyIntervalEnum;
+      /** The applied start of the range for series of this interval, in the project timezone. For `week` it is never later than the start of the last 2 completed weeks, and for `month` the start of the last completed month, so a short range still checks them. For `hour` and `day` it is the requested start. */
+      date_from: string;
+      /** The applied end of the range, in the project timezone. */
+      date_to: string;
+    }
+
     /**
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      */
     export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
 
@@ -16526,7 +16539,6 @@ export namespace Schemas {
     export const AnomalyOrderEnum = {
       Unusual: 'unusual',
       Recent: 'recent',
-      Rate: 'rate',
     } as const;
 
     export interface AnomalySeriesRef {
@@ -16671,10 +16683,12 @@ export namespace Schemas {
       scored_days: number;
       /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
       scored_history_ready: boolean;
-      /** The applied start of the range, in the project timezone. */
+      /** The requested start of the range, in the project timezone. Weekly and monthly series can use an earlier start: see `interval_ranges`. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
       date_to: string;
+      /** The range applied to the series of each interval the search covers, from `hour` to `month`. Only the requested `interval` when one was passed. Every count of a series row covers the range of its interval. */
+      interval_ranges: AnomalyIntervalRange[];
       /** The applied grouping.
        *
        * * `series` - Series
@@ -16683,17 +16697,12 @@ export namespace Schemas {
       /** The applied order.
        *
        * * `unusual` - Unusual
-       * * `recent` - Recent
-       * * `rate` - Rate */
+       * * `recent` - Recent */
       order: AnomalyOrderEnum;
       /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
       /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
-      /** The applied noise filter limit. 1 means the filter is off. */
-      max_anomaly_rate: number;
-      /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
-      hidden_series: number;
       /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
       has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
@@ -16705,6 +16714,11 @@ export namespace Schemas {
          * @nullable
          */
       message: string | null;
+      /**
+         * The newest scored bucket of any series that matches the filters, in the project timezone. It does not depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored.
+         * @nullable
+         */
+      scored_through: string | null;
     }
 
     export interface AppSandboxContract {
@@ -34620,6 +34634,8 @@ export namespace Schemas {
       readonly can_edit: boolean;
       /** Whether the current user can restore this task. */
       readonly can_restore: boolean;
+      /** Tag names on the task, sorted alphabetically. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -34641,12 +34657,12 @@ export namespace Schemas {
     /**
      * Value before the change.
      */
-    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     /**
      * Value after the change.
      */
-    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     export interface CustomerTaskChange {
       /** Semantic task field that changed. */
@@ -34715,8 +34731,20 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** Archive tasks when true, or restore them when false. */
       archived?: boolean;
+      /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface CustomerTaskBulkUpdate {
@@ -34773,6 +34801,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Tag names for the task, up to 100.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface CustomerTaskPage {
@@ -34815,6 +34849,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * Replacement task name.
          * @maxLength 400
@@ -62200,7 +62240,7 @@ export namespace Schemas {
       bounceRate?: number | null;
       conversions?: WebPageDirectoryValue | null;
       googleSearch?: WebPageDirectoryValue | null;
-      serverLogs: number;
+      serverLogs?: number | null;
       timeOnPageP90?: number | null;
       visitors?: WebPageDirectoryValue | null;
     }
@@ -62215,6 +62255,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStale?: boolean | null;
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -91125,6 +91167,12 @@ export namespace Schemas {
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
       /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /**
          * Replacement task name.
          * @maxLength 400
          */
@@ -107313,6 +107361,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStale?: boolean | null;
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -117807,6 +117857,11 @@ export namespace Schemas {
       is_old: boolean;
       /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
       migration_required: boolean;
+      /**
+         * URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.
+         * @nullable
+         */
+      migration_guide_url: string | null;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
        *
        * * `none` - none
@@ -139924,6 +139979,12 @@ export namespace Schemas {
      * @minLength 1
      */
     statuses?: string;
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string;
     };
 
     export type CustomerTasksListArchiveState = typeof CustomerTasksListArchiveState[keyof typeof CustomerTasksListArchiveState];
@@ -149435,12 +149496,6 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
-     * @minimum 0
-     * @maximum 1
-     */
-    max_anomaly_rate?: number;
-    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -149451,11 +149506,10 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder;
@@ -149490,7 +149544,6 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
-      Rate: 'rate',
     } as const;
 
     export type SignalsProcessingListParams = {

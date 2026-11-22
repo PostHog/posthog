@@ -27,7 +27,9 @@ type BrokeAt = {
 }
 
 export type Broke = BrokeAt &
-    ({ kind: 'harness'; by: 'generator' | 'run_host' | 'target' } | { kind: Exclude<BreakKind, 'harness'>; by: string })
+    ({ kind: 'harness'; by: HarnessPart } | { kind: Exclude<BreakKind, 'harness'>; by: string })
+
+type HarnessPart = 'generator' | 'runner' | 'run_host' | 'target'
 
 export type RampStop = { index: number; end: Exclude<RampEnd, 'ceiling'>; reason: string; broke?: Broke }
 
@@ -76,7 +78,16 @@ const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
-const harness = (step: DrivenStep, by: 'generator' | 'run_host' | 'target'): Broke => ({
+// The runner process also hosts the provider edge, so a busy event loop answers webhooks late and slows the workers
+// that wait on them. Host CPU cannot see one saturated core, and a late edge would otherwise read as a product break.
+const MAX_LOOP_LAG_P99_MS = 250
+
+const laggedOf = ({ loopLagP99Ms, scale }: Pick<DrivenStep, 'loopLagP99Ms' | 'scale'>): string | undefined =>
+    loopLagP99Ms !== undefined && loopLagP99Ms > MAX_LOOP_LAG_P99_MS
+        ? `the runner's event loop lagged ${loopLagP99Ms} ms at p99 in the ${scale}x step, over ${MAX_LOOP_LAG_P99_MS} ms`
+        : undefined
+
+const harness = (step: DrivenStep, by: HarnessPart): Broke => ({
     scale: step.scale,
     offeredPerSecond: perSecond(step.offeredUnits, step),
     by,
@@ -100,6 +111,10 @@ type LiveVerdict = { results?: BarResult[]; stop?: Omit<RampStop, 'index'> }
 
 async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): Promise<LiveVerdict> {
     const step = { ...window, offeredUnits: offered }
+    const lagged = laggedOf(step)
+    if (lagged) {
+        return { stop: { end: 'harness_limit', reason: lagged, broke: harness(step, 'runner') } }
+    }
     const shortfall = shortfallOf(step, live.minOffered)
     if (shortfall) {
         return { stop: { end: 'harness_limit', reason: shortfall, broke: harness(step, 'generator') } }
@@ -120,7 +135,8 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
                           host: [...live.host()],
                           drive: span,
                           timeline: [],
-                      })
+                      }),
+                      step.scale
                   ),
                   step
               )
@@ -291,7 +307,7 @@ export type RampEvidence = {
 
 type Candidate = { index: number; rank: number; broke: Broke; reason: string }
 
-const RANK = { generator: 0, bar: 1, gate: 2, invariant: 2, run_host: 3, target: 3 } as const
+const RANK = { generator: 0, runner: 0, bar: 1, gate: 2, invariant: 2, run_host: 3, target: 3 } as const
 
 const rankOf = (broke: Broke): number => (broke.kind === 'harness' ? RANK[broke.by] : RANK[broke.kind])
 
@@ -311,6 +327,10 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
         step.index === steps.length - 1 &&
         step.endedAt - step.startedAt < planned[step.index].toMs - planned[step.index].fromMs
     for (const step of steps) {
+        const lagged = laggedOf(step)
+        if (lagged) {
+            add(step.index, harness(step, 'runner'), lagged)
+        }
         const shortfall = shortfallOf(step, minOffered)
         if (shortfall && !cutShort(step)) {
             add(step.index, harness(step, 'generator'), shortfall)
@@ -371,7 +391,8 @@ export function rampOf(evidence: RampEvidence): Ramp {
     const { placed, unplaced } = candidatesOf(evidence)
     const sustainedBefore = (index: number): number | null =>
         index > 0 && unplaced.length === 0 ? steps[index - 1].scale : null
-    const admitted = steps[0] && admissionLimitOf(admissions, steps[0])
+    // A lagging runner offers less than it planned, so a failed admission at its first step names the runner's limit.
+    const admitted = steps[0] && !laggedOf(steps[0]) && admissionLimitOf(admissions, steps[0])
     if (admitted) {
         return { end: 'harness_limit', sustainedScale: null, broke: admitted.broke, reason: admitted.reason }
     }
@@ -386,7 +407,7 @@ export function rampOf(evidence: RampEvidence): Ramp {
               }
             : undefined
     const [first] = placed.sort((a, b) => a.index - b.index || a.rank - b.rank)
-    if (interrupted && first?.index === last?.index && first.broke.kind === 'harness') {
+    if (interrupted && first?.index === last?.index && first.broke.kind === 'harness' && first.broke.by !== 'runner') {
         return interrupted
     }
     if (first) {

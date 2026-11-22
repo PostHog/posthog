@@ -35,10 +35,12 @@ class ZoomEndpointConfig:
     # Zoom caps the ``from``/``to`` range of these endpoints at one month, so they are read in
     # calendar-month windows by a custom iterator instead of the generic fan-out.
     monthly_windows: bool = False
+    # Adds this column with the row's position in its parent's response, for rows that carry no ID.
+    row_index_column: Optional[str] = None
 
 
 # Zoom's meeting/webinar/user list endpoints expose no server-side timestamp filter, so they are
-# full refresh. Only the report and recording endpoints take a ``from``/``to`` date range.
+# full refresh. Only the report, recording and meeting summary endpoints take a date range.
 ZOOM_ENDPOINTS: dict[str, ZoomEndpointConfig] = {
     "users": ZoomEndpointConfig(
         name="users",
@@ -172,6 +174,76 @@ ZOOM_ENDPOINTS: dict[str, ZoomEndpointConfig] = {
         parent_param="user_id",
         monthly_windows=True,
     ),
+    "report_daily": ZoomEndpointConfig(
+        name="report_daily",
+        path="/report/daily",
+        data_key="dates",
+        # One row per day of the account-wide usage report.
+        primary_keys=["date"],
+        partition_key="date",
+        monthly_windows=True,
+    ),
+    "meeting_summaries": ZoomEndpointConfig(
+        name="meeting_summaries",
+        path="/meetings/meeting_summaries",
+        data_key="summaries",
+        # One AI Companion summary per meeting or webinar instance.
+        primary_keys=["meeting_uuid"],
+        partition_key="summary_created_time",
+        monthly_windows=True,
+    ),
+    "webinar_panelists": ZoomEndpointConfig(
+        name="webinar_panelists",
+        path="/webinars/{webinar_id}/panelists",
+        data_key="panelists",
+        primary_keys=["webinar_id", "id"],
+        partition_key=None,
+        parent="webinars",
+        parent_param="webinar_id",
+        parent_columns={"id": "webinar_id"},
+        paginated=False,
+    ),
+    # Poll and Q&A results hold one entry per respondent with no ID, and anonymous respondents share
+    # their name and email, so an entry is keyed by its position in the instance's results.
+    "meeting_polls": ZoomEndpointConfig(
+        name="meeting_polls",
+        path="/past_meetings/{meeting_uuid}/polls",
+        data_key="questions",
+        primary_keys=["meeting_uuid", "entry_index"],
+        partition_key=None,
+        parent="meeting_instances",
+        parent_param="meeting_uuid",
+        parent_field="_uuid_path",
+        parent_columns={"meeting_id": "meeting_id", "uuid": "meeting_uuid"},
+        paginated=False,
+        row_index_column="entry_index",
+    ),
+    "webinar_polls": ZoomEndpointConfig(
+        name="webinar_polls",
+        path="/past_webinars/{webinar_uuid}/polls",
+        data_key="questions",
+        primary_keys=["webinar_uuid", "entry_index"],
+        partition_key=None,
+        parent="webinar_instances",
+        parent_param="webinar_uuid",
+        parent_field="_uuid_path",
+        parent_columns={"webinar_id": "webinar_id", "uuid": "webinar_uuid"},
+        paginated=False,
+        row_index_column="entry_index",
+    ),
+    "webinar_qa": ZoomEndpointConfig(
+        name="webinar_qa",
+        path="/past_webinars/{webinar_uuid}/qa",
+        data_key="questions",
+        primary_keys=["webinar_uuid", "entry_index"],
+        partition_key=None,
+        parent="webinar_instances",
+        parent_param="webinar_uuid",
+        parent_field="_uuid_path",
+        parent_columns={"webinar_id": "webinar_id", "uuid": "webinar_uuid"},
+        paginated=False,
+        row_index_column="entry_index",
+    ),
 }
 
 ENDPOINTS = tuple(ZOOM_ENDPOINTS.keys())
@@ -179,6 +251,8 @@ ENDPOINTS = tuple(ZOOM_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "report_users": [incremental_field("period_start", IncrementalFieldType.Date)],
     "recordings": [incremental_field("start_time", IncrementalFieldType.DateTime)],
+    "report_daily": [incremental_field("date", IncrementalFieldType.Date)],
+    "meeting_summaries": [incremental_field("summary_created_time", IncrementalFieldType.DateTime)],
 }
 
 # Zoom lists a recording only after it finishes processing, which can be hours after the meeting

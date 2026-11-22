@@ -5,6 +5,7 @@ from requests import HTTPError
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 from products.warehouse_sources.sources.triple_whale._config import TripleWhaleSourceConfig
+from products.warehouse_sources.sources.triple_whale.settings import ENDPOINTS
 from products.warehouse_sources.sources.triple_whale.source import TripleWhaleSource
 
 
@@ -19,6 +20,8 @@ from products.warehouse_sources.sources.triple_whale.source import TripleWhaleSo
         ("summary_page", 403, False, "Summary Page"),
         ("orders_with_journeys", 200, True, None),
         ("summary_page", 200, True, None),
+        ("orders", 403, False, "access to this shop"),
+        ("customers", 200, True, None),
     ],
 )
 def test_credential_probe_accepts_limited_keys_and_checks_selected_table_scope(
@@ -44,11 +47,18 @@ def test_credential_probe_accepts_limited_keys_and_checks_selected_table_scope(
             "page": 1,
             "excludeJourneyData": True,
         }
-    else:
+    elif schema_name == "summary_page":
         assert request.json() == {
             "shopDomain": "example.myshopify.com",
             "period": {"start": "2024-03-02", "end": "2024-03-02"},
             "todayHour": 13,
+        }
+    else:
+        assert request.path == "/api/v2/orcabase/api/sql"
+        assert request.json() == {
+            "shopId": "example.myshopify.com",
+            "query": f"{ENDPOINTS[schema_name].sql} LIMIT 1",
+            "period": {"startDate": "2024-03-02", "endDate": "2024-03-02"},
         }
 
 

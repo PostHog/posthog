@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -57,6 +58,9 @@ class LlamaCloudEndpointConfig:
     # id as `parent_id_param`, and paginate with skip/limit instead of page_token.
     parent_endpoint: str | None = None
     parent_id_param: str | None = None
+    # How a fan-out child pages within one parent. `parent_id_param` goes in the path when the
+    # path has a matching placeholder, else in the query string.
+    fan_out_pagination: Literal["skip_limit", "page_token"] = "skip_limit"
     # /api/v1/beta/usage-metrics requires organization_id; it's resolved at sync time
     # from the key's project (see _resolve_organization_id).
     requires_organization_id: bool = False
@@ -214,6 +218,55 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
                 "config",
             }
         ),
+    ),
+    "pipeline_files": LlamaCloudEndpointConfig(
+        name="pipeline_files",
+        # The /api/v1/pipelines/{pipeline_id}/files2 listing is deprecated; this listing returns the
+        # same pipeline files with page_token pagination. No timestamp filter.
+        path="/api/v1/beta/pipelines/{pipeline_id}/files",
+        parent_endpoint="pipelines",
+        parent_id_param="pipeline_id",
+        fan_out_pagination="page_token",
+        primary_keys=["pipeline_id", "id"],
+        # `custom_metadata`, `resource_info` and `permission_info` carry document metadata and
+        # access lists copied from the customer's data source, so import only the file metadata.
+        # Sampling stays off (the fail-closed default).
+        output_fields=frozenset(
+            {
+                "id",
+                "pipeline_id",
+                "file_id",
+                "data_source_id",
+                "project_id",
+                "name",
+                "external_file_id",
+                "file_size",
+                "file_type",
+                "status",
+                "status_updated_at",
+                "indexed_page_count",
+                "last_modified_at",
+                "created_at",
+                "updated_at",
+            }
+        ),
+    ),
+    "data_sources": LlamaCloudEndpointConfig(
+        name="data_sources",
+        path="/api/v1/data-sources",
+        # Returns a bare JSON array with neither pagination nor timestamp filters.
+        paginated=False,
+        # `component` holds the connector credentials (storage keys, OAuth tokens), so import only
+        # the documented metadata. Sampling stays off (the fail-closed default).
+        output_fields=frozenset(
+            {"id", "created_at", "updated_at", "name", "source_type", "project_id", "version_metadata"}
+        ),
+    ),
+    "retrievers": LlamaCloudEndpointConfig(
+        name="retrievers",
+        # The /api/v1/retrievers listing is deprecated and unpaginated; this listing returns the
+        # same retrievers with page_token pagination. No timestamp filter.
+        path="/api/v1/beta/retrievers",
     ),
     "indexes": LlamaCloudEndpointConfig(
         name="indexes",
