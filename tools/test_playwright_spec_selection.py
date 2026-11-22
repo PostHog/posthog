@@ -41,6 +41,7 @@ FAKE_MAP = {
     "backend_smoke_specs": ["playwright/e2e/auth.spec.ts", "playwright/e2e/product-analytics/dashboards.spec.ts"],
     "backend_explicit": {"posthog/hogql/**": ["playwright/e2e/product-analytics/"]},
     "scenes_smoke_only": ["inbox"],
+    "products_smoke_only": ["apm"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
         "billing": ["playwright/e2e/billing/"],
@@ -75,6 +76,12 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                     },
                     "",
                 ),
+            ),
+            (
+                "smoke-only product runs the smoke subset",
+                ["products/apm/frontend/ServicesTab.tsx"],
+                "selected",
+                ({"playwright/e2e/auth.spec.ts"}, ""),
             ),
             (
                 "explicit rule maps a spec-less product frontend",
@@ -330,9 +337,14 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         # smoke-only scene to the defensive no_specs full run, silently killing the
         # mechanism.
         area_map = selection.load_map(selection.MAP_PATH)
-        overlap = set(area_map.get("scenes_smoke_only", [])) & set(area_map.get("scenes", {}))
-        self.assertEqual(overlap, set(), msg="scene(s) listed in both scenes and scenes_smoke_only")
-        for source_key, specs_key in (("scenes_smoke_only", "smoke_subset"), ("backend_smoke", "backend_smoke_specs")):
+        for smoke_key, mapped_key in (("scenes_smoke_only", "scenes"), ("products_smoke_only", "products")):
+            overlap = set(area_map.get(smoke_key, [])) & set(area_map.get(mapped_key, {}))
+            self.assertEqual(overlap, set(), msg=f"listed in both {mapped_key} and {smoke_key}")
+        for source_key, specs_key in (
+            ("scenes_smoke_only", "smoke_subset"),
+            ("products_smoke_only", "smoke_subset"),
+            ("backend_smoke", "backend_smoke_specs"),
+        ):
             if area_map.get(source_key):
                 self.assertTrue(
                     area_map.get(specs_key),
