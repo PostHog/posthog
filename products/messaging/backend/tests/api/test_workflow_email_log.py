@@ -5,9 +5,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-import posthoganalytics
 from parameterized import parameterized
-from posthoganalytics import Client, feature_enabled
+from posthoganalytics import Client
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -197,7 +196,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
         flush_persons_and_events()
-        flags = Client("phc_test", host="http://127.0.0.1:9", send=False)
+        flags = Client("phc_test", send=False, enable_local_evaluation=False)
         self.addCleanup(flags.shutdown)
         flags.group_type_mapping = {
             str(ORGANIZATION): "organization",
@@ -205,12 +204,13 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
             str(PROJECT): "project",
         }
         flags.feature_flags = [_email_activity_flag(condition, str(targeted(self)))]
-        self.flag_enabled.side_effect = feature_enabled
+        self.flag_enabled.side_effect = lambda *args, **kwargs: flags.feature_enabled(
+            *args, **{**kwargs, "only_evaluate_locally": True}
+        )
 
-        with patch.object(posthoganalytics, "default_client", flags), patch.object(posthoganalytics, "disabled", False):
-            listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
-            detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
-            activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
         assert {listed.status_code, detail.status_code, activity.status_code} == {expected}
 
