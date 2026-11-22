@@ -66,7 +66,9 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
                                 ? 'Payload available'
                                 : item.payload_state === 'expired'
                                   ? 'Payload expired'
-                                  : 'No payload',
+                                  : item.payload_state === 'deleted'
+                                    ? 'Payload deleted'
+                                    : 'No payload',
                         ]
                             .filter(Boolean)
                             .join(' · ')}

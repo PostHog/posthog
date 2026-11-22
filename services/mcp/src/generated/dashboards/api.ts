@@ -262,6 +262,12 @@ export const DashboardsRetrieveQueryParams = () => zod.object({
         .describe(
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
+    omit_tile_results: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, return the layout and tile metadata without each insight tile's result, to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 is on. Elsewhere, and by default, tiles carry their cached results."
+        ),
     variables_override: zod
         .string()
         .optional()

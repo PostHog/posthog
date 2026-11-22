@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -144,7 +145,7 @@ class FetchResult:
     event_count: int
 
 
-@dataclass
+@frozen
 class SummarizeAndSaveInput:
     redis_key: str
     trace_id: str
@@ -158,6 +159,7 @@ class SummarizeAndSaveInput:
     text_repr_length: int = 0
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    job_scope: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

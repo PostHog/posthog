@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -63,11 +64,6 @@ def _make_session(api_key: str, api_secret: str) -> requests.Session:
     # secret as the password.
     session.auth = (api_key, api_secret)
     return session
-
-
-def _format_timestamp(dt: datetime) -> str:
-    aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
-    return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _coerce_datetime(value: Any) -> datetime | None:
@@ -262,7 +258,7 @@ def _iter_metrics_rows(
     window_start = window.start
     while window_start < window.end:
         window_end = min(window_start + QUERY_WINDOW, window.end)
-        interval = f"{_format_timestamp(window_start)}/{_format_timestamp(window_end)}"
+        interval = f"{format_datetime(window_start)}/{format_datetime(window_end)}"
 
         for metric in metric_names:
             body = _build_query_body(metric, config.resource_label, resource_ids, interval)
@@ -274,9 +270,7 @@ def _iter_metrics_rows(
         # crash re-yields the current window rather than skipping it — merge dedupes on the primary
         # key.
         if window_start < window.end:
-            resumable_source_manager.save_state(
-                ConfluentCloudResumeConfig(window_start=_format_timestamp(window_start))
-            )
+            resumable_source_manager.save_state(ConfluentCloudResumeConfig(window_start=format_datetime(window_start)))
 
 
 def get_rows(
@@ -361,7 +355,7 @@ def validate_credentials(
         probe_metric,
         resource_label,
         [resource_id],
-        f"{_format_timestamp(now - timedelta(hours=1))}/{_format_timestamp(now)}",
+        f"{format_datetime(now - timedelta(hours=1))}/{format_datetime(now)}",
     )
     url = f"{CONFLUENT_CLOUD_BASE_URL}/v2/metrics/{DATASET}/query"
     try:

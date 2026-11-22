@@ -17,8 +17,9 @@ filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import date, datetime
+from functools import cache
 from typing import Any, TypeGuard
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import (
@@ -46,6 +48,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
 logger = structlog.get_logger(__name__)
@@ -55,6 +58,7 @@ class CohortRealtimeState(models.TextChoices):
     STATIC = "static", "Static"
     PERSON_PROPERTIES = "person_properties", "Person properties"
     DAILY = "daily", "Daily"
+    OFF = "off", "Off"
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
     READY = "ready", "Ready"
@@ -115,7 +119,7 @@ class CohortRealtimeReadiness:
     history_limit_days: int | None = None
 
 
-def _has_event_criteria(cohort: Cohort) -> bool:
+def has_event_criteria(cohort: Cohort) -> bool:
     """Whether the cohort matches on events, counting the ones that store that in ``groups``.
 
     ``_has_filter_type`` walks the ``filters`` JSON alone, and a legacy cohort keeps its condition
@@ -140,15 +144,37 @@ def _settled_state(cohort: Cohort) -> str | None:
     """The state a cohort has without consulting a run row, or None when a run decides it."""
     if cohort.is_static:
         return CohortRealtimeState.STATIC
-    if not _has_event_criteria(cohort):
+    if not has_event_criteria(cohort):
         # Flags evaluate person properties off the person record as they run, so they can target
         # this cohort whatever the pipeline is doing. Only an event-based leaf waits on a backfill.
         return CohortRealtimeState.PERSON_PROPERTIES
     if cohort.cohort_type != CohortType.REALTIME:
         return CohortRealtimeState.DAILY
+    if not cohort.realtime_enabled:
+        return CohortRealtimeState.OFF
     if cohort.is_flag_compatible:
         return CohortRealtimeState.READY
     return None
+
+
+def _history_limit_to_report(
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+) -> int | None:
+    """The plan's history limit, when criteria that look back past a limit keep this cohort ``off`` or ``daily``.
+
+    An ``off`` cohort past the plan's limit can't be turned on. A save makes a cohort ``daily`` when its criteria
+    look back past the pipeline's cap, and that one reports the plan's limit too, because it is the one a person
+    can act on and it is never above the cap.
+    """
+    if state == CohortRealtimeState.OFF:
+        limit_days = plan_history_days()
+    elif state == CohortRealtimeState.DAILY:
+        limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    else:
+        return None
+    if not behavioral_history_over_limit((cohort.filters or {}).get("properties"), limit_days=limit_days, today=today):
+        return None
+    return plan_history_days()
 
 
 def _required_backfill_kinds(cohort: Cohort) -> set[str]:
@@ -332,15 +358,16 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
     # start date at the limit can read on the other side of it here, which changes only the reason.
     today = timezone.now().date()
-    limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no organization.
+    plan_history_days = cache(lambda: max_realtime_history_days(Organization.objects.get(team__id=team_id)))
 
     for cohort in cohorts:
         settled = _settled_state(cohort)
         if settled is None:
             pending.append(cohort)
         else:
-            over_limit = settled == CohortRealtimeState.DAILY and behavioral_history_over_limit(
-                (cohort.filters or {}).get("properties"), limit_days=limit_days, today=today
+            history_limit_days = _history_limit_to_report(
+                cohort, settled, plan_history_days=plan_history_days, today=today
             )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
@@ -348,8 +375,8 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
-                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if over_limit else None,
-                history_limit_days=limit_days if over_limit else None,
+                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if history_limit_days is not None else None,
+                history_limit_days=history_limit_days,
             )
 
     if not pending:
@@ -460,7 +487,7 @@ def cohorts_with_realtime_state(cohorts: Sequence[Cohort]) -> list[Cohort]:
     return [
         cohort
         for cohort in saved
-        if cohort.team_id in serving_teams and (_has_event_criteria(cohort) or _has_person_criteria(cohort))
+        if cohort.team_id in serving_teams and (has_event_criteria(cohort) or _has_person_criteria(cohort))
     ]
 
 

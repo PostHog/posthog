@@ -148,14 +148,14 @@ def compute_2d_coordinates(
         # t-SNE doesn't support transform(), so we need to fit on all points together
         if n_clusters == 0:
             # Adjust perplexity for small samples
-            perplexity = min(30, max(5, n_samples // 3))
+            perplexity = min(n_samples - 1, 30, max(5, n_samples // 3))
             tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state)
             trace_coords = tsne.fit_transform(embeddings)
             centroid_coords = np.zeros((0, 2))
         else:
             # Combine embeddings and centroids, then split after transform
             combined = np.vstack([embeddings, centroids])
-            perplexity = min(30, max(5, len(combined) // 3))
+            perplexity = min(len(combined) - 1, 30, max(5, len(combined) // 3))
             tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state)
             combined_coords = tsne.fit_transform(combined)
             trace_coords = combined_coords[:n_samples]

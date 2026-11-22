@@ -103,7 +103,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         # The confirm step puts this partner's project in an organization the partner pays
         # for, so no project of the user's is created, picked, or auto-approved here, and a
         # user without an organization can still connect.
-        if not paying_partner.provisioning.active:
+        if not paying_partner.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         return _consent_page_redirect(state)
 
@@ -130,7 +130,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     # Re-check partner is still active (could have been deactivated since account_requests)
     is_trusted_partner = False
     if partner_app is not None:
-        if not partner_app.provisioning.active:
+        if not partner_app.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
         # older pod mid-deploy) must still require consent, never silently auto-approve.
@@ -252,7 +252,7 @@ class AuthorizeConfirmView(APIView):
                 request, user, request.successful_authenticator, organization_id=str(team.organization_id)
             )
 
-        if confirm_partner is not None and not confirm_partner.provisioning.active:
+        if confirm_partner is not None and not confirm_partner.provisioning_allowed:
             cache.delete(pending_key)
             capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
             return Response({"error": "partner_deactivated"}, status=403)

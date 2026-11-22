@@ -65,6 +65,19 @@ FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
     "checklist_templates": FireHydrantEndpointConfig(path="/v1/checklist_templates", partition_key="created_at"),
     # ScheduleEntity carries only id/name/integration/discarded, so there is nothing to partition on.
     "schedules": FireHydrantEndpointConfig(path="/v1/schedules"),
+    # ChangeTypeEntity carries only id/name.
+    "change_types": FireHydrantEndpointConfig(path="/v1/change_types"),
+    # Unpaginated: one `data` list of phases, each with its milestones nested inline.
+    "lifecycle_phases": FireHydrantEndpointConfig(path="/v1/lifecycles/phases"),
+    # The spec documents the request but leaves the response body empty; transport reads the standard
+    # paginated `data` envelope, as for team_escalation_policies.
+    "lifecycle_measurement_definitions": FireHydrantEndpointConfig(path="/v1/lifecycles/measurement_definitions"),
+    # The spec types the tickets and ticketing priorities lists as a single entity, but the tickets list
+    # takes page/per_page like every other paginated list, so both are read from the `data` envelope.
+    "tickets": FireHydrantEndpointConfig(path="/v1/ticketing/tickets", partition_key="created_at"),
+    # Unpaginated. Named apart from `priorities`, which holds incident priorities.
+    "ticketing_priorities": FireHydrantEndpointConfig(path="/v1/ticketing/priorities", partition_key="created_at"),
+    "ticket_tags": FireHydrantEndpointConfig(path="/v1/ticketing/ticket_tags", primary_keys=["name"]),
     "incident_milestones": FireHydrantEndpointConfig(
         path="/v1/incidents/{incident_id}/milestones",
         partition_key="created_at",

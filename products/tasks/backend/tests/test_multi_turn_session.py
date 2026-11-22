@@ -1261,6 +1261,7 @@ class TestExtractAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_rate_limited", "Rate limit reached"),
             ("upstream_connection_error", "API Error: Connection error"),
             ("upstream_stream_terminated", "API Error: terminated"),
             ("agent_error", "Something broke inside the agent"),
@@ -1381,6 +1382,7 @@ class TestPollForTurnSurfacesAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_rate_limited", "Rate limit reached", True),
             ("upstream_connection_error", "API Error: Connection error", True),
             ("upstream_stream_terminated", "API Error: terminated", True),
             ("upstream_timeout", "API Error: Request timed out", True),
@@ -2158,13 +2160,19 @@ class TestCreateTaskAndTriggerForwardsContext:
         # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
-            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True, disable_skills=True
+            team_id=team.id,
+            user_id=user.id,
+            codex_max_subagents=9,
+            codex_shared_prompt_cache=True,
+            disable_skills=True,
+            custom_image_id="00000000-0000-0000-0000-000000000001",
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
             task_run = await agents_facade.create_task_and_trigger("prompt", context, profile=USER)
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        assert persisted.state["custom_image_id"] == "00000000-0000-0000-0000-000000000001"
         public_state = _public_task_run_state(persisted.state)
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True

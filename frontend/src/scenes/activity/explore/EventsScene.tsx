@@ -4,12 +4,14 @@ import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneHeader } from 'scenes/activity/ActivitySceneHeader'
 import { FLAG_EVALUATIONS_RETENTION_DAYS } from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
@@ -57,8 +59,11 @@ export function EventsScene(): JSX.Element {
             )}
             {flagCallsNote === 'stored-separately' && (
                 <LemonBanner type="info" dismissKey="activity-flag-calls-stored-separately">
-                    Feature flag calls are stored separately from other events. Filter by only the "Feature flag called"
-                    event to see them.
+                    Feature flag calls are stored separately from other events. See them on the{' '}
+                    <Link to={urls.activity(ActivityTab.ExploreFlagCalls)} data-attr="activity-flag-calls-banner-link">
+                        Flag calls
+                    </Link>{' '}
+                    tab.
                 </LemonBanner>
             )}
             {flagCallsNote === 'retention' && (

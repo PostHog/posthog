@@ -102,7 +102,7 @@ def test_rendered_document_emits_destination_type(
 
 def test_every_tool_emits_the_field_with_a_valid_value(rendered_tools: dict[str, dict]) -> None:
     valid = {value for value, _ in CATALOG_DESTINATION_CHOICES}
-    assert len(valid) == 7
+    assert len(valid) == 8
     for tool in rendered_tools.values():
         assert "warehouse_destination_type" in tool
         assert tool["warehouse_destination_type"] is None or tool["warehouse_destination_type"] in valid

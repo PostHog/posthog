@@ -26,10 +26,21 @@ from products.warehouse_sources.sources.sdk import (
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
 QUOTA_EXHAUSTED_MARKER = "limit reached"
+# Leads the retryable error a used-up quota raises, so the source can name that case once retries run out.
+QUOTA_EXHAUSTED_ERROR = "AppsFlyer daily report API quota is used up"
 MASTER_API_PATH = "/api/master-agg-data/"
 # AppsFlyer answers a Master API call with an empty 404 when the account's plan has no Master API,
 # so the app id can be valid while this report never syncs.
 MASTER_API_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include the Master API"
+RAW_DATA_PATH = "/api/raw-data/"
+# AppsFlyer answers a raw-data pull with 400 and "Your current subscription package doesn't include
+# raw data reports" when the account's plan has no raw data.
+RAW_DATA_NOT_IN_PLAN_MARKER = "include raw data reports"
+RAW_DATA_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include raw data reports"
+# The v3 path serves SKAN 4 postbacks; SKAN 3 postbacks come back on it with the SKAN 4 fields empty.
+SKAN_PATH = "/api/skadnetworks/v3/data/app/"
+# The SKAN API answers its 10-calls-a-minute limit with 400 "Too many requests", not 429.
+SKAN_RATE_LIMIT_MARKER = "too many requests"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -55,6 +66,17 @@ MASTER_MAX_LOOKBACK_DAYS = 365
 # Master API KPIs are LTV measures that keep accruing after install day, so an incremental run
 # re-pulls the trailing month. That also covers a whole request window, as above.
 MASTER_LOOKBACK_DAYS = MASTER_MAX_REQUEST_DAYS
+# The SKAN API serves at most 90 days and 250K rows per call. Narrower windows keep a busy app
+# under the row cap.
+SKAN_MAX_REQUEST_DAYS = 30
+SKAN_MAX_ROWS = 250_000
+SKAN_MAX_LOOKBACK_DAYS = 365
+# Install-date rows keep changing while later SKAN postbacks arrive, up to 45 days after install for
+# Google Ads, so an incremental run re-pulls that much.
+SKAN_LOOKBACK_DAYS = 45
+# AppsFlyer finalizes SKAN data 3 days after the UTC day and asks callers not to request later dates.
+SKAN_DATA_DELAY_DAYS = 3
+_SKAN_US_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield rows in chunks so huge reports don't build one giant list.
@@ -110,6 +132,10 @@ class _ResponseByteStream(io.RawIOBase):
 
 
 class AppsFlyerRetryableError(Exception):
+    pass
+
+
+class AppsFlyerRawDataNotInPlanError(Exception):
     pass
 
 
@@ -224,14 +250,18 @@ def _parse_csv_rows(
 def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, str]) -> str:
     if config.kind == AppsFlyerReportKind.MASTER:
         path = f"{MASTER_API_PATH}v4/app/{quote(app_id)}"
+    elif config.kind == AppsFlyerReportKind.SKAN:
+        path = f"{SKAN_PATH}{quote(app_id)}"
     elif config.kind == AppsFlyerReportKind.RAW:
-        path = f"/api/raw-data/export/app/{quote(app_id)}/{config.report}/v5"
+        path = f"{RAW_DATA_PATH}export/app/{quote(app_id)}/{config.report}/v5"
     else:
         path = f"/api/agg-data/export/app/{quote(app_id)}/{config.report}/v5"
     return f"{APPSFLYER_BASE_URL}{path}?{urlencode(params)}"
 
 
 def _request_params(config: AppsFlyerEndpointConfig, window: _ReportWindow) -> dict[str, str]:
+    if config.kind == AppsFlyerReportKind.SKAN:
+        return {"start_date": window.start.isoformat(), "end_date": window.end.isoformat()}
     params = {"from": window.start.strftime("%Y-%m-%d"), "to": window.end.strftime("%Y-%m-%d")}
     if config.kind == AppsFlyerReportKind.RAW:
         params["maximum_rows"] = str(RAW_MAX_ROWS)
@@ -244,6 +274,8 @@ def _max_lookback_days(kind: AppsFlyerReportKind) -> int:
         return RAW_MAX_LOOKBACK_DAYS
     if kind == AppsFlyerReportKind.MASTER:
         return MASTER_MAX_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_LOOKBACK_DAYS
     return MAX_WINDOW_DAYS
 
 
@@ -252,6 +284,8 @@ def _incremental_lookback_days(kind: AppsFlyerReportKind) -> int:
         return RAW_LOOKBACK_DAYS
     if kind == AppsFlyerReportKind.MASTER:
         return MASTER_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_LOOKBACK_DAYS
     return LOOKBACK_DAYS
 
 
@@ -261,7 +295,24 @@ def _max_request_days(kind: AppsFlyerReportKind) -> int | None:
         return RAW_MAX_REQUEST_DAYS
     if kind == AppsFlyerReportKind.MASTER:
         return MASTER_MAX_REQUEST_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_REQUEST_DAYS
     return None
+
+
+def _max_rows(kind: AppsFlyerReportKind) -> int | None:
+    """Rows AppsFlyer returns per request before it drops the rest, or ``None`` when it has no cap."""
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_ROWS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_ROWS
+    return None
+
+
+def _window_end(kind: AppsFlyerReportKind, today: date) -> date:
+    if kind == AppsFlyerReportKind.SKAN:
+        return today - timedelta(days=SKAN_DATA_DELAY_DAYS)
+    return today
 
 
 def _window_start(
@@ -275,7 +326,7 @@ def _window_start(
         start = _to_date(db_incremental_field_last_value) - timedelta(days=_incremental_lookback_days(config.kind))
     else:
         start = earliest
-    return min(max(start, earliest), today)
+    return min(max(start, earliest), _window_end(config.kind, today))
 
 
 def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Iterator[_ReportWindow]:
@@ -297,16 +348,32 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
     reraise=True,
 )
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+    path = urlparse(url).path
+    # The SKAN API documents its CSV as text/plain, so accept that as well as text/csv.
+    headers = {"Accept": "text/csv, text/plain"} if path.startswith(SKAN_PATH) else None
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True, headers=headers)
 
-    if response.status_code == 429 or response.status_code >= 500 or _is_quota_exhausted(response):
+    if _is_quota_exhausted(response):
+        response.close()
+        raise AppsFlyerRetryableError(f"{QUOTA_EXHAUSTED_ERROR} (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 429 or response.status_code >= 500:
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        body = response.text
+        logger.error(f"AppsFlyer API error: status={response.status_code}, body={body[:500]}, url={url}")
         response.close()
-        if response.status_code == 404 and urlparse(url).path.startswith(MASTER_API_PATH):
+        if response.status_code == 400 and path.startswith(SKAN_PATH) and SKAN_RATE_LIMIT_MARKER in body.lower():
+            raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status=400, url={url}")
+        if (
+            response.status_code == 400
+            and path.startswith(RAW_DATA_PATH)
+            and RAW_DATA_NOT_IN_PLAN_MARKER in body.lower()
+        ):
+            raise AppsFlyerRawDataNotInPlanError(f"{RAW_DATA_NOT_IN_PLAN_ERROR}: status=400")
+        if response.status_code == 404 and path.startswith(MASTER_API_PATH):
             raise AppsFlyerMasterApiNotInPlanError(f"{MASTER_API_NOT_IN_PLAN_ERROR}: status=404")
         response.raise_for_status()
 
@@ -327,10 +394,24 @@ def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoun
         response.close()
 
 
+def _shape_skan_row(row: dict[str, Any], primary_keys: list[str]) -> dict[str, Any]:
+    # AppsFlyer's sample SKAN report writes dates as M/D/YYYY, which would break the date partition
+    # and watermark. The SKAN 4 dimensions are missing from a report AppsFlyer serves without them,
+    # and a merge needs every key column.
+    match = _SKAN_US_DATE.fullmatch(str(row.get("date", "")).strip())
+    if match:
+        month, day, year = (int(part) for part in match.groups())
+        row["date"] = date(year, month, day).isoformat()
+    for key in primary_keys:
+        row.setdefault(key, "")
+    return row
+
+
 def validate_credentials(api_token: str, app_id: str) -> bool:
     """Confirm the token and app id are valid with a one-day report probe.
 
-    Returns ``True`` when the probe succeeds. Raises ``AppsFlyerCredentialsError`` with a
+    Returns ``True`` when the probe succeeds, or when AppsFlyer refuses it only because the daily
+    report quota is used up. Raises ``AppsFlyerCredentialsError`` with a
     user-facing message when AppsFlyer rejects the token or app id (the status code tells the
     two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
     rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
@@ -357,10 +438,11 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         timeout=30,
     )
     if _is_quota_exhausted(response):
-        raise AppsFlyerCredentialsError(
-            "Your AppsFlyer account has used up its daily report API quota. "
-            "Try connecting again after your daily quota resets."
-        )
+        # A used-up quota says nothing against the token or app id (those answer 401, 403 or 404).
+        # The wizard probes again when the source is created, often after the credentials step spent
+        # the last call, so refusing here threw away a finished setup until the next day. The sync
+        # retries the quota error and runs once the quota resets, like Microsoft Clarity's.
+        return True
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
@@ -412,32 +494,36 @@ def get_rows(
     app = _validate_app_id(app_id)
 
     today = datetime.now(UTC).date()
+    end = _window_end(config.kind, today)
     start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
     # A full refresh appends, so the part of a window read before a hand-off would load twice.
     resume = manager.load_state() if should_use_incremental_field and manager.can_resume() else None
     if resume is not None:
         # Never earlier than the computed start, which keeps a raw pull inside its lookback limit.
         start = max(start, date.fromisoformat(resume.next_window_start))
-        if start > today:
+        if start > end:
             return
 
     chunk: list[dict[str, Any]] = []
-    for window in _request_windows(config.kind, start, today):
+    row_cap = _max_rows(config.kind)
+    for window in _request_windows(config.kind, start, end):
         url = _report_url(config, app, _request_params(config, window))
         rows_in_window = 0
         for row in _iter_report_rows(session, url, logger):
             rows_in_window += 1
+            if config.kind == AppsFlyerReportKind.SKAN:
+                row = _shape_skan_row(row, config.primary_keys)
             chunk.append(row)
             if len(chunk) >= CHUNK_SIZE:
                 yield chunk
                 chunk = []
-        if config.kind == AppsFlyerReportKind.RAW and rows_in_window >= RAW_MAX_ROWS:
+        if row_cap is not None and rows_in_window >= row_cap:
             logger.warning(
-                "AppsFlyer truncated the raw report at its row cap; some rows in this window were not returned",
+                "AppsFlyer truncated the report at its row cap; some rows in this window were not returned",
                 report=endpoint,
                 window_start=window.start.isoformat(),
                 window_end=window.end.isoformat(),
-                row_cap=RAW_MAX_ROWS,
+                row_cap=row_cap,
             )
         # A window is the resume unit: rows have no documented order inside one, so a resume reads
         # a part-way window again. The rest of the window goes out with the cursor past it.

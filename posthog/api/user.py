@@ -170,7 +170,9 @@ from posthog.tasks.email import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
@@ -1876,7 +1878,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
@@ -2020,7 +2026,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and

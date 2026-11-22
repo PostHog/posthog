@@ -624,6 +624,10 @@ class UncoveredGroupSerializer(serializers.Serializer):
     complexity = serializers.IntegerField(
         help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
     )
+    priority = serializers.FloatField(
+        help_text="Rank score from complexity and the people who built or viewed the measure. A higher score ranks "
+        "first. 0 on scans before the score existed."
+    )
 
 
 class ChartSourceSerializer(serializers.Serializer):
@@ -664,6 +668,10 @@ class ProposedMetricSerializer(serializers.Serializer):
     agents = AgentSourceSerializer(allow_null=True, help_text="Agent use, or null when no agent ran it.")
     complexity = serializers.IntegerField(
         help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
+    )
+    priority = serializers.FloatField(
+        help_text="Rank score from complexity, the people who built or viewed the measures, and how many measures "
+        "the proposal merges. A higher score ranks first. 0 on scans before the score existed."
     )
 
 
@@ -734,6 +742,12 @@ class MetricUsageSerializer(serializers.Serializer):
     )
     failed_sections = SectionFailureSerializer(
         many=True, help_text="Failed sections that these numbers read, so a missing count is not a zero."
+    )
+
+
+class MetricAvailabilitySerializer(serializers.Serializer):
+    has_metrics = serializers.BooleanField(
+        help_text="Whether the project has any live metric, counted before per-table access checks."
     )
 
 

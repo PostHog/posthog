@@ -11,9 +11,11 @@ import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
+import { edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
+const NO_RESETS = { janitorResets: 0 }
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
 const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
@@ -38,7 +40,7 @@ describe('judge', () => {
 
     const judgeOf = (): Judge =>
         createJudge({
-            edgeUrl: edge.url,
+            truth: edgeTruth(edge.url),
             probe: {
                 unfinishedJobs: () => {
                     clockMs += probeTakesMs
@@ -230,13 +232,14 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT} email: the last of 1 attempts was answered 0`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
     ])('at_least_once for a unit %s', async (_story, entry, act, expected) => {
         judge.record(entry)
         await act()
 
-        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
+        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
     })
@@ -266,6 +269,7 @@ describe('judge', () => {
                 journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
                 truth: attempts,
                 fetchRetries: 3,
+                ...NO_RESETS,
             },
             undefined
         )
@@ -273,8 +277,13 @@ describe('judge', () => {
         expect(result.passed).toBe(passed)
     })
 
-    it.each<[string, () => Promise<unknown>, number | undefined, object]>([
-        ['delivered once', () => deliver(UNIT), undefined, { passed: true, observed: 0, unitIds: [] }],
+    const deliverTwice = async (unitId: string): Promise<void> => {
+        await deliver(unitId)
+        await deliver(unitId)
+    }
+
+    it.each<[string, () => Promise<unknown>, number, number | undefined, object]>([
+        ['delivered once', () => deliver(UNIT), 0, undefined, { passed: true, observed: 0, unitIds: [] }],
         [
             'accepted only on a retry',
             async () => {
@@ -282,37 +291,106 @@ describe('judge', () => {
                 await deliver(UNIT)
                 await deliver(UNIT)
             },
+            0,
             undefined,
             { passed: true, observed: 0 },
         ],
         [
-            'accepted twice',
-            async () => {
-                await deliver(UNIT)
-                await deliver(UNIT)
-            },
+            'accepted twice with no job reset',
+            () => deliverTwice(UNIT),
+            0,
             undefined,
-            { passed: false, observed: 1, violation: `${UNIT} email: accepted 2 times`, unitIds: [UNIT] },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: accepted 2 times; 1 duplicate against 0 jobs the janitor reset`,
+                unitIds: [UNIT],
+            },
+        ],
+        ['accepted twice under a gate of one', () => deliverTwice(UNIT), 0, 1, { passed: true, observed: 1, gate: 1 }],
+        [
+            'accepted twice, as two others were, with three jobs reset',
+            async () => {
+                await deliverTwice(UNIT)
+                await deliverTwice('run-a-2')
+                await deliverTwice('run-a-3')
+            },
+            3,
+            undefined,
+            { passed: true, observed: 3 },
         ],
         [
-            'accepted twice under a gate of one',
+            'accepted twice, as two others were, with one job reset under a gate of one',
             async () => {
+                await deliverTwice(UNIT)
+                await deliverTwice('run-a-2')
+                await deliverTwice('run-a-3')
+            },
+            1,
+            1,
+            {
+                passed: false,
+                observed: 3,
+                gate: 1,
+                violation: `${UNIT} email: accepted 2 times; 3 duplicates against 1 job the janitor reset plus a gate of 1`,
+            },
+        ],
+        [
+            'accepted three times with two jobs reset',
+            async () => {
+                await deliverTwice(UNIT)
                 await deliver(UNIT)
+            },
+            2,
+            undefined,
+            { passed: true, observed: 2, unitIds: [UNIT] },
+        ],
+        [
+            'accepted three times with one job reset',
+            async () => {
+                await deliverTwice(UNIT)
                 await deliver(UNIT)
             },
             1,
-            { passed: true, observed: 1, gate: 1 },
+            undefined,
+            {
+                passed: false,
+                observed: 2,
+                violation: `${UNIT} email: accepted 3 times; 2 duplicates against 1 job the janitor reset`,
+                unitIds: [UNIT],
+                crossedBy: UNIT,
+            },
         ],
-    ])('duplicate_sends for a unit %s', async (_story, act, gate, expected) => {
+    ])('duplicate_sends for a unit %s', async (_story, act, janitorResets, gate, expected) => {
         judge.record(offered())
         await act()
 
         const [result] = await judge.check(
             [{ name: 'duplicate_sends', params: {} }],
-            gate === undefined ? {} : { duplicate_sends: gate }
+            gate === undefined ? {} : { duplicate_sends: gate },
+            { janitorResets }
         )
 
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
+    })
+
+    it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {
+        const units = [
+            { ...offered(), unitId: UNIT, offeredAt: 1_000, step: 0 },
+            { ...offered(), unitId: 'run-a-2', offeredAt: 2_000, step: 1 },
+        ]
+        units.forEach((unit) => judge.record(unit))
+        await deliverTwice(UNIT)
+        await deliver(UNIT)
+        await deliverTwice('run-a-2')
+
+        const [result] = await judge.check([{ name: 'duplicate_sends', params: {} }], { duplicate_sends: 1 }, NO_RESETS)
+
+        expect({
+            passed: result.passed,
+            observed: result.observed,
+            crossedAtStep: units.find(({ unitId }) => unitId === result.crossedBy)?.step,
+        }).toEqual({ passed: false, observed: 3, crossedAtStep: 0 })
     })
 
     it.each<[string, JournalEntry['kind'], JournalEntry['answer'], number | undefined, object]>([
@@ -327,6 +405,7 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT}: the intake answered 422 recipient_suppressed`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
         [
@@ -359,7 +438,8 @@ describe('judge', () => {
 
         const [result] = await judge.check(
             [{ name: 'refused_at_intake', params: {} }],
-            gate === undefined ? {} : { refused_at_intake: gate }
+            gate === undefined ? {} : { refused_at_intake: gate },
+            NO_RESETS
         )
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
@@ -487,7 +567,7 @@ describe('judge', () => {
     ])('resident_backlog_intact when %s', async (_story, backlog, expected) => {
         resident = backlog
 
-        const [result] = await judge.check([{ name: 'resident_backlog_intact', params: {} }], {})
+        const [result] = await judge.check([{ name: 'resident_backlog_intact', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ name: 'resident_backlog_intact', ...expected })
     })
@@ -556,7 +636,7 @@ describe('judge', () => {
         await deliver(UNIT)
         judge.record({ ...offered(), followUp })
 
-        const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+        const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ name: 'bounced_suppressed', ...expected })
     })
@@ -579,7 +659,7 @@ describe('judge', () => {
             }
             judge.record({ ...offered(), followUp: { notSent: 'the edge took the first send without a bounce' } })
 
-            const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+            const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {}, NO_RESETS)
 
             expect(result).toMatchObject(expected)
         }
@@ -594,7 +674,7 @@ describe('judge', () => {
         await judge.open(SEED)
         judge.record(offered())
 
-        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
+        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ passed: false, unitIds: [UNIT] })
     })

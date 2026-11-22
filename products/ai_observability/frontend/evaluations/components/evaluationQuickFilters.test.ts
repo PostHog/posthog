@@ -1,7 +1,7 @@
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { EvaluationConditionSet } from '../types'
-import { QuickFilterKey, applyQuickFilter, quickFilterApplied } from './evaluationQuickFilters'
+import { QuickFilterKey, applyQuickFilter, quickFilterApplied, removeQuickFilter } from './evaluationQuickFilters'
 
 const conditionSets = (): EvaluationConditionSet[] => [
     { id: 'a', rollout_percentage: 100, properties: [] },
@@ -44,7 +44,7 @@ describe('evaluationQuickFilters', () => {
         ],
         ['sample', [], null, [10, 10]],
     ])(
-        '%s reaches every condition set once, and a second click adds nothing',
+        '%s reaches every condition set once, a second click adds nothing, and removing it keeps other filters',
         (key, testAccountFilters, added, rollouts) => {
             const once = applyQuickFilter(key, conditionSets(), testAccountFilters)
             const twice = applyQuickFilter(key, once, testAccountFilters)
@@ -55,6 +55,9 @@ describe('evaluationQuickFilters', () => {
             expect(once.map((set) => set.properties?.length)).toEqual(added ? [1, 2] : [0, 1])
             once.forEach((set) => expect(set.properties).toEqual(expect.arrayContaining(added ? [added] : [])))
             expect(once.flatMap((set) => set.properties ?? [])).not.toContainEqual(cohortFilter)
+            expect(removeQuickFilter(key, once, testAccountFilters).map((set) => set.properties)).toEqual(
+                conditionSets().map((set) => set.properties)
+            )
         }
     )
 

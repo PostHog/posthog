@@ -15,6 +15,6 @@ class ModelPrice:
 MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
     "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
-    "claude-opus-4-8": ModelPrice(input_per_token=5e-6, output_per_token=25e-6),
+    "claude-opus-5-5": ModelPrice(input_per_token=4e-6, output_per_token=20e-6),
     "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
 }

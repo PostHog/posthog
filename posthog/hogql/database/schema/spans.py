@@ -92,6 +92,9 @@ class TraceSpansTable(Table):
             name="time_bucket", nullable=False, description="Coarse time bucket used for partitioning and filtering."
         ),
         # internal fields for query optimization
+        # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only
+        # the serialization bucket holding the key, where `attributes` rebuilds the whole map.
+        "attributes_map_str": MapStringDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "_part": StringDatabaseField(name="_part", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
     }

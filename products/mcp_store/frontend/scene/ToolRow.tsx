@@ -3,9 +3,12 @@ import { useState } from 'react'
 import { IconChevronRight, IconLock } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { isPolicyStateAllowedByCeiling } from '../gateway/gatewayPolicyUtils'
 import type { MCPServerInstallationToolApi } from '../generated/api.schemas'
 import type { ToolApprovalState } from '../mcpStoreLogic'
+import { QuillToolRow } from './QuillToolRow'
 import { ToolPolicyToggle } from './ToolPolicyToggle'
 
 interface Props {
@@ -25,6 +28,8 @@ function formatInputSchema(schema: unknown): string {
 
 export function ToolRow({ tool, teamScope = false, onPolicyChange, disabledReason }: Props): JSX.Element {
     const [expanded, setExpanded] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const state = (tool.approval_state ?? 'needs_approval') as ToolApprovalState
     const isRemoved = !!tool.removed_at
     const setByTeamAdmin = !teamScope && (tool.decided_by === 'team' || tool.decided_by === 'preset')
@@ -33,6 +38,24 @@ export function ToolRow({ tool, teamScope = false, onPolicyChange, disabledReaso
             .filter((candidate) => !teamScope && !isPolicyStateAllowedByCeiling(candidate, tool.team_state ?? null))
             .map((candidate) => [candidate, 'Unavailable because of the team admin ceiling'])
     ) as Partial<Record<ToolApprovalState, string>>
+    const policyDisabledReason = disabledReason ?? (tool.locked ? 'The team admin ceiling is Blocked.' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <QuillToolRow
+                tool={tool}
+                state={state}
+                isRemoved={isRemoved}
+                setByTeamAdmin={setByTeamAdmin}
+                expanded={expanded}
+                onToggleExpanded={() => setExpanded((v) => !v)}
+                onPolicyChange={onPolicyChange}
+                policyDisabledReason={policyDisabledReason}
+                disabledStates={disabledStates}
+                inputSchema={expanded ? formatInputSchema(tool.input_schema) : ''}
+            />
+        )
+    }
 
     return (
         <div
@@ -70,9 +93,7 @@ export function ToolRow({ tool, teamScope = false, onPolicyChange, disabledReaso
                     <ToolPolicyToggle
                         value={state}
                         onChange={onPolicyChange}
-                        disabledReason={
-                            disabledReason ?? (tool.locked ? 'The team admin ceiling is Blocked.' : undefined)
-                        }
+                        disabledReason={policyDisabledReason}
                         disabledStates={disabledStates}
                     />
                 </div>

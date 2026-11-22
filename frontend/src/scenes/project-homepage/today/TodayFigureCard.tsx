@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconArrowRight, IconExternal, IconPlay, IconTrends } from '@posthog/icons'
@@ -9,6 +9,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { signalDestination } from './todayEvidence'
@@ -35,13 +36,13 @@ interface QuoteSource {
     signal: SignalViewApi | null
 }
 
-function quoteSource(content: QuotedContent): QuoteSource {
+function quoteSource(content: QuotedContent, scoutNames: Readonly<Record<string, string>>): QuoteSource {
     if (content.kind === 'research') {
         return { icon: 'scout', label: 'Agent’s research', date: content.at, signal: null }
     }
     return {
         icon: sourceStyle(content.signal.source_product).icon,
-        label: signalSourceLabel(content.signal),
+        label: signalSourceLabel(content.signal, scoutNames),
         date: content.signal.timestamp,
         signal: content.signal,
     }
@@ -170,7 +171,8 @@ function QuoteCard({
     figure: string
     reportId: string
 }): JSX.Element {
-    const source = quoteSource(content)
+    const { scoutNamesBySkill } = useValues(scoutNamesLogic)
+    const source = quoteSource(content, scoutNamesBySkill)
     const working = content.kind === 'signal' ? content.working : undefined
     const segments = quoteSegments(content, figure).map((segment) =>
         source.date && !segment.marked ? { ...segment, text: anchorToday(segment.text, source.date) } : segment
