@@ -101,7 +101,7 @@ class TestMailchimpImport(BaseTest):
         assert run.progress["groups"]["counts"]["hidden_groups"] == 1
         assert run.progress["cleaned"]["counts"] == {"bounced": 1, "already_present": 0, "invalid": 1}
 
-        templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        templates = {str(row.key): row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
         assert sorted(templates) == [
             "mailchimp-campaign-camp001",
             "mailchimp-campaign-camp002",
@@ -167,7 +167,7 @@ class TestMailchimpImport(BaseTest):
         self._run(["campaigns"], campaigns=choice)
 
         templates = {
-            row.key.removeprefix("mailchimp-campaign-"): row
+            str(row.key).removeprefix("mailchimp-campaign-"): row
             for row in MessageTemplate.objects.filter(team_id=self.team.id)
         }
         assert set(templates) == expected

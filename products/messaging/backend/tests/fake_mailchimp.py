@@ -98,23 +98,11 @@ class FakeMailchimp:
         if route == "lists":
             rows = [{k: v for k, v in row.items() if k not in _NESTED} for row in lists]
             return 200, self._page("lists", rows, query), {}
-        audience = by_id.get(params.get("list", ""))
-        if route in ("members", "abuse", "categories", "interests") and audience is None:
-            return 404, {"title": "Resource Not Found", "status": 404}, {}
-        if route == "members":
-            status = query.get("status")
-            rows = [row for row in audience["members"] if not status or row["status"] == status]
-            return 200, self._page("members", rows, query), {}
-        if route == "abuse":
-            return 200, self._page("abuse_reports", audience["abuse_reports"], query), {}
-        if route == "categories":
-            rows = [{k: v for k, v in row.items() if k != "interests"} for row in audience["interest_categories"]]
-            return 200, self._page("categories", rows, query), {}
-        if route == "interests":
-            category = next((row for row in audience["interest_categories"] if row["id"] == params["category"]), None)
-            if category is None:
+        if route in ("members", "abuse", "categories", "interests"):
+            audience = by_id.get(params.get("list", ""))
+            if audience is None:
                 return 404, {"title": "Resource Not Found", "status": 404}, {}
-            return 200, self._page("interests", category["interests"], query), {}
+            return self._audience_route(route, audience, params, query)
         templates = [] if key == EMPTY_KEY else self.data["templates"]
         if route == "templates":
             kind = query.get("type")
@@ -141,6 +129,25 @@ class FakeMailchimp:
         if campaign is None:
             return 404, {"title": "Resource Not Found", "status": 404}, {}
         return 200, dict(campaign["content"]), {}
+
+    def _audience_route(
+        self, route: str, audience: dict[str, Any], params: dict[str, str], query: dict[str, str]
+    ) -> tuple[int, dict[str, Any], dict[str, str]]:
+        if route == "members":
+            status = query.get("status")
+            rows = [row for row in audience["members"] if not status or row["status"] == status]
+            return 200, self._page("members", rows, query), {}
+        if route == "abuse":
+            return 200, self._page("abuse_reports", audience["abuse_reports"], query), {}
+        if route == "categories":
+            rows = [{k: v for k, v in row.items() if k != "interests"} for row in audience["interest_categories"]]
+            return 200, self._page("categories", rows, query), {}
+        if route == "interests":
+            category = next((row for row in audience["interest_categories"] if row["id"] == params["category"]), None)
+            if category is None:
+                return 404, {"title": "Resource Not Found", "status": 404}, {}
+            return 200, self._page("interests", category["interests"], query), {}
+        return 404, {"title": "Resource Not Found", "status": 404}, {}
 
     @staticmethod
     def _page(items_key: str, rows: list[dict[str, Any]], query: dict[str, str]) -> dict[str, Any]:
