@@ -272,8 +272,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                             <div className="font-semibold">Send this email when an event happens</div>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 Create a workflow that sends this email to a person each time they do an
-                                                event you pick, without code. The workflow gets its own copy of the
-                                                email, so later edits here don&apos;t change it.
+                                                event you pick, without code. Values you pass as variables in the API
+                                                come from the event&apos;s properties instead. The workflow gets its own
+                                                copy of the email, so later edits here don&apos;t change it.
                                             </p>
                                         </div>
                                     </div>

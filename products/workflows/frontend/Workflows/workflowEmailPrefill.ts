@@ -48,10 +48,29 @@ export function templatePrefilledWorkflow(
     const emailAction = emailStep(
         TEMPLATE_EMAIL_ACTION_ID,
         template.name,
-        { cc: '', bcc: '', replyTo: '', ...content, from: from ?? {} },
+        { cc: '', bcc: '', replyTo: '', ...(withEventPropertiesForVariables(content) as object), from: from ?? {} },
         { message_category_type: 'transactional', sensitive: !!template.sensitive }
     )
     return { ...withEmailStep(base, trigger, emailAction), name: template.name }
+}
+
+const LIQUID_TAG = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+const API_VARIABLE = /(^|[^\w.])variables\./g
+
+/** An event run gets no send API `variables`, so the copied email reads the same names from the event's properties. */
+function withEventPropertiesForVariables(value: unknown): unknown {
+    if (typeof value === 'string') {
+        return value.replace(LIQUID_TAG, (tag) => tag.replace(API_VARIABLE, '$1event.properties.'))
+    }
+    if (Array.isArray(value)) {
+        return value.map(withEventPropertiesForVariables)
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, nested]) => [key, withEventPropertiesForVariables(nested)])
+        )
+    }
+    return value
 }
 
 function withTriggerConfigOnly(base: HogFlow, trigger: WorkflowTriggerConfig): HogFlow {

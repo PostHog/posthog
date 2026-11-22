@@ -80,11 +80,11 @@ const transactionalTemplate = {
         email: {
             from: { integrationId: 42, email: 'orders@example.com', name: 'Shop' },
             replyTo: 'help@example.com',
-            subject: 'Your order {{ event.properties.order_id }}',
+            subject: 'Your order {{ variables.order_id }}',
             preheader: 'Thanks for your order',
-            html: '<p>Thanks</p>',
-            text: 'Thanks',
-            design: { body: { rows: [] } },
+            html: '<p>{% if variables.coupon %}Use {{ variables.coupon | upcase }}{% endif %}</p>',
+            text: 'Order {{variables.order_id}}. Set variables.order_id in the send call.',
+            design: { body: { rows: [{ values: { html: '<b>{{ variables.order_id }}</b>' } }] } },
         },
     },
     draft_content: {
@@ -183,7 +183,7 @@ describe('workflowLogic pages opened from a link or a template', () => {
         expect(workflowLogic({ id: 'wf-a' }).values.workflow.name).toBe('Renamed a')
     })
 
-    it('opens an event workflow that sends the published email of a transactional template from an environment', async () => {
+    it('opens an event workflow that sends the published email of a transactional template from an environment, with its variables read from the event', async () => {
         const environmentId = MOCK_DEFAULT_TEAM.id + 1
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: environmentId })
         useMocks({
@@ -223,7 +223,15 @@ describe('workflowLogic pages opened from a link or a template', () => {
                     email: {
                         templating: 'liquid',
                         value: {
-                            ...transactionalTemplate.content.email,
+                            from: transactionalTemplate.content.email.from,
+                            replyTo: 'help@example.com',
+                            subject: 'Your order {{ event.properties.order_id }}',
+                            preheader: 'Thanks for your order',
+                            html: '<p>{% if event.properties.coupon %}Use {{ event.properties.coupon | upcase }}{% endif %}</p>',
+                            text: 'Order {{event.properties.order_id}}. Set variables.order_id in the send call.',
+                            design: {
+                                body: { rows: [{ values: { html: '<b>{{ event.properties.order_id }}</b>' } }] },
+                            },
                             to: { email: '{{ person.properties.email }}', name: '' },
                         },
                     },
