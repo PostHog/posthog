@@ -196,12 +196,20 @@ describe('hogInvocationsLogic', () => {
             },
             { messages: ['Email sent to bounce@example.com from Hedgehog <hi@example.com>'], outcome: null },
             { messages: ['Error executing function: timeout'], outcome: null },
-        ])('reads $outcome from $messages', async ({ messages, outcome }) => {
+            {
+                functionKind: 'hog_function' as const,
+                messages: ['Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
+                outcome: null,
+            },
+        ])('reads $outcome from $messages', async ({ functionKind, messages, outcome }) => {
             useMocks({
                 post: {
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
                         const sql: string = ((await request.json()) as any).query.query
                         if (sql.includes('FROM log_entries') && sql.includes('GROUP BY instance_id')) {
+                            if (!sql.includes('bounce_messages')) {
+                                return [200, { results: [['inv-1', 2]] }]
+                            }
                             const bounces = messages.filter((message) => message.includes('bounce to '))
                             const others = messages.filter((message) => !message.includes('bounce to '))
                             return [200, { results: [['inv-1', 2, bounces, others]] }]
@@ -215,7 +223,7 @@ describe('hogInvocationsLogic', () => {
             })
             initKeaTests()
 
-            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: functionKind ?? 'hog_flow' })
             logic.mount()
             logic.actions.loadRuns(null)
             await expectLogic(logic).toDispatchActions(['loadRunsSuccess', 'enrichProblemsSuccess'])

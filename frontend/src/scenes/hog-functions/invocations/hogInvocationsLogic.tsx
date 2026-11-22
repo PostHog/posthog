@@ -804,34 +804,27 @@ async function fetchRunProblems(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
-    // Bounce and complaint lines get separate caps because groupUniqArray has no order, so one shared
-    // cap could drop a bounce behind many complaints. 400 characters keep the prefix and the recipient.
+    // Only workflow runs get SES bounce and complaint lines. Separate caps keep many complaints from
+    // crowding out a bounce, since groupUniqArray has no order. A byte cut inside a character fails the query.
+    const emailColumns =
+        props.functionKind === 'hog_flow'
+            ? hogql.raw(
+                  `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), message LIKE '%bounce to %'), 1, 5) AS bounce_messages` +
+                      `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), message LIKE '%Complaint from %' AND NOT message ILIKE '%feedback type: not-spam'), 1, 5) AS complaint_messages`
+              )
+            : hogql.raw('')
     const severityQuery = hogql`
         SELECT
             instance_id,
-            max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev,
-            arraySlice(
-                groupUniqArrayIf(substring(message, 1, 400), lower(level) IN ('warn', 'error') AND message LIKE '%bounce to %'),
-                1,
-                5
-            ) AS bounce_messages,
-            arraySlice(
-                groupUniqArrayIf(
-                    substring(message, 1, 400),
-                    lower(level) IN ('warn', 'error')
-                        AND message LIKE '%Complaint from %'
-                        AND NOT message ILIKE '%feedback type: not-spam'
-                ),
-                1,
-                5
-            ) AS complaint_messages
+            max(if(lower(level) = 'error', 2, 1)) AS sev
+            ${emailColumns}
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
           AND timestamp >= {filters.dateRange.from}
+          AND lower(level) IN ('warn', 'error')
           AND ${idClause}
         GROUP BY instance_id
-        HAVING sev > 0
     `
     const severityResponse = await api.queryHogQL(
         severityQuery,
