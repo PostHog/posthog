@@ -146,18 +146,32 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert body["engagement_events_enabled"] is False
 
-    def test_is_not_found_while_the_feature_flag_is_off(self):
+    @parameterized.expand(
+        [
+            ("the_project_uuid_the_app_targets", "project", "uuid", status.HTTP_200_OK),
+            ("the_organization", "organization", "organization_id", status.HTTP_200_OK),
+            ("the_numeric_team_id_only", "project", "id", status.HTTP_404_NOT_FOUND),
+            ("another_project", "project", None, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_opens_only_for_a_project_the_flag_targets(
+        self, _name: str, group_type: str, key_attr: str | None, expected: int
+    ):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
         flush_persons_and_events()
-        self.flag_enabled.return_value = False
+        targeted_key = str(getattr(self.team, key_attr)) if key_attr else str(UUIDT())
+
+        def flag_targeting(flag: str, _distinct_id: str, *, groups: dict[str, str], **_kwargs: object) -> bool:
+            return flag == "workflows-email-activity" and groups.get(group_type) == targeted_key
+
+        self.flag_enabled.side_effect = flag_targeting
 
         listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
         detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
         activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
-        assert {listed.status_code, detail.status_code, activity.status_code} == {status.HTTP_404_NOT_FOUND}
-        assert self.flag_enabled.call_args.args[0] == "workflows-email-activity"
+        assert {listed.status_code, detail.status_code, activity.status_code} == {expected}
 
     def test_pages_through_sends_logged_at_the_same_moment_without_repeats(self):
         sent_at = NOW - timedelta(hours=1)
