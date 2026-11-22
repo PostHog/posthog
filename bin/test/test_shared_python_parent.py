@@ -8,6 +8,7 @@ import threading
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import IO
 
 import unittest
 
@@ -84,7 +85,12 @@ class TestSharedPythonParent(unittest.TestCase):
         assert launcher.stdout is not None
         lines: queue.Queue[str] = queue.Queue()
         self.reports[launcher.pid] = lines
-        threading.Thread(target=lambda: [lines.put(line) for line in launcher.stdout], daemon=True).start()
+
+        def collect_reports(stdout: IO[str]) -> None:
+            for line in stdout:
+                lines.put(line)
+
+        threading.Thread(target=collect_reports, args=(launcher.stdout,), daemon=True).start()
         return launcher
 
     def kill(self, launcher: subprocess.Popen) -> None:
