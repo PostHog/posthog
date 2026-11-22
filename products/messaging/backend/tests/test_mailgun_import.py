@@ -255,7 +255,7 @@ class TestMailgunImport(BaseTest):
             templates["welcome"]
             .content["email"]["html"]
             .startswith(
-                '<h1>Hello {{ variables.name | join: "," }}</h1>{% if variables.vip != blank and variables.vip != 0 %}'
+                '<h1>Hello {{ variables.name | join: "," }}</h1>{% if variables.vip != nil and variables.vip != false and variables.vip != 0 and variables.vip.length != 0 or variables.vip != empty %}'
             )
         )
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]

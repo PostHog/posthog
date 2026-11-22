@@ -127,7 +127,7 @@
       }
     },
     "engine": "handlebars",
-    "liquid": "[{% if variables.a != blank and variables.a != 0 %}A{% endif %}{% if variables.b != blank and variables.b != 0 %}B{% endif %}{% if variables.c != blank and variables.c != 0 %}C{% endif %}{% if variables.d != blank and variables.d != 0 %}D{% else %}d{% endif %}{% if variables.e == blank or variables.e == 0 %}e{% endif %}{% if variables.f != blank and variables.f != 0 %}F{% endif %}]",
+    "liquid": "[{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}{% if variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}B{% endif %}{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}C{% endif %}{% if variables.d != nil and variables.d != false and variables.d != 0 and variables.d.length != 0 or variables.d != empty %}D{% else %}d{% endif %}{% if variables.e == nil or variables.e == false or variables.e == 0 or variables.e.length == 0 and variables.e == empty %}e{% endif %}{% if variables.f != nil and variables.f != false and variables.f != 0 and variables.f.length != 0 or variables.f != empty %}F{% endif %}]",
     "expected": "[DeF]"
   },
   {
@@ -158,7 +158,7 @@
       }
     },
     "engine": "handlebars",
-    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}Pro{% else %}Free{% endif %} {% if variables.user != blank %}{{ variables.user.name | join: \",\" }}{% else %}nobody{% endif %}",
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}Pro{% else %}Free{% endif %} {% if variables.user != nil and variables.user != false and variables.user.length != 0 or variables.user != empty %}{{ variables.user.name | join: \",\" }}{% else %}nobody{% endif %}",
     "expected": "Pro Ana"
   },
   {
@@ -194,5 +194,16 @@
     },
     "liquid": "<p>{{ variables.tags | join: \",\" }}</p>",
     "expected": "<p>red,blue</p>"
+  },
+  {
+    "name": "conditions read a string of spaces and an empty object as true",
+    "engine": "handlebars",
+    "template": "{{#unless s}}A{{/unless}}{{#if o}}B{{else}}C{{/if}}",
+    "variables": {
+      "s": " ",
+      "o": {}
+    },
+    "liquid": "{% if variables.s == nil or variables.s == false or variables.s == 0 or variables.s.length == 0 and variables.s == empty %}A{% endif %}{% if variables.o != nil and variables.o != false and variables.o != 0 and variables.o.length != 0 or variables.o != empty %}B{% else %}C{% endif %}",
+    "expected": "B"
   }
 ]

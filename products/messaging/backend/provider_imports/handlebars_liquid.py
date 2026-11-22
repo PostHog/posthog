@@ -48,7 +48,7 @@ _TAKEN_NAMES = frozenset(
 # Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
 _LIST_NAME = re.compile(r"(?:values|shape|string|raw)\d+")
 # Names the converter assigns before a comparison. A loop variable of the same name would hide them.
-_ASSIGNED_NAME = re.compile(r"(?:text|length)\d+")
+_ASSIGNED_NAME = re.compile(r"(?:text|length|truthy)\d+")
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
 # Each provider adds its own helpers to Handlebars:
 # https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars and
@@ -336,7 +336,9 @@ class HandlebarsToLiquid:
             return f"{left} {operator} {right}"
         # Liquid reads `and` and `or` right to left with no brackets, so only `and` keeps each test whole.
         if self._dialect == "sendgrid" and block.name == "and" and len(params) >= 2:
-            return " and ".join(self._truthy(param, frames, setup, include_zero=False) for param in params)
+            return " and ".join(
+                self._whole(self._truthy(param, frames, setup, include_zero=False), setup) for param in params
+            )
         raise _Unsupported
 
     def _each(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
@@ -537,6 +539,16 @@ class HandlebarsToLiquid:
             return literal
         # A list compares as its items joined by commas, as JavaScript turns it into text.
         return self._assign(f'{self._operand(param, frames, setup)} | join: "," | append: ""', "text", setup)
+
+    def _whole(self, condition: str, setup: list[str]) -> str:
+        """A test that stays whole when joined to others with `and`. Liquid reads `and` and `or` from the right, so a
+        test holding `or` is worked out first."""
+        if " or " not in condition:
+            return condition
+        self._assigned += 1
+        name = f"truthy{self._assigned}"
+        setup.append(f"{{% capture {name} %}}{{% if {condition} %}}1{{% endif %}}{{% endcapture %}}")
+        return f'{name} == "1"'
 
     def _assign(self, expression: str, prefix: str, setup: list[str]) -> str:
         self._assigned += 1
