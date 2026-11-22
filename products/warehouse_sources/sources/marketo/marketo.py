@@ -503,22 +503,40 @@ def _rest_token_rows(
         resumable_source_manager.save_state(MarketoResumeConfig(next_page_token=next_token))
 
 
+def _asset_params(config: MarketoEndpointConfig, offset: int) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
+    if config.paginated:
+        params.update(offset=offset, maxReturn=ASSET_MAX_RETURN)
+    return params
+
+
+def _normalize_asset_row(row: Mapping[str, Any], config: MarketoEndpointConfig) -> dict[str, Any]:
+    normalized = dict(row)
+    for column in config.datetime_columns:
+        if column in normalized:
+            normalized[column] = parse_marketo_datetime(normalized[column])
+    return normalized
+
+
 def _asset_offset_rows(
     client: MarketoClient,
     config: MarketoEndpointConfig,
     resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
     start_offset: int,
+    updated_since: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     offset = start_offset
     while True:
-        params: dict[str, Any] = {"offset": offset, "maxReturn": ASSET_MAX_RETURN, **config.extra_params}
+        params = _asset_params(config, offset)
+        if updated_since is not None and config.incremental_param:
+            params[config.incremental_param] = updated_since
         body = client.request_json("GET", config.path, params=params)
-        rows = body.get("result") or []
+        rows = [_normalize_asset_row(row, config) for row in body.get("result") or []]
         if rows:
             yield rows
 
         # A short page is the API's end-of-collection signal; there is no total count.
-        if len(rows) < ASSET_MAX_RETURN:
+        if not config.paginated or len(rows) < ASSET_MAX_RETURN:
             break
 
         offset += len(rows)
@@ -540,11 +558,11 @@ def _fan_out_parents(
     offset = 0
     next_token: Optional[str] = None
     while True:
-        params: dict[str, Any] = dict(parent.extra_params)
+        params: dict[str, Any]
         if parent.transport == "asset_offset":
-            params.update(offset=offset, maxReturn=ASSET_MAX_RETURN)
+            params = _asset_params(parent, offset)
         else:
-            params["batchSize"] = REST_BATCH_SIZE
+            params = {**parent.extra_params, "batchSize": REST_BATCH_SIZE}
             if next_token:
                 params["nextPageToken"] = next_token
 
@@ -557,7 +575,7 @@ def _fan_out_parents(
         resumable_source_manager.safe_point()
 
         if parent.transport == "asset_offset":
-            if len(rows) < ASSET_MAX_RETURN:
+            if not parent.paginated or len(rows) < ASSET_MAX_RETURN:
                 break
             offset += len(rows)
         else:
@@ -568,33 +586,46 @@ def _fan_out_parents(
     return sorted(parents, key=lambda item: item.id)
 
 
-def _list_member_rows(
+def _fan_out_rows(
     client: MarketoClient,
     config: MarketoEndpointConfig,
     resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
     resume: Optional[MarketoResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    """Page a child endpoint per parent: asset children by offset, /rest/v1 children by page token."""
     assert config.parent is not None and config.parent_key is not None
+    by_offset = config.transport == "asset_fan_out"
     parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
 
     for parent in parents:
         next_token: Optional[str] = None
+        offset = 0
         if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
-            if parent.id < resume.parent_id or not resume.next_page_token:
+            position = resume.offset if by_offset else resume.next_page_token
+            if parent.id < resume.parent_id or not position:
                 continue
             next_token = resume.next_page_token
+            offset = resume.offset or 0
         path = config.path.format(parent_id=parent.id)
 
         while True:
-            params: dict[str, Any] = {"batchSize": REST_BATCH_SIZE}
+            params: dict[str, Any] = (
+                {"offset": offset, "maxReturn": ASSET_MAX_RETURN} if by_offset else {"batchSize": REST_BATCH_SIZE}
+            )
             if next_token:
                 params["nextPageToken"] = next_token
             body = client.request_json("GET", path, params=params)
             rows = [{**row, config.parent_key: parent.id} for row in body.get("result") or []]
 
-            more = _has_more_pages(body)
-            next_token = body.get("nextPageToken") if more else None
-            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token))
+            if by_offset:
+                more = len(rows) >= ASSET_MAX_RETURN
+                offset += len(rows)
+                state = MarketoResumeConfig(parent_id=parent.id, offset=offset if more else None)
+            else:
+                more = _has_more_pages(body)
+                next_token = body.get("nextPageToken") if more else None
+                state = MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token)
+            resumable_source_manager.save_state(state)
 
             if rows:
                 yield rows
@@ -759,11 +790,16 @@ def get_rows(
     elif config.transport == "program_members":
         start = resolve_bulk_start(None, should_use_incremental_field, db_incremental_field_last_value, start_date)
         yield from _program_member_rows(client, config, resumable_source_manager, resume, start, datetime.now(UTC))
-    elif config.transport == "list_members":
-        yield from _list_member_rows(client, config, resumable_source_manager, resume)
+    elif config.transport in ("list_members", "asset_fan_out"):
+        yield from _fan_out_rows(client, config, resumable_source_manager, resume)
     elif config.transport == "asset_offset":
         start_offset = resume.offset if resume is not None and resume.offset is not None else 0
-        yield from _asset_offset_rows(client, config, resumable_source_manager, start_offset)
+        updated_since = (
+            format_datetime(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value is not None
+            else None
+        )
+        yield from _asset_offset_rows(client, config, resumable_source_manager, start_offset, updated_since)
     else:
         start_token = resume.next_page_token if resume is not None else None
         yield from _rest_token_rows(client, config, resumable_source_manager, start_token)
@@ -801,6 +837,7 @@ def marketo_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Fan-out rows arrive one parent at a time, so they are not one ordered series.
-        sort_mode=None if config.parent else "asc",
+        # Fan-out rows arrive one parent at a time, so they are not one ordered series. The asset
+        # browse endpoints document no order, so an incremental asset read is not one either.
+        sort_mode=None if config.parent or config.incremental_param else "asc",
     )

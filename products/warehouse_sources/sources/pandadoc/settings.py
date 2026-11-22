@@ -114,6 +114,24 @@ PANDADOC_ENDPOINTS: dict[str, PandaDocEndpointConfig] = {
         path="/v1/templates/folders",
         primary_keys=["uuid"],
     ),
+    "content_library_items": PandaDocEndpointConfig(
+        name="content_library_items",
+        path="/v1/content-library-items",
+        partition_key="date_created",
+    ),
+    # Lists only the organization's active workspaces, and needs an org admin key.
+    "workspaces": PandaDocEndpointConfig(
+        name="workspaces",
+        path="/v1/workspaces",
+        partition_key="date_created",
+    ),
+    # Needs an org admin key. The page size is capped at 50 here, not 100.
+    "users": PandaDocEndpointConfig(
+        name="users",
+        path="/v1/users",
+        primary_keys=["user_id"],
+        page_size=50,
+    ),
     # The search endpoint has no date filter, so the catalog is full refresh only.
     "product_catalog_items": PandaDocEndpointConfig(
         name="product_catalog_items",
@@ -141,6 +159,14 @@ PANDADOC_ENDPOINTS: dict[str, PandaDocEndpointConfig] = {
         path="/v1/documents/{document_id}/fields",
         primary_keys=["document_id", "uuid"],
         data_key="fields",
+        pagination="none",
+        fanout=_document_fanout(include_document_id=True, child_response_actions=_DOCUMENT_CHILD_IGNORE_404_409),
+    ),
+    "document_linked_objects": PandaDocEndpointConfig(
+        name="document_linked_objects",
+        path="/v1/documents/{document_id}/linked-objects",
+        primary_keys=["document_id", "id"],
+        data_key="linked_objects",
         pagination="none",
         fanout=_document_fanout(include_document_id=True, child_response_actions=_DOCUMENT_CHILD_IGNORE_404_409),
     ),
