@@ -3,6 +3,7 @@ flag. The module stays light so core code can import it without pulling the faca
 its import path.
 """
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -40,6 +41,19 @@ def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
         .first()
     )
     return FlagEvaluationsMode.EVENTS if mode is None else mode
+
+
+def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) -> dict[UUID, int]:
+    """The FlagEvaluationsMode value of each organization, read in one query, with the same EVENTS default as
+    get_organization_flag_evaluations_mode."""
+    stored = dict(
+        OrganizationFeatureFlagsConfig.objects.filter(organization_id__in=organization_ids).values_list(
+            "organization_id", "flag_evaluations_mode"
+        )
+    )
+    return {
+        organization_id: stored.get(organization_id, FlagEvaluationsMode.EVENTS) for organization_id in organization_ids
+    }
 
 
 def get_flag_evaluations_read_mode(organization_id: UUID) -> int:

@@ -4,6 +4,7 @@ Each run executes in Temporal, so a long provider list does not hit the request 
 Customer.io import in `customerio.py` stays available next to it.
 """
 
+from collections.abc import Mapping
 from dataclasses import field
 from datetime import datetime
 from typing import Any
@@ -57,6 +58,23 @@ class ImportStepOption:
     key: str
     label: str
     description: str
+    needs: tuple[str, ...] = ()
+    counts_as_events: bool = False
+
+
+@frozen
+class ImportSettingChoiceOption:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingOption:
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoiceOption, ...]
+    default: str | None
 
 
 @frozen
@@ -71,6 +89,7 @@ class ImportProviderOption:
     api_key_url: str | None = field(repr=False)
     not_imported: str
     next_steps: tuple[str, ...]
+    settings: tuple[ImportSettingOption, ...] = ()
 
 
 @frozen
@@ -113,6 +132,7 @@ class ProviderImportRunState:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    settings: Mapping[str, str] = field(default_factory=dict)
 
 
 def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportProviderOption]:
@@ -122,7 +142,13 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             key=provider.key,
             label=provider.label,
             steps=tuple(
-                ImportStepOption(key=spec.key, label=spec.label, description=spec.description)
+                ImportStepOption(
+                    key=spec.key,
+                    label=spec.label,
+                    description=spec.description,
+                    needs=spec.needs,
+                    counts_as_events=spec.counts_as_events,
+                )
                 for spec in provider.steps
             ),
             retains_credentials=provider.retains_credentials,
@@ -131,6 +157,16 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             api_key_url=provider.api_key_url,
             not_imported=provider.not_imported,
             next_steps=provider.next_steps,
+            settings=tuple(
+                ImportSettingOption(
+                    key=spec.key,
+                    label=spec.label,
+                    help=spec.help,
+                    choices=tuple(ImportSettingChoiceOption(value=c.value, label=c.label) for c in spec.choices),
+                    default=spec.default,
+                )
+                for spec in provider.settings
+            ),
         )
         for provider in PROVIDERS.values()
         if _provider_enabled(provider, team_uuid, organization_id)
@@ -150,7 +186,12 @@ def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id:
 
 
 def start_provider_import(
-    team_id: int, provider: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    settings: Mapping[str, str] | None = None,
 ) -> ProviderImportRunState:
     """Check the credentials and start a background import of the selected steps.
 
@@ -159,8 +200,14 @@ def start_provider_import(
     key.
     """
     try:
-        run = runs.start_run(team_id, provider, steps, api_key, created_by_id)
-    except (UnknownImportProvider, runs.InvalidImportSteps, ImportCredentialsMissing, ImportCredentialsInvalid) as e:
+        run = runs.start_run(team_id, provider, steps, api_key, created_by_id, settings)
+    except (
+        UnknownImportProvider,
+        runs.InvalidImportSteps,
+        runs.InvalidImportSettings,
+        ImportCredentialsMissing,
+        ImportCredentialsInvalid,
+    ) as e:
         raise ProviderImportRejected(_rejection_message(e)) from e
     except (runs.ProviderImportAlreadyRunning, ImportCredentialsConflict) as e:
         raise ProviderImportConflict(str(e)) from e
@@ -197,6 +244,7 @@ def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
         created_at=run.created_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
+        settings=run.settings,
     )
 
 

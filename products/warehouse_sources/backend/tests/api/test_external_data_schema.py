@@ -832,7 +832,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["incremental_fields"][0]["field"]
 
-    def test_incremental_fields_withdraws_a_stored_pick_when_the_flag_turns_off(self):
+    def test_incremental_fields_withdraws_a_stored_pick_when_ai_consent_is_revoked(self):
         schema = self._orders_schema_without_cursor()
         recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
         with (
@@ -843,8 +843,9 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             self._open_sync_form(schema)
             assert self._open_sync_form(schema) == "fecha_actualizacion"
-            with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
-                assert self._open_sync_form(schema) == "created_at"
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+            assert self._open_sync_form(schema) == "created_at"
 
     @parameterized.expand(
         [

@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
 import { AccessControlResponseType, RoleType } from '~/types'
+import type { OrganizationType } from '~/types'
 
 import type { AvailableFeature, OrganizationMemberType } from '../../../../../types'
 
@@ -21,7 +22,7 @@ import type { AvailableFeature, OrganizationMemberType } from '../../../../../ty
 export interface roleAccessControlLogicValues {
     sortedMembers: OrganizationMemberType[] | null // membersLogic
     currentProjectId: number | string // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     canEditRoles: boolean | null
     editingRole: {
         name: string
@@ -63,10 +64,10 @@ export interface roleAccessControlLogicActions {
     } // membersLogic
     loadCurrentOrganization: () => any // organizationLogic
     loadCurrentOrganizationSuccess: (
-        currentOrganization: null | import('~/types').OrganizationType,
+        currentOrganization: OrganizationType | null,
         payload?: any
     ) => {
-        currentOrganization: null | import('~/types').OrganizationType
+        currentOrganization: OrganizationType | null
         payload?: any
     } // organizationLogic
     addMembersToRole: (

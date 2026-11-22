@@ -121,6 +121,14 @@ _ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "eleme
 ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
+# `response` maps to the hidden stored field, because the `response` field is an expression that scrubs the sentinels.
+FLAG_EVALUATIONS_PROPERTY_COLUMNS: dict[str, str] = {
+    "$feature_flag": "flag_key",
+    "$feature_flag_response": "flag_evaluation_response",
+    "$session_id": "session_id",
+}
+
+
 # Flag calls are events too, and a query on events can read them from here, so events retention applies.
 class FlagEvaluationsTable(EventsRetentionTable):
     description: str = (
@@ -142,7 +150,9 @@ class FlagEvaluationsTable(EventsRetentionTable):
             description="JSON map of the event's properties. Access nested keys with `properties.$lib` etc. "
             "Prefer the `flag_key`, `response`, `session_id`, `request_id` and `$group_0`..`$group_4` columns "
             "where they cover what you need: reading the same value out of this JSON scans far more data. "
-            "A property that holds an empty string reads as '' here, where `events` can return NULL. A value with "
+            "`properties.$feature_flag`, `$feature_flag_response` and `$session_id` read "
+            "those columns, so an empty string or the text 'null' reads as NULL, as on `events`, unless materialization is "
+            "disabled. Any other property that holds an empty string reads as '' here, where `events` can return NULL. A value with "
             "an escaped character, such as a quote, can also read differently than on `events`.",
         ),
         "timestamp": DateTimeDatabaseField(

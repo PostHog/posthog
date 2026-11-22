@@ -1,8 +1,9 @@
 """The transactional email log: every send of a project, read from the email_status_events table.
 
 A send writes one row per status change. The queued row carries the recipient and the workflow, the sent row the
-sending domain, and opens and clicks add rows of their own. The delivery status of a send is its highest-ranked
-delivery row, so an open never hides a bounce.
+sending domain, and opens and clicks add rows of their own. A scheduled send writes a scheduled row in place of the
+queued one, and the log reads it as a queued row. The delivery status of a send is its highest-ranked delivery row, so
+an open never hides a bounce.
 """
 
 from collections.abc import Callable, Iterator, Sequence
@@ -15,11 +16,12 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -61,7 +63,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_BATCH_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
 _DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
@@ -72,13 +73,21 @@ _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
 _SEARCH: dict[str, int] = {"optimize_read_in_order": 0}
 
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
+_FIRST_ROW = "status IN ('queued', 'scheduled')"
+# A scheduled send that hasn't gone out yet is waiting to go out, the same as a queued one, since its first row. A
+# reschedule writes another scheduled row but doesn't queue the send again.
+_STATUS = "if(status = 'scheduled', 'queued', status)"
 
 # One row per message. `argMaxIf` keeps the delivery status, and the `anyIf` columns read the one row that sets each.
 _MESSAGE_COLUMNS = f"""
     message_id,
     min(created_at) AS queued_at,
-    argMaxIf(status, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
-    argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT}) AS delivery_status_at,
+    argMaxIf({_STATUS}, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
+    if(
+        delivery_status = 'queued',
+        minIf(status_at, {_FIRST_ROW}),
+        argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT})
+    ) AS delivery_status_at,
     argMaxIf({EMAIL_STATUS_SHOWN_REASON}, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
     anyIf(recipient, recipient != '') AS message_recipient,
     anyIf(function_id, function_id != '') AS message_function_id,
@@ -222,7 +231,7 @@ def list_transactional_emails(
     period_filter = "team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s"
     having = ["delivery_status != ''"]
     params: dict[str, Any] = {"start": start, "end": end, "limit": limit + 1, "offset": offset}
-    # Only the queued row names the recipient and the workflow, so these filters pick messages from queued rows.
+    # Only the first row names the recipient and the workflow, so these filters pick messages from first rows.
     queued_filters: list[str] = []
     settings: dict[str, int] = {}
 
@@ -253,8 +262,8 @@ def list_transactional_emails(
         queued_filters.append(_access_condition("function_id", access, params))
         having.append(_access_condition("message_function_id", access, params))
 
-    queued = " AND ".join([period_filter, "status = 'queued'", *queued_filters])
-    candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
+    queued = " AND ".join([period_filter, _FIRST_ROW, *queued_filters])
+    candidates = f"SELECT DISTINCT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
     if message_id:
         scope = "AND message_id = %(message_id)s"
     elif status or reason:
@@ -262,9 +271,9 @@ def list_transactional_emails(
         settings.update(_GROUP_AS_READ)
         scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""
     else:
-        # The page comes from queued rows alone, so a long period doesn't group every message to show 50 of them.
-        # Kafka can deliver a queued row twice, so this takes extra rows and the grouping below drops the repeats.
-        params["candidates"] = (limit + 1 + offset) * 2
+        # The page comes from first rows alone, so a long period doesn't group every message to show 50 of them.
+        # Kafka can deliver a first row twice, and every reschedule writes another, so the limit counts messages.
+        params["candidates"] = limit + 1 + offset
         scope = (
             f"AND (created_at, message_id) IN ({candidates} ORDER BY created_at DESC, message_id DESC"
             " LIMIT %(candidates)s)"
@@ -313,7 +322,7 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT status, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT {_STATUS}, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
         GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
@@ -326,6 +335,9 @@ def get_transactional_email(
             continue
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
         if kind == EmailLogEventKind.FAILED and timeline and timeline[-1].kind == EmailLogEventKind.FAILED:
+            continue
+        # Each reschedule writes another scheduled row, but the send was queued once.
+        if kind == EmailLogEventKind.QUEUED and any(event.kind == EmailLogEventKind.QUEUED for event in timeline):
             continue
         timeline.append(TransactionalEmailLogEvent(kind=EmailLogEventKind(kind), at=at, reason=reason or None))
 
@@ -711,17 +723,25 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
-    for batch in _batches_by_query_size(sends, _query_bytes_of):
+    for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
         converted |= _converted_in_batch(team, user, event, batch)
     return converted
 
 
-def _batches_by_query_size[T](items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+def _max_query_size(team_id: int) -> int:
+    team_limit = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    # ClickHouse reads a zero max_query_size as no limit, so batches then follow the default limit.
+    return team_limit if isinstance(team_limit, int) and team_limit > 0 else default_settings()["max_query_size"]
+
+
+def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    # The batched values take at most a quarter of the query, which leaves the rest for the query text around them.
+    budget = _max_query_size(team_id) // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
         item_bytes = query_bytes_of(item)
-        if batch and batch_bytes + item_bytes > _BATCH_QUERY_BYTES:
+        if batch and batch_bytes + item_bytes > budget:
             yield batch
             batch, batch_bytes = [], 0
         batch.append(item)
@@ -792,7 +812,7 @@ def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> Transact
 
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     persons: dict[str, str] = {}
-    for batch in _batches_by_query_size(distinct_ids, _escaped_literal_bytes):
+    for batch in _batches_by_query_size(team.id, distinct_ids, _escaped_literal_bytes):
         persons |= _persons_in_batch(team, user, batch)
     return persons
 

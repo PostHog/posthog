@@ -56,7 +56,7 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    params: dict[str, Any] = {"limit": PAGE_LIMIT, **config.extra_params}
     if config.date_window_days:
         today = datetime.now(UTC).date()
         params["from"] = today.isoformat()
@@ -75,6 +75,10 @@ def _build_params(
 def _explode_nested_rows(item: dict[str, Any], explode_field: str) -> list[dict[str, Any]]:
     parent_fields = {key: value for key, value in item.items() if key != explode_field}
     return [{**parent_fields, **child} for child in item.get(explode_field) or []]
+
+
+def _drop_fields(item: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    return {key: value for key, value in item.items() if key not in fields}
 
 
 def ownerrez_source(
@@ -103,6 +107,9 @@ def ownerrez_source(
     explode_field = endpoint_config.explode_field
     if explode_field:
         resource_config["data_map"] = lambda item: _explode_nested_rows(item, explode_field)
+    drop_fields = endpoint_config.drop_fields
+    if drop_fields:
+        resource_config["data_map"] = lambda item: _drop_fields(item, drop_fields)
 
     config: RESTAPIConfig = {
         "client": {
@@ -170,10 +177,10 @@ def ownerrez_source(
     )
 
 
-def validate_credentials(email: str, api_key: str) -> tuple[bool, int | None]:
-    """Probe the cheap, filter-free /v2/properties list endpoint to confirm the credentials work."""
+def validate_credentials(email: str, api_key: str, path: str = "/v2/properties") -> tuple[bool, int | None]:
+    """Probe a cheap, filter-free list endpoint (default /v2/properties) to confirm the credentials work."""
     return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{BASE_URL}/v2/properties?limit=1",
+        f"{BASE_URL}{path}?limit=1",
         headers={"Authorization": _basic_auth_header(email, api_key), "User-Agent": USER_AGENT},
     )

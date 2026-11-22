@@ -18,7 +18,6 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.panels import Fact, Gate, Operation, Panel, ReasonForm
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.event_usage import report_organization_deleted, report_organization_deletion_initiated
 from posthog.models.organization import Organization
@@ -172,7 +171,7 @@ class OrganizationDeletionPanel(Panel):
     record = "organization"
     key = "deletion"
     title = "Deletion"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
     danger = True
 
@@ -208,7 +207,7 @@ class OrganizationDeletionPanel(Panel):
 class OrganizationDataTool(ConsoleTool):
     key = DATA_TOOL_KEY
     title = "Organization data"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "Organizations"
     description = "Counts the data that deleting one organization removes."
 

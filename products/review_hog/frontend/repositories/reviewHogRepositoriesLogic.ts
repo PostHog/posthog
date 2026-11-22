@@ -28,6 +28,11 @@ import type {
     ReviewRepositoryPersonKindEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    PatchedReviewProjectSettingsApi,
+    PatchedReviewUserSettingsApi,
+    ReviewUserSettingsApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import type { ReviewProjectSettingsApi } from '../generated/api.schemas'
@@ -35,6 +40,9 @@ import { MyChoiceValue } from './repositoryChoices'
 import { currentProjectId, errorMessage, reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 
 export const REPOSITORIES_PAGE_SIZE = 20
+
+/** When a repository's pull requests get automatic reviews: on draft open, and on later pushes. */
+export type RepositoryReviews = Pick<ReviewRepositoryOverviewEntryApi, 'review_drafts' | 'review_pushes'>
 
 /** The repositories that follow the project with no exception and no own choice, shown as one folded row. */
 export interface FoldSummary {
@@ -100,22 +108,18 @@ export interface reviewHogRepositoriesLogicActions {
     } // reviewHogProjectSettingsLogic
     updateProjectSettingsSuccess: (
         projectSettings: ReviewProjectSettingsApi,
-        payload?:
-            | import('products/review_hog/frontend/generated/api.schemas').PatchedReviewProjectSettingsApi
-            | undefined
+        payload?: PatchedReviewProjectSettingsApi | undefined
     ) => {
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewProjectSettingsApi
+        payload?: PatchedReviewProjectSettingsApi
         projectSettings: ReviewProjectSettingsApi
     } // reviewHogProjectSettingsLogic
-    updateSettings: (
-        patch: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi
-    ) => import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi // reviewHogSettingsLogic
+    updateSettings: (patch: PatchedReviewUserSettingsApi) => PatchedReviewUserSettingsApi // reviewHogSettingsLogic
     updateSettingsSuccess: (
-        settings: import('products/review_hog/frontend/generated/api.schemas').ReviewUserSettingsApi,
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi | undefined
+        settings: ReviewUserSettingsApi,
+        payload?: PatchedReviewUserSettingsApi | undefined
     ) => {
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi
-        settings: import('products/review_hog/frontend/generated/api.schemas').ReviewUserSettingsApi
+        payload?: PatchedReviewUserSettingsApi
+        settings: ReviewUserSettingsApi
     } // reviewHogSettingsLogic
     addException: (entry: ReviewRepositoryOverviewEntryApi) => {
         entry: ReviewRepositoryOverviewEntryApi
@@ -195,12 +199,19 @@ export interface reviewHogRepositoriesLogicActions {
     setPage: (page: number) => {
         page: number
     }
-    setRepositoryDrafts: (
+    setRepositoryDeepReviews: (
         entry: ReviewRepositoryOverviewEntryApi,
-        reviewDrafts: boolean
+        deepReviewGatedPrs: boolean
+    ) => {
+        deepReviewGatedPrs: boolean
+        entry: ReviewRepositoryOverviewEntryApi
+    }
+    setRepositoryReviews: (
+        entry: ReviewRepositoryOverviewEntryApi,
+        reviews: RepositoryReviews
     ) => {
         entry: ReviewRepositoryOverviewEntryApi
-        reviewDrafts: boolean
+        reviews: RepositoryReviews
     }
     setSearch: (search: string) => {
         search: string
@@ -279,9 +290,13 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
             entry,
             flashFor,
         }),
-        setRepositoryDrafts: (entry: ReviewRepositoryOverviewEntryApi, reviewDrafts: boolean) => ({
+        setRepositoryReviews: (entry: ReviewRepositoryOverviewEntryApi, reviews: RepositoryReviews) => ({
             entry,
-            reviewDrafts,
+            reviews,
+        }),
+        setRepositoryDeepReviews: (entry: ReviewRepositoryOverviewEntryApi, deepReviewGatedPrs: boolean) => ({
+            entry,
+            deepReviewGatedPrs,
         }),
         addExceptionPerson: (
             entry: ReviewRepositoryOverviewEntryApi,
@@ -590,19 +605,40 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                     posthog.capture('review hog repository exception changed', { flash_for: flashFor })
                 }
             },
-            setRepositoryDrafts: async ({ entry, reviewDrafts }) => {
+            setRepositoryReviews: async ({ entry, reviews }) => {
+                const saved = await writeRepository(
+                    entry,
+                    async () => {
+                        await codeReviewRepositoriesCreate(currentProjectId(), { ...repositoryRef(entry), ...reviews })
+                    },
+                    'Could not save the review setting. Try again.'
+                )
+                if (saved) {
+                    // pinned: analytics event name, renaming breaks dashboards
+                    posthog.capture('review hog repository reviews changed', reviews)
+                    if (reviews.review_drafts !== entry.review_drafts) {
+                        // pinned: analytics event name from before the reviews select, renaming breaks dashboards
+                        posthog.capture('review hog repository drafts changed', {
+                            review_drafts: reviews.review_drafts,
+                        })
+                    }
+                }
+            },
+            setRepositoryDeepReviews: async ({ entry, deepReviewGatedPrs }) => {
                 const saved = await writeRepository(
                     entry,
                     async () => {
                         await codeReviewRepositoriesCreate(currentProjectId(), {
                             ...repositoryRef(entry),
-                            review_drafts: reviewDrafts,
+                            deep_review_gated_prs: deepReviewGatedPrs,
                         })
                     },
-                    'Could not save the draft setting. Try again.'
+                    'Could not save the Deep review setting. Try again.'
                 )
                 if (saved) {
-                    posthog.capture('review hog repository drafts changed', { review_drafts: reviewDrafts })
+                    posthog.capture('review hog repository deep reviews changed', {
+                        deep_review_gated_prs: deepReviewGatedPrs,
+                    })
                 }
             },
             addExceptionPerson: async ({ entry, userId, kind }) => {
