@@ -1284,6 +1284,54 @@ describe('EmailTrackingService', () => {
                 expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
             })
 
+            it.each<[string, (snsMessageId: string) => Promise<void>]>([
+                [
+                    'Kafka redelivers its batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        const batch = queuedSesNotifications()
+                        await consumer.processBatch(batch)
+                        await consumer.processBatch(batch)
+                    },
+                ],
+                [
+                    'SNS delivers it again in a later batch',
+                    async (snsMessageId) => {
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await consumer.processBatch(queuedSesNotifications().slice(1))
+                    },
+                ],
+                [
+                    'SNS delivers it twice into one batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                    },
+                ],
+            ])('records a notification once when %s', async (_, deliver) => {
+                const redeliveredBefore = await queuedAtStage('redelivered')
+
+                await deliver(new UUIDT().toString())
+
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
+            })
+
+            it.each<[string, () => Promise<null>]>([
+                ['fails', () => Promise.reject(new Error('pool exhausted'))],
+                ['answers nothing', () => Promise.resolve(null)],
+            ])('records a redelivered notification again when Redis %s', async (_, answer) => {
+                jest.spyOn(consumer.redis, 'useClient').mockImplementation(answer)
+                await postBounce({ functionId: hogFunction.id })
+                const batch = queuedSesNotifications()
+
+                await consumer.processBatch(batch)
+                await consumer.processBatch(batch)
+
+                expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+            })
+
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()
 
@@ -1374,7 +1422,7 @@ describe('EmailTrackingService', () => {
                 await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('broker unavailable')
             })
 
-            it('flushes the notifications that recorded before it fails the batch', async () => {
+            it('flushes the notifications that recorded before it fails the batch, and records only the rest on redelivery', async () => {
                 const parentRunId = new UUIDT().toString()
                 await postEnvelope({
                     Type: 'Notification',
@@ -1415,6 +1463,16 @@ describe('EmailTrackingService', () => {
                 expect(recordedMetrics()).toEqual([
                     ['email_opened', 1],
                     ['email_opened_by_person', 1],
+                ])
+
+                jest.mocked(service.recordQueuedSesNotification).mockRestore()
+                await consumer.processBatch(queuedSesNotifications())
+
+                expect(recordedMetrics()).toEqual([
+                    ['email_opened', 1],
+                    ['email_opened_by_person', 1],
+                    ['email_bounced', 1],
+                    ['email_bounced_hard', 1],
                 ])
             })
 
@@ -1811,7 +1869,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1841,7 +1899,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1871,7 +1929,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
