@@ -125,7 +125,6 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         user = request.user
-        # The app decides whether to show Activity from the same inputs, so the button and the API always agree.
         identity = flag_identity(user, self.team, self.organization) if isinstance(user, User) else None
         if identity is None or not posthoganalytics.feature_enabled(
             FEATURE_FLAG,
