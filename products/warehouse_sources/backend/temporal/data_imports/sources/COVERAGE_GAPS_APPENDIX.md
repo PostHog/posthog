@@ -4668,10 +4668,10 @@ Today (15): `companies`, `contacts`, `employee_agreements`, `employee_availabili
 
 Diffed against: <https://developer.deputy.com/llms.txt>
 
-- [ ] `EmploymentContract (POST /api/v1/resource/EmploymentContract/QUERY)` — pay rate, award and contract terms behind the employee agreements we sync (high)
-- [ ] `TrainingRecord and TrainingModule (POST /api/v1/resource/TrainingRecord/QUERY; POST /api/v1/resource/TrainingModule/QUERY)` — training assigned to staff and the module lookup, for compliance reporting (medium)
-- [ ] `Team (POST /api/v1/resource/Team/QUERY)` — team groupings of employees, used as a staffing dimension (medium)
-- [ ] `LeaveAccrual (POST /api/v1/resource/LeaveAccrual/QUERY)` — leave balance accruals per employee, to pair with the leave table (medium)
+- [x] `EmploymentContract (POST /api/v1/resource/EmploymentContract/QUERY)` — pay rate, award and contract terms behind the employee agreements we sync (high)
+- [x] `TrainingRecord and TrainingModule (POST /api/v1/resource/TrainingRecord/QUERY; POST /api/v1/resource/TrainingModule/QUERY)` — training assigned to staff and the module lookup, for compliance reporting (medium)
+- [x] `Team (POST /api/v1/resource/Team/QUERY)` — team groupings of employees, used as a staffing dimension (medium)
+- [x] `LeaveAccrual (POST /api/v1/resource/LeaveAccrual/QUERY)` — leave balance accruals per employee, to pair with the leave table (medium)
 - [ ] `RosterOpen (POST /api/v1/resource/RosterOpen/QUERY)` — open unassigned shifts, a core staffing-gap measure (medium)
 - [ ] `Comment (POST /api/v1/resource/Comment/QUERY)` — comments attached to rosters, timesheets and tasks we sync (medium)
 - [ ] `PayRules (POST /api/v1/resource/PayRules/QUERY)` — pay rule definitions that explain timesheet pay returns (medium)
