@@ -5371,11 +5371,12 @@ describe('CDP API', () => {
                 expect(intakeRecords()).toHaveLength(3)
             })
 
-            it('replays a recipient whose key a single send queued, and refuses one whose key it used for other data', async () => {
-                const [replayed, reused, fresh] = [
+            it('replays a recipient whose key a single send queued, suppressed since or not, and refuses one whose key it used for other data', async () => {
+                const [replayed, reused, fresh, bouncedSince] = [
                     recipient('ada@example.com'),
                     recipient('bo@example.com'),
                     recipient('cy@example.com'),
+                    recipient(`bounced-${new UUIDT().toString()}@example.com`),
                 ]
                 const singleSendOf = (to: typeof replayed, variables: Record<string, unknown>) =>
                     send(
@@ -5386,12 +5387,14 @@ describe('CDP API', () => {
                 setIntakeModes({})
                 const single = await singleSendOf(replayed, body.variables)
                 await singleSendOf(reused, { ...body.variables, other: true })
+                const singleBeforeBounce = await singleSendOf(bouncedSince, body.variables)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [bouncedSince.to])
                 setIntakeModes({ async: String(team.id) })
                 const afterSingles = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
 
                 const res = await sendBatch(TEMPLATE, {
                     variables: body.variables,
-                    recipients: [replayed, reused, fresh],
+                    recipients: [replayed, reused, fresh, bouncedSince],
                 })
 
                 expect(res.body.results).toEqual([
@@ -5401,6 +5404,13 @@ describe('CDP API', () => {
                     },
                     { status: 422, body: { error: 'idempotency_key_reused', invocation_id: runIdOf(reused) } },
                     { status: 202, body: queuedAs(runIdOf(fresh)) },
+                    {
+                        status: 202,
+                        body: expect.objectContaining({
+                            invocation_id: singleBeforeBounce.body.invocation_id,
+                            replayed: true,
+                        }),
+                    },
                 ])
                 expect(intakeRunsOf(afterSingles()).map(({ id }) => id)).toEqual([runIdOf(fresh)])
             })
@@ -5410,25 +5420,27 @@ describe('CDP API', () => {
                     'the workflow is disabled',
                     400,
                     'not_sendable',
-                    () =>
-                        hub.postgres.query(
+                    async () => {
+                        await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
                             `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
                             [hogFlow.id],
                             'disable-workflow'
-                        ),
+                        )
+                    },
                 ],
                 [
                     'the workflow is gone',
                     400,
                     'not_sendable',
-                    () =>
-                        hub.postgres.query(
+                    async () => {
+                        await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
                             `DELETE FROM posthog_hogflow WHERE id = $1`,
                             [hogFlow.id],
                             'delete-workflow'
-                        ),
+                        )
+                    },
                 ],
                 [
                     "the workflow's sending is paused and the suspension lookup stalls",
@@ -5441,9 +5453,17 @@ describe('CDP API', () => {
                             [hogFlow.id],
                             'pause-workflow-sending'
                         )
-                        jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
-                            new Promise(() => {})
-                        )
+                        const lockHolder = new Pool({ connectionString: hub.DATABASE_URL, max: 1 })
+                        const client = await lockHolder.connect()
+                        await client.query('BEGIN')
+                        await client.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                        await client.query('LOCK TABLE workflows_teamworkflowsconfig IN ACCESS EXCLUSIVE MODE')
+                        api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
+                        return async () => {
+                            await client.query('COMMIT')
+                            client.release()
+                            await lockHolder.end()
+                        }
                     },
                 ],
                 [
@@ -5486,13 +5506,15 @@ describe('CDP API', () => {
                     )
                     expect(single.status).toEqual(202)
                     setIntakeModes({ async: String(team.id) })
-                    await arrange()
+                    const release = await arrange()
                     api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
 
-                    const retry = await sendBatch(TEMPLATE, {
-                        variables: body.variables,
-                        recipients: [accepted, recipient('bo@example.com')],
-                    })
+                    const retry = await Promise.resolve(
+                        sendBatch(TEMPLATE, {
+                            variables: body.variables,
+                            recipients: [accepted, recipient('bo@example.com')],
+                        })
+                    ).finally(() => release?.())
 
                     expect(retry.status).toEqual(status)
                     expect(retry.body).toEqual({ error })
