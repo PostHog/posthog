@@ -3732,12 +3732,12 @@ Diffed against: <https://api.codecov.io/api/v2/schema>
 - [x] `/{service}/{owner}/repos/{repo}/test-results/ (and /test-results/{id}/)` — Test Analytics: per-test failure rate, flake rate and runtime - Codecov's flagship non-coverage product, entirely unsynced (high)
 - [x] `/{service}/{owner}/repos/{repo}/report/ and /report/tree` — The coverage report broken down by file and directory, which turns repo-level coverage into something actionable (high)
 - [x] `/{service}/{owner}/repos/{repo}/flags/{flag_name}/coverage/` — Coverage trend per flag - the breakdown dimension for the flags table already synced (medium)
-- [ ] `/{service}/{owner}/repos/{repo}/file_report/{path}/` — Line-level coverage for a specific file, needed to find persistently uncovered hot spots (medium)
+- [ ] `/{service}/{owner}/repos/{repo}/file_report/{path}/` — Line-level coverage for a specific file, needed to find persistently uncovered hot spots (medium) Skipped: duplicate of `report_files`, whose `/report/` response already carries `line_coverage` for every file.
 - [x] `/{service}/{owner}/repos/{repo}/commits/{commitid}/uploads/` — Which CI jobs uploaded coverage for each commit - the way to detect missing or failed uploads skewing coverage (medium)
 - [x] `/{service}/{owner}/users/` — Org member lookup resolving the author IDs on commits and pulls already synced (medium)
 - [x] `/{service}/{owner}/repos/{repo}/compare/impacted_files (also /compare/flags, /compare/components)` — Coverage delta of a pull request by file, flag and component - the review-time metric teams actually track (medium)
-- [ ] `/{service}/{owner}/repos/{repo}/test-analytics/` — Aggregated test-suite health summary that pairs with the raw test results (medium)
-- [ ] `/{service}/{owner}/` — Owner/org record giving repos an organization-level parent to roll up to (low)
+- [ ] `/{service}/{owner}/repos/{repo}/test-analytics/` — Aggregated test-suite health summary that pairs with the raw test results (medium) Skipped: same parameters and `Testrun` rows as `/test-results/`, already synced as `test_results`; not an aggregate.
+- [x] `/{service}/{owner}/` — Owner/org record giving repos an organization-level parent to roll up to (low) — added as `owner`
 
 Note: Codecov (now part of Sentry) serves a live drf-spectacular schema at https://api.codecov.io/api/v2/schema. The synced coverage_trend maps to /repos/{repo}/coverage. Core repo/commit/PR objects are covered; the gaps are the coverage detail grains and Test Analytics.
 
