@@ -321,6 +321,7 @@ rules:
                               |Meeting
                               |MeetingParticipant
                               |MessageCategory
+                              |MessageCategoryImportKey
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
@@ -872,6 +873,7 @@ rules:
                         |Meeting
                         |MeetingParticipant
                         |MessageCategory
+                        |MessageCategoryImportKey
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
@@ -1319,6 +1321,7 @@ rules:
                         |MCPOAuthState
                         |MCPServerInstallation
                         |MessageCategory
+                        |MessageCategoryImportKey
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Node
