@@ -36,6 +36,15 @@ HOBBY_MEMORY_BUDGET_MIB = 9500
 # A total below this means the measurement failed, because no working install is this small.
 HOBBY_MEMORY_FLOOR_MIB = 2000
 
+# The oldest, in days, that the Node image of a fresh Hobby install may be. CI builds that image
+# from master many times a day, and an install asks for a moving tag to get the current build. An
+# image older than this means the tag no longer moves, for example because CI stopped publishing
+# to that registry, so every install runs old Node services beside a current web service.
+# Only this image is checked. Other PostHog images are rebuilt when their own code changes, and a
+# quiet service can be older than any limit without a fault.
+HOBBY_NODE_IMAGE_MAX_AGE_DAYS = 14
+HOBBY_NODE_IMAGE_NAME = "posthog-node"
+
 DOCKER_MEMORY_UNITS_IN_MIB = {"B": 1 / 1024**2, "KiB": 1 / 1024, "MiB": 1, "GiB": 1024}
 
 
@@ -925,6 +934,38 @@ runcmd:
                 "HOBBY_MEMORY_BUDGET_MIB in bin/hobby-ci.py in the same pull request and say why."
             )
         return True, f"Containers use {total_mib:.0f} MiB of the {budget_mib} MiB budget"
+
+    def check_node_image_age(self, max_age_days=HOBBY_NODE_IMAGE_MAX_AGE_DAYS):
+        output = self.run_command_on_droplet(
+            "docker ps --format '{{.Image}}' | sort -u | xargs docker image inspect --format '{{index .RepoTags 0}} {{.Created}}'",
+            timeout=120,
+        )
+        if not output:
+            return False, "Could not read the image list from the droplet"
+
+        now = datetime.datetime.now(datetime.UTC)
+        ages: dict[str, int] = {}
+        for line in output.strip().splitlines():
+            image, created = line.split()
+            if image.rsplit(":", 1)[0].rsplit("/", 1)[-1] != HOBBY_NODE_IMAGE_NAME:
+                continue
+            # Docker prints nanoseconds, which datetime does not parse, so only the seconds are read.
+            ages[image] = (now - datetime.datetime.fromisoformat(created[:19] + "+00:00")).days
+            print(f"  {ages[image]:4d} days  {image}", flush=True)
+
+        if not ages:
+            return (
+                False,
+                f"No running container uses a {HOBBY_NODE_IMAGE_NAME} image, so the image list is not a real reading",
+            )
+        stale = [f"{image} ({age} days)" for image, age in ages.items() if age > max_age_days]
+        if stale:
+            return False, (
+                f"The Node image of this install is more than {max_age_days} days old: {', '.join(stale)}. "
+                "CI builds it from master many times a day, so a tag that old is no longer published. "
+                "Publish the image to that registry again, or point docker-compose.hobby.yml at the registry that has it."
+            )
+        return True, f"The Node image is at most {max_age_days} days old"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
@@ -2039,6 +2080,15 @@ def main():
 
         ht = HobbyTester(droplet_id=droplet_id)
         success, message = ht.check_memory_budget()
+        print(f"{'✅' if success else '❌'} {message}", flush=True)
+        exit(0 if success else 1)
+
+    if command == "check-node-image-age":
+        print("Checking the age of the Node image", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+
+        ht = HobbyTester(droplet_id=droplet_id)
+        success, message = ht.check_node_image_age()
         print(f"{'✅' if success else '❌'} {message}", flush=True)
         exit(0 if success else 1)
 
