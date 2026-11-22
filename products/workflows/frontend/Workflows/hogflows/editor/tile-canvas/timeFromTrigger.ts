@@ -66,14 +66,20 @@ function delayWait(action: ActionOf<'delay'>): TimeFromTrigger {
     return exactly(durationSeconds(action.config.delay_duration, DELAY_CEILINGS))
 }
 
-function clockSeconds(time: string): number | null {
-    const [hours, minutes] = time.split(':').map(Number)
-    return Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 3600 + minutes * 60 : null
+const CLOCK_PATTERN = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/
+
+function clockSeconds(time: unknown): number | null {
+    const parts = typeof time === 'string' ? CLOCK_PATTERN.exec(time) : null
+    return parts ? Number(parts[1]) * 3600 + Number(parts[2]) * 60 : null
 }
 
 function openSecondsPerDay(time: ActionOf<'wait_until_time_window'>['config']['time']): number | null {
     if (time === 'any') {
         return DAY_SECONDS
+    }
+    // A workflow saved through the API can hold a time range the editor would not write.
+    if (!Array.isArray(time) || time.length !== 2) {
+        return null
     }
     const [start, end] = time.map(clockSeconds)
     if (start === null || end === null) {
@@ -259,6 +265,6 @@ export function reachedAfterTriggerText(time: TimeFromTrigger | undefined): stri
 
 /** The tooltip of an arrow or path label: its full text when the canvas shortens it, then the time people take it. */
 export function labelTooltip(label: string | undefined, reachedAfter: string | undefined): string | undefined {
-    const fullLabel = label && label !== shortLabel(label) ? label : undefined
+    const fullLabel = label && label !== shortLabel(label) ? label.replace(/\.$/, '') : undefined
     return [fullLabel, reachedAfter].filter(Boolean).join('. ') || undefined
 }

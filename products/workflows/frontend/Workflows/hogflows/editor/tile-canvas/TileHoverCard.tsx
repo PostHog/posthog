@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useRef } from 'react'
 
 import { StepImportNotesList } from '../../../import/StepImportNotesList'
@@ -7,9 +8,11 @@ import { StepCountLine } from './StepCountLine'
 import { StepFieldList } from './StepFieldList'
 import type { StepPresentationKind } from './stepPresentation'
 import { TILE_SIZE } from './tileCanvasLayout'
+import { tileCanvasLogic } from './tileCanvasLogic'
 import { FIT_MARGIN } from './tileCanvasModel'
 import { CAPTION_WIDTH, TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
+import { reachedAfterTriggerText } from './timeFromTrigger'
 import { useKeepInView } from './useKeepInView'
 import type { TileStep } from './useTileStep'
 
@@ -40,16 +43,16 @@ export function TileHoverCard({
     action,
     tile,
     count,
-    reachedAfter,
     workflowId,
 }: {
     open: boolean
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
-    reachedAfter: string | undefined
     workflowId: string
 }): JSX.Element {
+    const { timesFromTrigger } = useValues(tileCanvasLogic)
+    const reachedAfter = reachedAfterTriggerText(timesFromTrigger.steps.get(action.id))
     const face = { width: TILE_SIZE, height: TILE_SIZE }
     const width = Math.max(MIN_WIDTH, face.width + 12 + CAPTION_WIDTH + PADDING * 2 + KIND_LABEL_ROOM)
     const nameRow = tile.customName ? NAME_ROW_HEIGHT : 0

@@ -194,6 +194,24 @@ describe('timeFromTrigger', () => {
             'Reached 1 day or more after the trigger',
         ],
         [
+            'a time window with an incomplete time range has no upper bound',
+            chain(delay('d', '1d'), timeWindow('a', 'any', ['09:00'])),
+            'target',
+            'Reached 1 day or more after the trigger',
+        ],
+        [
+            'a time window with no time range has no upper bound',
+            chain(delay('d', '1d'), timeWindow('a', 'any', undefined)),
+            'target',
+            'Reached 1 day or more after the trigger',
+        ],
+        [
+            'a time window with an hour past the end of the day has no upper bound',
+            chain(delay('d', '1d'), timeWindow('a', 'any', ['26:00', '01:00'])),
+            'target',
+            'Reached 1 day or more after the trigger',
+        ],
+        [
             'a wait with no timeout continues at once',
             flow(
                 [step('trigger', 'trigger'), delay('a', '2d'), waitFor('w', ''), step('target')],
@@ -314,6 +332,12 @@ describe('timeFromTrigger', () => {
         [
             'a shortened label shows its full text and the time',
             'If the person opened the upgrade email within the trial',
+            'Reached 2 days after the trigger',
+            'If the person opened the upgrade email within the trial. Reached 2 days after the trigger',
+        ],
+        [
+            'a shortened label that ends a sentence is not given a second period',
+            'If the person opened the upgrade email within the trial.',
             'Reached 2 days after the trigger',
             'If the person opened the upgrade email within the trial. Reached 2 days after the trigger',
         ],

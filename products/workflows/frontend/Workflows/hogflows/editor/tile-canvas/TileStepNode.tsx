@@ -12,7 +12,6 @@ import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
 import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
 import { TileStepMenu } from './TileStepMenu'
-import { reachedAfterTriggerText } from './timeFromTrigger'
 import { useHoverIntent } from './useHoverIntent'
 import { useRaisedNode } from './useRaisedNode'
 import { useTileStep } from './useTileStep'
@@ -40,7 +39,7 @@ export function TileStepNode({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const tile = useTileStep(action, workflow)
-    const { movingNodeId, isViewOnly, stepHasMenu, timesFromTrigger } = useValues(tileCanvasLogic)
+    const { movingNodeId, isViewOnly, stepHasMenu } = useValues(tileCanvasLogic)
     const hover = useHoverIntent(
         interactive && !selected && !menuOpen && !movingNodeId,
         HOVER_OPEN_DELAY_MS,
@@ -61,14 +60,7 @@ export function TileStepNode({
                 <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} belowWarning={tile.invalid} />
             ) : null}
             {hover.mounted && (
-                <TileHoverCard
-                    open={hover.open}
-                    action={action}
-                    tile={tile}
-                    count={count}
-                    reachedAfter={reachedAfterTriggerText(timesFromTrigger.steps.get(action.id))}
-                    workflowId={workflow.id}
-                />
+                <TileHoverCard open={hover.open} action={action} tile={tile} count={count} workflowId={workflow.id} />
             )}
         </div>
     )
