@@ -116,7 +116,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
-            [null, 'No clicks', 'This counts conversions after a click, and no send in this period was clicked.'],
+            [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded in this period.'],
         ],
         [
             'no clicked send could be followed',
@@ -126,11 +126,25 @@ describe('impactSteps', () => {
             [null, 'None followed', "PostHog couldn't tie any of the 20 clicked sends"],
         ],
         [
+            'the one clicked send could not be followed',
+            { ...impact, clicked: 1, after_click: { sends: 0, converted: 0 } },
+            [60, undefined],
+            [1, undefined],
+            [null, 'None followed', "PostHog couldn't tie the clicked send in this period to a person."],
+        ],
+        [
+            'every counted send went out untracked but an open was recorded',
+            { ...untracked, opened: 1 },
+            [1, undefined],
+            [0, undefined],
+            [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
+        ],
+        [
             'some sends went out untracked and nobody opened or clicked',
             { ...untracked, untracked: 40 },
             [0, undefined],
             [0, undefined],
-            [null, 'No clicks', 'This counts conversions after a click, and no send'],
+            [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
     ] as const)('says why a step has no data when %s', (_, data, opened, clicked, converted) => {
         const steps = impactSteps(data, 'plan upgraded')

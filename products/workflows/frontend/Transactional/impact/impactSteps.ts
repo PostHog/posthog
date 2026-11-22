@@ -89,7 +89,8 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
 }
 
 function everySendUntracked(impact: TransactionalEmailImpactApi): boolean {
-    return impact.untracked > 0 && impact.untracked >= impact.sent
+    const nothingRecorded = impact.opened === 0 && impact.clicked === 0
+    return nothingRecorded && impact.untracked > 0 && impact.untracked >= impact.sent
 }
 
 function trackedStep(
@@ -123,9 +124,13 @@ function conversionStep(impact: TransactionalEmailImpactApi, event: string | nul
 
 function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 'missing' | 'missingDetail'> {
     if (impact.clicked > 0) {
+        const sends =
+            impact.clicked === 1
+                ? 'the clicked send'
+                : `any of the ${humanFriendlyNumber(impact.clicked)} clicked sends`
         return {
             missing: 'None followed',
-            missingDetail: `PostHog couldn't tie any of the ${humanFriendlyNumber(impact.clicked)} clicked sends in this period to a person.`,
+            missingDetail: `PostHog couldn't tie ${sends} in this period to a person.`,
         }
     }
     if (everySendUntracked(impact)) {
@@ -136,7 +141,7 @@ function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 
     }
     return {
         missing: 'No clicks',
-        missingDetail: 'This counts conversions after a click, and no send in this period was clicked.',
+        missingDetail: 'This counts conversions after a click, and no clicks were recorded in this period.',
     }
 }
 
