@@ -13,6 +13,7 @@ import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TodayEvidenceAge } from './TodayEvidenceAge'
@@ -110,7 +111,8 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
     const stateBadge = stateLabel ? (
         <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
     ) : null
-    const sources = reportSourceLine(report)
+    const { scoutNamesBySkill } = useValues(scoutNamesLogic)
+    const sources = reportSourceLine(report, scoutNamesBySkill)
     const icon = reportIcon(report)
     const updated = dayjs(report.updated_at)
     const stillInvestigating = !report.summary?.trim()

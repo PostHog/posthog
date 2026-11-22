@@ -45,24 +45,6 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
         (
             S3InsertInputs(
-                prefix="invalid-template-variables-{invalid}",
-                data_interval_start="2023-01-01 00:00:00",
-                data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,  # type: ignore
-            ),
-            "invalid-template-variables-{invalid}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
-        ),
-        (
-            S3InsertInputs(
-                prefix="invalid-format-spec-{data_interval_start:hour}",
-                data_interval_start="2023-01-01 00:00:00",
-                data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,  # type: ignore
-            ),
-            "invalid-format-spec-{data_interval_start:hour}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
-        ),
-        (
-            S3InsertInputs(
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -267,6 +249,7 @@ def test_get_object_key(inputs, expected):
         ("posthog-{table}/{hour}:{minute}:{second}", BatchExportEventsModel(), "posthog-events/03:04:05"),
         ("posthog/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog/2023-01-02/03:04:05"),
         ("{year}-{month}-{day}", BatchExportPersonsModel(), "2023-01-02"),
+        ("{{day:2}}/{table:}/{hour}:{minute}", None, "{day:2}/events/03:04"),
         (
             "{start_year}-{start_month}-{start_day}/{start_hour}:{start_minute}:{start_second}",
             None,

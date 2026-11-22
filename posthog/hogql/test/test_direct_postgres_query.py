@@ -1123,10 +1123,13 @@ class TestDirectPostgresQuery(APIBaseTest):
             patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution,
             query_stats_scope() as stats,
         ):
+            starts: list[bool] = []
+            stats.query_start_listeners.append(lambda: starts.append(True))
             response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(stats.direct_source_ids, {str(source.id)})
+        self.assertEqual(starts, [True])
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)

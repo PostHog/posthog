@@ -23,6 +23,11 @@ PH_US_HOST = "https://us.i.posthog.com"
 PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
+# A `sync_mode` client sends, and retries, in the calling thread. One retry recovers a send whose
+# connection dropped, and the short timeout keeps both tries under the SDK's default wait for one.
+SYNC_SEND_MAX_RETRIES = 1
+SYNC_SEND_TIMEOUT_SECONDS = 5
+
 logger = structlog.get_logger(__name__)
 
 
@@ -342,7 +347,6 @@ def get_client(region: str = "US", **kwargs: Any):
         api_key,
         host=host,
         super_properties={"region": region},
-        _use_ai_lane=True,
-        _enable_multimodal_capture=True,
+        enable_full_ai_capture=True,
         **kwargs,
     )

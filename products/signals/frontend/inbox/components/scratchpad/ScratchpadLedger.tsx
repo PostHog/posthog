@@ -11,8 +11,10 @@ import { urls } from 'scenes/urls'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
-import { PIPELINE_WRITER_PREFIX, isPipelineWriter, stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { useInboxReportDetailUrl } from '../../utils/inboxReportUrls'
+import { PIPELINE_WRITER_PREFIX, isPipelineWriter, scoutNameForSkill } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, scratchpadKindOf, scratchpadReportIdOf } from '../../utils/scratchpadKeys'
 
 // Below 52rem the six columns stop fitting, so every row collapses into one stacked cell. Broken
@@ -100,6 +102,7 @@ export function ScratchpadLedger(): JSX.Element {
 // Pipeline stages write to the scratchpad too. They are not scouts and have no scout page, so the
 // Scout column names the stage and says which it is rather than linking nowhere.
 function ScoutCell({ skillName }: { skillName: string | null | undefined }): JSX.Element {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     if (!skillName) {
         return <span className="text-xs text-muted">—</span>
     }
@@ -112,7 +115,7 @@ function ScoutCell({ skillName }: { skillName: string | null | undefined }): JSX
     }
     return (
         <Link to={urls.inboxScout(skillName)} subtle className="truncate text-xs">
-            {stripScoutPrefix(skillName)}
+            {scoutNameForSkill(scoutNamesBySkill, skillName)}
         </Link>
     )
 }
@@ -141,12 +144,13 @@ function KeyCell({
     entry: ScratchpadEntryApi
     reportTitles: Record<string, string | null>
 }): JSX.Element {
+    const reportUrl = useInboxReportDetailUrl()
     const reportId = scratchpadReportIdOf(entry.key)
     if (reportId) {
         const title = reportTitles[reportId]
         return (
             <Tooltip title={entry.key}>
-                <Link to={urls.inboxReport('reports', reportId)} subtle className="truncate text-xs">
+                <Link to={reportUrl(reportId)} subtle className="truncate text-xs">
                     {/* Enough of the UUID to tell two apart while the title is loading, or gone. */}
                     Report: {title || reportId.slice(0, 8)}
                 </Link>

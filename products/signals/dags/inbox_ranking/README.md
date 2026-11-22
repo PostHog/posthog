@@ -443,6 +443,8 @@ The Today report page sends `Inbox report opened` once per visit, when the repor
 A click on a list row sends `open_method: 'click'` with the row's `list`, `rank` and `list_size`, and `source` (`list` or `more`).
 The previous / next control sends `source: 'step'`, with the position in the report queue as `rank` and the queue length as `list_size`, and no `list`.
 Every other visit (a shared URL, a PostHog AI link, a refresh, back / forward) sends `open_method: 'deeplink'` with a null `list`, `rank` and `list_size`.
+Impressions, list-row opens and the `today report opened` event carry `ranker_id` from the list response the row came from, and the row's `personal_tier` and `personal_reason_shown`, as the Inbox events do.
+A step or a deep-link has no list row, so it sends a null `ranker_id` and `personal_tier`, and `personal_reason_shown: false`.
 `link_source` comes from the URL, and PostHog AI writes `link_source=today` on the Today report links it shows.
 A list row opened in place sends `Inbox report action` with `action_type: 'expand_preview'`, `list` and `rank`.
 No head reads `expand_preview`, and it is not in `ACTION_TYPES`.

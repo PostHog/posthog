@@ -885,7 +885,7 @@ export interface hogInvocationsLogicActions {
         personPropertiesById: Record<
             string,
             {
-                distinct_ids?: string[] | undefined
+                distinct_ids?: string[]
                 properties: Record<string, any>
             }
         >,
@@ -896,7 +896,7 @@ export interface hogInvocationsLogicActions {
         personPropertiesById: Record<
             string,
             {
-                distinct_ids?: string[] | undefined
+                distinct_ids?: string[]
                 properties: Record<string, any>
             }
         >

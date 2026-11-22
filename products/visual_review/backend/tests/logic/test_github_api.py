@@ -117,6 +117,31 @@ class TestCompareCommits:
 
 
 @pytest.mark.parametrize(
+    ("status_code", "listing", "expected"),
+    [
+        (200, [{"name": "snapshots.yml", "type": "file", "sha": "blob-1"}], "blob-1"),
+        (200, [{"name": "other.yml", "type": "file", "sha": "blob-2"}], ""),
+        (404, None, ""),
+    ],
+)
+def test_file_blob_sha_reads_the_parent_directory_listing(
+    status_code: int, listing: list[dict] | None, expected: str
+) -> None:
+    response = MagicMock(status_code=status_code)
+    response.json.return_value = listing
+    github = MagicMock()
+    github.api_request.return_value = response
+    repo = Repo(repo_full_name="org/repo")
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        blob_sha = github_api.file_blob_sha(repo, "frontend/snapshots.yml", "abc123")
+
+    assert blob_sha == expected
+    assert github.api_request.call_args.args == ("GET", "/repos/org/repo/contents/frontend")
+    assert github.api_request.call_args.kwargs["params"] == {"ref": "abc123"}
+
+
+@pytest.mark.parametrize(
     ("merged_at", "expected"),
     [("2026-10-01T12:00:00Z", datetime(2026, 10, 1, 12, tzinfo=UTC)), (None, None)],
 )

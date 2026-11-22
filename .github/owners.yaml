@@ -7,6 +7,8 @@ rules:
       owners: team-devex
     - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
       owners: team-devex
+    - match: ['/scripts/junit_node_ids.py', '/scripts/test_junit_node_ids.py']
+      owners: team-devex
     - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
       owners: team-devex
     - match: ['/scripts/hoglint_shadow.py', '/scripts/test_hoglint_shadow.py', '/scripts/fixtures/hoglint-shadow/']
@@ -15,12 +17,20 @@ rules:
       owners: team-devex
     - match: '/scripts/storybook-sequencer.test.js'
       owners: team-devex
+    - match: ['/scripts/backend-full-run-state.js', '/scripts/backend-full-run-state.test.js']
+      owners: team-devex
     - match: ['/scripts/ordered-image-alias-alerts.js', '/scripts/ordered-image-alias-alerts.test.js']
       owners: team-cloud-platform
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
+    - match: ['/scripts/mobile-rebuild.mjs', '/scripts/mobile-rebuild.test.mjs']
+      owners: [team-devex, team-mobile-app]
+    - match: ['/workflows/pr-native-rebuild.yml', '/workflows/pr-rebuild-notify.yml']
+      owners: [team-devex, team-mobile-app]
+    - match: ['/workflows/*mobile*.yml', '/workflows/*mobile*.yaml']
+      owners: [team-mobile-app, team-devex]
     # The dependency proof decides which bot updates stamphog may approve on its own. The prover
     # itself is in tools/change-prover, which its own owners.yaml marks sensitive.
     - match:
@@ -30,7 +40,7 @@ rules:
       owners: team-devex
       sensitive: true
     - match: '/shared-image-releases.yaml'
-      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm]
+      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm, team-web-analytics]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:

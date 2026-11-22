@@ -17,7 +17,7 @@ from requests.adapters import HTTPAdapter
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.security.outbound_proxy import internal_requests_session
 
 logger = structlog.get_logger(__name__)
@@ -42,7 +42,6 @@ REMOTE_CONFIG_SHADOW_COMPARISONS = Counter(
 # Rust implements these SDK credential types. Session-cookie and OAuth requests (Django's
 # own preview/decrypt UI) 401 on Rust by design, so shadowing them would log false mismatches.
 _RUST_SUPPORTED_AUTH = (
-    TeamSecretTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
 )

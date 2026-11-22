@@ -5,9 +5,13 @@ import datetime as dt
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 import temporalio.service
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
+
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -16,6 +20,7 @@ from posthog.models import Integration, Organization, Team, User
 from posthog.paging import CursorPageRequest
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.custom_events_schema import build_events_query_schema
 from products.batch_exports.backend.facade import api, contracts, testing
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
@@ -24,6 +29,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
+from products.event_definitions.backend.models import PropertyDefinition
 
 pytestmark = [pytest.mark.django_db]
 
@@ -283,6 +289,24 @@ def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secre
     assert detail.exclude_events == ("$pageview",)
     assert detail.include_events == ()
     assert "totally-made-up-token" not in str(detail)
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+def test_batch_export_configuration_leaves_out_the_restrictions_its_schema_was_saved_with(team):
+    with mock.patch(
+        "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+        return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+    ):
+        schema = build_events_query_schema(team.pk, None, "SELECT properties AS props, event FROM events")
+    export_id = _create_export(team, name="custom", destination_type=HTTP)
+    testing.update_batch_export(export_id, team_id=team.pk, schema=schema)
+
+    configuration = api.get_batch_export(team.pk, export_id, include_latest_runs=False)
+
+    assert configuration.schema is not None
+    assert "secret" not in json.dumps(configuration.schema)
+    assert configuration.schema["hogql_query"] == schema["hogql_query"]
+    assert configuration.schema["fields"] == schema["fields"]
 
 
 def test_batch_export_by_name_is_none_when_nothing_matches(team):

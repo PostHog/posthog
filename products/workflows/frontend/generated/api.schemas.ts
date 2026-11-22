@@ -419,6 +419,7 @@ export const HogFlowStateEnumApi = {
  * * `broadcasts` - Broadcasts
  * * `transactional_emails` - Transactional emails
  * * `transactional_email_keys` - Transactional email keys
+ * * `transactional_push` - Transactional push notifications
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
@@ -427,6 +428,7 @@ export const HogFlowOriginProductEnumApi = {
     Broadcasts: 'broadcasts',
     TransactionalEmails: 'transactional_emails',
     TransactionalEmailKeys: 'transactional_email_keys',
+    TransactionalPush: 'transactional_push',
 } as const
 
 /**
@@ -799,7 +801,8 @@ export interface HogFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
      * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -917,7 +920,8 @@ export interface HogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1028,7 +1032,8 @@ export interface PatchedHogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1284,7 +1289,8 @@ export interface HogFlowConvertedToBroadcastApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi
 }
 
@@ -1456,7 +1462,8 @@ export interface HogFlowTestConfigurationApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
      * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -1852,6 +1859,11 @@ export interface HogFlowPublishRequestApi {
     confirm?: boolean
     /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
     confirm_token?: string
+    /**
+     * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+     * @nullable
+     */
+    sandbox_sender_warned?: boolean | null
 }
 
 export interface HogFlowPublishImpactMoveTargetApi {
@@ -1930,6 +1942,11 @@ export interface HogFlowPublishResponseApi {
     confirm_token: string | null
     /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
     impact: HogFlowPublishImpactApi | null
+    /**
+     * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+     * @nullable
+     */
+    moves_to_sandbox_sender: boolean | null
     /** The workflow after publishing (only set when published=true). */
     workflow?: HogFlowApi | null
 }
@@ -2504,7 +2521,8 @@ export interface SendCalendarFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     /** User who created the workflow. */
     readonly created_by: UserBasicApi | null
@@ -3560,6 +3578,7 @@ export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
     TransactionalEmails: 'transactional_emails',
+    TransactionalPush: 'transactional_push',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
