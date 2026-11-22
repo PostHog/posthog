@@ -335,6 +335,7 @@ export-shape	products.access_control.backend.facade.user_access_control.UserAcce
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.send_calendar	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.workflows	export-shape(class)	1
 export-shape	products.aeo.backend.temporal.brand_sentiment.WORKFLOWS	products.aeo.backend.facade.temporal	export-unknown	1
+export-shape	products.ai_observability.backend.logic.traces.trace_selection.QUERY_SCOPED_FILTERS	products.ai_observability.backend.facade.api	export-unknown	1
 export-shape	products.ai_observability.backend.models.eval_suggestions.EvalSuggestionReviewVerdict	products.ai_observability.backend.facade.admin	export-shape(class)	1
 export-shape	products.ai_observability.backend.temporal.registry.WORKFLOWS	products.ai_observability.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts.backend.evaluation.contract.ExtractionResult	products.alerts.backend.facade.evaluation	export-shape(class)	1
@@ -409,6 +410,8 @@ export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.cus
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.dashboards.backend.facade.api.InsightTilePlacement	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
+export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.api	export-shape(class)	1
+export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCompleteEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingErrorEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingStream	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
@@ -2034,6 +2037,8 @@ facade-signature	products.workflows.backend.facade.writes	build_publish_impact	r
 facade-signature	products.workflows.backend.facade.writes	create_workflow	param:validated_data	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	edit_workflow_content	param:edit	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	publish_draft	param:validate	builtins.dict	1
+facade-signature	products.workflows.backend.facade.writes	publish_moves_to_sandbox_sender	param:draft	typing.Any	1
+facade-signature	products.workflows.backend.facade.writes	publish_moves_to_sandbox_sender	param:live_actions	typing.Any	1
 facade-signature	products.workflows.backend.facade.writes	save_validated_workflow	param:validated_data	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	trigger_has_audience	param:trigger	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	update_workflow	param:validated_data	builtins.dict	1
@@ -3331,6 +3336,17 @@ temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_propert
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.activities	1
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.types	1
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.workflows	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.activities	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.contracts	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.registration	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.repair	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.schedule	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_dispatch	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_repair_workflow	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_schedule	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_workflow	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.workflow	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots.activities	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots.types	1

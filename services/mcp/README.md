@@ -407,6 +407,34 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+### Separate read and write tools in cli mode
+
+By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
+In cli mode, send `split_writes=true` to list two tools in its place:
+
+| Tool         | Runs                                                              | `readOnlyHint` | `destructiveHint` |
+| ------------ | ----------------------------------------------------------------- | -------------- | ----------------- |
+| `exec-read`  | Every discovery command and `call`s to read-only tools.           | `true`         | `false`           |
+| `exec-write` | `call`s to tools that change data, and anything `exec-read` runs. | `false`        | `true`            |
+
+```text
+https://mcp.posthog.com/mcp?split_writes=true
+```
+
+```http
+x-posthog-split-writes: true
+```
+
+The header wins when both are set.
+A client can then always allow `exec-read` and keep asking about `exec-write`.
+Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by default, and Claude Code, Codex and Cursor take an allow rule for each tool name.
+Clients that honor `destructiveHint`, such as Claude, ask about every `exec-write` call even when it is set to always allow.
+
+- `exec-read` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
+- `exec-read` refuses writes on every request and every connection, so a client that cached it as read-only never has it run a write, whatever later requests send.
+- `exec-write` answers only on a request that asks for the split. A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never gets it, because those wrappers gate writes on the `exec` name.
+- `exec` keeps working on every connection that doesn't ask for the split. A split connection answers it as not found, so allow rules written for `exec` don't carry over.
+
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
 
@@ -576,6 +604,15 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Deskt
   }
 }
 ```
+
+## MCP Registry listing
+
+The server is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=com.posthog/mcp) as `com.posthog/mcp`, from [`server.json`](server.json).
+The `MCP Registry publish` workflow validates the file on pull requests and publishes it when it lands on `master`.
+
+- Bump `version` whenever you change `server.json`. The registry never accepts the same version twice, so the check fails when a published version's content differs from the file.
+- The registry verifies the `com.posthog` namespace through the public key at `https://posthog.com/.well-known/mcp-registry-auth`. The publish job signs with the matching private key, the `MCP_REGISTRY_PRIVATE_KEY` secret of the `mcp-registry` environment, which only admits `master`. Keep it out of organization and repository secrets, because any workflow on any branch can read those. The team password manager holds a copy. Rotate all of them together.
+- To deprecate an old version, log in with `mcp-publisher login http --domain posthog.com` and run `mcp-publisher status --status deprecated com.posthog/mcp <version>`.
 
 ## Privacy & Support
 

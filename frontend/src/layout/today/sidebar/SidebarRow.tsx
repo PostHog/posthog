@@ -20,6 +20,18 @@ interface SidebarRowProps {
     onClick?: () => void
 }
 
+export function SidebarRowIcon({ icon }: { icon: JSX.Element }): JSX.Element {
+    return (
+        <span
+            className="TodayIconBadge flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+            data-keep-color
+            aria-hidden
+        >
+            {icon}
+        </span>
+    )
+}
+
 export function SidebarRow({
     value,
     label,
@@ -48,15 +60,7 @@ export function SidebarRow({
                 onAuxClick={(event) => event.button === 1 && onClick?.()}
                 className={cn(action && 'pr-8')}
             >
-                {icon && (
-                    <span
-                        className="TodayIconBadge flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
-                        data-keep-color
-                        aria-hidden
-                    >
-                        {icon}
-                    </span>
-                )}
+                {icon && <SidebarRowIcon icon={icon} />}
                 <span className="min-w-0 flex-1 truncate">{label}</span>
                 {meta && (
                     <span

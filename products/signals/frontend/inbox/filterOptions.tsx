@@ -28,7 +28,7 @@ import type {
     InboxSortField,
 } from './logics/inboxFiltersLogic'
 import { SignalReportActionability, SignalReportPriority } from './types'
-import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
+import { scoutNameForSkill } from './utils/scoutRunsWindow'
 
 /**
  * Per-priority LemonTag type, for surfaces that render a LemonTag. Keep in step with
@@ -238,7 +238,11 @@ export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): stri
     return [...selected].sort().join(', ')
 }
 
-export function inboxSourceFilterLabel(selected: string[], selectedScouts: string[] = []): string {
+export function inboxSourceFilterLabel(
+    selected: string[],
+    selectedScouts: string[] = [],
+    scoutNames?: Readonly<Record<string, string>>
+): string {
     const parts: string[] = []
     if (selected.length === 1) {
         parts.push(INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0])
@@ -248,7 +252,7 @@ export function inboxSourceFilterLabel(selected: string[], selectedScouts: strin
     if (selectedScouts.length === 1) {
         // "Scout · " disambiguates from same-named source products (e.g. the error tracking
         // scout vs the error tracking source), matching the report rows' attribution label.
-        parts.push(`Scout · ${prettifyScoutSkillName(selectedScouts[0])}`)
+        parts.push(`Scout · ${scoutNameForSkill(scoutNames, selectedScouts[0])}`)
     } else if (selectedScouts.length > 1) {
         parts.push(`${selectedScouts.length} scouts`)
     }

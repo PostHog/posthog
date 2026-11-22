@@ -65,7 +65,18 @@ class TestModalEgressProbe(SimpleTestCase):
             name="test-egress", relay_image_id="im-example", endpoint=endpoint, dev_proxy_ipv4=dev_proxy_ipv4
         )
 
-    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(self) -> None:
+    @parameterized.expand([("development",), ("staging",)])
+    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(self, environment: str) -> None:
+        if environment == "staging":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_STAGING_PROBE_RUN_ID="00000000-0000-4000-8000-000000000001",
+                )
+            )
         probe = self.launch()
 
         config = self.create.call_args.args[0]
@@ -197,9 +208,25 @@ class TestModalEgressProbe(SimpleTestCase):
             ("id", "ended"),
             ("id", "live"),
             ("id", "unavailable"),
+            ("name", "live", "staging"),
+            ("id", "live", "staging"),
         ]
     )
-    def test_cleanup_distinguishes_missing_sandbox_from_outage(self, reference: str, state: str) -> None:
+    def test_cleanup_distinguishes_missing_sandbox_from_outage(
+        self, reference: str, state: str, environment: str = "development"
+    ) -> None:
+        if environment == "staging":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_STAGING_PROBE_RUN_ID="",
+                )
+            )
+            with self.assertRaises(RuntimeError):
+                self.launch()
         lookup = self.lookup if reference == "name" else self.lookup_id
         lookup.side_effect = None
         lookup.return_value = self.sandbox._sandbox

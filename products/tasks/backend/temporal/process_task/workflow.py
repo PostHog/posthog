@@ -81,6 +81,7 @@ from .activities.materialize_context_layer import MaterializeContextLayerInput, 
 from .activities.persist_agent_memory import MemoryEventIdentity, PersistAgentMemoryInput, persist_agent_memory
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    GITHUB_TOKEN_RETRY_DELAYS_SECONDS,
     REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
@@ -2059,7 +2060,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             prepare_sandbox_for_repository,
             PrepareSandboxForRepositoryInput(context=self.context),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(maximum_attempts=len(GITHUB_TOKEN_RETRY_DELAYS_SECONDS) + 1),
         )
 
         created = await self._run_sandbox_creation_activity(prepared)

@@ -40,7 +40,7 @@
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": false,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "tasks-artifacts-list": {
@@ -712,7 +712,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-sources-jobs": {

@@ -7,6 +7,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { HogQLFilters } from '~/queries/schema/schema-general'
+
 import {
     mcpAnalyticsSessionsGenerateIntent,
     mcpAnalyticsSessionsList,
@@ -287,9 +289,7 @@ export interface mcpSessionsLogicMeta {
         hasActiveFilters: (
             filters: MCPSessionsFilters,
             dateFilter: MCPSessionsDateFilter,
-            sharedQueryFilters: Required<
-                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
         ) => boolean
         selectedSession: (sessions: MCPSessionApi[], selectedSessionId: string | null) => MCPSessionApi | null
         selectedSessionIntent: (
@@ -306,9 +306,7 @@ export interface mcpSessionsLogicMeta {
             toolCallsBySession: Record<string, SessionToolCalls>,
             selectedSessionId: string | null,
             loadingMoreEntries: SessionToolCalls[],
-            sharedQueryFilters: Required<
-                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >,
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>,
             toolCallsRequest: ToolCallsRequest
         ) => {
             calls: MCPToolCallApi[]
