@@ -182,8 +182,8 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         converted = convert_version({"html_content": html, "generate_plain_content": False})
 
-        assert converted.html == (
-            '{% for item in variables.items %}{% assign text1 = item.code | join: "," | append: "" %}'
+        assert converted.html.endswith(
+            '{% for item in values1 %}{% assign text1 = item.code | join: "," | append: "" %}'
             '{% if text1 == "5" %}Y{% endif %}{% endfor %}'
         )
 

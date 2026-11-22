@@ -258,7 +258,7 @@
         }
       ]
     },
-    "liquid": "<ul>{% for item in variables.items %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 | join: \",\" }} {{ item.name | join: \",\" }} x{{ item.qty | join: \",\" }} {{ variables.currency | join: \",\" }}{% if forloop.last %}.{% endif %}</li>{% endfor %}</ul>",
+    "liquid": "<ul>{% assign kind1 = variables.items | json | slice: 0 %}{% assign values1 = variables.items %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.items %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 | join: \",\" }} {{ item.name | join: \",\" }} x{{ item.qty | join: \",\" }} {{ variables.currency | join: \",\" }}{% if forloop.last %}.{% endif %}</li>{% endfor %}</ul>",
     "expected": "<ul><li class=\"first\">0 Hedgehog mug ☕ x2 EUR</li><li class=\"\">1 Sticker &lt;b&gt; x0 EUR.</li></ul>"
   },
   {
@@ -271,7 +271,7 @@
         "🦔"
       ]
     },
-    "liquid": "{% for item in variables.tags %}[{{ item | join: \",\" }}]{% endfor %}",
+    "liquid": "{% assign kind1 = variables.tags | json | slice: 0 %}{% assign values1 = variables.tags %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.tags %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}[{{ item | join: \",\" }}]{% endfor %}",
     "expected": "[a][ünï][🦔]"
   },
   {
@@ -280,7 +280,7 @@
     "data": {
       "items": []
     },
-    "liquid": "{% for item in variables.items %}x{% else %}none{% endfor %}|{% for item in variables.missing %}x{% else %}none{% endfor %}",
+    "liquid": "{% assign kind1 = variables.items | json | slice: 0 %}{% assign values1 = variables.items %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.items %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}x{% else %}none{% endfor %}|{% assign kind2 = variables.missing | json | slice: 0 %}{% assign values2 = variables.missing %}{% if kind2 == \"{\" %}{% assign values2 = \"\" | split: \",\" %}{% for pair2 in variables.missing %}{% assign values2 = values2 | push: pair2[1] %}{% endfor %}{% elsif kind2 != \"[\" %}{% assign values2 = \"\" | split: \",\" %}{% endif %}{% for item in values2 %}x{% else %}none{% endfor %}",
     "expected": "none|none"
   },
   {
@@ -306,7 +306,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.orders %}{{ item.id | join: \",\" }}:{% for item2 in item.lines %}{{ item2.sku | join: \",\" }}@{{ item.id | join: \",\" }}/{{ variables.shop | join: \",\" }};{% endfor %}|{% endfor %}",
+    "liquid": "{% assign kind1 = variables.orders | json | slice: 0 %}{% assign values1 = variables.orders %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.orders %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}{{ item.id | join: \",\" }}:{% assign kind2 = item.lines | json | slice: 0 %}{% assign values2 = item.lines %}{% if kind2 == \"{\" %}{% assign values2 = \"\" | split: \",\" %}{% for pair2 in item.lines %}{% assign values2 = values2 | push: pair2[1] %}{% endfor %}{% elsif kind2 != \"[\" %}{% assign values2 = \"\" | split: \",\" %}{% endif %}{% for item2 in values2 %}{{ item2.sku | join: \",\" }}@{{ item.id | join: \",\" }}/{{ variables.shop | join: \",\" }};{% endfor %}|{% endfor %}",
     "expected": "1:a@1/S;b@1/S;|2:|"
   },
   {
@@ -322,7 +322,7 @@
         }
       ]
     },
-    "liquid": "{% for order in variables.orders %}{{ forloop.index0 | join: \",\" }}={{ order.id | join: \",\" }} {% endfor %}",
+    "liquid": "{% assign kind1 = variables.orders | json | slice: 0 %}{% assign values1 = variables.orders %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.orders %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for order in values1 %}{{ forloop.index0 | join: \",\" }}={{ order.id | join: \",\" }} {% endfor %}",
     "expected": "0=A 1=B "
   },
   {
@@ -434,7 +434,7 @@
         "c"
       ]
     },
-    "liquid": "{% for item in variables.tags %}{% if forloop.index0 != 0 %}, {% endif %}{{ item | join: \",\" }}{% endfor %}|{% for item in variables.tags %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item | join: \",\" }}{% endfor %}",
+    "liquid": "{% assign kind1 = variables.tags | json | slice: 0 %}{% assign values1 = variables.tags %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.tags %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}{% if forloop.index0 != 0 %}, {% endif %}{{ item | join: \",\" }}{% endfor %}|{% assign kind2 = variables.tags | json | slice: 0 %}{% assign values2 = variables.tags %}{% if kind2 == \"{\" %}{% assign values2 = \"\" | split: \",\" %}{% for pair2 in variables.tags %}{% assign values2 = values2 | push: pair2[1] %}{% endfor %}{% elsif kind2 != \"[\" %}{% assign values2 = \"\" | split: \",\" %}{% endif %}{% for item in values2 %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item | join: \",\" }}{% endfor %}",
     "expected": "a, b, c|first:abc"
   },
   {
@@ -452,7 +452,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.items %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}",
+    "liquid": "{% assign kind1 = variables.items | json | slice: 0 %}{% assign values1 = variables.items %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.items %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}",
     "expected": "<p>a&#x3D;b</p><i>x</i><p>c&#x60;d</p><b>y</b>"
   },
   {
@@ -488,7 +488,7 @@
       ],
       "a": true
     },
-    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}</ul>\n{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}",
+    "liquid": "<ul>\n{% assign kind1 = variables.xs | json | slice: 0 %}{% assign values1 = variables.xs %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.xs %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}</ul>\n{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}",
     "expected": "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\nA"
   },
   {
@@ -512,7 +512,7 @@
         2
       ]
     },
-    "liquid": "<p>{% for item in variables.xs %}{% if true %}Y{% else %}N{% endif %}{% if false %}U{% endif %}{% endfor %}</p>",
+    "liquid": "<p>{% assign kind1 = variables.xs | json | slice: 0 %}{% assign values1 = variables.xs %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.xs %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}{% if true %}Y{% else %}N{% endif %}{% if false %}U{% endif %}{% endfor %}</p>",
     "expected": "<p>YY</p>"
   },
   {
@@ -527,7 +527,7 @@
       ],
       "v": "V"
     },
-    "liquid": "{% if variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or variables.x != empty %}a{{ \"{\" }}{% endif %}|{% if variables.y != nil and variables.y != false and variables.y != 0 and variables.y.length != 0 or variables.y != empty %}a{% else %}b{{ \"{\" }}{% endif %}|{% for item in variables.xs %}c{{ \"{\" }}{% endfor %} {{ variables.v | join: \",\" }}",
+    "liquid": "{% if variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or variables.x != empty %}a{{ \"{\" }}{% endif %}|{% if variables.y != nil and variables.y != false and variables.y != 0 and variables.y.length != 0 or variables.y != empty %}a{% else %}b{{ \"{\" }}{% endif %}|{% assign kind1 = variables.xs | json | slice: 0 %}{% assign values1 = variables.xs %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.xs %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}c{{ \"{\" }}{% endfor %} {{ variables.v | join: \",\" }}",
     "expected": "a{|b{|c{c{ V"
   },
   {

@@ -145,7 +145,7 @@
       ]
     },
     "engine": "handlebars",
-    "liquid": "<ul>{% for item in variables.items %}<li>{{ forloop.index0 | join: \",\" }}. {{ item.title | join: \",\" }} ({{ variables.shop | join: \",\" }}){% if forloop.last %}!{% endif %}</li>{% else %}<li>none</li>{% endfor %}</ul>",
+    "liquid": "<ul>{% assign kind1 = variables.items | json | slice: 0 %}{% assign values1 = variables.items %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.items %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}<li>{{ forloop.index0 | join: \",\" }}. {{ item.title | join: \",\" }} ({{ variables.shop | join: \",\" }}){% if forloop.last %}!{% endif %}</li>{% else %}<li>none</li>{% endfor %}</ul>",
     "expected": "<ul><li>0. &lt;i&gt;Mug&lt;/i&gt; (Ünïcode 🦔)</li><li>1. Tee &amp; cap (Ünïcode 🦔)!</li></ul>"
   },
   {
@@ -205,5 +205,18 @@
     },
     "liquid": "{% if variables.s == nil or variables.s == false or variables.s == 0 or variables.s.length == 0 and variables.s == empty %}A{% endif %}{% if variables.o != nil and variables.o != false and variables.o != 0 and variables.o.length != 0 or variables.o != empty %}B{% else %}C{% endif %}",
     "expected": "B"
+  },
+  {
+    "name": "a loop over an object prints its values",
+    "engine": "handlebars",
+    "template": "{{#each order}}{{this}} {{/each}}",
+    "variables": {
+      "order": {
+        "internal_margin": 12,
+        "price": 30
+      }
+    },
+    "liquid": "{% assign kind1 = variables.order | json | slice: 0 %}{% assign values1 = variables.order %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.order %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}{{ item | join: \",\" }} {% endfor %}",
+    "expected": "12 30 "
   }
 ]
