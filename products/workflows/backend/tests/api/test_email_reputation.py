@@ -19,6 +19,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import IspSendingMetrics
+from products.workflows.backend.tests.fakes.ses_endpoint import METRICS_BATCH_PATH, FakeSesEndpoint
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -55,6 +56,7 @@ class TestEmailReputationAPI(APIBaseTest):
             provider.get_identity_isp_metrics.side_effect = isp_metrics
         else:
             provider.get_identity_isp_metrics.return_value = isp_metrics or []
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -85,7 +87,49 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
+            "infrastructure": None,
         }
+
+    def _get_reputation_from_ses(self) -> dict:
+        with patch(
+            "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source", return_value={}
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()
+
+    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update(
+                {
+                    "SEND": 4_276_310,
+                    "DELIVERY": 4_253_700,
+                    "PERMANENT_BOUNCE": 12_870,
+                    "TRANSIENT_BOUNCE": 40_115,
+                    "COMPLAINT": 655,
+                    "DELIVERY_COMPLAINT": 3_120_000,
+                }
+            )
+            first = self._get_reputation_from_ses()["infrastructure"]
+            second = self._get_reputation_from_ses()["infrastructure"]
+
+        # Volume is a lower bound to one significant figure. The delivery rate rounds down and the
+        # bounce and complaint rates round up, so no rounding flatters the infrastructure.
+        assert first == {
+            "emails_sent_at_least": 4_000_000,
+            "delivery_rate": 0.994,
+            "bounce_rate": 0.0031,
+            "complaint_rate": 0.0003,
+        }
+        assert second == first
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.denied = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_MODE="enforce",
@@ -153,6 +197,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_does_not_redial_aws_after_a_failure(self):
         provider = MagicMock()
         provider.get_tenant_reputation.side_effect = Exception("SES timeout")
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -534,6 +579,7 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 complaint_base=0,
             )
         ]
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
