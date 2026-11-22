@@ -517,6 +517,9 @@ class HandlebarsToLiquid:
 
     def _operand(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         if isinstance(param, _Literal):
+            # JavaScript reads null as 0 in a comparison, and Liquid's nil compares false with everything.
+            if param.liquid == "nil":
+                raise _Unsupported
             return param.liquid
         if isinstance(param, _Call):
             return self._assign(self._length(param, frames), "length", setup)
