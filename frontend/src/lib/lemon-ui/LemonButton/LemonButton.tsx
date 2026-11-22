@@ -173,6 +173,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 hideExternalLinkIcon,
                 disableClientSideRouting,
                 onClick,
+                onClickCapture,
+                onAuxClick,
                 truncate = false,
                 buttonWrapper,
                 tooltipDocLink,
@@ -275,6 +277,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         }
                         onClick?.(event)
                     }}
+                    onClickCapture={disabled ? undefined : onClickCapture}
+                    onAuxClick={disabled ? undefined : onAuxClick}
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={!!disabled}

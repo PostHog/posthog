@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { LemonButton } from './LemonButton'
@@ -57,19 +57,34 @@ describe('LemonButton', () => {
         expect(fn).not.toHaveBeenCalled()
     })
 
-    it('does not fire onClick when disabledReason is set', async () => {
+    it.each([
+        { desc: 'a button', to: undefined },
+        { desc: 'a link', to: '/insights' },
+    ])('does not fire click handlers on $desc when disabledReason is set', async ({ to }) => {
         const user = userEvent.setup()
         const onClick = jest.fn()
+        const onClickCapture = jest.fn()
+        const onAuxClick = jest.fn()
 
         render(
-            <LemonButton disabledReason="Nope" onClick={onClick}>
+            <LemonButton
+                disabledReason="Nope"
+                to={to}
+                onClick={onClick}
+                onClickCapture={onClickCapture}
+                onAuxClick={onAuxClick}
+            >
                 Go
             </LemonButton>
         )
 
-        await user.click(screen.getByRole('button'))
+        const button = screen.getByText('Go')
+        await user.click(button)
+        fireEvent(button, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
 
         expect(onClick).not.toHaveBeenCalled()
+        expect(onClickCapture).not.toHaveBeenCalled()
+        expect(onAuxClick).not.toHaveBeenCalled()
     })
 
     it('keeps htmlType submit in the DOM when disabledReason is set', () => {

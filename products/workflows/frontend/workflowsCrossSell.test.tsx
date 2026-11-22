@@ -107,7 +107,7 @@ describe('cross-sell from workflows', () => {
                 '/api/projects/:team_id/surveys/': () => [200, { results: [], count: 0 }],
             },
             post: {
-                '/api/projects/:team_id/query/': () => [200, { results: [], tables: {}, joins: [] }],
+                '/api/projects/:team_id/query/:kind/': () => [200, { results: [], tables: {}, joins: [] }],
             },
             patch: {
                 '/api/projects/:team_id/add_product_intent/': async ({ request }) => {
@@ -143,6 +143,18 @@ describe('cross-sell from workflows', () => {
             })
         }
     )
+
+    it('records nothing on a right click', async () => {
+        SURFACES[0].renderSurface()
+
+        fireEvent(
+            screen.getByText('Turn on session replay'),
+            new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 2 })
+        )
+
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(intents).toEqual([])
+    })
 
     it('leaves no unhandled rejection when recording the intent fails', async () => {
         intentStatus = 500
