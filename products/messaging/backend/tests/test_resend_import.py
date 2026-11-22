@@ -1051,6 +1051,15 @@ class TestResendClientPace(SimpleTestCase):
                 [1.0, 0.25, 0.25],
             ),
             ("garbage_limit", [(200, {"ratelimit-limit": "-3", "ratelimit-policy": "x"})], [0.5, 0.5, 0.5]),
+            ("limit_without_a_window", [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6"})], [0.5, 0.5, 0.5]),
+            (
+                "per_minute_limit_without_a_window",
+                [
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "50", "ratelimit-reset": "59"}),
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "40", "ratelimit-reset": "1"}),
+                ],
+                [0.5, 1.23, 1.23],
+            ),
             (
                 "live_sending_got_a_429",
                 [

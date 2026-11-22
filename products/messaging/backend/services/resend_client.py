@@ -84,6 +84,7 @@ class ResendClient:
         self._interval = 1 / REQUESTS_PER_SECOND
         self._share = SHARE_OF_LIMIT
         self._share_cut_at = float("-inf")
+        self._longest_reset = 0
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:
@@ -192,9 +193,17 @@ class ResendClient:
         if not limit or limit < 1:
             return
         window = _policy_window_seconds(response)
+        reset = _int_header(response, "ratelimit-reset")
         remaining = _int_header(response, "ratelimit-remaining")
         squeezed = response.status_code == 429 or remaining == 0
         with self._lock:
+            if window is None:
+                if not reset or reset < 1:
+                    self._interval = max(self._interval, 1 / REQUESTS_PER_SECOND)
+                    return
+                # Seconds until the reset is never longer than the window, so the longest one seen is the safest guess.
+                self._longest_reset = max(self._longest_reset, reset)
+                window = float(self._longest_reset)
             now = time.monotonic()
             # Parallel requests in one window all see the same full window, and that is one sign, not several.
             if squeezed and now - self._share_cut_at >= window:
@@ -204,8 +213,7 @@ class ResendClient:
                 self._share = min(self._share + SHARE_REGAINED_PER_REQUEST, SHARE_OF_LIMIT)
             self._interval = window / (limit * self._share)
             if remaining == 0:
-                reset = min(float(_int_header(response, "ratelimit-reset") or window), MAX_RETRY_AFTER_SECONDS)
-                self._hold_until(now + reset)
+                self._hold_until(now + min(float(reset or window), MAX_RETRY_AFTER_SECONDS))
 
 
 def _int_header(response: requests.Response, name: str) -> int | None:
@@ -215,9 +223,9 @@ def _int_header(response: requests.Response, name: str) -> int | None:
         return None
 
 
-def _policy_window_seconds(response: requests.Response) -> float:
+def _policy_window_seconds(response: requests.Response) -> float | None:
     match = re.search(r"w=(\d+)", str(response.headers.get("ratelimit-policy", "")))
-    return float(match.group(1)) if match and int(match.group(1)) > 0 else 1.0
+    return float(match.group(1)) if match and int(match.group(1)) > 0 else None
 
 
 def _retry_after_seconds(response: requests.Response) -> float:
