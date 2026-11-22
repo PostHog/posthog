@@ -1191,6 +1191,13 @@ class SESProvider:
         by_provider: dict[str, list[dict[str, Any]]] = {}
         for query in batch:
             by_provider.setdefault(plan.subjects[query["Id"]].isp, []).append(query)
+        if len(by_provider) == 1:
+            # The one group is the request SES just refused, so sending it again only repeats the refusal.
+            rejected_subjects = frozenset(plan.subjects[query["Id"]] for query in batch)
+            logger.warning(
+                "SES rejected a metric query; dropping the provider", extra={"provider": next(iter(by_provider))}
+            )
+            return IspBatchAnswer(responses=(), rejected=rejected_subjects)
         for group in by_provider.values():
             if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
                 raise TimeoutError(

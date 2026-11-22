@@ -25,6 +25,15 @@ from products.workflows.backend.providers.ses import IspSendingMetrics
 from products.workflows.backend.tests.fakes.ses_endpoint import METRICS_BATCH_PATH, FakeSesEndpoint
 
 
+def _locally_evaluated_flag(released: bool):
+    def feature_enabled(*_args, only_evaluate_locally: bool = False, **_kwargs) -> bool:
+        if not only_evaluate_locally:
+            raise TimeoutError("remote flag evaluation")
+        return released
+
+    return feature_enabled
+
+
 class TestEmailReputationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -101,7 +110,7 @@ class TestEmailReputationAPI(APIBaseTest):
             ),
             patch(
                 "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
-                return_value=released,
+                side_effect=_locally_evaluated_flag(released),
             ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
@@ -144,6 +153,14 @@ class TestEmailReputationAPI(APIBaseTest):
 
         assert during_the_failure is None
         assert after_it_clears is not None
+
+    def test_reputation_asks_ses_once_when_it_rejects_the_account_query(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.rejects_metric_batches = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
 
     @parameterized.expand([("ses_unreachable", True, True), ("not_released_to_the_project", False, False)])
     def test_reputation_loads_without_the_infrastructure_health(self, _name: str, released: bool, denied: bool):

@@ -230,6 +230,8 @@ def email_infrastructure_health_enabled(team: Team) -> bool:
                     "project": {"id": str(team.id)},
                 },
                 send_feature_flag_events=False,
+                # The reputation request must not wait on a remote flag call.
+                only_evaluate_locally=True,
             )
         )
     except Exception:

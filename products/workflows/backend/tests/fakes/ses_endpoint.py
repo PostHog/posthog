@@ -49,6 +49,7 @@ class FakeSesEndpoint:
         # Account-wide VDM totals per metric, answered for queries that carry no dimension.
         self.account_metrics: dict[str, int] = {}
         self.failing_metrics: set[str] = set()
+        self.rejects_metric_batches = False
         self.denied = False
 
     @contextmanager
@@ -92,6 +93,8 @@ class FakeSesEndpoint:
         return _bad_request(f"FakeSesEndpoint does not serve {method} {path}")
 
     def _metrics_batch(self, queries: list[dict[str, Any]]) -> _Reply:
+        if self.rejects_metric_batches:
+            return _bad_request("Virtual Deliverability Manager is not enabled for this account")
         if len(queries) > METRICS_BATCH_MAX_QUERIES:
             return _bad_request(f"At most {METRICS_BATCH_MAX_QUERIES} queries per request")
         if any(query["Namespace"] != "VDM" for query in queries):
