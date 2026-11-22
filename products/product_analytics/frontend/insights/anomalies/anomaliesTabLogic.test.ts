@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -71,6 +72,8 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
         series_capped: false,
         message: null,
         scored_through: '2026-11-16T00:00:00+00:00',
+        viewed_within_days: 30,
+        viewed_scope_empty: false,
     }
 }
 
@@ -297,6 +300,50 @@ describe('anomaliesTabLogic', () => {
             expect.objectContaining({ rating: 'useful', flagged_bucket: '2026-11-16T00:00:00+00:00' }),
         ])
         expect(Object.values(logic.values.seriesRatings)).toEqual(['not_useful', 'useful'])
+    })
+
+    it.each([
+        ['the 30-day scope without a scope in the URL', undefined, '30'],
+        ['the scope in the URL', '7', '7'],
+        ['the whole project', 'project', null],
+        ['the 30-day scope for an unknown value', '8', '30'],
+    ])('opens on %s', async (_name, param, expected) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        router.actions.push('/insights', { tab: 'anomalies', ...(param && { anomalies_scope: param }) })
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchRequests.map((params) => params.get('viewed_within_days'))).toEqual([expected])
+        expect(capture).toHaveBeenCalledWith(
+            'anomalies tab viewed',
+            expect.objectContaining({ viewed_within_days: expected == null ? null : Number(expected) })
+        )
+    })
+
+    it('keeps a scope change in the URL and in the filter changed event, and through clearing the filters', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        router.actions.push('/insights', { tab: 'anomalies' })
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ viewedWithinDays: null })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ tab: 'anomalies', anomalies_scope: 'project' })
+        expect(capture).toHaveBeenLastCalledWith(
+            'anomalies tab filter changed',
+            expect.objectContaining({ changed: ['viewedWithinDays'], viewed_within_days: null })
+        )
+
+        logic.actions.resetFilters()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.viewedWithinDays).toBeNull()
+
+        logic.actions.setFilters({ viewedWithinDays: 30 })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ tab: 'anomalies' })
+        expect(searchRequests.map((params) => params.get('viewed_within_days'))).toEqual(['30', null, null, '30'])
     })
 
     it('shows the not available state when the search answers 404', async () => {
