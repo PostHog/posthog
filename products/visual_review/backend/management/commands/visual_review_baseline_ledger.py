@@ -1,4 +1,4 @@
-"""Seed, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
+"""Seed, repair, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
 
 import re
 from pathlib import Path
@@ -10,6 +10,7 @@ from django.db.models import Count
 from posthog.models.scoping import team_scope
 
 from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade import api, contracts
 from products.visual_review.backend.facade.enums import BaselineMode
 from products.visual_review.backend.logic import baselines, errors, github_api, ledger
 from products.visual_review.backend.management.commands.visual_review_debt_digest import find_repo
@@ -27,7 +28,7 @@ def _add_repo_arguments(parser: CommandParser) -> None:
 
 
 class Command(BaseCommand):
-    help = "Seed, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
+    help = "Seed, repair, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
 
     def add_arguments(self, parser: CommandParser) -> None:
         subcommands = parser.add_subparsers(dest="subcommand", required=True)
@@ -47,6 +48,14 @@ class Command(BaseCommand):
             action="store_true",
             help="Start a new position 0 from the ledger at its newest commit, not from the baseline files.",
         )
+
+        repair = subcommands.add_parser(
+            "repair",
+            help="Append entries until the ledger equals the baseline file at every position. Shadow mode only.",
+        )
+        _add_repo_arguments(repair)
+        repair.add_argument("--run-type", type=str, required=True)
+        repair.add_argument("--apply", action="store_true", help="Write the entries. Without it, only print the plan.")
 
         export = subcommands.add_parser("export", help="Print the signed baseline file for the ledger's newest commit.")
         _add_repo_arguments(export)
@@ -72,6 +81,8 @@ class Command(BaseCommand):
             match options["subcommand"]:
                 case "seed":
                     self._seed(repo, options)
+                case "repair":
+                    self._repair(repo, options["run_type"], options["apply"])
                 case "export":
                     self._export(repo, options["run_type"], options.get("output"))
                 case "mode":
@@ -128,6 +139,48 @@ class Command(BaseCommand):
             raise CommandError(str(e)) from e
         for run_type in run_types:
             self.stdout.write(f"{run_type}: seeded {len(baselines_by_run_type[run_type])} entries at {commit}")
+
+    def _print_repair_plan(self, plan: contracts.BaselineLedgerRepair) -> None:
+        self.stdout.write(f"{plan.run_type}: repair up to position {plan.cursor_position}, commit {plan.cursor_sha}")
+        current_position: int | None = None
+        for entry in plan.entries:
+            if entry.position != current_position:
+                current_position = entry.position
+                pull_request = f"PR #{entry.pr_number}" if entry.pr_number is not None else "no PR"
+                self.stdout.write(f"Position {entry.position}, commit {entry.commit_sha}, {pull_request}")
+            new_hash = entry.content_hash or "removed"
+            removal = " (removal)" if not entry.content_hash else ""
+            self.stdout.write(f"  {entry.identifier}: {entry.previous_hash or 'absent'} -> {new_hash}{removal}")
+        positions = {entry.position for entry in plan.entries}
+        identifiers = {entry.identifier for entry in plan.entries}
+        self.stdout.write(
+            f"{len(plan.entries)} entries at {len(positions)} positions for {len(identifiers)} identifiers"
+        )
+        self.stdout.write(
+            f"Drift at the cursor: {len(plan.drift_before)} identifiers before, {len(plan.drift_after)} after"
+        )
+        for identifier in plan.drift_before:
+            self.stdout.write(f"  Drifted before: {identifier}")
+        for identifier in plan.drift_after:
+            self.stdout.write(f"  Still drifted: {identifier}")
+        for mismatch in plan.mismatches:
+            self.stdout.write(f"Differs from the file at its commit: {mismatch}")
+
+    def _print_repair_progress(self, read: int, total: int) -> None:
+        self.stdout.write(f"Read the baseline file at {read} of {total} positions")
+
+    def _repair(self, repo: Repo, run_type: str, apply: bool) -> None:
+        try:
+            plan = api.repair_baseline_ledger(
+                repo.id, repo.team_id, run_type, apply=apply, on_progress=self._print_repair_progress
+            )
+        except (api.BaselineRepairError, api.GitHubCommitError) as e:
+            raise CommandError(str(e)) from e
+        self._print_repair_plan(plan)
+        if apply:
+            self.stdout.write(f"Wrote {len(plan.entries)} entries.")
+            return
+        self.stdout.write("Dry run, nothing written. Pass --apply to write.")
 
     def _export(self, repo: Repo, run_type: str, output: str | None) -> None:
         head = ledger.cursor(repo.id)

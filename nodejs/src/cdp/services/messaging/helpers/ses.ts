@@ -129,11 +129,33 @@ const normalizeAddress = (address: string): string => unquoteMailbox(address).tr
 const mailboxAddresses = (entries: string[]): Set<string> =>
     new Set(
         entries.flatMap((entry) =>
-            addressparser(entry, { flatten: true }).map((parsed) => normalizeAddress(parsed.address))
+            addressparser(entry, { flatten: true })
+                .map((parsed) => normalizeAddress(parsed.address))
+                .filter((address) => address !== '')
         )
     )
 
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
+
+const reachesToRecipient = (to: Set<string>, addresses: string[]): boolean =>
+    addresses.some((address) => to.has(normalizeAddress(address)))
+
+const sesDeliveriesNotToRecipientCounter = new Counter({
+    name: 'email_tracking_deliveries_not_to_recipient_total',
+    help: 'SES Delivery records left out of email_delivered because they reached only cc or bcc recipients',
+})
+
+// SES reports one Delivery per receiving server, so a send with cc or bcc set gets several, while email_sent counts
+// the send once. Without a To address or a recipient the copies can't be told apart, so the record counts.
+const countsAsDelivered = (rec: Extract<SesEventRecord, { eventType: 'Delivery' }>): boolean => {
+    const to = toHeaderAddresses(rec)
+    const recipients = rec.delivery.recipients ?? []
+    if (to.size === 0 || recipients.length === 0 || reachesToRecipient(to, recipients)) {
+        return true
+    }
+    sesDeliveriesNotToRecipientCounter.inc()
+    return false
+}
 
 const sesRecipientsNotSentToCounter = new Counter({
     name: 'email_tracking_recipients_not_sent_to_total',
@@ -163,14 +185,16 @@ const resolveEmailStatusUpdate = (
     rec: SesEventRecord
 ): Pick<SesEmailStatusUpdate, 'status' | 'reason' | 'timestamp'> | null => {
     const to = toHeaderAddresses(rec)
-    const reachesTo = (addresses: string[]): boolean => addresses.some((address) => to.has(normalizeAddress(address)))
     switch (rec.eventType) {
         case 'Delivery':
-            return reachesTo(rec.delivery.recipients ?? [])
+            return reachesToRecipient(to, rec.delivery.recipients ?? [])
                 ? { status: 'delivered', timestamp: rec.delivery.timestamp }
                 : null
         case 'Bounce':
-            return reachesTo(rec.bounce.bouncedRecipients.map((r) => r.emailAddress))
+            return reachesToRecipient(
+                to,
+                rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+            )
                 ? {
                       status: 'bounced',
                       reason: BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType],
@@ -180,7 +204,10 @@ const resolveEmailStatusUpdate = (
         case 'Complaint':
             // A "not-spam" feedback type corrects an earlier spam report, so it is not a complaint.
             return rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam' &&
-                reachesTo(rec.complaint.complainedRecipients.map((r) => r.emailAddress))
+                reachesToRecipient(
+                    to,
+                    rec.complaint.complainedRecipients.map((r) => r.emailAddress)
+                )
                 ? { status: 'complained', timestamp: rec.complaint.timestamp }
                 : null
         case 'Reject':
@@ -594,7 +621,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             // Test sends (from the editor's "Run test") are not production activity, so we skip
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
-            if (metricName && !isTest) {
+            if (metricName && !isTest && (rec.eventType !== 'Delivery' || countsAsDelivered(rec))) {
                 const isSensitive = isSensitiveMail(rec.mail)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],

@@ -3,7 +3,9 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { Language } from 'lib/components/CodeSnippet'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
+import { QuillSetupWizardBanner } from './QuillSetupWizardBanner'
 import { useWizardCommand } from './useWizardCommand'
 
 const SetupWizardBanner = ({
@@ -14,9 +16,14 @@ const SetupWizardBanner = ({
     hide?: boolean
 }): JSX.Element | null => {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
+    const quillSurface = useQuillSurface()
 
     if (hide || !isCloudOrDev) {
         return null
+    }
+
+    if (quillSurface) {
+        return <QuillSetupWizardBanner integrationName={integrationName} wizardCommand={wizardCommand} />
     }
 
     return (

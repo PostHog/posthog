@@ -1,3 +1,5 @@
+import { prettifyScoutSkillName } from '@posthog/agent-contracts/scout-names'
+
 import { parseDelayExpression, parseDelayOffset } from '../../steps/stepDelayLogic'
 import type { HogFlowAction, HogFlowEdge } from '../../types'
 import {
@@ -160,7 +162,7 @@ type TimeWindowConfig = ActionOf<'wait_until_time_window'>['config']
 
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-function isWindowDay(day: TimeWindowConfig['day'], weekday: number): boolean {
+export function isWindowDay(day: TimeWindowConfig['day'], weekday: number): boolean {
     return (
         day === 'any' ||
         (day === 'weekday' && weekday < 5) ||
@@ -172,6 +174,11 @@ function isWindowDay(day: TimeWindowConfig['day'], weekday: number): boolean {
 function hoursOf(time: string): number {
     const [hours, minutes] = time.split(':').map(Number)
     return hours + (minutes || 0) / 60
+}
+
+// The step holds only the skill name; the workflow editor does not load scout configs to look up a display name.
+function scoutName(skillName: string | undefined): string | undefined {
+    return skillName ? prettifyScoutSkillName(skillName) : undefined
 }
 
 /** The open hours of each weekday, Monday first. Matches the workflow runner: a window whose end is not after
@@ -249,7 +256,7 @@ function functionPresentation(action: HogFlowAction): StepPresentation {
         case 'template-posthog-run-scout':
             return {
                 kind: 'scout',
-                scout: textInput(action, 'skill_name')?.replace(/-/g, ' '),
+                scout: scoutName(textInput(action, 'skill_name')),
                 writes: outputKeys(action),
             }
         case 'template-posthog-send-ticket-message':

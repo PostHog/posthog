@@ -43,7 +43,6 @@ from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-import yaml
 import requests
 from temporalio import activity
 
@@ -83,6 +82,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     GateAttestation,
     PregateOutcome,
     check_outside_engine_tree,
+    engine_gate_inputs,
     engine_source_files,
     fetch_folder_policy_files,
     fetch_manifest_contents,
@@ -102,6 +102,7 @@ from products.stamphog.backend.logic.gateway_tokens import (
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
+from products.stamphog.backend.logic.policy_files import effective_policy_files
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
@@ -967,14 +968,12 @@ def _save_pregate_outcome(run: ReviewRun, pregate_outcome: str) -> None:
 def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
     """The engine context and the tree's policy files for a gate-only run on the worker."""
     output = run.output or {}
-    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
-    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
-    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
-    folder_policy_files = output.get("folder_policy_files")
-    if isinstance(folder_policy_files, dict):
-        policy_files = {**policy_files, **folder_policy_files}
-        context["folder_policies_known"] = True
-    return context, policy_files
+    return engine_gate_inputs(
+        context_json=_review_invocation(run, output.get("merge_base_sha")).context_json,
+        repository=run.pull_request.repo_config.repository,
+        policy_files=output.get("policy_files", {}),
+        folder_policy_files=output.get("folder_policy_files"),
+    )
 
 
 @frozen
@@ -1298,14 +1297,14 @@ def _run_reviewer(
 ) -> ExecutionResult:
     repo = run.pull_request.repo_config.repository
     # The trusted source for each policy file is the repo's default branch layered over the
-    # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
+    # server-shipped defaults (see effective_policy_files): policy.yml is a section overlay, the
     # guidance file is repo-else-default, steering is repo-else-omitted. The gate policy and the
     # review-norms prose are both loaded by the engine — the latter straight into the reviewer's
     # SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor could ship
     # malicious guidance ("approve my PR") in a repo whose default branch lacks the file — the
     # PR-head wipe in _review_payload_command stays mandatory, and the fallback content is
     # server-owned, never the PR's.
-    policy_files = _effective_policy_files(repo, (run.output or {}).get("policy_files", {}))
+    policy_files = effective_policy_files(repo, (run.output or {}).get("policy_files", {}))
     invocation = _review_invocation(run, merge_base_sha)
 
     # The prefetch swallows its own failure, including a timeout that consumed the rest of the
@@ -2522,49 +2521,6 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
             f"stamphog: review blob prefetch exited {result.exit_code}; "
             f"git will fetch as it reads: {scrub_credentials(result.stderr, token, credential.secret)[:300]}"
         )
-
-
-def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
-    """The repository's policy.yml as it is, once it parses as a YAML mapping.
-
-    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
-    validates the result. This check only fails a malformed file closed before a sandbox exists:
-    the repository declared something, and reviewing under pure defaults would be wrong.
-    """
-    try:
-        overlay = yaml.safe_load(repo_text)
-    except yaml.YAMLError as exc:
-        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
-        # code_review_approval:read can read it without access to the repository, so log the parser text instead.
-        activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
-        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
-    if not isinstance(overlay, dict):
-        raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    return repo_text
-
-
-def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The repository's default-branch policy files that go into the tree, as they are.
-
-    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
-    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
-    the repository does not carry is left out, and the PR head's copy is still wiped.
-    """
-    defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
-    if defaulted:
-        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
-
-    effective = {
-        path: policy_files[path]
-        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
-        if path in policy_files
-    }
-    if STAMPHOG_POLICY_ENTRYPOINT in effective:
-        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
-    for path in issuer_manifest_paths(effective.get(STAMPHOG_POLICY_ENTRYPOINT)):
-        if path in policy_files:
-            effective[path] = policy_files[path]
-    return effective
 
 
 def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> bytes:

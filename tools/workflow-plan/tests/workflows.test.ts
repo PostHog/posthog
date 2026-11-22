@@ -546,6 +546,31 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    // The backend test selector runs on a legacy diff, and on a ready PR's product-only diff,
+    // where turbo-discover.js trusts a product cascade's selection by phase.
+    ...[
+        { name: 'ready legacy PR', legacy: true, github: pullRequest(), runs: true },
+        { name: 'ready product-only PR', legacy: false, github: pullRequest(), runs: true },
+        { name: 'draft legacy PR', legacy: true, github: pullRequest({ draft: true }), runs: true },
+        { name: 'draft product-only PR', legacy: false, github: pullRequest({ draft: true }), runs: false },
+        {
+            name: 'product-only PR labeled run-ci-backend',
+            legacy: false,
+            github: pullRequest({ labels: ['run-ci-backend'] }),
+            runs: false,
+        },
+        { name: 'merge queue product-only PR', legacy: false, github: mergeQueue(), runs: false },
+    ].map(({ name, legacy, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'turbo-discover',
+        step: 'select',
+        scenario: {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ backend: true, legacy }) } },
+        },
+        runs,
+    })),
     ...[
         { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
         { name: 'schema cache miss', matched: '', runs: false },
@@ -666,6 +691,79 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    ...(
+        [
+            {
+                name: 'passing shard',
+                tests: 'success',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun clears',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: true,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun does not clear',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'failure',
+                reruns: true,
+                verdictFails: true,
+            },
+            {
+                name: 'failure the gate does not clear',
+                tests: 'failure',
+                gate: 'failure',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+            {
+                name: 'failure with quarantine off',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'false',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+        ] as const
+    ).flatMap(({ name, tests, gate, quarantine, rerun, reruns, verdictFails }) =>
+        [
+            { step: 'quarantine_rerun', runs: reruns },
+            { step: 'test_verdict', runs: verdictFails },
+        ].map(({ step, runs }) => ({
+            file: DEPOT_BACKEND,
+            job: 'turbo-tests',
+            step,
+            scenario: {
+                name: `merge queue, ${name}`,
+                github: mergeQueue(),
+                vars: { TRUNK_UPLOAD_ENABLED: 'true', TRUNK_QUARANTINE_ENABLED: quarantine },
+                steps: {
+                    ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                    ...backendSelectors,
+                    'turbo-tests': {
+                        'run-product-tests': { outcome: tests },
+                        quarantine_gate: { outcome: gate },
+                        quarantine_rerun: { outcome: rerun },
+                    },
+                },
+            },
+            runs,
+        }))
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>

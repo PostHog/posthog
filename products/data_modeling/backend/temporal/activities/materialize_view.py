@@ -52,7 +52,7 @@ from posthog.temporal.common.clickhouse import (
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -263,6 +263,32 @@ class UnstorableIntegerError(NonReportableError):
             f"materialized table can store. Wrap the column in toString() to store it as text."
         )
         self.column = column
+
+
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
 
 
 class DuplicateOutputColumnError(NonReportableError):
@@ -477,6 +503,29 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
+        return pa.map_(
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -488,42 +537,88 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
 
 
+class UnstorableDecimalError(NonReportableApplicationError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has.
+
+    Non-retryable here rather than in the workflow's retry policy, so that a retry of the same
+    query does not repeat the read and the writes before it fails on the same value again.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text.",
+            type="UnstorableDecimalError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+DELTA_MAX_DECIMAL_PRECISION = 38
+
+
+def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
+    if pa.types.is_decimal256(arrow_type):
+        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _delta_decimal_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_delta_decimal_type(field.type))
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform high-precision decimal columns to types supported by Delta Lake."""
+    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
     schema = batch.schema
-    columns_to_cast: dict[str, pa.DataType] = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
+    target_fields = [_delta_decimal_field(field) for field in schema]
+    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
         return batch
+
+    precision = DELTA_MAX_DECIMAL_PRECISION
+    scale = DELTA_MAX_DECIMAL_PRECISION - 1
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    for field in batch.schema:
+    for field, target in zip(schema, target_fields):
         col = batch[field.name]
-        if field.name in columns_to_cast:
-            decimal128_type = columns_to_cast[field.name]
+        if target.type.equals(field.type):
+            new_fields.append(field)
+            new_columns.append(col)
+        elif pa.types.is_decimal(field.type):
             try:
-                cast_col = pc.cast(col, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
+                cast_col = pc.cast(col, target.type)
+                new_fields.append(target)
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
@@ -534,8 +629,11 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
-            new_fields.append(field)
-            new_columns.append(col)
+            try:
+                new_columns.append(pc.cast(col, target.type))
+            except pa.ArrowInvalid as err:
+                raise UnstorableDecimalError(field.name) from err
+            new_fields.append(target)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
@@ -1419,28 +1517,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
@@ -1456,8 +1555,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await _open_delta_table(table_uri, storage_options)
-                delta_version = delta_table.version()
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
                 capture_exception(error)

@@ -22,6 +22,23 @@ Pass `json_input` as a bare JSON object, not wrapped in quotes: `call execute-sq
 
 The `learn` command is only registered on hosts that use the guided help catalog (currently Claude web and desktop). On hosts that support MCP apps, CLI mode also registers a separate `render-ui` tool for rendering interactive visualizations.
 
+### Separate read and write tools
+
+By default `exec` runs every command, so your client can only allow all of them or ask about each one. Add `split_writes=true` to the server URL, or send the header, to list two tools in place of `exec`:
+
+- `exec-read` runs discovery commands and calls to read-only tools. It's marked read-only and refuses calls that change data.
+- `exec-write` runs any command, including calls that change data. It's marked destructive.
+
+```text
+https://mcp.posthog.com/mcp?split_writes=true
+```
+
+```http
+x-posthog-split-writes: true
+```
+
+Your client can then always allow `exec-read` and keep asking about `exec-write`. A split connection doesn't list `exec`, so allow rules written for `exec` don't carry over.
+
 ### How agents use these commands
 
 ```text

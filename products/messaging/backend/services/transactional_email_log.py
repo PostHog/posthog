@@ -16,11 +16,12 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -62,7 +63,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_BATCH_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
 _DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
@@ -723,17 +723,25 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
-    for batch in _batches_by_query_size(sends, _query_bytes_of):
+    for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
         converted |= _converted_in_batch(team, user, event, batch)
     return converted
 
 
-def _batches_by_query_size[T](items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+def _max_query_size(team_id: int) -> int:
+    team_limit = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    # ClickHouse reads a zero max_query_size as no limit, so batches then follow the default limit.
+    return team_limit if isinstance(team_limit, int) and team_limit > 0 else default_settings()["max_query_size"]
+
+
+def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    # The batched values take at most a quarter of the query, which leaves the rest for the query text around them.
+    budget = _max_query_size(team_id) // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
         item_bytes = query_bytes_of(item)
-        if batch and batch_bytes + item_bytes > _BATCH_QUERY_BYTES:
+        if batch and batch_bytes + item_bytes > budget:
             yield batch
             batch, batch_bytes = [], 0
         batch.append(item)
@@ -804,7 +812,7 @@ def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> Transact
 
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     persons: dict[str, str] = {}
-    for batch in _batches_by_query_size(distinct_ids, _escaped_literal_bytes):
+    for batch in _batches_by_query_size(team.id, distinct_ids, _escaped_literal_bytes):
         persons |= _persons_in_batch(team, user, batch)
     return persons
 

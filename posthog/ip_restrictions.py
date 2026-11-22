@@ -72,7 +72,7 @@ def ip_restrictions_exempt(view: Callable[P, R]) -> Callable[P, R]:
 
 def ip_restrictions_exempt_for_secret_keys(view: Callable[P, R]) -> Callable[P, R]:
     """Exempt SDK secret keys while enforcing session and personal-key policies."""
-    credential_types: frozenset[DeclaredCredentialType] = frozenset({"project_secret_key", "team_secret_token"})
+    credential_types: frozenset[DeclaredCredentialType] = frozenset({"project_secret_key"})
     setattr(view, "ip_restrictions_exempt", credential_types)  # noqa: B010
     return view
 

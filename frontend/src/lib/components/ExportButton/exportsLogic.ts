@@ -199,11 +199,11 @@ export interface exportsLogicActions {
         mode: SessionRecordingPlayerMode | undefined
         options:
             | {
-                  css_selector?: string | undefined
-                  filename?: string | undefined
-                  height?: number | undefined
-                  skip_inactivity?: boolean | undefined
-                  width?: number | undefined
+                  css_selector?: string
+                  filename?: string
+                  height?: number
+                  skip_inactivity?: boolean
+                  width?: number
               }
             | undefined
         sessionRecordingId: string

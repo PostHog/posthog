@@ -285,7 +285,7 @@ export interface supportTicketSceneLogicValues {
     draftModeDefault: boolean // conversationsDraftModeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     aiDraftApplying: boolean
     assignee: TicketAssignee
@@ -605,7 +605,7 @@ export interface supportTicketSceneLogicMeta {
         replyRecipientDescription: (ticket: Ticket | null) => string
         deleteDisabledReason: (
             ticket: Ticket | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -613,7 +613,7 @@ export interface supportTicketSceneLogicMeta {
             tags: string[],
             snoozedUntil: string | null,
             ticket: Ticket | null,
-            resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
+            resolveAssignee: (assignee: TicketAssignee) => Assignee
         ) => string[]
         hasUnsavedChanges: (
             status: TicketStatus | null,
