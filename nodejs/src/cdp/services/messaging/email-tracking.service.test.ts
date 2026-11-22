@@ -1318,19 +1318,29 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
-            it.each<[string, () => Promise<null>]>([
+            it.each<[string, () => Promise<[Error | null, unknown][] | null>]>([
                 ['fails', () => Promise.reject(new Error('pool exhausted'))],
                 ['answers nothing', () => Promise.resolve(null)],
-            ])('records a redelivered notification again when Redis %s', async (_, answer) => {
-                jest.spyOn(consumer.redis, 'useClient').mockImplementation(answer)
-                await postBounce({ functionId: hogFunction.id })
-                const batch = queuedSesNotifications()
+                ['refuses the commands', () => Promise.resolve([[new Error('OOM command not allowed'), null]])],
+            ])(
+                'records a redelivered notification again, and counts Redis unavailable, when Redis %s',
+                async (_, answer) => {
+                    jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(answer)
+                    const unavailable = async (): Promise<number> =>
+                        (
+                            await register.getSingleMetric('email_tracking_ses_recorded_marks_unavailable_total')!.get()
+                        ).values.reduce((sum, { value }) => sum + value, 0)
+                    const unavailableBefore = await unavailable()
+                    await postBounce({ functionId: hogFunction.id })
+                    const batch = queuedSesNotifications()
 
-                await consumer.processBatch(batch)
-                await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
 
-                expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
-            })
+                    expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                    expect(await unavailable()).toBe(unavailableBefore + 4)
+                }
+            )
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()

@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { ZodError } from 'zod'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { RedisClient } from '~/common/redis/redis-v2'
+import { RedisClientPipeline, RedisPipelineResults } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 
@@ -24,11 +24,11 @@ const sesNotificationRecordedKey = (snsMessageId: string): string =>
 // Covers SNS's own redeliveries, Kafka's redelivery of a failed batch, and a replay of the topic within days of an outage.
 const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 3 * 24 * 60 * 60
 // A slow Redis costs a possible double count, never a stalled partition.
-const SES_NOTIFICATION_RECORDED_TIMEOUT_MS = 500
+const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
 const sesRecordedMarksUnavailableCounter = new Counter({
     name: 'email_tracking_ses_recorded_marks_unavailable_total',
-    help: 'Batches whose recorded-notification marks Redis could not read or write, so a redelivery can count again',
+    help: 'Batches whose recorded-notification marks Redis could not read or write in full, so a redelivery can count again',
     labelNames: ['operation'],
 })
 
@@ -134,44 +134,45 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         if (ids.length === 0) {
             return new Set()
         }
-        const marked = await this.recordedMarksCall('read', (client) =>
-            client.mget(ids.map(sesNotificationRecordedKey))
-        )
-        return new Set(ids.filter((_, index) => marked?.[index] != null))
+        const results = await this.recordedMarksPipeline('read', (pipeline) => {
+            for (const id of ids) {
+                pipeline.get(sesNotificationRecordedKey(id))
+            }
+        })
+        return new Set(ids.filter((_, index) => results?.[index]?.[1] != null))
     }
 
     private async markRecorded(snsMessageIds: string[]): Promise<void> {
         if (snsMessageIds.length === 0) {
             return
         }
-        await this.recordedMarksCall('write', async (client) => {
-            const pipeline = client.pipeline()
+        await this.recordedMarksPipeline('write', (pipeline) => {
             for (const id of snsMessageIds) {
                 pipeline.set(sesNotificationRecordedKey(id), '1', 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
             }
-            return await pipeline.exec()
         })
     }
 
-    private async recordedMarksCall<T>(
+    // One command per key, because a multi-key command fails with CROSSSLOT when the keys map to different cluster
+    // slots. failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
+    private async recordedMarksPipeline(
         operation: 'read' | 'write',
-        call: (client: RedisClient) => Promise<T>
-    ): Promise<T | null> {
-        let timer: NodeJS.Timeout | undefined
-        const result = await Promise.race([
-            this.redis
-                .useClient({ name: `ses-notification-recorded-${operation}`, failOpen: true }, call)
-                // useClient rethrows a pool failure despite failOpen.
-                .catch(() => null),
-            new Promise<null>((resolve) => {
-                timer = setTimeout(() => resolve(null), SES_NOTIFICATION_RECORDED_TIMEOUT_MS)
-            }),
-        ])
-        clearTimeout(timer)
-        if (result === null) {
+        addCommands: (pipeline: RedisClientPipeline) => void
+    ): Promise<RedisPipelineResults | null> {
+        const results = await this.redis
+            .usePipeline(
+                {
+                    name: `ses-notification-recorded-${operation}`,
+                    failOpen: true,
+                    deadlineMs: SES_NOTIFICATION_RECORDED_DEADLINE_MS,
+                },
+                addCommands
+            )
+            .catch(() => null)
+        if (results === null || results.some(([error]) => error)) {
             sesRecordedMarksUnavailableCounter.inc({ operation })
         }
-        return result
+        return results
     }
 
     public override async start(): Promise<void> {
