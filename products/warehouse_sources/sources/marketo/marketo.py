@@ -558,11 +558,11 @@ def _fan_out_parents(
     offset = 0
     next_token: Optional[str] = None
     while True:
+        params: dict[str, Any]
         if parent.transport == "asset_offset":
             params = _asset_params(parent, offset)
         else:
-            params = dict(parent.extra_params)
-            params["batchSize"] = REST_BATCH_SIZE
+            params = {**parent.extra_params, "batchSize": REST_BATCH_SIZE}
             if next_token:
                 params["nextPageToken"] = next_token
 
@@ -586,68 +586,46 @@ def _fan_out_parents(
     return sorted(parents, key=lambda item: item.id)
 
 
-def _list_member_rows(
+def _fan_out_rows(
     client: MarketoClient,
     config: MarketoEndpointConfig,
     resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
     resume: Optional[MarketoResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    """Page a child endpoint per parent: asset children by offset, /rest/v1 children by page token."""
     assert config.parent is not None and config.parent_key is not None
+    by_offset = config.transport == "asset_fan_out"
     parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
 
     for parent in parents:
         next_token: Optional[str] = None
+        offset = 0
         if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
-            if parent.id < resume.parent_id or not resume.next_page_token:
+            position = resume.offset if by_offset else resume.next_page_token
+            if parent.id < resume.parent_id or not position:
                 continue
             next_token = resume.next_page_token
+            offset = resume.offset or 0
         path = config.path.format(parent_id=parent.id)
 
         while True:
-            params: dict[str, Any] = {"batchSize": REST_BATCH_SIZE}
+            params: dict[str, Any] = (
+                {"offset": offset, "maxReturn": ASSET_MAX_RETURN} if by_offset else {"batchSize": REST_BATCH_SIZE}
+            )
             if next_token:
                 params["nextPageToken"] = next_token
             body = client.request_json("GET", path, params=params)
             rows = [{**row, config.parent_key: parent.id} for row in body.get("result") or []]
 
-            more = _has_more_pages(body)
-            next_token = body.get("nextPageToken") if more else None
-            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token))
-
-            if rows:
-                yield rows
+            if by_offset:
+                more = len(rows) >= ASSET_MAX_RETURN
+                offset += len(rows)
+                state = MarketoResumeConfig(parent_id=parent.id, offset=offset if more else None)
             else:
-                resumable_source_manager.safe_point()
-            if not more:
-                break
-
-
-def _asset_fan_out_rows(
-    client: MarketoClient,
-    config: MarketoEndpointConfig,
-    resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
-    resume: Optional[MarketoResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    assert config.parent is not None and config.parent_key is not None
-    parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
-
-    for parent in parents:
-        offset = 0
-        if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
-            if parent.id < resume.parent_id or not resume.offset:
-                continue
-            offset = resume.offset
-        path = config.path.format(parent_id=parent.id)
-
-        while True:
-            body = client.request_json("GET", path, params={"offset": offset, "maxReturn": ASSET_MAX_RETURN})
-            rows = [{**row, config.parent_key: parent.id} for row in body.get("result") or []]
-
-            more = len(rows) >= ASSET_MAX_RETURN
-            offset += len(rows)
-            resumable_source_manager.save_state(
-                MarketoResumeConfig(parent_id=parent.id, offset=offset if more else None)
-            )
+                more = _has_more_pages(body)
+                next_token = body.get("nextPageToken") if more else None
+                state = MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token)
+            resumable_source_manager.save_state(state)
 
             if rows:
                 yield rows
@@ -812,10 +790,8 @@ def get_rows(
     elif config.transport == "program_members":
         start = resolve_bulk_start(None, should_use_incremental_field, db_incremental_field_last_value, start_date)
         yield from _program_member_rows(client, config, resumable_source_manager, resume, start, datetime.now(UTC))
-    elif config.transport == "list_members":
-        yield from _list_member_rows(client, config, resumable_source_manager, resume)
-    elif config.transport == "asset_fan_out":
-        yield from _asset_fan_out_rows(client, config, resumable_source_manager, resume)
+    elif config.transport in ("list_members", "asset_fan_out"):
+        yield from _fan_out_rows(client, config, resumable_source_manager, resume)
     elif config.transport == "asset_offset":
         start_offset = resume.offset if resume is not None and resume.offset is not None else 0
         updated_since = (
