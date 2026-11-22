@@ -3419,16 +3419,16 @@ Note: The official Swagger specification was parsed for all GET operations, incl
 
 ## CleverTap — gaps
 
-Today (2): `events`, `profiles`
+Today (6): `campaign_reports`, `campaigns`, `content_blocks`, `events`, `message_reports`, `profiles`
 
 Diffed against: <https://developer.clevertap.com/llms.txt>
 
-- [ ] `Message reports (POST /1/message/report.json)` — Messages sent by CleverTap with channel and status over a date range, the core delivery log for engagement analysis (high)
-- [ ] `Campaigns (POST /1/targets/list.json)` — Campaign IDs, names, schedule and status for campaigns created through the API, to resolve campaign IDs in message reports (medium)
-- [ ] `Campaign report (POST /1/targets/result.json)` — Delivery, click and conversion metrics per completed campaign, fan-out over campaign IDs (medium)
+- [x] `Message reports (POST /1/message/report.json)` — Messages sent by CleverTap with channel and status over a date range, the core delivery log for engagement analysis (high)
+- [x] `Campaigns (POST /1/targets/list.json)` — Campaign IDs, names, schedule and status for campaigns created through the API, to resolve campaign IDs in message reports (medium)
+- [x] `Campaign report (POST /1/targets/result.json)` — Delivery, click and conversion metrics per completed campaign, fan-out over campaign IDs (medium)
 - [ ] `Catalogs (GET /v2/catalogs)` — Product catalogs in the account, parent list for catalog products (low)
 - [ ] `Catalog products (GET /v2/catalogs/{catalogId}/products)` — Products per catalog with attributes, fan-out under catalogs (low)
-- [ ] `Content blocks (GET /v1/contentBlock/list)` — Reusable content blocks with creator and dates (low)
+- [x] `Content blocks (GET /v1/contentBlock/list)` — Reusable content blocks with creator and dates (low)
 
 Note: Read the docs index llms.txt and the .md page for each API reference entry. We sync events and user profiles today. Excluded upload, delete, demerge, subscribe, wallet and coupon per-user calls, remote config variables, external trigger, and pre-signed URL routes. Count and trend report endpoints (real-time counts, top property counts, trends) were left out as aggregate queries without a stable row grain. Campaign list only returns campaigns created via the API, within a date range. Region-specific hosts and account ID plus passcode headers apply.
 
