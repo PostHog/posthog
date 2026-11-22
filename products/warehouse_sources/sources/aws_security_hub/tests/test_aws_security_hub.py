@@ -96,6 +96,10 @@ def test_region_is_a_connection_host_field() -> None:
         ("GetInsights", "POST", "/insights/get"),
         ("GetRemediationsV2", "POST", "/GetRemediationsV2"),
         ("ListExposuresByRemediationV2", "POST", "/ListExposuresByRemediationV2"),
+        ("DescribeProductsV2", "GET", "/productsV2"),
+        ("GetSoftwareV2", "POST", "/softwarev2"),
+        ("GetFindingsTrendsV2", "POST", "/findingsTrendsv2"),
+        ("GetResourcesTrendsV2", "POST", "/resourcesTrendsv2"),
     ],
 )
 def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
@@ -452,7 +456,7 @@ def test_standards_controls_resume_skips_finished_subscriptions(next_token: str 
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2"]
+    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2", "products_v2"]
 )
 def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
     endpoint_config = ENDPOINTS[endpoint]
@@ -715,3 +719,91 @@ def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str 
     assert (row["product_uid"], row["finding_uid"]) == (PRODUCT, "example-finding")
     assert row["modified_time"] == dt.datetime(2025, 5, 2, tzinfo=dt.UTC)
     assert row["finding_info"] == finding["finding_info"]
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,expected",
+    [
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageType": "library", "ResourceCount": 3}]},
+            {"package_name": "openssl", "package_version": "", "package_type": "library", "resource_count": 3},
+        ),
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageVersion": "3.0.2", "PackageType": "library"}]},
+            {"package_name": "openssl", "package_version": "3.0.2", "package_type": "library"},
+        ),
+        (
+            "findings_trends_v2",
+            {
+                "Granularity": "Daily",
+                "TrendsMetrics": [
+                    {
+                        "Timestamp": "2025-05-01T00:00:00Z",
+                        "TrendsValues": {"SeverityTrends": {"Critical": 2, "High": 5, "Unknown": 0}},
+                    }
+                ],
+            },
+            {
+                "granularity": "Daily",
+                "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC),
+                "critical": 2,
+                "high": 5,
+                "unknown": 0,
+            },
+        ),
+        (
+            "resources_trends_v2",
+            {
+                "Granularity": "Weekly",
+                "TrendsMetrics": [
+                    {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {"ResourcesCount": {"AllResources": 40}}}
+                ],
+            },
+            {"granularity": "Weekly", "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC), "all_resources": 40},
+        ),
+        (
+            "products_v2",
+            {"ProductsV2": [{"ProductV2Name": "Example scanner", "CompanyName": "Example", "Categories": ["CVE"]}]},
+            {"product_v2_name": "Example scanner", "company_name": "Example", "categories": ["CVE"]},
+        ),
+    ],
+)
+def test_v2_aggregate_rows_fill_their_primary_keys(
+    endpoint: str, body: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json=body)])
+    assert result.raised is None
+    assert result.rows == [expected]
+    assert all(expected.get(key) is not None for key in ENDPOINTS[endpoint].primary_keys)
+
+
+@pytest.mark.parametrize("endpoint", ["findings_trends_v2", "resources_trends_v2"])
+@pytest.mark.parametrize("resumed", [False, True])
+def test_trends_request_a_fixed_window_that_survives_resume(endpoint: str, resumed: bool) -> None:
+    saved = AwsSecurityHubResumeConfig(
+        next_token="page-2", updated_after="2025-03-01T00:00:00Z", cutoff="2025-05-30T00:00:00Z"
+    )
+    page: dict[str, Any] = {"Granularity": "Daily", "TrendsMetrics": [], "NextToken": None}
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        result = driver().run(endpoint, [ScriptedResponse(json=page)], resume_state=saved if resumed else None)
+    assert result.raised is None
+    payload = result.requests[0].json()
+    if resumed:
+        assert (payload["StartTime"], payload["EndTime"], payload["NextToken"]) == (
+            saved.updated_after,
+            saved.cutoff,
+            "page-2",
+        )
+    else:
+        assert (payload["StartTime"], payload["EndTime"]) == ("2025-03-03T12:00:00Z", "2025-06-01T12:00:00Z")
+        assert "NextToken" not in payload
+    assert result.response is not None and result.response.sort_mode is None
+    assert result.saved_states[-1].finished
+
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        with scripted_network([ScriptedResponse(json=page)]) as network:
+            assert validate_credentials(config(), VERSION, endpoint) == (True, None)
+    probe = network.requests_log[0].json()
+    assert (probe["StartTime"], probe["EndTime"]) == ("2025-05-31T12:00:00Z", "2025-06-01T12:00:00Z")

@@ -1694,10 +1694,10 @@ Note: The official SDK model verifies REST paths, list responses, and required p
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/securityhub/2018-10-26/service-2.json>
 
-- [ ] `Software inventory V2 (GetSoftwareV2, POST /softwarev2)` — query installed software and vulnerable packages per resource in the newer Security Hub surface (medium)
-- [ ] `Findings trends V2 (GetFindingsTrendsV2, POST /findingsTrendsv2)` — chart finding counts over time by severity without replaying all findings (medium)
-- [ ] `Resources trends V2 (GetResourcesTrendsV2, POST /resourcesTrendsv2)` — chart resource counts over time by account and region (low)
-- [ ] `Products V2 (DescribeProductsV2, GET /productsV2)` — resolve product ids on V2 findings to names, like the existing products table does for legacy findings (medium)
+- [x] `Software inventory V2 (GetSoftwareV2, POST /softwarev2)` — query installed software and vulnerable packages per resource in the newer Security Hub surface (medium)
+- [x] `Findings trends V2 (GetFindingsTrendsV2, POST /findingsTrendsv2)` — chart finding counts over time by severity without replaying all findings (medium)
+- [x] `Resources trends V2 (GetResourcesTrendsV2, POST /resourcesTrendsv2)` — chart resource counts over time by account and region (low)
+- [x] `Products V2 (DescribeProductsV2, GET /productsV2)` — resolve product ids on V2 findings to names, like the existing products table does for legacy findings (medium)
 - [ ] `Automation rules (ListAutomationRules, GET /automationrules/list; BatchGetAutomationRules, POST /automationrules/get)` — review rules that auto-change finding severity and workflow, to explain finding edits (low)
 - [ ] `Configuration policies (ListConfigurationPolicies, GET /configurationPolicy/list; ListConfigurationPolicyAssociations, POST /configurationPolicyAssociation/list)` — see which central configuration policy applies to each account or organizational unit (low)
 - [ ] `Finding aggregators (ListFindingAggregators, GET /findingAggregator/list)` — know which regions aggregate findings into the home region (low)

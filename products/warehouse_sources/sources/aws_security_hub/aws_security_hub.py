@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     SourceResponse,
     camel_to_snake,
+    format_datetime,
     frozen,
     make_tracked_session,
 )
@@ -154,6 +155,7 @@ def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
         "modified_time",
         "resource_creation_time_dt",
         "resource_detail_capture_time_dt",
+        "timestamp",
     ):
         if isinstance(row.get(key), str):
             timestamp = dt.datetime.fromisoformat(row[key].replace("Z", "+00:00"))
@@ -177,7 +179,19 @@ def _prepare(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
             "created_time": info.get("created_time_dt"),
             "modified_time": info.get("modified_time_dt"),
         }
+    if endpoint == "software_v2":
+        # PackageVersion is optional and part of the primary key, so a missing version becomes an empty string.
+        return {**item, "PackageVersion": item.get("PackageVersion") or ""}
+    if ENDPOINTS[endpoint].trend_window_days:
+        values = item.get("TrendsValues") or {}
+        counts = values.get("SeverityTrends") or values.get("ResourcesCount") or {}
+        return {**{key: value for key, value in item.items() if key != "TrendsValues"}, **counts}
     return item
+
+
+def _trend_window(days: int) -> tuple[str, str]:
+    end = dt.datetime.now(dt.UTC)
+    return format_datetime(end - dt.timedelta(days=days), "iso_z"), format_datetime(end, "iso_z")
 
 
 def get_rows(
@@ -204,6 +218,9 @@ def get_rows(
         # A row that changes mid-run sits below the run's highest value, so the next run would skip it.
         # An upper bound keeps every change after the cutoff for the next run.
         cutoff = dt.datetime.now(dt.UTC).isoformat()
+    if endpoint_config.trend_window_days:
+        # The resume state keeps the window, because a NextToken is only valid for the request that issued it.
+        updated_after, cutoff = _trend_window(endpoint_config.trend_window_days)
     if state:
         updated_after = state.updated_after
         cutoff = state.cutoff
@@ -221,6 +238,8 @@ def get_rows(
             window = {"End": cutoff, **({"Start": updated_after} if updated_after else {})}
             date_filter = {"FieldName": "finding_info.modified_time_dt", "Filter": window}
             filters["Filters"] = {"CompositeFilters": [{"DateFilters": [date_filter]}]}
+        if endpoint_config.trend_window_days:
+            filters["StartTime"], filters["EndTime"] = updated_after, cutoff
         parent_ids: list[str | None] = [None]
         parent_field = None
         if endpoint_config.parent:
@@ -336,6 +355,8 @@ def _items(endpoint: SecurityHubEndpoint, result: dict[str, Any]) -> list[dict[s
         # GetInsightResults returns one object with the grouped counts nested inside it.
         group_by = items.get("GroupByAttribute")
         return [{"GroupByAttribute": group_by, **value} for value in items.get("ResultValues") or []]
+    if endpoint.trend_window_days:
+        return [{"Granularity": result.get("Granularity"), **item} for item in items]
     return items
 
 
@@ -369,6 +390,8 @@ def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
         if not items:
             return
         path_params[parent_field] = items[0][parent_field]
+    if endpoint.trend_window_days:
+        path_params["StartTime"], path_params["EndTime"] = _trend_window(1)
     client.request(endpoint.operation, {**({"MaxResults": 1} if endpoint.page_size else {}), **path_params})
 
 
