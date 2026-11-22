@@ -125,7 +125,7 @@ function noClickToFollow(impact: TransactionalEmailImpactApi): Pick<ImpactStep, 
     if (impact.clicked > 0) {
         return {
             missing: 'None followed',
-            missingDetail: `PostHog follows the sends that name a person, and none of the ${humanFriendlyNumber(impact.clicked)} clicked sends in this period did.`,
+            missingDetail: `PostHog couldn't tie any of the ${humanFriendlyNumber(impact.clicked)} clicked sends in this period to a person.`,
         }
     }
     if (everySendUntracked(impact)) {

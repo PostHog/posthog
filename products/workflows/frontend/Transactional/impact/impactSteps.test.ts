@@ -123,7 +123,7 @@ describe('impactSteps', () => {
             { ...impact, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [20, undefined],
-            [null, 'None followed', 'PostHog follows the sends that name a person, and none of the 20 clicked sends'],
+            [null, 'None followed', "PostHog couldn't tie any of the 20 clicked sends"],
         ],
         [
             'some sends went out untracked and nobody opened or clicked',
