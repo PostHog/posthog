@@ -5,6 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from django.core.exceptions import RequestDataTooBig
+from django.utils.http import parse_header_parameters
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -71,9 +72,8 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
     def _check_batch_before_throttles(self, request: Any) -> None:
         with transactional_email_stage("feature_flag"):
             require_email_batch_sends(self.team)
-        if request.content_type.split(";")[0].strip().lower() != JSONParser.media_type:
-            raise UnsupportedMediaType(request.content_type)
-        with transactional_email_stage("feature_flag"):
+            if parse_header_parameters(request.content_type)[0] != JSONParser.media_type:
+                raise UnsupportedMediaType(request.content_type)
             if isinstance(request.data, Mapping) and "template_key" in request.data:
                 require_email_from_code(self.team)
             else:

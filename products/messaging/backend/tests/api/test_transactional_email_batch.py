@@ -9,6 +9,7 @@ from django.core.cache import cache
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -108,6 +109,15 @@ def _batch_answer(*results: dict[str, Any]) -> requests.Response:
     return _response(200, {"results": list(results)})
 
 
+def _flag_stage_samples() -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "messaging_transactional_email_stage_duration_seconds_count", {"stage": "feature_flag"}
+        )
+        or 0
+    )
+
+
 def _forwarded(call: Any) -> dict[str, Any]:
     return call.kwargs["json"] if call.kwargs.get("json") is not None else json.loads(call.kwargs["data"])
 
@@ -188,7 +198,9 @@ class TestTransactionalEmailBatch(APIBaseTest):
         capture.side_effect = analytics.capture
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
         merged_data = {"message_data": {"link": "https://example.com/a", "n": 2}} if form == "template" else {}
+        flag_samples_before_single = _flag_stage_samples()
         assert self._single(form, distinct_id="user-0", **merged_data).status_code == status.HTTP_202_ACCEPTED
+        flag_samples_before_batch = _flag_stage_samples()
         single = _forwarded(mock_post.call_args)
         mock_post.return_value = self._queued_answer(2)
         first_recipient: dict[str, Any] = {
@@ -202,6 +214,9 @@ class TestTransactionalEmailBatch(APIBaseTest):
         response = self._batch(form, [first_recipient, {"to": "user1@example.com", "idempotency_key": "key-1"}])
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (
+            _flag_stage_samples() - flag_samples_before_batch == flag_samples_before_batch - flag_samples_before_single
+        )
         assert response.json() == {
             "results": [
                 {"message_id": self._id("key-0"), "status": "queued", "replayed": False},
