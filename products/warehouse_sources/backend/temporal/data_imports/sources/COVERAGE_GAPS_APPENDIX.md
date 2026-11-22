@@ -16570,17 +16570,17 @@ Re-audited 2026-11-19 against <https://docs.zero.inc/llms.txt>: no new gaps wort
 
 ## Zoho CRM — gaps
 
-Today (22): `Accounts`, `Calls`, `Campaigns`, `Cases`, `Contacts`, `Deal_Timeline`, `Deals`, `Events`, `Invoices`, `Leads`, `Notes`, `Pipelines`, `Price_Books`, `Products`, `Purchase_Orders`, `Quotes`, `Sales_Orders`, `Solutions`, `Tasks`, `Territories`, `Users`, `Vendors`
+Today (25): `Accounts`, `Appointments`, `Calls`, `Campaigns`, `Cases`, `Contacts`, `Deal_Contact_Roles`, `Deal_Timeline`, `Deals`, `Events`, `Invoices`, `Leads`, `Notes`, `Pipelines`, `Price_Books`, `Products`, `Purchase_Orders`, `Quotes`, `Sales_Orders`, `Services`, `Solutions`, `Tasks`, `Territories`, `Users`, `Vendors`
 
 Diffed against: <https://www.zoho.com/crm/developer/docs/api/v8/api-references.html>
 
 - [x] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high) — added as `Pipelines`, read for every Deals layout
 - [x] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high) — added as one `Custom_<module>` table per discovered module
 - [x] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high) — added as `Deal_Timeline` (Deals only, one request per deal)
-- [ ] `Related records (GET /crm/v8/{module_api_name}/{record_id}/{related_list_api_name})` — capture campaign participation and relationships between existing CRM records that separate module tables omit (medium)
-- [ ] `Contact roles of a deal (GET /crm/v8/Deals/{deal_id}/Contact_Roles)` — analyze buying committees and identify each contact role across sales opportunities (medium)
-- [ ] `Emails of a record (GET /crm/v8/{module_api_name}/{record_id}/Emails)` — measure email interactions, follow-up activity, and communication patterns for leads and deals (medium)
-- [ ] `Appointments and Services (GET /crm/v8/Appointments; GET /crm/v8/Services)` — analyze booked services and appointment demand beyond the existing event and task tables (medium)
+- [ ] `Related records (GET /crm/v8/{module_api_name}/{record_id}/{related_list_api_name})` — capture campaign participation and relationships between existing CRM records that separate module tables omit (medium) — Skipped: a generic family of org-specific related lists, one request per parent record, not one table; deal contact roles are built as `Deal_Contact_Roles`.
+- [x] `Contact roles of a deal (GET /crm/v8/Deals/{deal_id}/Contact_Roles)` — analyze buying committees and identify each contact role across sales opportunities (medium) — added as `Deal_Contact_Roles` (one request per deal, full refresh)
+- [ ] `Emails of a record (GET /crm/v8/{module_api_name}/{record_id}/Emails)` — measure email interactions, follow-up activity, and communication patterns for leads and deals (medium) — Skipped: ten emails per request for each record, and mailbox setup errors (CANNOT_PROCESS) would fail the whole sync.
+- [x] `Appointments and Services (GET /crm/v8/Appointments; GET /crm/v8/Services)` — analyze booked services and appointment demand beyond the existing event and task tables (medium) — added as `Appointments` (`Appointments__s`) and `Services` (`Services__s`), incremental on `Modified_Time`
 - [ ] `Currencies (GET /crm/v8/org/currencies)` — interpret currency codes and exchange rates when comparing deal and invoice values across currencies (medium)
 - [x] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium) — added as `Territories`
 
