@@ -18,7 +18,7 @@ export function CustomerIOAutomationsImportItem(): JSX.Element {
                     closeImportModal()
                     openAutomationImport()
                 }}
-                // pinned: data-attr moved here from the picker row it replaced, autocapture and QA selectors use it
+                // pinned: data-attr, autocapture and QA selectors use it
                 data-attr="import-provider-customerio-automations"
             >
                 <IconArrowRight className="text-base" />

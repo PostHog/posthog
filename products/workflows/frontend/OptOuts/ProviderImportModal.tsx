@@ -108,9 +108,9 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
             {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
             {isCustomerIO && isAdminOrOwner === false ? (
                 <>
-                    <AccessDenied object="Customer.io integration" inline />
                     {/* Draft workflows store no Customer.io key, so the automation import needs no admin. */}
                     {showsAutomationImport && <CustomerIOAutomationsImportItem />}
+                    <AccessDenied object="Customer.io integration" inline />
                 </>
             ) : isCustomerIO ? (
                 <CustomerIOImportSteps provider={provider} />
@@ -146,6 +146,7 @@ export function ProviderImportModal(): JSX.Element {
     useMountedLogic(customerIOImportLogic)
     const { isImportModalOpen, selectedProvider, showsAutomationImport } = useValues(providerImportLogic)
     const { closeImportModal } = useActions(providerImportLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
 
     const isCustomerIO = selectedProvider?.key === CUSTOMERIO_PROVIDER
     const title = isCustomerIO
@@ -161,7 +162,9 @@ export function ProviderImportModal(): JSX.Element {
                 description={
                     isCustomerIO
                         ? showsAutomationImport
-                            ? 'Import categories, unsubscribed users, suppressed addresses and automations from Customer.io.'
+                            ? isAdminOrOwner === false
+                                ? 'Import automations from Customer.io as draft workflows.'
+                                : 'Import categories, unsubscribed users, suppressed addresses and automations from Customer.io.'
                             : 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
                         : selectedProvider
                           ? undefined
