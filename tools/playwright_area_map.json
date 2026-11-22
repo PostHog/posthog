@@ -54,7 +54,12 @@
         ".github/*-problem-matcher.json",
         "posthog/test/repo_invariants/**",
         "posthog/clickhouse/hcl/**",
-        "services/mcp/**",
+        "services/mcp/*",
+        "services/mcp/definitions/**",
+        "services/mcp/public/**",
+        "services/mcp/scripts/**",
+        "services/mcp/src/**",
+        "services/mcp/tests/**",
         "frontend/snapshots.yml",
         "frontend/jest.*",
         "common/storybook/**",
@@ -240,6 +245,7 @@
         "feature-flags": ["playwright/e2e/feature-flags.spec.ts", "products/surveys/frontend/e2e/quickcreate.spec.ts"]
     },
     "explicit": {
+        "services/mcp/schema/**": ["playwright/e2e/oauth-mcp-consent.spec.ts"],
         "products/web_analytics/frontend/heatmaps/**": ["playwright/e2e/auth.spec.ts"],
         "products/signals/frontend/inbox/**": ["playwright/e2e/auth.spec.ts"],
         "products/feature_flags/frontend/**": ["playwright/e2e/feature-flags.spec.ts"],
@@ -310,9 +316,5 @@
         "products/messaging/backend/templates/message_preferences/**": ["products/messaging/frontend/e2e/"],
         "frontend/public/message-preferences.css": ["products/messaging/frontend/e2e/"]
     },
-    "full_suite_only": [
-        "playwright/e2e/oauth-mcp-consent.spec.ts",
-        "playwright/e2e/system-status.spec.ts",
-        "playwright/e2e/ingestion-capture.spec.ts"
-    ]
+    "full_suite_only": ["playwright/e2e/system-status.spec.ts", "playwright/e2e/ingestion-capture.spec.ts"]
 }
