@@ -1671,6 +1671,7 @@ describe('runner through seed, drive and judge', () => {
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
             })
+            expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)
         },
         30_000
     )
@@ -1889,12 +1890,14 @@ describe('runner through seed, drive and judge', () => {
             ]
 
             const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
+            const reads = evidenceOf(result, 'writer-cpu.json') as { read: unknown }[]
 
             expect({
                 status: result.status,
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
                 statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
@@ -1908,6 +1911,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
         30_000
@@ -1966,12 +1970,24 @@ describe('runner through seed, drive and judge', () => {
         const result = await running
         results.push(result)
 
-        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
+        expect({
+            convergence: result.convergence?.converged,
+            ramp: result.ramp,
+            reads: evidenceOf(result, 'writer-cpu.json'),
+        }).toEqual({
             convergence: false,
             ramp: expect.objectContaining({
                 end: 'harness_limit',
                 reason: expect.stringContaining('CloudWatch throttled the read'),
             }),
+            reads: expect.arrayContaining([
+                {
+                    startedAt: expect.any(Number),
+                    endedAt: expect.any(Number),
+                    read: { unread: 'the writer CPU read failed: CloudWatch throttled the read' },
+                },
+                { startedAt: expect.any(Number), endedAt: expect.any(Number), read: [] },
+            ]),
         })
     }, 60_000)
 
