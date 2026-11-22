@@ -21,10 +21,6 @@
         {
             "type": "streamable-http",
             "url": "https://mcp.posthog.com/mcp"
-        },
-        {
-            "type": "streamable-http",
-            "url": "https://mcp-eu.posthog.com/mcp"
         }
     ]
 }
