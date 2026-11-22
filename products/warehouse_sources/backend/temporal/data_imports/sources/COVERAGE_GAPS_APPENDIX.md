@@ -3623,7 +3623,7 @@ Note: The official OpenAPI specification was parsed for all GET operations and r
 
 ## Cloudzero — gaps
 
-Today (6): `Budgets`, `Costs`, `Dimensions`, `Insights`, `RecommendationTypes`, `Recommendations`
+Today (8): `Budgets`, `Costs`, `Dimensions`, `InsightComments`, `Insights`, `RecommendationTypes`, `Recommendations`, `Views`
 
 Diffed against: <https://docs.cloudzero.com/reference/getbillingcosts>
 
@@ -3631,9 +3631,9 @@ Diffed against: <https://docs.cloudzero.com/reference/getbillingcosts>
 - [x] `/v2/insights` — The cost insights backlog (owner, status, estimated savings) - the workflow layer users join back to costs (high)
 - [x] `/v2/budgets` — Budget definitions needed for any budget-vs-actual analysis against the Costs table already synced (high)
 - [ ] `/unit-cost/v1/telemetry/{stream}/records (and the sum variant, summetrictelemetry)` — Unit metric telemetry supplies the denominators for cost-per-unit economics, the product's core promise; costs alone cannot produce a unit metric (high). Skipped: the sum variant (`summetrictelemetry`) is a POST that sends telemetry to CloudZero rather than reading it. The records GET is real but not table material: it needs a `telemetry_stream_name` that no endpoint lists, returns only the most recent records capped at 1000 with no pagination, and documents no response schema. It also sits on the separate `/unit-cost/v1` Telemetry API, not the v2 API this source pins.
-- [ ] `sumallocationtelemetry / allocation telemetry records` — Allocation drivers used to split shared cost across tenants or teams - needed to reconcile allocated costs (medium)
-- [ ] `/v2/views` — Saved cost views define the grouping/filter dimensions the org actually reports on, a lookup for the Dimensions table (medium)
-- [ ] `/v2/insights/{insight_id}/comments` — Discussion trail on insights, useful for measuring time-to-action on cost work (low)
+- [ ] `sumallocationtelemetry / allocation telemetry records` — Allocation drivers used to split shared cost across tenants or teams - needed to reconcile allocated costs (medium). Skipped: `sumallocationtelemetry` is a POST that sends allocation telemetry to CloudZero, not a read. The only read is the per-stream records GET on the separate `/unit-cost/v1` Telemetry API, which needs a stream name that no endpoint lists and returns only the most recent records with no pagination.
+- [x] `/v2/views` — Saved cost views define the grouping/filter dimensions the org actually reports on, a lookup for the Dimensions table (medium)
+- [x] `/v2/insights/{insight_id}/comments` — Discussion trail on insights, useful for measuring time-to-action on cost work (low)
 
 Note: The ReadMe reference page embeds the full sidebar, which enumerates the v2 surface: /v2/billing/costs, /v2/billing/dimensions, /v2/budgets, /v2/insights, /v2/optimize/recommendations, /v2/optimize/recommendation_types, /v2/views, /v2/roles, plus CostFormation and AnyCost connection management. Unit-cost telemetry lives on a separate /unit-cost/v1 base, not under /v2.
 
@@ -7482,10 +7482,10 @@ Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). The
 
 Re-audited 2026-11-19 against: <https://api.hubspot.com/public/api/spec/v1/specs>
 
-- [ ] `Settings users (GET /crm/objects/2026-09/users)` — user records for the portal, resolve user IDs used for assignment and activity authors; owners only covers CRM owners (high)
-- [ ] `Teams (GET /settings/teams/2026-09; GET /settings/teams/2026-09/{teamId}/members)` — team lookup and membership for rep and team level sales reporting; members fan out over teams (high)
-- [ ] `Marketing emails (GET /marketing/emails/2026-09)` — email definitions with send state and stats, the headline marketing object; stats also at /statistics/list (high)
-- [ ] `Marketing campaigns (GET /marketing/campaigns/2026-09)` — campaign list, plus per-campaign metrics and revenue reports at /{campaignGuid}/reports/metrics and /reports/revenue (fan-out) (high)
+- [x] `Settings users (GET /crm/objects/2026-09/users)` — user records for the portal, resolve user IDs used for assignment and activity authors; owners only covers CRM owners (high). Added as `users`, a CRM object table, incremental on `hs_lastmodifieddate`, behind the optional `crm.objects.users.read` scope.
+- [x] `Teams (GET /settings/teams/2026-09; GET /settings/teams/2026-09/{teamId}/members)` — team lookup and membership for rep and team level sales reporting; members fan out over teams (high). Added as `teams` from the stable User Provisioning route `/settings/users/2026-03/teams`, whose `userIds` and `secondaryUserIds` carry the membership; the Settings Teams API is public beta only. Behind the optional `settings.users.teams.read` scope.
+- [ ] `Marketing emails (GET /marketing/emails/2026-09)` — email definitions with send state and stats, the headline marketing object; stats also at /statistics/list (high). Skipped: a portal-level app can read this list only with the read-write `content` CMS scope (`marketing.email.read` is user-level only), too broad for the shared HubSpot token.
+- [x] `Marketing campaigns (GET /marketing/campaigns/2026-09)` — campaign list, plus per-campaign metrics and revenue reports at /{campaignGuid}/reports/metrics and /reports/revenue (fan-out) (high). Added as `marketing_campaigns` (the list, with the 15 documented `hs_` properties) from the stable 2026-03 route, behind the optional `marketing.campaigns.read` scope. The per-campaign report fan-out is not built yet.
 - [ ] `Marketing events (GET /marketing/marketing-events/2026-09)` — events with attendance, joins to contacts through participation breakdowns (medium)
 - [ ] `Goal targets (GET /crm/objects/2026-09/goal_targets)` — sales goals per user and period, the quota side of the forecasts table we sync (medium)
 - [ ] `Audit logs (GET /account-info/2026-09/activity/audit-logs)` — who changed what in the account; also /activity/login and /activity/security (medium)
@@ -8057,10 +8057,10 @@ Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hoste
 
 Re-audited 2026-11-19 against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 
-- [ ] `Managed software update plans (GET /v1/managed-software-updates/plans)` — Scheduled OS update plans per device or group, the plan side of the update statuses we sync (high)
-- [ ] `Update plan events (GET /v1/managed-software-updates/plans/{id}/events)` — Event history per update plan, fanned out over plans (medium)
-- [ ] `Computer prestages (GET /v3/computer-prestages)` — Enrollment prestage definitions for computers, a lookup for how a device was enrolled (medium)
-- [ ] `Mobile device prestages (GET /v3/mobile-device-prestages)` — Enrollment prestage definitions for mobile devices, same use as computer prestages (medium)
+- [x] `Managed software update plans (GET /v1/managed-software-updates/plans)` — Scheduled OS update plans per device or group, the plan side of the update statuses we sync (high). Added as `managed_software_update_plans` (full refresh).
+- [ ] `Update plan events (GET /v1/managed-software-updates/plans/{id}/events)` — Event history per update plan, fanned out over plans (medium). Skipped: the response is one opaque `events` string per plan with no documented shape, and it needs one request per device plan.
+- [x] `Computer prestages (GET /v3/computer-prestages)` — Enrollment prestage definitions for computers, a lookup for how a device was enrolled (medium). Added as `computer_prestages` (full refresh).
+- [x] `Mobile device prestages (GET /v3/mobile-device-prestages)` — Enrollment prestage definitions for mobile devices, same use as computer prestages (medium). Added as `mobile_device_prestages` (full refresh).
 - [ ] `Inventory preload records (GET /v2/inventory-preload/records)` — Preloaded serial, owner and asset data applied to devices before enrollment (medium)
 - [ ] `Enrollment history (GET /v2/enrollment/history)` — Audit trail of enrollment settings changes (low)
 - [ ] `Static user groups (GET /v1/static-user-groups)` — User group lookup and membership, next to the users table (low)
@@ -10254,7 +10254,7 @@ Today (4): `Countries`, `CountryInfo`, `NextPublicHolidays`, `PublicHolidays`
 
 Diffed against: <https://date.nager.at/openapi/pro-v1.json>
 
-- [ ] `Long weekends (GET /api/pro/v1/LongWeekends/{isoCode}/{year})` — identify extended holiday periods and bridge days for staffing and seasonal demand analysis (low)
+- [ ] `Long weekends (GET /api/pro/v1/LongWeekends/{isoCode}/{year})` — identify extended holiday periods and bridge days for staffing and seasonal demand analysis (low) Skipped: only in the paid Pro API (x-api-key) and the deprecated v3 API; the community v4 API this source uses has no long weekends route.
 
 Note: Parsed the Community v4, deprecated Community v3, and Pro v1 OpenAPI documents linked by Scalar. The four current tables cover all useful Community v4 collections. Long weekends are a Pro collection and need Pro authentication plus requests for each country or subdivision and year. Excluded version information and the current-day holiday check; deprecated v3 routes are not recommended additions.
 
@@ -12059,7 +12059,7 @@ Diffed against: <https://help.proofpoint.com/Threat_Insight_Dashboard/API_Docume
 - [x] `Campaign IDs and details (GET /v2/campaign/ids; GET /v2/campaign/{campaignId})` — resolve campaign identifiers in SIEM events and analyze related threat activity (high)
 - [x] `Very Attacked People (GET /v2/people/vap)` — measure the vendor attack index and identify highly targeted users (high)
 - [x] `Top clickers (GET /v2/people/top-clickers)` — rank risky clicking behavior with user identity and threat family breakdowns (medium)
-- [ ] `Forensics (GET /v2/forensics)` — analyze threat evidence and indicators of compromise linked to events (medium)
+- [x] `Forensics (GET /v2/forensics)` — analyze threat evidence and indicators of compromise linked to events (medium)
 
 Note: The official API index links the People, Campaign, Threat, and Forensics references, whose GET operations were inspected. Threat summaries and forensics need IDs from existing events; campaign details need an ID listing or event fan-out. People results use rolling windows and quotas. SIEM aggregate endpoints duplicate existing tables, and URL decoding is excluded.
 
@@ -14536,10 +14536,10 @@ Diffed against: <https://api.svix.com/api/v1/openapi.json>
 - [x] `GET /api/v1/app/{app_id}/attempt/msg/{msg_id} and /attempt/endpoint/{endpoint_id}` — Delivery attempts with response status, latency and retry count - the only way to analyze webhook reliability (high) → `message_attempts` (incremental on `timestamp`, by endpoint, fan-out over `applications` and `endpoints`)
 - [x] `GET /api/v1/app/{app_id}/endpoint` — Lookup table resolving the endpoint IDs carried on every attempt, plus per-endpoint filter/rate-limit config (high) → `endpoints` (full refresh, fan-out over `applications`)
 - [x] `GET /api/v1/app/{app_id}/endpoint/{endpoint_id}/stats` — Pre-aggregated success/pending/fail counts per endpoint (medium) → `endpoint_stats` (full refresh, trailing 28 days, fan-out over `applications` and `endpoints`)
-- [ ] `GET /api/v1/app/{app_id}/msg/{msg_id}/endpoint` — Message-to-endpoint fan-out membership table (medium)
-- [ ] `GET /api/v1/stream and /api/v1/stream/{stream_id}/sink` — Svix Streams objects - a second product surface with zero coverage (medium)
-- [ ] `GET /api/v1/stream/{stream_id}/sink/{sink_id}/events` — Stream event records, the analytical rows of the Streams product (medium)
-- [ ] `GET /api/v1/app/{app_id}/integration` — Per-application integrations, a lookup for which partner owns an endpoint (medium)
+- [ ] `GET /api/v1/app/{app_id}/msg/{msg_id}/endpoint` — Message-to-endpoint fan-out membership table (medium) Skipped: needs one request per message, and `message_attempts` already carries `msgId` and `endpointId`.
+- [x] `GET /api/v1/stream and /api/v1/stream/{stream_id}/sink` — Svix Streams objects - a second product surface with zero coverage (medium) → `streams` (full refresh) and `stream_sinks` (full refresh, fan-out over `streams`, `config` dropped)
+- [ ] `GET /api/v1/stream/{stream_id}/sink/{sink_id}/events` — Stream event records, the analytical rows of the Streams product (medium) Skipped: works only for `poller` sinks, and the events have no ID to use as a primary key.
+- [x] `GET /api/v1/app/{app_id}/integration` — Per-application integrations, a lookup for which partner owns an endpoint (medium) → `integrations` (full refresh, fan-out over `applications`)
 - [ ] `GET /ingest/api/v1/source and /ingest/api/v1/source/{source_id}/endpoint` — Svix Ingest sources and their routing - inbound-webhook coverage (low)
 - [ ] `GET /api/v1/background-task` — Async task history (recover, replay, expunge) with status transitions (low)
 - [ ] `GET /api/v1/stream/event-type` — Lookup table for stream event type names, mirroring the already-synced event_types (low)
@@ -14597,10 +14597,10 @@ Today (5): `campaign_items`, `campaign_summary_by_day`, `campaigns`, `conversion
 
 Diffed against: <https://developers.taboola.com/backstage-api/reference/campaign-summary-report>
 
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/site_breakdown` — Per-publisher-site performance, the headline breakdown for native advertising and the basis of site blocking decisions (high)
-- [ ] `GET /users/current/allowed-accounts` — Lookup table of accounts and their IDs - resolves the account_id every other table is scoped by, and enumerates what can be synced (high)
-- [ ] `GET /{account_id}/advertisers` — Lookup table resolving the advertiser IDs carried on synced campaigns (high)
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/country_breakdown` — Geo performance breakdown, one of the most commonly wanted report cuts (high)
+- [x] `GET /{account_id}/reports/campaign-summary/dimensions/site_breakdown` — Per-publisher-site performance, the headline breakdown for native advertising and the basis of site blocking decisions (high). Added as `campaign_summary_by_site` (trailing 30-day snapshot, full refresh).
+- [x] `GET /users/current/allowed-accounts` — Lookup table of accounts and their IDs - resolves the account_id every other table is scoped by, and enumerates what can be synced (high). Added as `allowed_accounts` (full refresh).
+- [x] `GET /{account_id}/advertisers` — Lookup table resolving the advertiser IDs carried on synced campaigns (high). Added as `advertisers` (full refresh; empty for non-network accounts, which get a 404).
+- [x] `GET /{account_id}/reports/campaign-summary/dimensions/country_breakdown` — Geo performance breakdown, one of the most commonly wanted report cuts (high). Added as `campaign_summary_by_country` (trailing 30-day snapshot, full refresh).
 - [ ] `GET /{account_id}/reports/campaign-summary/dimensions/item_breakdown` — Per-creative spend and conversion metrics, joining directly to the already-synced campaign_items (high)
 - [ ] `GET /{account_id}/reports/campaign-summary/dimensions/platform_breakdown` — Desktop/mobile/tablet split, needed for device-level bid analysis (medium)
 - [ ] `GET /{account_id}/reports/campaign-summary/dimensions/region_breakdown and /dma_breakdown` — Sub-national geo dimensions for US and regional targeting analysis (medium)
@@ -15245,10 +15245,10 @@ Today (2): `orders_with_journeys`, `summary_page`
 
 Diffed against: <https://triplewhale.readme.io/reference/data-out-execute-custom-sql-query.md>
 
-- [ ] `Orders table (POST /orcabase/api/sql, FROM orders_table)` — One row per order across all platforms, with revenue, discounts and new vs returning flag; our journeys table only covers pixel-attributed orders (high)
-- [ ] `Ads table (POST /orcabase/api/sql, FROM ads_table)` — Ad level spend and performance across channels, the core marketing cost table (high)
-- [ ] `Customers table (POST /orcabase/api/sql, FROM customers_table)` — Customer records with purchase history, to join on orders (high)
-- [ ] `Products table (POST /orcabase/api/sql, FROM products_table)` — Product catalog with variants and cost data, resolves product ids on orders (medium)
+- [x] `Orders table (POST /orcabase/api/sql, FROM orders_table)` — One row per order across all platforms, with revenue, discounts and new vs returning flag; our journeys table only covers pixel-attributed orders (high)
+- [x] `Ads table (POST /orcabase/api/sql, FROM ads_table)` — Ad level spend and performance across channels, the core marketing cost table (high)
+- [x] `Customers table (POST /orcabase/api/sql, FROM customers_table)` — Customer records with purchase history, to join on orders (high)
+- [x] `Products table (POST /orcabase/api/sql, FROM products_table)` — Product catalog with variants and cost data, resolves product ids on orders (medium)
 - [ ] `Refunds table (POST /orcabase/api/sql, FROM refunds_table)` — Line item refunds by refund date, for net revenue (medium)
 - [ ] `Subscriptions table (POST /orcabase/api/sql, FROM subscriptions_table)` — Subscription records and status for recurring revenue analysis (medium)
 - [ ] `Email and SMS table (POST /orcabase/api/sql, FROM email_sms_table)` — Campaign and flow performance for email and SMS channels (medium)
@@ -16619,10 +16619,10 @@ Diffed against: <https://developers.zoom.us/api-hub/meetings/methods/endpoints.j
 - [x] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
 - [x] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
 - [x] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
-- [ ] `/report/daily` — daily rollup of new users, meetings, participants and minutes per account (medium)
-- [ ] `/webinars/{webinarId}/panelists` — panelist membership per webinar, needed to separate hosts/panelists from attendees (medium)
-- [ ] `/meetings/meeting_summaries and /meetings/{meetingId}/meeting_summary` — account-wide AI meeting summaries, a queryable per-meeting content table (medium)
-- [ ] `/past_meetings/{meetingId}/polls, /past_webinars/{webinarId}/polls and /past_webinars/{webinarId}/qa` — poll and Q&A responses - per-respondent engagement rows tied to meetings/webinars already synced (medium)
+- [x] `/report/daily` — daily rollup of new users, meetings, participants and minutes per account (medium)
+- [x] `/webinars/{webinarId}/panelists` — panelist membership per webinar, needed to separate hosts/panelists from attendees (medium)
+- [x] `/meetings/meeting_summaries and /meetings/{meetingId}/meeting_summary` — account-wide AI meeting summaries, a queryable per-meeting content table (medium)
+- [x] `/past_meetings/{meetingId}/polls, /past_webinars/{webinarId}/polls and /past_webinars/{webinarId}/qa` — poll and Q&A responses - per-respondent engagement rows tied to meetings/webinars already synced (medium)
 
 Note: Tables are static (ZOOM_ENDPOINTS in products/warehouse_sources/sources/zoom/settings.py), no dynamic discovery. The meetings stream is pinned to params={"type": "scheduled"}, so completed/past meetings never land - which is why the /report/\* and /past_meetings/\* families are the highest-value additions. The Zoom API is split into per-product OpenAPI specs served at https://developers.zoom.us/api-hub/<product>/methods/endpoints.json; I diffed against the meetings spec (129 paths) and the users spec (https://developers.zoom.us/api-hub/users/methods/endpoints.json), and did not count the separate Phone, Team Chat, Rooms or Contact Center products, which are entirely unsynced.
 
