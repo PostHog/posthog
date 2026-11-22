@@ -236,8 +236,8 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // Click tracking follows the send's tracking setting, sensitive or not. A sensitive email's click
-    // events keep only the link's origin, so a login code or reset token in the path is never recorded.
+    // PostHog keeps only the link's origin from a sensitive email's click events (see helpers/ses.ts),
+    // but SES still sees the full link, so a send whose links carry tokens opts out with clicks: false.
     const allLinksOptedOut = invocation.state?.send?.tracking.clicks === false
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
