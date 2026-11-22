@@ -9,17 +9,29 @@ import { urls } from 'scenes/urls'
 
 import { SettingSectionId } from '../types'
 
-export const SETTINGS_STORY_TEST_OPTIONS = { waitForSelector: '[data-attr^="settings-menu-item-"]' }
+const READY_MARKER = 'settings-story-ready'
 
-/** The nav and section list depend on the organization and team, so a story that mounts earlier can snapshot a short nav or "Setting not found". */
-export function SettingsStoryApp({ sectionId }: { sectionId: SettingSectionId }): JSX.Element | null {
+export const SETTINGS_STORY_TEST_OPTIONS = { waitForSelector: `[data-attr="${READY_MARKER}"]` }
+
+/** Renders nothing until the organization and team have loaded. The nav and section list depend on both, so an earlier mount can snapshot a short nav or "Setting not found". */
+export function SettingsStoryReady({ children }: { children: React.ReactNode }): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
-    const pushed = useRef(false)
 
     if (!currentOrganization || !currentTeam) {
         return null
     }
+
+    return (
+        <>
+            <div data-attr={READY_MARKER} className="absolute size-px opacity-0 pointer-events-none" />
+            {children}
+        </>
+    )
+}
+
+function SettingsSectionApp({ sectionId }: { sectionId: SettingSectionId }): JSX.Element {
+    const pushed = useRef(false)
 
     if (!pushed.current) {
         pushed.current = true
@@ -28,4 +40,12 @@ export function SettingsStoryApp({ sectionId }: { sectionId: SettingSectionId })
     }
 
     return <App />
+}
+
+export function SettingsStoryApp({ sectionId }: { sectionId: SettingSectionId }): JSX.Element {
+    return (
+        <SettingsStoryReady>
+            <SettingsSectionApp sectionId={sectionId} />
+        </SettingsStoryReady>
+    )
 }

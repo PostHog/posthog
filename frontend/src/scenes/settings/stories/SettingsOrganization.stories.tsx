@@ -210,18 +210,9 @@ export const SettingsOrganizationDangerZone: Story = { args: { sectionId: 'organ
 
 export const SettingsOrganizationDangerZoneQuill: Story = withTodayRailNav(SettingsOrganizationDangerZone)
 
-// These sections render their own page without the settings nav, so there is no nav item to wait for.
-const WITHOUT_SETTINGS_NAV = { testOptions: { waitForSelector: [] } }
+export const SettingsOrganizationBilling: Story = { args: { sectionId: 'organization-billing' } }
 
-export const SettingsOrganizationBilling: Story = {
-    args: { sectionId: 'organization-billing' },
-    parameters: WITHOUT_SETTINGS_NAV,
-}
-
-export const SettingsOrganizationStartupProgram: Story = {
-    args: { sectionId: 'organization-startup-program' },
-    parameters: WITHOUT_SETTINGS_NAV,
-}
+export const SettingsOrganizationStartupProgram: Story = { args: { sectionId: 'organization-startup-program' } }
 
 export const SettingsOrganizationCimdVerificationTokens: Story = {
     args: { sectionId: 'organization-cimd-verification-tokens' },

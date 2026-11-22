@@ -13,7 +13,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
-import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp, SettingsStoryReady } from './SettingsStoryApp'
 import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
@@ -127,7 +127,11 @@ export const SettingsProjectLogsReadOnly: Story = {
             effective_membership_level: OrganizationMembershipLevel.Member,
         })
         router.actions.push(urls.settings(sectionId))
-        return <App />
+        return (
+            <SettingsStoryReady>
+                <App />
+            </SettingsStoryReady>
+        )
     },
 }
 

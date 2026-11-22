@@ -17,7 +17,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
-import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp, SettingsStoryReady } from './SettingsStoryApp'
 import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
@@ -127,7 +127,7 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
             router.actions.push(urls.settings(sectionId))
             setInitializedSection(sectionId)
         }, [loadCurrentTeamSuccess, sectionId])
-        return <>{initializedSection === sectionId && <App />}</>
+        return <SettingsStoryReady>{initializedSection === sectionId && <App />}</SettingsStoryReady>
     },
 }
 
