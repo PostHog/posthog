@@ -271,13 +271,13 @@ class HandlebarsToLiquid:
         n = self._lists
         values, shape, string, raw = f"values{n}", f"shape{n}", f"string{n}", f"raw{n}"
         # Handlebars loops over a list's items and an object's values, and over nothing else. Liquid loops over an
-        # object's key and value pairs and over a string once. `concat` keeps a list's items and wraps anything else
-        # in a list of one, so only a list's first item differs from the value itself. A string is the one value
-        # that `append` leaves equal. Both charge the renderer per item or character, never per byte of the items.
+        # object's key and value pairs and over a string once. `slice: 0, 0` gives an empty list for a list or
+        # nothing, and "" for anything else. `first` gives a string's first character, and "" or nothing for an
+        # object. Neither reads past the start of the value, so a large list costs the renderer nothing.
         guard = self._spend(
-            f"{{% assign {values} = {source} | concat: nil %}}{{% capture {shape} %}}"
-            f'{{% if {values}.first != {source} %}}list{{% else %}}{{% assign {string} = {source} | append: "" %}}'
-            f"{{% if {string} == {source} %}}text{{% endif %}}{{% endif %}}{{% endcapture %}}"
+            f"{{% assign {values} = {source} | slice: 0, 0 %}}{{% assign {string} = {source} | first %}}"
+            f'{{% capture {shape} %}}{{% if {values} != "" %}}list'
+            f'{{% elsif {string} != "" and {string} != nil %}}text{{% endif %}}{{% endcapture %}}'
             f'{{% if {shape} == "text" %}}'
         )
         opening = self._spend(
