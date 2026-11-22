@@ -13976,10 +13976,10 @@ Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 - [x] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
 - [x] `project_branches/list` — branch-level gate status and last analysis date (medium)
 - [x] `project_pull_requests/list` — PR-level findings and gate status (medium)
-- [ ] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping each project to the profile that generated its issues (medium)
-- [ ] `components/search + components/tree` — component/file inventory that measures and issues key on (medium)
-- [ ] `user_groups/search + user_groups/users` — group membership table for team-level attribution of findings (medium)
-- [ ] `languages/list` — lookup resolving language keys on rules and measures (low)
+- [x] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping each project to the profile that generated its issues (medium)
+- [x] `components/search + components/tree` — component/file inventory that measures and issues key on (medium)
+- [x] `user_groups/search + user_groups/users` — group membership table for team-level attribution of findings (medium)
+- [x] `languages/list` — lookup resolving language keys on rules and measures (low)
 
 Note: Diffed against a live SonarQube instance's own web-service catalog (41 services). Same core gap as SonarCloud: api/metrics is definitions only, api/measures holds the values. views/portfolios and ce/activity also exist but are lower value.
 
