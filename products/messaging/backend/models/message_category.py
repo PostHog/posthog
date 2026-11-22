@@ -1,6 +1,7 @@
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.utils import UUIDModel, UUIDTModel
 
 
 class MessageCategoryType(models.TextChoices):
@@ -34,8 +35,10 @@ class MessageCategory(UUIDTModel):
         return self.name
 
 
-class MessageCategoryImportKey(UUIDTModel):
+class MessageCategoryImportKey(UUIDModel):
     """An imported category that was matched to an existing category by name, so a later rename doesn't split it."""
+
+    objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)

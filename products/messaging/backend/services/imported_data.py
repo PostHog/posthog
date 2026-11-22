@@ -261,19 +261,22 @@ def _live_marketing_categories_by_name(team_id: int) -> dict[str, str]:
 
 def _remembered_matches(team_id: int, keys: Iterable[str]) -> dict[str, str]:
     """The live marketing category an earlier run matched each key to, whatever it is called now."""
-    rows = MessageCategoryImportKey.objects.filter(
-        team_id=team_id,
-        key__in=list(keys),
-        category__deleted=False,
-        category__category_type=MessageCategoryType.MARKETING,
-    ).values_list("key", "category_id")
+    rows = (
+        MessageCategoryImportKey.objects.for_team(team_id, canonical=True)
+        .filter(
+            key__in=list(keys),
+            category__deleted=False,
+            category__category_type=MessageCategoryType.MARKETING,
+        )
+        .values_list("key", "category_id")
+    )
     return {key: str(category_id) for key, category_id in rows}
 
 
 def _remember_matches(team_id: int, matched: Mapping[str, str], remembered: Mapping[str, str]) -> None:
     changed = {key: category_id for key, category_id in matched.items() if remembered.get(key) != category_id}
     if changed:
-        MessageCategoryImportKey.objects.bulk_create(
+        MessageCategoryImportKey.objects.for_team(team_id, canonical=True).bulk_create(
             [
                 MessageCategoryImportKey(team_id=team_id, key=key, category_id=category_id)
                 for key, category_id in changed.items()
