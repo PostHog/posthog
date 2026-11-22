@@ -196,6 +196,30 @@ def test_posthog_alternative_events_belong_to_the_scanned_projects_organization(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "scans, expected",
+    [
+        ([("s1", 0, ["Stripe"])], []),
+        ([("s1", 0, ["SendGrid", "Resend", "Amplitude"])], [["Resend", "SendGrid"]]),
+        ([("s1", 0, ["Resend"]), ("s2", 1, ["Mailgun"])], [["Resend"], ["Mailgun", "Resend"]]),
+    ],
+    ids=["no_email_provider", "two_providers", "later_scan_merges"],
+)
+def test_sets_the_email_providers_found_in_the_organization(
+    team: Team, django_capture_on_commit_callbacks, scans: list[tuple[str, int, list[str]]], expected: list[list[str]]
+) -> None:
+    with patch("posthoganalytics.capture"), patch("posthoganalytics.group_identify") as group_identify:
+        for session_id, hours, kinds in scans:
+            with django_capture_on_commit_callbacks(execute=True):
+                _scan(team, session_id, hours, kinds)
+
+    assert [call.args for call in group_identify.call_args_list] == [
+        ("organization", str(team.organization_id)) for _ in expected
+    ]
+    assert [call.kwargs["properties"]["email_providers"] for call in group_identify.call_args_list] == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "scans, same_organization, expected",
     [
         ([("s1", 0, ["Stripe", "OpenAI"])], True, True),
