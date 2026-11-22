@@ -42,6 +42,7 @@ def seed_legacy(
     flag_key: str = "flag-a",
     response: str = "control",
     team_id: int = 1,
+    ingested_at: datetime | None = None,
 ) -> None:
     properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": response})
     row = (
@@ -52,7 +53,7 @@ def seed_legacy(
         "$feature_flag_called",
         properties,
         when,
-        when,
+        ingested_at or when,
     )
 
     def insert(client: Client) -> None:
@@ -241,8 +242,9 @@ def test_the_default_window_covers_the_oldest_of_90_days(cluster: ClickhouseClus
     assert str(oldest.date()) in failure_message(result)
 
 
-def cluster_without_a_flags_cluster() -> MagicMock:
+def cluster_without_a_flags_cluster(shards: set[int] | None = None) -> MagicMock:
     cluster = MagicMock(spec=ClickhouseCluster)
+    cluster.shards = shards or {1}
     cluster.sibling.side_effect = ServerException("no such cluster", 701)
     return cluster
 
@@ -260,3 +262,21 @@ def test_flags_cluster_refuses_a_missing_flags_cluster_in_production(deployment:
     with patch("posthog.dags.flag_evaluations_json_parity.settings.CLOUD_DEPLOYMENT", deployment):
         with pytest.raises(ServerException):
             flags_cluster(cluster_without_a_flags_cluster())
+
+
+def test_flags_cluster_refuses_more_than_one_shard() -> None:
+    with patch("posthog.dags.flag_evaluations_json_parity.settings.CLOUD_DEPLOYMENT", "DEV"):
+        with pytest.raises(dagster.Failure):
+            flags_cluster(cluster_without_a_flags_cluster(shards={1, 2}))
+
+
+@pytest.mark.django_db
+def test_parity_applies_the_ingestion_cutoff_to_the_newest_copy_of_a_call(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
+    # The legacy table has merged the two copies and keeps the newest. The new table has not merged them.
+    seed_legacy(cluster, "one", when, ingested_at=now)
+    seed_json(cluster, "one", when)
+    seed_json(cluster, "one", when, ingested_at=now)
+
+    assert run_parity(cluster, now).success

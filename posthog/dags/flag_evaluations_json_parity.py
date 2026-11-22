@@ -62,20 +62,33 @@ class FlagEvaluationsJsonParityConfig(dagster.Config):
     )
 
 
+# The cutoff applies to each call's newest copy. A merged table keeps only that copy and an unmerged one still
+# holds the older ones, so a filter on every row would count a call in one table and not in the other.
 def _day_query(table: str) -> str:
     return f"""
-SELECT toDate(timestamp) AS day, uniqExact(team_id, uuid)
-FROM {table}
-WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
+SELECT day, count()
+FROM (
+    SELECT toDate(timestamp) AS day, team_id, uuid
+    FROM {table}
+    WHERE timestamp >= %(start)s AND timestamp < %(end)s
+    GROUP BY day, team_id, uuid
+    HAVING max(_timestamp) < %(ingested_before)s
+)
 GROUP BY day
 """
 
 
 def _flag_query(table: str) -> str:
     return f"""
-SELECT toDate(timestamp) AS day, flag_key, response, uniqExact(team_id, uuid)
-FROM {table}
-WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
+SELECT day, latest_flag_key AS flag_key, latest_response AS response, count()
+FROM (
+    SELECT toDate(timestamp) AS day, team_id, uuid,
+        argMax(flag_key, _timestamp) AS latest_flag_key, argMax(response, _timestamp) AS latest_response
+    FROM {table}
+    WHERE timestamp >= %(start)s AND timestamp < %(end)s
+    GROUP BY day, team_id, uuid
+    HAVING max(_timestamp) < %(ingested_before)s
+)
 GROUP BY day, flag_key, response
 """
 
@@ -126,7 +139,7 @@ def flags_cluster(cluster: ClickhouseCluster) -> FlagsCluster:
     table on its one host.
     """
     try:
-        return FlagsCluster(
+        flags = FlagsCluster(
             cluster=cluster.sibling(settings.CLICKHOUSE_FLAGS_CLUSTER, NodeRole.FLAGS),
             workload=Workload.DEFAULT,
             node_role=NodeRole.FLAGS,
@@ -135,7 +148,12 @@ def flags_cluster(cluster: ClickhouseCluster) -> FlagsCluster:
         if exc.code != _CLUSTER_DOESNT_EXIST or settings.CLOUD_DEPLOYMENT in _PRODUCTION_DEPLOYMENTS:
             raise
         workload, node_role = shard_workload()
-        return FlagsCluster(cluster=cluster, workload=workload, node_role=node_role)
+        flags = FlagsCluster(cluster=cluster, workload=workload, node_role=node_role)
+    if len(flags.cluster.shards) != 1:
+        raise dagster.Failure(
+            description=f"The parity check reads one shard, and this cluster has shards {sorted(flags.cluster.shards)}."
+        )
+    return flags
 
 
 @dagster.op(tags=OWNER_TAG)
