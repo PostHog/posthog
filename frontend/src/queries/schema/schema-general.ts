@@ -10479,6 +10479,9 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = 'workflow_email_impact_turn_on_replay',
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = 'workflow_survey_trigger_create_survey',
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = 'workflow_warehouse_table_trigger_set_up_source',
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',

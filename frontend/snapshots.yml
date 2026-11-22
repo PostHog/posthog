@@ -9062,6 +9062,10 @@ snapshots:
         hash: v1.k794b7964.47be8216c034a7a0aa6bcfbc07b6c5b14505f559b5a1e3d15ad8a09a59fa910e.pOtn4Yt_TOaMMULdYibVBMM3k6_-fNTUoBHtm2w_ZVk
     products-workflows-reputation--shared-sending-domain--light:
         hash: v1.k794b7964.6e7bd1a4461ca7e948c49b928b94d55a0d92a8ab4099fae94cab8ef8d6ed3709.iIDLjeGUYQD4c8JCsST7fLo9Ub1BGKgUh6DPx-FWOug
+    products-workflows-reputation--with-infrastructure-health--dark:
+        hash: v1.k794b7964.9e87d51b28468b63f1b0f7b701281ef1c2ae6fc1a3ebf1f8aa97046027470edd.-KVmVwhIcDhSBzzVB4cAVWMwwZPCz12FSM2Mi2aGmi8
+    products-workflows-reputation--with-infrastructure-health--light:
+        hash: v1.k794b7964.c3866be4167f796e2654fc79ddf3126f9fb8c6660dbbf586d438540f385e4ed9.2SI51PM4yEbalQYc3XG3OjxSBsGUqZslX9dvYHv92gU
     products-workflows-send-calendar--busy-week--dark:
         hash: v1.k794b7964.1edf0999ab5e390b86d0a8d48ab5821c5cb291b35eba58eb4000587652ba79af.4plcEAYl06VvPXCtAKWYvMcbQLWV-U1_khdj3SHu5Ho
     products-workflows-send-calendar--busy-week--light:

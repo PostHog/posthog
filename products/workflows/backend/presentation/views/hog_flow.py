@@ -235,7 +235,9 @@ from products.workflows.backend.facade.email_design import (
 )
 from products.workflows.backend.facade.email_health import (
     email_domain_sharers,
+    email_infrastructure_health_enabled,
     fetch_aws_tenant_reputation,
+    fetch_email_infrastructure_health,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
     fold_email_totals,
@@ -3355,6 +3357,36 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     )
 
 
+class EmailInfrastructureHealthSerializer(serializers.Serializer):
+    """How email from every project in this PostHog region fared, from AWS SES's own delivery data."""
+
+    emails_sent_at_least = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "A lower bound on the emails sent during the window, rounded down to one significant figure "
+            "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
+        ),
+    )
+    delivery_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
+            "to 0.001. Acceptance is not inbox placement."
+        ),
+    )
+    bounce_rate = serializers.FloatField(
+        read_only=True,
+        help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
+    )
+    complaint_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), "
+            "rounded up to 0.0001."
+        ),
+    )
+
+
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
     aws = AwsTenantReputationSerializer(
         allow_null=True,
@@ -3423,6 +3455,15 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
             "The project's sending tier, what it allows, and how much of it has been used; null when the "
             "caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean "
             "sending record."
+        ),
+    )
+    infrastructure = EmailInfrastructureHealthSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Sending health across every project in this PostHog region over the last 30 whole days, which "
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
+            "while the feature is not yet released to this project."
         ),
     )
 
@@ -8146,6 +8187,12 @@ class HogFlowViewSet(
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
                     "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
+                    # Not project data, so no access gate: it covers every project in the region.
+                    "infrastructure": (
+                        fetch_email_infrastructure_health(self.REPUTATION_WINDOW_DAYS)
+                        if email_infrastructure_health_enabled(self.team)
+                        else None
+                    ),
                 }
             ).data
         )
