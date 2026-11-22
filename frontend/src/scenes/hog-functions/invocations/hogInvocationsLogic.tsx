@@ -71,10 +71,7 @@ export interface HogInvocationRow {
      * read as a clean success at the row level.
      */
     problem_log_level: 'warn' | 'error' | null
-    /**
-     * What happened to an email the run sent, read from the run's warn and error log entries.
-     * Null when the run logged no bounce or spam complaint.
-     */
+    /** Read from the bounce and complaint lines in the run's warn and error log entries. */
     email_outcome: EmailOutcome | null
 }
 
@@ -789,8 +786,7 @@ async function fetchRunsPage(
 }
 
 /**
- * Worst log-entry level (`warn`/`error`) per invocation for the given page ids, and the email
- * outcome its warn and error lines name.
+ * Worst log-entry level (`warn`/`error`) and email outcome per invocation for the given page ids.
  * An SES bounce/complaint (and similar async failures) writes an error/warn log entry
  * after the invocation already finished `succeeded`, so without this a delivery failure
  * reads as a clean success. Kept off the runs query's critical path — see `enrichProblems`.
@@ -808,10 +804,8 @@ async function fetchRunProblems(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
-    // Return at most 5 candidate bounce lines and 5 candidate complaint lines per run, cut to 400
-    // characters, so the response stays small however many problems a run logs. Each kind has its own
-    // cap because groupUniqArray has no order: one shared cap could drop the bounce that outranks
-    // many complaints. The cut keeps the [Action:<id>] prefix, the recipient and the feedback type.
+    // Bounce and complaint lines get separate caps because groupUniqArray has no order, so one shared
+    // cap could drop a bounce behind many complaints. 400 characters keep the prefix and the recipient.
     const severityQuery = hogql`
         SELECT
             instance_id,

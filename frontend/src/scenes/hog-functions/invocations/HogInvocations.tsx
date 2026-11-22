@@ -14,11 +14,9 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
-    LemonTagProps,
     Popover,
     ProfilePicture,
     Spinner,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -39,7 +37,6 @@ import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import { renderHogFunctionMessage } from '../logs/renderHogFunctionMessage'
 import {
     BulkRerunParams,
-    EmailOutcome,
     HOG_INVOCATIONS_RERUN_MAX_COUNT,
     HogInvocationRow,
     HogInvocationsFilters,
@@ -53,6 +50,7 @@ import {
 } from './hogInvocationsLogic'
 import { INVOCATIONS_DATE_OPTIONS } from './invocationsDateOptions'
 import { InvocationsSparkline } from './InvocationsSparkline'
+import { RunStatusCell } from './RunStatusCell'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
@@ -60,33 +58,6 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'failed', label: 'Failed' },
     { value: 'canceled', label: 'Canceled' },
 ]
-
-const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
-    switch (status) {
-        case 'succeeded':
-            return 'success'
-        case 'failed':
-            return 'danger'
-        case 'canceled':
-            return 'muted'
-        case 'running':
-        default:
-            return 'warning'
-    }
-}
-
-const EMAIL_OUTCOME_TAG: Record<EmailOutcome, { label: string; description: string }> = {
-    bounced: {
-        label: 'Email bounced',
-        description:
-            "The run finished, but the recipient's mail server refused the email. Expand the row to see the recipient and the reason.",
-    },
-    complained: {
-        label: 'Marked as spam',
-        description:
-            'The run finished, but the recipient marked the email as spam. Expand the row to see the recipient.',
-    },
-}
 
 const formatDurationMs = (ms: number | null): string => {
     if (ms === null || ms === undefined) {
@@ -307,32 +278,7 @@ export function HogInvocations({
             key: 'status',
             dataIndex: 'status',
             width: 0,
-            render: (_, row) => (
-                <div className="flex flex-wrap items-center gap-1">
-                    <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-                    {row.email_outcome && row.status === 'succeeded' ? (
-                        <Tooltip title={EMAIL_OUTCOME_TAG[row.email_outcome].description}>
-                            <LemonTag type="danger">{EMAIL_OUTCOME_TAG[row.email_outcome].label}</LemonTag>
-                        </Tooltip>
-                    ) : row.problem_log_level && row.status === 'succeeded' ? (
-                        <Tooltip
-                            title={
-                                row.problem_log_level === 'error'
-                                    ? 'This run finished but logged an error. Expand the row to view it.'
-                                    : 'This run finished but logged a warning. Expand the row to view it.'
-                            }
-                        >
-                            <IconWarning
-                                className={
-                                    row.problem_log_level === 'error'
-                                        ? 'text-danger text-base'
-                                        : 'text-warning text-base'
-                                }
-                            />
-                        </Tooltip>
-                    ) : null}
-                </div>
-            ),
+            render: (_, row) => <RunStatusCell row={row} />,
         },
         {
             title: 'Attempts',

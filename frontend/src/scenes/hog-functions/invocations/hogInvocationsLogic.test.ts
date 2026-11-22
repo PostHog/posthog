@@ -182,8 +182,6 @@ describe('hogInvocationsLogic', () => {
             '',
         ]
 
-        // The messages are the run's warn and error log lines that mention a bounce or a complaint, as the SES
-        // feedback handler writes them. The mock splits them into the query's bounce and complaint columns.
         it.each([
             {
                 messages: ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
