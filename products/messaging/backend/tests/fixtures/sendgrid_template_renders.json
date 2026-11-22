@@ -110,14 +110,14 @@
       "vip": true
     },
     "text": true,
-    "liquid": "Hi {{ variables.n | join: \",\" }}, {% if variables.vip != blank and variables.vip != 0 %}VIP{% endif %}",
+    "liquid": "Hi {{ variables.n | join: \",\" }}, {% if variables.vip != nil and variables.vip != false and variables.vip != 0 and variables.vip.length != 0 or variables.vip != empty %}VIP{% endif %}",
     "expected": "Hi Tom & <Ann> \"q\", VIP"
   },
   {
     "name": "if and unless read missing like Handlebars",
     "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
     "data": {},
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fu]"
   },
   {
@@ -126,7 +126,7 @@
     "data": {
       "v": null
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fu]"
   },
   {
@@ -135,7 +135,7 @@
     "data": {
       "v": false
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fu]"
   },
   {
@@ -144,7 +144,7 @@
     "data": {
       "v": ""
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fu]"
   },
   {
@@ -153,7 +153,7 @@
     "data": {
       "v": 0
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fuz]"
   },
   {
@@ -162,7 +162,7 @@
     "data": {
       "v": []
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Fu]"
   },
   {
@@ -171,7 +171,7 @@
     "data": {
       "v": "0"
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -180,7 +180,7 @@
     "data": {
       "v": "false"
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -189,7 +189,7 @@
     "data": {
       "v": 1
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -198,7 +198,7 @@
     "data": {
       "v": "x"
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -209,7 +209,7 @@
         1
       ]
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -220,7 +220,7 @@
         "k": 1
       }
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -229,7 +229,7 @@
     "data": {
       "v": true
     },
-    "liquid": "[{% if variables.v != blank and variables.v != 0 %}T{% else %}F{% endif %}{% if variables.v == blank or variables.v == 0 %}u{% endif %}{% if variables.v != blank %}z{% endif %}]",
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
     "expected": "[Tz]"
   },
   {
@@ -239,7 +239,7 @@
       "b": "yes",
       "c": 0
     },
-    "liquid": "{% if variables.a != blank and variables.a != 0 %}A{% elsif variables.b != blank and variables.b != 0 %}B{% else %}C{% endif %}|{% if variables.c != blank and variables.c != 0 %}A{% elsif variables.d != blank and variables.d != 0 %}B{% else %}C{% endif %}",
+    "liquid": "{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% elsif variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}B{% else %}C{% endif %}|{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}A{% elsif variables.d != nil and variables.d != false and variables.d != 0 and variables.d.length != 0 or variables.d != empty %}B{% else %}C{% endif %}",
     "expected": "B|C"
   },
   {
@@ -336,7 +336,7 @@
         }
       }
     },
-    "liquid": "{% if variables.user != blank %}{{ variables.user.name | join: \",\" }} in {{ variables.user.address.city | join: \",\" }}{% else %}nobody{% endif %}|{% if variables.missing != blank %}x{% else %}nobody{% endif %}",
+    "liquid": "{% if variables.user != nil and variables.user != false and variables.user.length != 0 or variables.user != empty %}{{ variables.user.name | join: \",\" }} in {{ variables.user.address.city | join: \",\" }}{% else %}nobody{% endif %}|{% if variables.missing != nil and variables.missing != false and variables.missing.length != 0 or variables.missing != empty %}x{% else %}nobody{% endif %}",
     "expected": "Ana in Zürich|nobody"
   },
   {
@@ -410,7 +410,7 @@
         }
       }
     },
-    "liquid": "{% if variables.user.address.city != blank and variables.user.address.city != 0 %}{{ variables.user.address.city | join: \",\" }}{% else %}no city{% endif %}",
+    "liquid": "{% if variables.user.address.city != nil and variables.user.address.city != false and variables.user.address.city != 0 and variables.user.address.city.length != 0 or variables.user.address.city != empty %}{{ variables.user.address.city | join: \",\" }}{% else %}no city{% endif %}",
     "expected": "東京"
   },
   {
@@ -423,7 +423,7 @@
       ],
       "a": true
     },
-    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}</ul>\n{% if variables.a != blank and variables.a != 0 %}A{% endif %}",
+    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}</ul>\n{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}",
     "expected": "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\nA"
   },
   {
@@ -462,7 +462,31 @@
       ],
       "v": "V"
     },
-    "liquid": "{% if variables.x != blank and variables.x != 0 %}a{{ \"{\" }}{% endif %}|{% if variables.y != blank and variables.y != 0 %}a{% else %}b{{ \"{\" }}{% endif %}|{% for item in variables.xs %}c{{ \"{\" }}{% endfor %} {{ variables.v | join: \",\" }}",
+    "liquid": "{% if variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or variables.x != empty %}a{{ \"{\" }}{% endif %}|{% if variables.y != nil and variables.y != false and variables.y != 0 and variables.y.length != 0 or variables.y != empty %}a{% else %}b{{ \"{\" }}{% endif %}|{% for item in variables.xs %}c{{ \"{\" }}{% endfor %} {{ variables.v | join: \",\" }}",
     "expected": "a{|b{|c{c{ V"
+  },
+  {
+    "name": "conditions read a string of spaces and an empty object as true",
+    "source": "{{#unless s}}A{{/unless}}{{#if o}}B{{else}}C{{/if}}{{#with o}}D{{else}}E{{/with}}{{#unless e}}F{{/unless}}{{#if l}}G{{else}}H{{/if}}{{#if k}}I{{else}}J{{/if}}",
+    "data": {
+      "s": " ",
+      "o": {},
+      "e": [],
+      "l": {
+        "length": 0
+      },
+      "k": ""
+    },
+    "liquid": "{% if variables.s == nil or variables.s == false or variables.s == 0 or variables.s.length == 0 and variables.s == empty %}A{% endif %}{% if variables.o != nil and variables.o != false and variables.o != 0 and variables.o.length != 0 or variables.o != empty %}B{% else %}C{% endif %}{% if variables.o != nil and variables.o != false and variables.o.length != 0 or variables.o != empty %}D{% else %}E{% endif %}{% if variables.e == nil or variables.e == false or variables.e == 0 or variables.e.length == 0 and variables.e == empty %}F{% endif %}{% if variables.l != nil and variables.l != false and variables.l != 0 and variables.l.length != 0 or variables.l != empty %}G{% else %}H{% endif %}{% if variables.k != nil and variables.k != false and variables.k != 0 and variables.k.length != 0 or variables.k != empty %}I{% else %}J{% endif %}",
+    "expected": "BDFGJ"
+  },
+  {
+    "name": "an escaped tag keeps its entities",
+    "source": "<a title=\"\\{{a&quot; &lt;b}} {{name}}\">x</a>",
+    "data": {
+      "name": "Ann"
+    },
+    "liquid": "<a title=\"{{ \"{{\" }}a&quot; &lt;b}} {{ variables.name | join: \",\" }}\">x</a>",
+    "expected": "<a title=\"{{a&quot; &lt;b}} Ann\">x</a>"
   }
 ]

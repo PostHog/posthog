@@ -4,9 +4,11 @@ A tag with a Liquid form that prints what Handlebars prints converts. Any other 
 lands in `unsupported` so the import can name it. A block that stays as written keeps everything inside it as written
 too. The rest of the template converts around it.
 
-Conditions follow Handlebars, where "", 0 and an empty list are false. In Liquid only nil and false are, so a
-condition reads `x != blank and x != 0`. Two cases still differ: Liquid also treats a string of spaces and an empty
-object as blank, where Handlebars treats both as true.
+Conditions follow Handlebars, where missing, null, false, "", 0 and an empty list are false, and everything else,
+such as a string of spaces or an empty object, is true. Liquid's `blank` also matches those two, so conditions test
+each false value instead. `x.length == 0 and x == empty` matches only "" and an empty list: `empty` alone also
+matches an empty object, and `length` alone an object with a `length` key. Liquid reads `and` and `or` from the right,
+so the last test groups as intended.
 
 `{{#each}}` becomes a `for` loop. Over a list it matches. Over an object Handlebars loops over its values and Liquid
 over its key and value pairs, which an import can't tell apart.
@@ -255,6 +257,7 @@ class HandlebarsToLiquid:
             item_name=names[0] if names else None,
             index_name=names[1] if len(names) == 2 else None,
         )
+        untrusted = self._html is not None and self._html.untrusted
         before = (len(self.unsupported), len(self.converted), self._written, self._after_raw_html)
         # The second pass of the body follows whatever raw HTML the first pass printed.
         self._after_raw_html = self._after_raw_html or (self.is_html and _has_raw_output(block.body))
@@ -267,13 +270,15 @@ class HandlebarsToLiquid:
             body = self._branch(start, ends, block.body, (*frames, frame))
         finally:
             self._loop_names.pop()
-        if ends[-1] != start:
+        if ends[-1] != start or (self._html is not None and self._html.untrusted and not untrusted):
             # Each pass after the first starts where the last one ended, so values converted for the first pass
-            # could land somewhere else, such as an unquoted attribute.
+            # could land somewhere else, such as an unquoted attribute. A condition in the body whose branches end
+            # in different places hides where that is.
             unsupported, converted, self._written, self._after_raw_html = before
             del self.unsupported[unsupported:], self.converted[converted:]
             if self._html is not None and start is not None:
                 self._html.restore(start)
+                self._html.untrusted = untrusted
             return self._literal_block(block)
         parts = [opening, body]
         if block.inverse:
@@ -399,7 +404,8 @@ class HandlebarsToLiquid:
             return "true" if include_zero else f"{path} != 0"
         if path.startswith("forloop."):
             return path
-        return f"{path} != blank" if include_zero else f"{path} != blank and {path} != 0"
+        zero = "" if include_zero else f" and {path} != 0"
+        return f"{path} != nil and {path} != false{zero} and {path}.length != 0 or {path} != empty"
 
     def _falsy(self, param: object, frames: tuple[_Frame, ...], *, include_zero: bool) -> str:
         if isinstance(param, _Literal):
@@ -409,7 +415,8 @@ class HandlebarsToLiquid:
             return "false" if include_zero else f"{path} == 0"
         if path.startswith("forloop."):
             return f"{path} == false"
-        return f"{path} == blank" if include_zero else f"{path} == blank or {path} == 0"
+        zero = "" if include_zero else f" or {path} == 0"
+        return f"{path} == nil or {path} == false{zero} or {path}.length == 0 and {path} == empty"
 
     def _free_name(self, name: str) -> bool:
         return bool(_SEGMENT.fullmatch(name)) and name not in _TAKEN_NAMES and name not in self._loop_names

@@ -60,6 +60,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
             ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
             ("value_in_a_loop_that_ends_inside_a_tag", "{{#each items}}{{token}}<img alt={{/each}}>", "{{token}}"),
+            (
+                "value_in_a_loop_whose_condition_ends_in_a_style",
+                "{{#each items}}{{#if v}}x{{else}}{{token}}<style>{{/if}}{{/each}}",
+                "{{token}}",
+            ),
             ("value_after_a_with_that_ends_inside_a_tag", "{{#with u}}<img alt={{/with}}{{token}}>", "{{token}}"),
             ("value_after_an_escaped_tag_that_names_endraw", '<img alt=\\{{ ="endraw}}{{token}}>', "{{token}}"),
             (
@@ -142,7 +147,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_a_tag_without_a_faithful_liquid_form_stays_as_written(self, _name: str, html: str, kept: str) -> None:
         converted = convert_version({"html_content": html + "<p>{{name}}</p>", "generate_plain_content": False})
 
-        assert kept in converted.html
         assert kept in " ".join(converted.notes)
         assert (liquid_literal(kept) if kept.startswith("{{") else kept) in converted.html
 
@@ -292,17 +296,17 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "a_condition_that_opens_inside_an_attribute",
                 '<p class="{{#if a}}x">A{{else}}y">B{{/if}}</p>',
-                '{% if variables.a != blank and variables.a != 0 %}A{% else %}y">B{% endif %}',
+                '{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% else %}y">B{% endif %}',
             ),
             (
                 "a_condition_inside_a_link",
                 '<p>{{#if allow}}<a href="{{token}}">Reset{{/if}}</a></p>',
-                "{% if variables.allow != blank and variables.allow != 0 %}Reset{% endif %}",
+                "{% if variables.allow != nil and variables.allow != false and variables.allow != 0 and variables.allow.length != 0 or variables.allow != empty %}Reset{% endif %}",
             ),
             (
                 "a_condition_that_closes_after_the_title",
                 "<head><title>{{#if a}}Sale</title></head><body>x{{/if}}",
-                "{% if variables.a != blank and variables.a != 0 %}x{% endif %}",
+                "{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}x{% endif %}",
             ),
         ]
     )

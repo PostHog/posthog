@@ -37,7 +37,9 @@ _EXPRESSION_TOKEN = re.compile(
 
 def liquid_literal(tag: str) -> str:
     # A raw block ends at the first `endraw` and needs a close of its own, so these print their openings another way.
-    if "endraw" in tag or tag in ("{{", "{%"):
+    # The renderer also decodes entities and `%20` inside every tag, raw blocks included, so a tag holding either
+    # prints its openings that way too and keeps the rest as text.
+    if "endraw" in tag or tag in ("{{", "{%") or "&" in tag or "%20" in tag:
         return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', tag)
     return f"{{% raw %}}{tag}{{% endraw %}}"
 
