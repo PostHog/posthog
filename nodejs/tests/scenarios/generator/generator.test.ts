@@ -559,6 +559,10 @@ describe('drive', () => {
                     { fromMs: 2 * MINUTE, toMs: 3 * MINUTE, firstOfferMs: 2 * MINUTE },
                 ],
                 stopped: undefined,
+                broken: [
+                    { index: 0, bars: ['writer_cpu_under'] },
+                    { index: 1, bars: ['writer_cpu_under'] },
+                ],
             },
         ],
         [
@@ -572,6 +576,10 @@ describe('drive', () => {
                     { fromMs: 135_000, toMs: 195_000, firstOfferMs: 135_000 },
                 ],
                 stopped: undefined,
+                broken: [
+                    { index: 0, bars: [] },
+                    { index: 1, bars: [] },
+                ],
             },
         ],
         [
@@ -596,10 +604,11 @@ describe('drive', () => {
                         part: null,
                     },
                 },
+                broken: [{ index: 0, bars: ['writer_cpu_under'] }],
             },
         ],
     ])(
-        'a hard failure at step N halts the drive by the end of step N+1, a bar break does not, and step N+2 never starts before step N is judged, when %s',
+        'the live verdict on step N gates the drive, halting it by the end of step N+1 only on a hard failure, when %s',
         async (_story, writerCpu, expected) => {
             jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
             const ramped = rampedCard(
@@ -647,6 +656,10 @@ describe('drive', () => {
                     ...(waitedFor !== undefined && { waitedFor }),
                 })),
                 stopped: watch.stopped(),
+                broken: [...watch.settled()].map(([index, results]) => ({
+                    index,
+                    bars: results.filter(({ passed }) => !passed).map(({ name }) => name),
+                })),
             }).toEqual(expected)
         }
     )
