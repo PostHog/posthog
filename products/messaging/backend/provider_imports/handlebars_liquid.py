@@ -11,8 +11,7 @@ matches an empty object, and `length` alone an object with a `length` key. Liqui
 so the last test groups as intended.
 
 `{{#each}}` becomes a `for` loop over the values Handlebars would loop over: a list's items or an object's values,
-and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once. An
-object whose `length` key equals its number of keys still reads as a list.
+and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once.
 """
 
 import re
@@ -43,7 +42,7 @@ _TAKEN_NAMES = frozenset(
     | {"and", "or", "contains", "in"}
 )
 # Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
-_LIST_NAME = re.compile(r"(?:object|raw)\d+")
+_LIST_NAME = re.compile(r"(?:values|shape|string|raw)\d+")
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
 _MAX_OUTPUT_CHARS = 5_000_000
 HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
@@ -269,19 +268,22 @@ class HandlebarsToLiquid:
         # A loop body that runs zero times or many times has to leave the HTML where it found it.
         ends: list[Place | None] = [start]
         self._lists += 1
-        is_object, raw = f"object{self._lists}", f"raw{self._lists}"
+        n = self._lists
+        values, shape, string, raw = f"values{n}", f"shape{n}", f"string{n}", f"raw{n}"
         # Handlebars loops over a list's items and an object's values, and over nothing else. Liquid loops over an
-        # object's key and value pairs and over a string once. A list or string has a `length` that matches its
-        # `size`, and only a string has `[0]` without `first`. These read properties, so the renderer charges
-        # nothing for the collection's size.
+        # object's key and value pairs and over a string once. `concat` keeps a list's items and wraps anything else
+        # in a list of one, so only a list's first item differs from the value itself. A string is the one value
+        # that `append` leaves equal. Both charge the renderer per item or character, never per byte of the items.
         guard = self._spend(
-            f"{{% capture {is_object} %}}{{% if {source}.size != {source}.length %}}1{{% endif %}}{{% endcapture %}}"
-            f'{{% if {source}.first != {source}[0] and {is_object} == "" %}}'
+            f"{{% assign {values} = {source} | concat: nil %}}{{% capture {shape} %}}"
+            f'{{% if {values}.first != {source} %}}list{{% else %}}{{% assign {string} = {source} | append: "" %}}'
+            f"{{% if {string} == {source} %}}text{{% endif %}}{{% endif %}}{{% endcapture %}}"
+            f'{{% if {shape} == "text" %}}'
         )
         opening = self._spend(
             f"{{% else %}}{{% for {raw} in {source} %}}"
-            f'{{% if {is_object} == "1" %}}{{% assign {loop_name} = {raw}[1] %}}'
-            f"{{% else %}}{{% assign {loop_name} = {raw} %}}{{% endif %}}"
+            f'{{% if {shape} == "list" %}}{{% assign {loop_name} = {raw} %}}'
+            f"{{% else %}}{{% assign {loop_name} = {raw}[1] %}}{{% endif %}}"
         )
         self._loop_names.append(loop_name)
         try:
