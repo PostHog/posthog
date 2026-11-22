@@ -2,6 +2,7 @@ import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -22,6 +23,7 @@ const mockFeatureFlagsList = featureFlagsList as jest.MockedFunction<typeof feat
 describe('featureFlagsSetupLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        clearAllCachedHasData()
         initKeaTests()
     })
 
@@ -48,7 +50,7 @@ describe('featureFlagsSetupLogic', () => {
 
     // Undo of a project's only deleted flag reloads the flag list without remounting the gate.
     it.each([
-        [0, 'needs-setup', 2],
+        [0, 'needs-setup', 3],
         [1, 'has-data', 1],
     ])(
         'on a flag list reload after mounting with %i live flags (%s), makes %i requests and ends has-data',
@@ -76,6 +78,18 @@ describe('featureFlagsSetupLogic', () => {
             expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe('has-data')
         }
     )
+
+    it('opens the scene at once on a later mount after a has-data answer', async () => {
+        mockFeatureFlagsList.mockResolvedValue({ count: 1, next: null, previous: null, results: [] })
+        const firstVisit = featureFlagsSetupLogic()
+        firstVisit.mount()
+        await expectLogic(firstVisit).toFinishAllListeners()
+        firstVisit.unmount()
+
+        mockFeatureFlagsList.mockReturnValue(new Promise(() => {}))
+        featureFlagsSetupLogic().mount()
+        expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe('has-data')
+    })
 
     it('fails open to unknown when the flag check fails before any answer', async () => {
         mockFeatureFlagsList.mockRejectedValue(new Error('network down'))
