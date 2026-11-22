@@ -32,6 +32,9 @@ function pinColumnFilter(value: UniversalFiltersGroupValue): UniversalFiltersGro
 
 /** The group with every log attribute filter on a column key retyped to `log`. */
 export function pinColumnFilters(group: UniversalFiltersGroup): UniversalFiltersGroup {
+    if (!Array.isArray(group.values)) {
+        return group
+    }
     const values = group.values.map(pinColumnFilter)
     // Hand back the same group when nothing moved, so an unchanged group does not reload the query.
     return values.every((value, index) => value === group.values[index]) ? group : { ...group, values }

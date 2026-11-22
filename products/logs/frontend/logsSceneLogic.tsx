@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { TodayMonitorRecent } from '~/layout/today/todayMonitor'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, FilterLogicalOperator } from '~/types'
 
 import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import {
@@ -446,8 +446,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
             if (params.filterGroup) {
                 try {
-                    const filterGroup =
+                    const parsed =
                         typeof params.filterGroup === 'string' ? JSON.parse(params.filterGroup) : params.filterGroup
+                    // A flat array of filters, the query-logs tool's `filterGroup` shape, goes into the standard group.
+                    const filterGroup = Array.isArray(parsed)
+                        ? {
+                              type: FilterLogicalOperator.And,
+                              values: [{ type: FilterLogicalOperator.And, values: parsed }],
+                          }
+                        : parsed
                     if (!equal(filterGroup, values.filters.filterGroup)) {
                         filtersFromUrl.filterGroup = filterGroup
                         hasFilterChanges = true

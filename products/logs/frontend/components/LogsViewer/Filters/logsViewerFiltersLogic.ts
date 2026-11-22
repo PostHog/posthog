@@ -111,7 +111,7 @@ export function foldLegacyColumnFilters(
     filterGroup: UniversalFiltersGroup,
     filters: Partial<LogsViewerFilters>
 ): UniversalFiltersGroup {
-    const groupIsAuthoritative = !!filters.filterGroup?.values
+    const groupIsAuthoritative = Array.isArray(filters.filterGroup?.values)
     let folded = filterGroup
     const fold = (field: string[] | undefined, target: FacetFilterTarget): void => {
         if (field === undefined || (groupIsAuthoritative && field.length === 0)) {
@@ -317,12 +317,10 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
                 setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? pinColumnFilters(filterGroup) : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                    Array.isArray(filterGroup?.values) ? pinColumnFilters(filterGroup) : DEFAULT_UNIVERSAL_GROUP_FILTER,
                 setFilters: (state, { filters }) =>
                     foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values
-                            ? pinColumnFilters(filters.filterGroup)
-                            : state,
+                        Array.isArray(filters.filterGroup?.values) ? pinColumnFilters(filters.filterGroup) : state,
                         filters
                     ),
             },
