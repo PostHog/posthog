@@ -780,30 +780,52 @@ def test_v2_aggregate_rows_fill_their_primary_keys(
 
 
 @pytest.mark.parametrize("endpoint", ["findings_trends_v2", "resources_trends_v2"])
-@pytest.mark.parametrize("resumed", [False, True])
-def test_trends_request_a_fixed_window_that_survives_resume(endpoint: str, resumed: bool) -> None:
-    saved = AwsSecurityHubResumeConfig(
-        next_token="page-2", updated_after="2025-03-01T00:00:00Z", cutoff="2025-05-30T00:00:00Z"
-    )
-    page: dict[str, Any] = {"Granularity": "Daily", "TrendsMetrics": [], "NextToken": None}
+def test_trends_keep_their_window_across_a_resume(endpoint: str) -> None:
+    metric = {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {}}
+    first_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [metric], "NextToken": "page-2"})
+    failure = ScriptedResponse(status=400, json={}, headers={"x-amzn-ErrorType": "InternalException"})
     with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
-        result = driver().run(endpoint, [ScriptedResponse(json=page)], resume_state=saved if resumed else None)
-    assert result.raised is None
-    payload = result.requests[0].json()
-    if resumed:
-        assert (payload["StartTime"], payload["EndTime"], payload["NextToken"]) == (
-            saved.updated_after,
-            saved.cutoff,
-            "page-2",
-        )
-    else:
-        assert (payload["StartTime"], payload["EndTime"]) == ("2025-03-03T12:00:00Z", "2025-06-01T12:00:00Z")
-        assert "NextToken" not in payload
-    assert result.response is not None and result.response.sort_mode is None
-    assert result.saved_states[-1].finished
+        first = driver().run(endpoint, [first_page, failure])
+    assert isinstance(first.raised, AwsSecurityHubError)
+    window = ("2025-03-03T12:00:00Z", "2025-06-01T12:00:00Z")
+    assert [(r.json()["StartTime"], r.json()["EndTime"]) for r in first.requests] == [window, window]
+    assert first.requests[1].json()["NextToken"] == "page-2"
+    checkpoint = first.committed_states[-1]
+
+    last_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [], "NextToken": None})
+    with time_machine.travel(dt.datetime(2025, 6, 1, 14, tzinfo=dt.UTC), tick=False):
+        resumed = driver().run(endpoint, [last_page], resume_state=checkpoint)
+    assert resumed.raised is None
+    payload = resumed.requests[0].json()
+    assert (payload["StartTime"], payload["EndTime"], payload["NextToken"]) == (*window, "page-2")
+    assert resumed.response is not None and resumed.response.sort_mode is None
 
     with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
-        with scripted_network([ScriptedResponse(json=page)]) as network:
+        with scripted_network([last_page]) as network:
             assert validate_credentials(config(), VERSION, endpoint) == (True, None)
     probe = network.requests_log[0].json()
     assert (probe["StartTime"], probe["EndTime"]) == ("2025-05-31T12:00:00Z", "2025-06-01T12:00:00Z")
+
+
+@pytest.mark.parametrize(
+    "endpoint,error_type,cleared",
+    [
+        ("software_v2", "ValidationException", True),
+        ("software_v2", "ThrottlingException", False),
+        ("findings_trends_v2", "ValidationException", False),
+    ],
+)
+def test_rejected_software_token_clears_the_checkpoint(endpoint: str, error_type: str, cleared: bool) -> None:
+    saved = AwsSecurityHubResumeConfig(
+        next_token="old-token", updated_after="2025-03-03T12:00:00Z", cutoff="2025-06-01T12:00:00Z"
+    )
+    rejection = ScriptedResponse(
+        status=400, json={"message": "Invalid token"}, headers={"x-amzn-ErrorType": error_type}
+    )
+    result = driver().run(endpoint, [rejection], resume_state=saved)
+    assert isinstance(result.raised, AwsSecurityHubError)
+    assert result.raised.code == error_type
+    assert result.requests[0].json()["NextToken"] == "old-token"
+    assert (result.final_state is None) is cleared
+    errors = AwsSecurityHubSource().get_non_retryable_errors()
+    assert not any(pattern in str(result.raised) for pattern in errors)

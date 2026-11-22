@@ -19,6 +19,8 @@ class SecurityHubEndpoint:
     parent: tuple[str, str] | None = None
     # Trend operations need a StartTime and EndTime. AWS keeps trend data for one year and picks the granularity.
     trend_window_days: int | None = None
+    # AWS rejects a NextToken one hour after it issues it, so a resume from an old checkpoint can fail.
+    token_expires: bool = False
 
 
 ENDPOINTS: dict[str, SecurityHubEndpoint] = {
@@ -97,6 +99,7 @@ ENDPOINTS: dict[str, SecurityHubEndpoint] = {
         operation="GetSoftwareV2",
         result_key="Software",
         primary_keys=("package_type", "package_name", "package_version"),
+        token_expires=True,
     ),
     "findings_trends_v2": SecurityHubEndpoint(
         operation="GetFindingsTrendsV2",
@@ -151,7 +154,10 @@ ACCESS_DENIED_CODES = frozenset({"AccessDenied", "AccessDeniedException", "Inval
 CREDENTIAL_ERROR_CODES = frozenset(
     {"UnrecognizedClientException", "InvalidClientTokenId", "InvalidSignatureException", "SignatureDoesNotMatch"}
 )
-SUBSCRIPTION_MESSAGE = "Enable AWS Security Hub CSPM in the configured region, then try again."
+SUBSCRIPTION_MESSAGE = (
+    "Enable AWS Security Hub CSPM in the configured region, then try again. "
+    "The software, trend, and V2 product tables need AWS Security Hub in that region too."
+)
 ERROR_MESSAGES = {
     **dict.fromkeys(
         CREDENTIAL_ERROR_CODES, "AWS rejected the credentials. Check the access key and secret access key."

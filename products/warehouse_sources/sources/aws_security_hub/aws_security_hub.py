@@ -155,7 +155,6 @@ def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
         "modified_time",
         "resource_creation_time_dt",
         "resource_detail_capture_time_dt",
-        "timestamp",
     ):
         if isinstance(row.get(key), str):
             timestamp = dt.datetime.fromisoformat(row[key].replace("Z", "+00:00"))
@@ -185,13 +184,22 @@ def _prepare(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
     if ENDPOINTS[endpoint].trend_window_days:
         values = item.get("TrendsValues") or {}
         counts = values.get("SeverityTrends") or values.get("ResourcesCount") or {}
-        return {**{key: value for key, value in item.items() if key != "TrendsValues"}, **counts}
+        row = {**{key: value for key, value in item.items() if key != "TrendsValues"}, **counts}
+        if isinstance(row.get("Timestamp"), str):
+            row["Timestamp"] = dt.datetime.fromisoformat(row["Timestamp"].replace("Z", "+00:00"))
+        return row
     return item
 
 
-def _trend_window(days: int) -> tuple[str, str]:
+@frozen
+class TrendWindow:
+    start: str
+    end: str
+
+
+def _trend_window(days: int) -> TrendWindow:
     end = dt.datetime.now(dt.UTC)
-    return format_datetime(end - dt.timedelta(days=days), "iso_z"), format_datetime(end, "iso_z")
+    return TrendWindow(start=format_datetime(end - dt.timedelta(days=days), "iso_z"), end=format_datetime(end, "iso_z"))
 
 
 def get_rows(
@@ -220,7 +228,8 @@ def get_rows(
         cutoff = dt.datetime.now(dt.UTC).isoformat()
     if endpoint_config.trend_window_days:
         # The resume state keeps the window, because a NextToken is only valid for the request that issued it.
-        updated_after, cutoff = _trend_window(endpoint_config.trend_window_days)
+        trend_window = _trend_window(endpoint_config.trend_window_days)
+        updated_after, cutoff = trend_window.start, trend_window.end
     if state:
         updated_after = state.updated_after
         cutoff = state.cutoff
@@ -256,6 +265,8 @@ def get_rows(
             path_params = {parent_field: parent_id} if parent_field else {}
             next_parent = parent_ids[index + 1] if index + 1 < len(parent_ids) else None
             pages = _pages(client, endpoint_config, start_token, {**filters, **path_params})
+            if start_token and endpoint_config.token_expires:
+                pages = _clear_state_on_rejected_token(pages, manager)
             start_token = None
             for items, token in pages:
                 rows = [normalize_row(_prepare(endpoint, {**path_params, **item})) for item in items]
@@ -360,6 +371,24 @@ def _items(endpoint: SecurityHubEndpoint, result: dict[str, Any]) -> list[dict[s
     return items
 
 
+def _clear_state_on_rejected_token(
+    pages: Iterator[tuple[list[dict[str, Any]], str | None]],
+    manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    try:
+        first = next(pages)
+    except StopIteration:
+        return
+    except AwsSecurityHubError as error:
+        if error.code == "ValidationException":
+            # A resumed full refresh appends to the table, so it cannot start again in this attempt.
+            # Without saved state, the retry starts from the first page and overwrites the table.
+            manager.clear_state()
+        raise
+    yield first
+    yield from pages
+
+
 def _pages(
     client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint, token: str | None, extra: dict[str, Any]
 ) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
@@ -391,7 +420,8 @@ def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
             return
         path_params[parent_field] = items[0][parent_field]
     if endpoint.trend_window_days:
-        path_params["StartTime"], path_params["EndTime"] = _trend_window(1)
+        window = _trend_window(1)
+        path_params["StartTime"], path_params["EndTime"] = window.start, window.end
     client.request(endpoint.operation, {**({"MaxResults": 1} if endpoint.page_size else {}), **path_params})
 
 

@@ -131,7 +131,8 @@ Grant `securityhub:GetFindings`, `securityhub:GetFindingHistory`, `securityhub:D
 Enter its access key ID and secret access key. Add a session token for temporary credentials.
 Enable Security Hub CSPM in the selected region.
 If you select an aggregation region, AWS can also return findings from linked regions.
-The remediation tables need Security Hub with exposure findings in the selected region.""",
+The remediation tables need Security Hub with exposure findings in the selected region.
+The software, trend, and V2 product tables need AWS Security Hub, not only Security Hub CSPM, in the selected region.""",
             iconPath="/static/services/aws_security_hub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-security-hub",
             releaseStatus=ReleaseStatus.BETA,
