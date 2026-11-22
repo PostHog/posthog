@@ -275,7 +275,7 @@ function unrampedStatusOf({
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
         ...timeline.flatMap((entry) =>
-            entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+            entry.appliedAt !== undefined && entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
                 ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
                 : entry.observedAt === undefined
                   ? [unobservedReasonOf(entry)]
