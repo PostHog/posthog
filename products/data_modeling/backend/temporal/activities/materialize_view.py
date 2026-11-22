@@ -265,6 +265,32 @@ class UnstorableIntegerError(NonReportableError):
         self.column = column
 
 
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
+
+
 class DuplicateOutputColumnError(NonReportableError):
     """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
     list from it, and the arrow transform looks it up on the batch. Neither can say which of two
@@ -477,6 +503,29 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
+        return pa.map_(
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -488,9 +537,13 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
@@ -1419,28 +1472,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
@@ -1456,8 +1510,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await _open_delta_table(table_uri, storage_options)
-                delta_version = delta_table.version()
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
                 capture_exception(error)
