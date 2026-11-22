@@ -1,35 +1,93 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import type { ReactNode } from 'react'
 
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconInfo } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { ImportProviderOptionApi, ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { providerImportLogic } from './providerImportLogic'
+import { joinWithAnd, providerImportLogic } from './providerImportLogic'
 import { ProviderImportRunProgress } from './ProviderImportRunProgress'
 
+// The first sentence fits on a line or two, so the key field and Start button stay in view. The rest goes in a tooltip.
+function splitDescription(description: string): { summary: string; detail: string } {
+    const end = description.search(/\.\s/)
+    if (end === -1) {
+        return { summary: description, detail: '' }
+    }
+    return { summary: description.slice(0, end + 1), detail: description.slice(end + 2).trim() }
+}
+
 function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
-    const { deselectedImportSteps } = useValues(providerImportLogic)
+    const { deselectedImportSteps, unmetStepNeeds } = useValues(providerImportLogic)
     const { toggleImportStep } = useActions(providerImportLogic)
 
     return (
         <div className="space-y-2">
             <label className="LemonLabel">What to import</label>
-            {provider.steps.map((step) => (
-                <div key={step.key}>
-                    <LemonCheckbox
-                        checked={!deselectedImportSteps.includes(step.key)}
-                        onChange={() => toggleImportStep(step.key)}
-                        label={step.label}
-                        data-attr={`${provider.key}-import-step-${step.key}`}
-                    />
-                    <div className="text-xs text-secondary ml-6">{step.description}</div>
-                </div>
-            ))}
+            {provider.steps.map((step) => {
+                const { summary, detail } = splitDescription(step.description)
+                const unmet = unmetStepNeeds[step.key]
+                return (
+                    <div key={step.key}>
+                        <div className="flex items-center gap-2">
+                            <LemonCheckbox
+                                checked={!deselectedImportSteps.includes(step.key)}
+                                onChange={() => toggleImportStep(step.key)}
+                                label={step.label}
+                                data-attr={`${provider.key}-import-step-${step.key}`}
+                            />
+                            {step.counts_as_events && (
+                                <Tooltip title="Each person this step adds or updates counts as one event on your bill.">
+                                    <LemonTag
+                                        type="caution"
+                                        data-attr={`${provider.key}-import-step-${step.key}-billed`}
+                                    >
+                                        Billed as events
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
+                        <div className="text-xs text-secondary ml-6">
+                            {summary}
+                            {detail && (
+                                <Tooltip title={detail}>
+                                    <span
+                                        tabIndex={0}
+                                        aria-label={detail}
+                                        className="ml-1 inline-flex align-text-bottom"
+                                    >
+                                        <IconInfo className="text-sm text-muted" />
+                                    </span>
+                                </Tooltip>
+                            )}
+                        </div>
+                        {unmet && (
+                            <div
+                                className="text-xs text-warning ml-6"
+                                data-attr={`${provider.key}-import-step-${step.key}-needs`}
+                            >
+                                Also select {joinWithAnd(unmet)}, or this step can't run.
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -73,7 +131,7 @@ function ImportRunResult({
     return (
         <div className="space-y-3">
             {run.status === 'completed' ? (
-                <LemonBanner type="success">
+                <LemonBanner type="success" icon={<IconCheckCircle className="LemonBanner__icon hidden @md:!block" />}>
                     <span className="font-semibold">Import finished</span>
                 </LemonBanner>
             ) : (
@@ -82,9 +140,9 @@ function ImportRunResult({
                 </LemonBanner>
             )}
             {!provider.retains_credentials && (
-                <p className="text-sm text-secondary m-0" data-attr={`${provider.key}-import-key-deleted`}>
-                    PostHog deleted your API key when the import ended.
-                </p>
+                <div className="text-sm text-secondary" data-attr={`${provider.key}-import-key-deleted`}>
+                    PostHog deleted your {keyNoun(provider)} when the import ended.
+                </div>
             )}
             <ProviderImportRunProgress run={run} onOpenLink={closeImportModal} />
             {run.finished_at && (
@@ -107,6 +165,35 @@ function ImportRunResult({
     )
 }
 
+// Some tools call their key a token, so the field's prompts use the tool's own word.
+function keyNoun(provider: ImportProviderOptionApi): 'token' | 'API key' {
+    return /token/i.test(provider.api_key_label) ? 'token' : 'API key'
+}
+
+// Catches a value copied with extra characters before Start sends it to the tool.
+// The hint waits for `length` characters, because a shorter value is usually still being typed.
+const API_KEY_FORMATS: Record<string, { pattern: RegExp; length: number; hint: string }> = {
+    postmark: {
+        length: 36,
+        pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        hint: "This doesn't look like a Postmark token, which has 36 characters in five groups, like 1b2c3d4e-0000-0000-0000-123456789abc. Check that you copied the whole token and nothing else.",
+    },
+}
+
+function ApiKeyFormatHint({ provider }: { provider: ImportProviderOptionApi }): JSX.Element | null {
+    const { importForm } = useValues(providerImportLogic)
+    const format = API_KEY_FORMATS[provider.key]
+    const value = importForm.api_key.trim()
+    if (!format || value.length < format.length || format.pattern.test(value)) {
+        return null
+    }
+    return (
+        <div className="text-xs text-warning mt-1" data-attr={`${provider.key}-api-key-format-hint`}>
+            {format.hint}
+        </div>
+    )
+}
+
 function ApiKeyHelp({ provider }: { provider: ImportProviderOptionApi }): JSX.Element | null {
     if (!provider.api_key_help && !provider.api_key_url) {
         return null
@@ -116,7 +203,7 @@ function ApiKeyHelp({ provider }: { provider: ImportProviderOptionApi }): JSX.El
             {provider.api_key_help}{' '}
             {provider.api_key_url && (
                 <Link to={provider.api_key_url} target="_blank">
-                    Create a key
+                    {keyNoun(provider) === 'token' ? 'Create a token' : 'Create a key'}
                 </Link>
             )}
         </div>
@@ -152,7 +239,7 @@ function ImportStartButton({
             type="primary"
             onClick={submitImportForm}
             loading={startedImportRunLoading}
-            disabledReason={!importForm.api_key ? 'Enter your API key' : cannotStartImportReason}
+            disabledReason={!importForm.api_key.trim() ? `Enter your ${keyNoun(provider)}` : cannotStartImportReason}
             data-attr={`${provider.key}-import-start`}
         >
             Start import
@@ -160,16 +247,21 @@ function ImportStartButton({
     )
 }
 
+// The negative offsets cancel the window's padding, so the pinned bar meets the window's edges.
+const PINNED_BAR_CLASSES = 'sticky -bottom-4 -mx-4 -mb-4 border-t bg-surface-primary px-4 pt-3 pb-4'
+
 function ImportForm({
     provider,
     storedKeyField,
     beforeForm,
     apiKeyPlaceholder,
+    pinActions,
 }: {
     provider: ImportProviderOptionApi
     storedKeyField?: ReactNode
     beforeForm?: ReactNode
-    apiKeyPlaceholder: string
+    apiKeyPlaceholder?: string
+    pinActions: boolean
 }): JSX.Element {
     const { importError, latestImportRun, showImportAgainForm } = useValues(providerImportLogic)
     const { setShowImportAgainForm } = useActions(providerImportLogic)
@@ -183,45 +275,48 @@ function ImportForm({
             )}
 
             {showImportAgainForm && (
-                <p className="text-sm text-secondary m-0">
+                <div className="text-sm text-secondary">
                     Importing again adds what's new. Anything you changed or deleted in PostHog since the last import
                     stays as it is.
-                </p>
+                </div>
             )}
 
             <ImportSettingsPicker provider={provider} />
 
             <ImportStepPicker provider={provider} />
 
-            {provider.not_imported && <p className="text-xs text-secondary m-0">{provider.not_imported}</p>}
+            {provider.not_imported && <div className="text-xs text-secondary">{provider.not_imported}</div>}
 
-            {storedKeyField ?? (
-                <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
-                    <LemonField name="api_key" label={provider.api_key_label}>
-                        <LemonInput
-                            placeholder={apiKeyPlaceholder}
-                            type="password"
-                            data-attr={`${provider.key}-api-key`}
-                            autoComplete="off"
-                        />
-                    </LemonField>
-                    <ApiKeyHelp provider={provider} />
-                </Form>
-            )}
-
-            {importError && (
-                <LemonBanner type="error" className="text-sm">
-                    {importError}
-                </LemonBanner>
-            )}
-
-            <div className="flex justify-end gap-2">
-                {showImportAgainForm && (
-                    <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
-                        Back to results
-                    </LemonButton>
+            <div className={clsx(pinActions ? ['space-y-3', PINNED_BAR_CLASSES] : 'space-y-4')}>
+                {storedKeyField ?? (
+                    <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
+                        <LemonField name="api_key" label={provider.api_key_label}>
+                            <LemonInput
+                                placeholder={apiKeyPlaceholder ?? `Enter your ${keyNoun(provider)}`}
+                                type="password"
+                                data-attr={`${provider.key}-api-key`}
+                                autoComplete="off"
+                            />
+                        </LemonField>
+                        <ApiKeyFormatHint provider={provider} />
+                        <ApiKeyHelp provider={provider} />
+                    </Form>
                 )}
-                <ImportStartButton provider={provider} hasStoredKey={!!storedKeyField} />
+
+                {importError && (
+                    <LemonBanner type="error" className="text-sm">
+                        {importError}
+                    </LemonBanner>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2">
+                    {showImportAgainForm && (
+                        <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
+                            Back to results
+                        </LemonButton>
+                    )}
+                    <ImportStartButton provider={provider} hasStoredKey={!!storedKeyField} />
+                </div>
             </div>
         </div>
     )
@@ -231,13 +326,16 @@ export function ProviderImportPanel({
     provider,
     storedKeyField,
     beforeForm,
-    apiKeyPlaceholder = 'Enter your API key',
+    apiKeyPlaceholder,
+    pinActions = false,
 }: {
     provider: ImportProviderOptionApi
     /** Shown instead of the key field when the provider already has a stored key. */
     storedKeyField?: ReactNode
     beforeForm?: ReactNode
     apiKeyPlaceholder?: string
+    /** Keeps the key field and Start button in view while the window scrolls. Only for a panel that fills the window. */
+    pinActions?: boolean
 }): JSX.Element {
     const { importRuns, importRunsLoading, latestImportRun, isImportRunActive, showImportAgainForm } =
         useValues(providerImportLogic)
@@ -276,7 +374,7 @@ export function ProviderImportPanel({
         return (
             <div className="space-y-4">
                 <ImportRunResult run={latestImportRun} provider={provider} />
-                <div className="flex justify-end">
+                <div className={clsx('flex justify-end', pinActions && PINNED_BAR_CLASSES)}>
                     <LemonButton
                         type="secondary"
                         onClick={() => setShowImportAgainForm(true)}
@@ -295,6 +393,7 @@ export function ProviderImportPanel({
             storedKeyField={storedKeyField}
             beforeForm={beforeForm}
             apiKeyPlaceholder={apiKeyPlaceholder}
+            pinActions={pinActions}
         />
     )
 }

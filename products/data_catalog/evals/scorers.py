@@ -663,7 +663,11 @@ class MetricDescribeBeforeAdaptedSql(Scorer):
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        analytical_sql = [call for call in _successful_sql(parser) if not _is_catalog_lookup(call)]
+        analytical_sql = [
+            call
+            for call in _successful_sql(parser)
+            if not _is_catalog_lookup(call) and not _is_discovery(call) and not _reads_only_system_tables(call)
+        ]
         if not analytical_sql:
             return Score(name=self._name(), score=1.0, metadata={"reason": "no adapted SQL"})
         describe_positions = [call.position for call in parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]

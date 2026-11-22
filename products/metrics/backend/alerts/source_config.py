@@ -73,9 +73,9 @@ def _validate_edit(edit: PlatformAlertConfigurationEdit) -> None:
 METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     model=MetricsPlatformAlertConfig,
     validate=_validate_edit,
-    # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
     native=NativeAlertLifecycle(
         check_interval_minutes=CHECK_INTERVAL_MINUTES,
+        platform_destinations=True,
         check_intervals=dict.fromkeys(CHECK_INTERVALS),
         max_per_team=MAX_ALERTS_PER_TEAM,
     ),
