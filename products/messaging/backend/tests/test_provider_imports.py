@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 import time_machine
@@ -390,7 +391,7 @@ class TestCategoryImport(BaseTest):
         original = manager.bulk_create
         theirs: list[MessageCategory] = []
 
-        def insert_first(self_: object, objs: list, **kwargs: object) -> list:
+        def insert_first(self_: Any, objs: list, **kwargs: Any) -> list:
             theirs.append(MessageCategory.objects.create(team_id=self.team.id, key="tool_a_launch", name="Launches"))
             return original(self_, objs, **kwargs)
 
