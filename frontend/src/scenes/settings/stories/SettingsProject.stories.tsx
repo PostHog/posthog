@@ -1,19 +1,16 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
-import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp, SettingsStoryReady } from './SettingsStoryApp'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
 import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
@@ -126,12 +123,7 @@ export const SettingsProjectLogsReadOnly: Story = {
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
         })
-        router.actions.push(urls.settings(sectionId))
-        return (
-            <SettingsStoryReady>
-                <App />
-            </SettingsStoryReady>
-        )
+        return <SettingsStoryApp sectionId={sectionId} />
     },
 }
 
