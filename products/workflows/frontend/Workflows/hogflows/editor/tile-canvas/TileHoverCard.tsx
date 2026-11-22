@@ -40,12 +40,14 @@ export function TileHoverCard({
     action,
     tile,
     count,
+    reachedAfter,
     workflowId,
 }: {
     open: boolean
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
+    reachedAfter: string | undefined
     workflowId: string
 }): JSX.Element {
     const face = { width: TILE_SIZE, height: TILE_SIZE }
@@ -100,6 +102,7 @@ export function TileHoverCard({
                     {showPreview && <StepPreview action={action} tile={tile} />}
                     {(!showPreview || !PREVIEWS_THAT_SHOW_SETTINGS.has(kind)) && <StepFieldList facts={tile.facts} />}
                     <StepCountLine count={count} />
+                    {reachedAfter && <div className="text-xs text-secondary">{reachedAfter}</div>}
                 </div>
                 {workflowId && (
                     <div className="border-t py-3 empty:hidden">
