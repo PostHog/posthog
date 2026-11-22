@@ -93,6 +93,8 @@ class StagedPerson(TypedDict):
     fill_only: NotRequired[bool]
     # False for a person whose events the import sends but who stays out of the cohort.
     member: NotRequired[bool]
+    # True for a person PostHog didn't have when the list was stored.
+    new: NotRequired[bool]
 
 
 @frozen

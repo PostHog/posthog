@@ -17,6 +17,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.client import Pipeline
 
 from posthog.api.test.test_team import create_team
 from posthog.constants import FlagRequestType
@@ -46,6 +47,7 @@ from ee.billing.quota_limiting import (
     is_team_limited,
     list_limited_team_attributes,
     org_quota_limited_until,
+    reconcile_limited_team_tokens,
     refresh_org_self_driving_quota,
     remove_limited_team_tokens,
     replace_limited_team_tokens,
@@ -2660,6 +2662,66 @@ class TestQuotaLimiting(BaseTest):
         members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
         assert self.team.api_token in members_after
         mock_update_remote_config.apply_async.assert_not_called()
+
+
+class TestQuotaSetWritesAtRedisArgumentLimit(SimpleTestCase):
+    key = "@posthog/quota-limits/events"
+    argument_limit = 6
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.redis_client = get_client()
+        self.redis_client.delete(self.key)
+        self.addCleanup(self.redis_client.delete, self.key)
+
+    @parameterized.expand(
+        [
+            ("replace_at_limit", "replace", 2, 4, 1, 0),
+            ("replace_above_limit", "replace", 5, 9, 3, 0),
+            ("reconcile_at_limit", "reconcile", 2, 4, 1, 1),
+            ("reconcile_above_limit", "reconcile", 5, 9, 3, 3),
+        ]
+    )
+    def test_write_keeps_each_command_within_the_argument_limit(
+        self,
+        _name: str,
+        write: str,
+        token_count: int,
+        stale_count: int,
+        expected_zadd_count: int,
+        expected_zrem_count: int,
+    ) -> None:
+        score = int(timezone.now().timestamp()) + 3600
+        stale_tokens = {f"stale-{index}": score for index in range(stale_count)}
+        tokens = {f"limited-{index}": score + index for index in range(token_count)}
+        self.redis_client.zadd(self.key, stale_tokens)  # type: ignore[arg-type]
+        transactions: list[tuple[bool, list[tuple]]] = []
+        execute = Pipeline.execute
+
+        def record_transaction(pipeline: Pipeline, *args: Any, **kwargs: Any) -> Any:
+            transactions.append((pipeline.transaction, [command for command, _options in pipeline.command_stack]))
+            return execute(pipeline, *args, **kwargs)
+
+        with (
+            patch("ee.billing.quota_limiting.REDIS_MAX_COMMAND_ARGUMENTS", self.argument_limit, create=True),
+            patch.object(Pipeline, "execute", autospec=True, side_effect=record_transaction),
+        ):
+            if write == "replace":
+                replace_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            else:
+                reconcile_limited_team_tokens(
+                    QuotaResource.EVENTS, list(stale_tokens), tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+        [(is_transaction, commands)] = transactions
+        assert is_transaction
+        assert max(len(command) for command in commands) <= self.argument_limit
+        command_names = [command[0] for command in commands]
+        assert command_names.count("ZADD") == expected_zadd_count
+        assert command_names.count("ZREM") == expected_zrem_count
+        assert dict(self.redis_client.zrange(self.key, 0, -1, withscores=True)) == {
+            token.encode(): float(token_score) for token, token_score in tokens.items()
+        }
 
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:
