@@ -21,8 +21,10 @@ const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
-// Covers SNS's own redeliveries, Kafka's redelivery of a failed batch, and a replay of the topic within days of an outage.
-const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 3 * 24 * 60 * 60
+// SNS retries a delivery within an hour, and Kafka redelivers an uncommitted batch as soon as its partition moves.
+// A short window caps the keys that reloading a tracking pixel can add, and lets a replay after an outage rewrite
+// what a failed sink dropped.
+const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 60 * 60
 // A slow Redis costs a possible double count, never a stalled partition.
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
