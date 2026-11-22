@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -21,16 +22,18 @@ from products.workflows.backend.facade.testing import create_batch_job_for_test,
 
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 
-ORGANIZATION, PROJECT = 0, 2
-CONDITIONS: dict[str, tuple[int | None, dict[str, object]]] = {
-    "project_key": (PROJECT, {"key": "$group_key", "type": "group", "group_type_index": PROJECT}),
-    "organization_key": (ORGANIZATION, {"key": "$group_key", "type": "group", "group_type_index": ORGANIZATION}),
-    "project_id": (PROJECT, {"key": "id", "type": "group", "group_type_index": PROJECT}),
-    "email": (None, {"key": "email", "type": "person"}),
-}
+ORGANIZATION, INSTANCE, PROJECT = 0, 1, 2
+FlagCondition = tuple[int | None, dict[str, object]]
+PROJECT_KEY: FlagCondition = (PROJECT, {"key": "$group_key", "type": "group", "group_type_index": PROJECT})
+ORGANIZATION_KEY: FlagCondition = (
+    ORGANIZATION,
+    {"key": "$group_key", "type": "group", "group_type_index": ORGANIZATION},
+)
+PROJECT_ID: FlagCondition = (PROJECT, {"key": "id", "type": "group", "group_type_index": PROJECT})
+EMAIL: FlagCondition = (None, {"key": "email", "type": "person"})
 
 
-def _email_activity_flag(condition: tuple[int | None, dict[str, object]], value: str) -> dict[str, object]:
+def _email_activity_flag(condition: FlagCondition, value: str) -> dict[str, object]:
     aggregation, prop = condition
     return {
         "id": 1,
@@ -176,30 +179,32 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the_project_uuid_the_app_targets", "project_key", "team.uuid", status.HTTP_200_OK),
-            ("the_organization", "organization_key", "team.organization_id", status.HTTP_200_OK),
-            ("the_users_email", "email", "user.email", status.HTTP_200_OK),
-            ("the_project_id_property", "project_id", "team.id", status.HTTP_200_OK),
-            ("the_numeric_team_id_as_project_key", "project_key", "team.id", status.HTTP_404_NOT_FOUND),
-            ("another_project", "project_key", None, status.HTTP_404_NOT_FOUND),
+            ("the_project_uuid_the_app_targets", PROJECT_KEY, lambda t: t.team.uuid, status.HTTP_200_OK),
+            ("the_organization", ORGANIZATION_KEY, lambda t: t.team.organization_id, status.HTTP_200_OK),
+            ("the_users_email", EMAIL, lambda t: t.user.email, status.HTTP_200_OK),
+            ("the_project_id_property", PROJECT_ID, lambda t: t.team.id, status.HTTP_200_OK),
+            ("the_numeric_team_id_as_project_key", PROJECT_KEY, lambda t: t.team.id, status.HTTP_404_NOT_FOUND),
+            ("another_project", PROJECT_KEY, lambda _t: UUIDT(), status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_opens_only_for_a_project_the_flag_targets(
-        self, _name: str, condition: str, targeted_attr: str | None, expected: int
+    def test_opens_only_for_what_the_flag_targets(
+        self,
+        _name: str,
+        condition: FlagCondition,
+        targeted: Callable[["TestWorkflowEmailLog"], object],
+        expected: int,
     ):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
         flush_persons_and_events()
-        if targeted_attr:
-            owner, attr = targeted_attr.split(".")
-            targeted_value = str(getattr(self.team if owner == "team" else self.user, attr))
-        else:
-            targeted_value = str(UUIDT())
-        flags = Client(
-            "phc_test", personal_api_key="phx_test", host="http://127.0.0.1:9", send=False, poll_interval=100000
-        )
-        flags.group_type_mapping = {"0": "organization", "1": "instance", "2": "project"}
-        flags.feature_flags = [_email_activity_flag(CONDITIONS[condition], targeted_value)]
+        flags = Client("phc_test", host="http://127.0.0.1:9", send=False)
+        self.addCleanup(flags.shutdown)
+        flags.group_type_mapping = {
+            str(ORGANIZATION): "organization",
+            str(INSTANCE): "instance",
+            str(PROJECT): "project",
+        }
+        flags.feature_flags = [_email_activity_flag(condition, str(targeted(self)))]
         self.flag_enabled.side_effect = feature_enabled
 
         with patch.object(posthoganalytics, "default_client", flags), patch.object(posthoganalytics, "disabled", False):
