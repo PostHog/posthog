@@ -14,7 +14,7 @@ export function QuillEmailSection({ emailConfigs }: { emailConfigs: EmailConfigS
             <div className="flex flex-col gap-2">
                 {emailConfigs.map((config: EmailConfigStatus) => (
                     <Collapsible key={config.id} className="rounded-md border border-border p-2">
-                        <CollapsibleHeader className="flex-wrap">
+                        <CollapsibleHeader className="flex-wrap ps-8">
                             <CollapsibleTrigger iconOnly>{`Show details for ${config.from_email}`}</CollapsibleTrigger>
                             <Text size="xs" weight="semibold" render={<span className="min-w-0 truncate" />}>
                                 {config.from_email}
