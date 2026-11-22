@@ -7860,10 +7860,10 @@ Note: Full OpenAPI 3.1 spec is public and unauthenticated. Note /leads and /lead
 
 Re-audited 2026-11-19 against: <https://developer.instantly.ai/api-reference/openapi.json>
 
-- [ ] `Inbox placement tests (GET /api/v2/inbox-placement-tests)` — the test definitions that inbox_placement_analytics and reports belong to, with ESP and status (high)
-- [ ] `Account-campaign mappings (GET /api/v2/account-campaign-mappings/{email})` — which campaigns each sending account serves, fan-out over accounts (medium)
-- [ ] `Workspace plan details (GET /api/v2/workspace-billing/plan-details; GET /api/v2/workspace-billing/subscription-details)` — plan, limits and subscription, the billing object (medium)
-- [ ] `Campaign sending status (GET /api/v2/campaigns/{id}/sending-status)` — why each campaign is or is not sending now, fan-out over campaigns (low)
+- [x] `Inbox placement tests (GET /api/v2/inbox-placement-tests)` — the test definitions that inbox_placement_analytics and reports belong to, with ESP and status (high). Added as `inbox_placement_tests`.
+- [x] `Account-campaign mappings (GET /api/v2/account-campaign-mappings/{email})` — which campaigns each sending account serves, fan-out over accounts (medium). Added as `account_campaign_mappings`.
+- [x] `Workspace plan details (GET /api/v2/workspace-billing/plan-details; GET /api/v2/workspace-billing/subscription-details)` — plan, limits and subscription, the billing object (medium). Added as `workspace_plan_details` and `workspace_subscriptions`.
+- [x] `Campaign sending status (GET /api/v2/campaigns/{id}/sending-status)` — why each campaign is or is not sending now, fan-out over campaigns (low). Added as `campaign_sending_status`.
 - [ ] `Workspace group members (GET /api/v2/workspace-group-members)` — agency workspace group membership beside workspace_members (low)
 - [ ] `Background jobs (GET /api/v2/background-jobs)` — state of async jobs such as lead imports (low)
 - [ ] `DFY email account orders (GET /api/v2/dfy-email-account-orders; GET /api/v2/dfy-email-account-orders/accounts)` — done-for-you mailbox orders and the accounts they delivered (low)
