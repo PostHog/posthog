@@ -21,9 +21,9 @@ const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
-// SNS retries a delivery within an hour, and Kafka redelivers an uncommitted batch as soon as its partition moves.
-// A short window caps the keys that reloading a tracking pixel can add, and lets a replay after an outage rewrite
-// what a failed sink dropped.
+// A mark lasts an hour past the last batch that read it, which covers SNS retries, a moved partition, and a batch that
+// fails until its datastore recovers. A short window caps the keys that reloading a tracking pixel can add, and lets a
+// replay after an outage rewrite what a failed sink dropped.
 const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 60 * 60
 // A slow Redis costs a possible double count, never a stalled partition.
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
@@ -54,7 +54,8 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        const marks: BatchMarks = { skip: await this.recordedEarlier(messages), recorded: [] }
+        const recordedEarlier = await this.recordedEarlier(messages)
+        const marks: BatchMarks = { skip: new Set(recordedEarlier), recorded: [] }
         let next = 0
         const errors: unknown[] = []
         const recordNext = async (): Promise<void> => {
@@ -87,7 +88,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
             throw errors[0]
         }
-        await this.markRecorded(marks.recorded)
+        await this.markRecorded([...recordedEarlier, ...marks.recorded])
         if (errors.length > 0) {
             throw errors[0]
         }
