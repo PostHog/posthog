@@ -1586,9 +1586,10 @@ mod tests {
         );
     }
 
-    /// `JSONType` reads a JSON column as no object, so a row filter on the JSON table admits every
-    /// row. A ClickHouse that read the column instead would drop this flag call, because its
-    /// `$feature/my-flag` member exists only in the document the scan rebuilds.
+    /// `JSONType` never returns 'Object' for a JSON-typed column, so the row filter's
+    /// `JSONType(e.properties) != 'Object'` branch admits every row. A ClickHouse that read the
+    /// column instead would drop this flag call, because its `$feature/my-flag` member exists only
+    /// in the document the scan rebuilds.
     #[tokio::test]
     async fn a_flag_evaluations_json_scan_sends_no_row_filter() {
         use crate::domain::row_filter::test_catalog::event_and_property;
@@ -1892,10 +1893,11 @@ mod tests {
         /// into the JSON table's columns: the `$feature/<key>` value goes to the `$feature_flags`
         /// map, `$active_feature_flags` is dropped, `$feature_flag_request_id` goes to
         /// `temporary_properties` with `$set`, the nested object becomes a string, and each null field
-        /// goes to its column's null-keys array, with a `.` inside a key stored as `%2E`.
-        const LEGACY_PROPERTIES: &str = r#"{"$feature_flag":"my-flag","$feature_flag_response":"variant-a","$feature_flag_request_id":"req-1","$feature/my-flag":"variant-a","$active_feature_flags":["my-flag"],"a.b":"dotted","x.y":null,"gone":null,"nested":{"k":1,"list":[1,2]},"url":"https://example.com/x","n":3,"$set":null}"#;
+        /// goes to its column's null-keys array, with a `.` inside a key stored as `%2E` and a null flag
+        /// stored as `$feature_flags.<key>`.
+        const LEGACY_PROPERTIES: &str = r#"{"$feature_flag":"my-flag","$feature_flag_response":"variant-a","$feature_flag_request_id":"req-1","$feature/my-flag":"variant-a","$feature/other":null,"$active_feature_flags":["my-flag"],"a.b":"dotted","x.y":null,"gone":null,"nested":{"k":1,"list":[1,2]},"url":"https://example.com/x","n":3,"$set":null}"#;
         const JSON_PROPERTIES: &str = r#"{"$feature_flag":"my-flag","$feature_flag_response":"variant-a","$feature_flags":{"my-flag":"variant-a"},"a.b":"dotted","nested":"{\"k\":1,\"list\":[1,2]}","url":"https://example.com/x","n":3,"$set":null}"#;
-        const JSON_PROPERTIES_NULL_KEYS: &str = "['x%2Ey', 'gone']";
+        const JSON_PROPERTIES_NULL_KEYS: &str = "['x%2Ey', 'gone', '$feature_flags.other']";
         const JSON_TEMPORARY_PROPERTIES: &str = r#"{"$feature_flag_request_id":"req-1"}"#;
         const JSON_TEMPORARY_PROPERTIES_NULL_KEYS: &str = "['$set']";
         const LEGACY_PERSON_PROPERTIES: &str = r#"{"email":"person@example.com","plan":null}"#;

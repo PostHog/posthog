@@ -122,11 +122,22 @@ def null_member_pairs_sql(null_keys_sql: str) -> str:
     """`"key":null` strings for the top-level keys that a null-keys array lists.
 
     An entry with a `.` is a nested path. The cleaner also drops a nested null from the container string it stores,
-    so a nested null has no member here either. `%2E` is the stored spelling of a `.` inside one key.
+    so a nested null has no member here either. The exception is `$feature_flags.<key>`: the cleaner records a flag
+    sent as `null` under that path, and the SDK sent it as the top-level `$feature/<key>`. `%2E` is the stored
+    spelling of a `.` inside one key.
     """
+    flag_path_prefix = escape_clickhouse_string(f"{_FEATURE_FLAGS_KEY}.")
+    flag_key_start = len(_FEATURE_FLAGS_KEY) + 2
+    member_key = (
+        f"if(startsWith(key, {flag_path_prefix}), "
+        f"concat({escape_clickhouse_string(FEATURE_FLAG_PROPERTY_PREFIX)}, substring(key, {flag_key_start})), key)"
+    )
+    is_top_level = (
+        f"position(key, '.') = 0 or (startsWith(key, {flag_path_prefix}) and position(key, '.', {flag_key_start}) = 0)"
+    )
     return (
-        f"arrayMap(key -> concat(toJSONString(replaceAll(key, '%2E', '.')), ':null'), "
-        f"arrayFilter(key -> position(key, '.') = 0, {null_keys_sql}))"
+        f"arrayMap(key -> concat(toJSONString(replaceAll({member_key}, '%2E', '.')), ':null'), "
+        f"arrayFilter(key -> {is_top_level}, {null_keys_sql}))"
     )
 
 

@@ -169,6 +169,7 @@ A cohort without a `$feature_flag_called` condition does not affect the choice.
 The flag table is `flag_evaluations_json` when the compiled batch query reads it, which it does for a team on the native JSON events table while the `FLAG_EVALUATIONS_READS_JSON` instance setting is on. Otherwise it is `flag_evaluations`.
 When two cohorts of one run report different flag tables, the setting changed while the creator compiled them, and the creator raises an error so that a retry pins one table.
 Turn the setting on only after `flag_evaluations_json` holds every day a pinned window can reach, the seeder that reads the table runs in every region, and the `cohort_seeder` ClickHouse profile allows the table's read settings. A seeder without support for the table fails every run pinned to it.
+The seeder sends no row filter to `flag_evaluations_json`, so each chunk reads every flag call of the team's day rather than only the cohort's flags. Measure one large team's chunk on that table, or add an `e.flag_key IN (...)` filter, before turning the setting on.
 When a cohort's batch query does not compile, the creator refuses the run.
 The save path refuses with reason `flag_calls_table_unresolved`, and the team creator raises an error that names the cohort.
 In an organization whose flag calls are only in `flag_evaluations`, a run that pinned `events` would give the cohort an empty flag-call history that still counts as backfilled.

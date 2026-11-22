@@ -105,7 +105,7 @@ def pinned_flag_calls_table(
     three rules. A cohort without a flag-call condition does not count. The flag table is flag_evaluations_json when
     the batch query reads it, and flag_evaluations otherwise.
 
-    - The batch calculation reads every flag call of the cohort from flag_evaluations. The seeder then reads the
+    - The batch calculation reads every flag call of the cohort from a flag table. The seeder then reads the
       same rows as the batch calculation.
     - Every flag-call window starts at most _MAX_FLAG_EVALUATIONS_DAYS_BACK days before today. The seeder fails a
       run that scans a day older than the flag_evaluations TTL.
