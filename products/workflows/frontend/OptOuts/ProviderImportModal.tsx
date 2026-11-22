@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -9,8 +8,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { ImportProviderOptionApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { customerioImportLogic } from '../Workflows/import/customerioImportLogic'
 import { CustomerioImportModal } from '../Workflows/import/CustomerioImportModal'
+import { CustomerIOAutomationsImportItem } from './CustomerIOAutomationsImportItem'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportSteps } from './CustomerIOImportSteps'
 import { providerImportLogic } from './providerImportLogic'
@@ -20,8 +19,7 @@ import { ProviderLogo } from './ProviderLogo'
 const CUSTOMERIO_PROVIDER = 'customerio'
 const SUMMARY_STEP_COUNT = 3
 
-function summarizeSteps(provider: ImportProviderOptionApi): string {
-    const labels = provider.steps.map((step) => step.label)
+function summarizeSteps(labels: string[]): string {
     if (labels.length <= SUMMARY_STEP_COUNT + 1) {
         return labels.join(', ')
     }
@@ -63,36 +61,27 @@ function ProviderOption({
 
 function ProviderPicker(): JSX.Element {
     const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport } = useValues(providerImportLogic)
-    const { selectProvider, closeImportModal } = useActions(providerImportLogic)
-    const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
+    const { selectProvider } = useActions(providerImportLogic)
 
     return (
         <div className="flex flex-col gap-2">
-            {orderedImportProviders.map((provider) => (
-                <Fragment key={provider.key}>
+            {orderedImportProviders.map((provider) => {
+                const stepLabels = provider.steps.map((step) => step.label)
+                if (provider.key === CUSTOMERIO_PROVIDER && showsAutomationImport) {
+                    stepLabels.push('Automations')
+                }
+                return (
                     <ProviderOption
+                        key={provider.key}
                         providerKey={provider.key}
                         label={provider.label}
-                        summary={summarizeSteps(provider)}
+                        summary={summarizeSteps(stepLabels)}
                         importing={['queued', 'running'].includes(latestImportRunByProvider[provider.key]?.status)}
                         onClick={() => selectProvider(provider.key)}
                         dataAttr={`import-provider-${provider.key}`}
                     />
-                    {/* "Customer.io automations" sorts straight after "Customer.io". */}
-                    {provider.key === CUSTOMERIO_PROVIDER && showsAutomationImport && (
-                        <ProviderOption
-                            providerKey={CUSTOMERIO_PROVIDER}
-                            label="Customer.io automations"
-                            summary="Automations, as draft workflows"
-                            onClick={() => {
-                                closeImportModal()
-                                openAutomationImport()
-                            }}
-                            dataAttr="import-provider-customerio-automations"
-                        />
-                    )}
-                </Fragment>
-            ))}
+                )
+            })}
         </div>
     )
 }
@@ -105,7 +94,7 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
 
     return (
         <div className="space-y-4">
-            {(hasSeveralProviders || showsAutomationImport) && (
+            {hasSeveralProviders && (
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -118,7 +107,11 @@ function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): 
             )}
             {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
             {isCustomerIO && isAdminOrOwner === false ? (
-                <AccessDenied object="Customer.io integration" inline />
+                <>
+                    <AccessDenied object="Customer.io integration" inline />
+                    {/* Draft workflows store no Customer.io key, so the automation import needs no admin. */}
+                    {showsAutomationImport && <CustomerIOAutomationsImportItem />}
+                </>
             ) : isCustomerIO ? (
                 <CustomerIOImportSteps provider={provider} />
             ) : (
@@ -151,7 +144,7 @@ function ProviderImportModalContent(): JSX.Element {
 
 export function ProviderImportModal(): JSX.Element {
     useMountedLogic(customerIOImportLogic)
-    const { isImportModalOpen, selectedProvider } = useValues(providerImportLogic)
+    const { isImportModalOpen, selectedProvider, showsAutomationImport } = useValues(providerImportLogic)
     const { closeImportModal } = useActions(providerImportLogic)
 
     const isCustomerIO = selectedProvider?.key === CUSTOMERIO_PROVIDER
@@ -167,7 +160,9 @@ export function ProviderImportModal(): JSX.Element {
                 title={title}
                 description={
                     isCustomerIO
-                        ? 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
+                        ? showsAutomationImport
+                            ? 'Import categories, unsubscribed users, suppressed addresses and automations from Customer.io.'
+                            : 'Import categories, unsubscribed users and suppressed addresses from Customer.io.'
                         : selectedProvider
                           ? undefined
                           : 'Bring your data with you when you move to PostHog.'

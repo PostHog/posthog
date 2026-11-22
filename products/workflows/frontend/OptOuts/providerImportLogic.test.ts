@@ -369,26 +369,21 @@ describe('providerImportLogic', () => {
         expect(logic.values.importForm.api_key).toBe('')
     })
 
-    it.each(['workflows', 'templates'] as const)(
-        'offers the Customer.io automation import from the %s page even when Customer.io is the only tool',
-        async (entryPoint) => {
+    it.each([
+        ['workflows', true],
+        ['templates', true],
+        ['transactional', false],
+    ] as const)(
+        'opens straight on Customer.io from the %s page when it is the only tool, with automations: %s',
+        async (entryPoint, showsAutomationImport) => {
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.openImportModal(null, entryPoint)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.showsAutomationImport).toBe(true)
-            expect(logic.values.selectedProvider).toBeNull()
+            expect(logic.values.showsAutomationImport).toBe(showsAutomationImport)
+            expect(logic.values.selectedProvider?.key).toBe('customerio')
         }
     )
-
-    it('opens straight on Customer.io from other pages when it is the only tool', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.openImportModal(null, 'transactional')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.showsAutomationImport).toBe(false)
-        expect(logic.values.selectedProvider?.key).toBe('customerio')
-    })
 
     it('lists the tools by name, whatever order the API sends', () => {
         const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })

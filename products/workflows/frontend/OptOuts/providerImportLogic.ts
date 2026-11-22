@@ -223,8 +223,7 @@ export interface providerImportLogicMeta {
         ) => boolean
         selectedProvider: (
             importProviders: ImportProviderOptionApi[] | null,
-            chosenProviderKey: string | null,
-            showsAutomationImport: boolean
+            chosenProviderKey: string | null
         ) => ImportProviderOptionApi | null
         orderedImportProviders: (importProviders: ImportProviderOptionApi[] | null) => ImportProviderOptionApi[]
         importButtonLabel: (importProviders: ImportProviderOptionApi[] | null) => string
@@ -421,7 +420,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         },
     })),
     selectors({
-        // Customer.io automations come in through their own file import, which is not one of the API's tools.
+        // Customer.io automations come in through their own import, which is not one of the API's tools.
         showsAutomationImport: [
             (s) => [s.importProviders, s.entryPoint],
             (importProviders: ImportProviderOptionApi[] | null, entryPoint: ImportEntryPoint): boolean =>
@@ -429,17 +428,16 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 !!importProviders?.some((provider) => provider.key === 'customerio'),
         ],
         selectedProvider: [
-            (s) => [s.importProviders, s.chosenProviderKey, s.showsAutomationImport],
+            (s) => [s.importProviders, s.chosenProviderKey],
             (
                 importProviders: ImportProviderOptionApi[] | null,
-                chosenProviderKey: string | null,
-                showsAutomationImport: boolean
+                chosenProviderKey: string | null
             ): ImportProviderOptionApi | null => {
                 if (!importProviders) {
                     return null
                 }
                 // With one thing to choose from, a picker would only add a click.
-                return importProviders.length === 1 && !showsAutomationImport
+                return importProviders.length === 1
                     ? importProviders[0]
                     : (importProviders.find((provider) => provider.key === chosenProviderKey) ?? null)
             },

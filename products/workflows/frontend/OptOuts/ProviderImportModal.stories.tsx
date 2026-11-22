@@ -9,6 +9,7 @@ import type { ProviderImportRunApi } from 'products/messaging/frontend/generated
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportModal } from './ProviderImportModal'
+import type { ImportEntryPoint } from './providerImportOrder'
 
 const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
 const importRunsEndpoint = '/api/projects/:team_id/messaging_provider_imports/'
@@ -128,15 +129,16 @@ type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
     importRuns?: ProviderImportRunApi[]
     providers?: typeof importProviders
+    entryPoint?: ImportEntryPoint
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns, providers }) => {
+const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns, providers, entryPoint }) => {
     useStorybookMocks(mockSyncConfig(syncConfig, importRuns, providers))
     const { openImportModal } = useActions(providerImportLogic)
 
     useEffect(() => {
-        openImportModal()
-    }, [openImportModal])
+        openImportModal(null, entryPoint)
+    }, [openImportModal, entryPoint])
 
     return <ProviderImportModal />
 }
@@ -168,6 +170,12 @@ ProviderPicker.args = {
 }
 ProviderPicker.parameters = {
     testOptions: { waitForSelector: '[data-attr="import-provider-resend"]', snapshotBrowsers: [] },
+}
+
+export const CustomerIOWithAutomations: StoryFn<StoryProps> = Template.bind({})
+CustomerIOWithAutomations.args = { syncConfig: emptySyncConfig, entryPoint: 'workflows' }
+CustomerIOWithAutomations.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-customerio-automations"]', snapshotBrowsers: [] },
 }
 
 export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})
