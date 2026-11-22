@@ -206,6 +206,7 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     *_UNVERSIONED_STATIC_MIDDLEWARE,  # Must precede WhiteNoise — it reads the path this rewrites
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "posthog.middleware.MissingStaticFileMiddleware",  # Must follow WhiteNoise, which serves the files that exist
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",

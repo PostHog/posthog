@@ -815,6 +815,20 @@ class TestFix204Middleware(SimpleTestCase):
         assert "Content-Length" not in response.headers
 
 
+class TestMissingStaticFileMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("source_map", "/static/chunk-NOTBUILT.js.map"),
+            ("nested_file", "/static/icons/missing.png"),
+        ]
+    )
+    def test_a_static_file_that_does_not_exist_is_a_404_without_a_database_query(self, _name: str, path: str) -> None:
+        # SimpleTestCase refuses database access, so the session and login middleware cannot have run.
+        response = self.client.get(path)
+
+        assert response.status_code == 404
+
+
 class TestUnversionedStaticPathMiddleware(SimpleTestCase):
     @parameterized.expand(
         [
