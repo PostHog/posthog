@@ -1320,15 +1320,19 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
-            it('keeps a mark for an hour past the last batch that skipped it, so a batch failing for hours counts once', async () => {
+            it('resets the mark of a notification a redelivered batch skips, even when that batch fails its flush', async () => {
                 const snsMessageId = new UUIDT().toString()
                 const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
                 await postBounce({ functionId: hogFunction.id, snsMessageId })
                 const batch = queuedSesNotifications()
                 await consumer.processBatch(batch)
                 await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
+                jest.spyOn(
+                    consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                    'flush'
+                ).mockRejectedValueOnce(new Error('broker unavailable'))
 
-                await consumer.processBatch(batch)
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
 
                 const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
                 expect(ttl).toBeGreaterThan(60 * 60 - 60)
