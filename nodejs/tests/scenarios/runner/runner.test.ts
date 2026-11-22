@@ -91,6 +91,9 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
     profile: { ...SMOKE.profile, settings },
 })
 
+// The loader refuses an email claim target of 500 a second at a 2x step on the default SES limiter.
+const SES_ROOM = { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2200', CDP_SES_RATE_LIMIT_CAPACITY: '500' }
+
 let processMetrics: { url: string; server: http.Server }
 let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
@@ -1152,6 +1155,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            settings = {},
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -1163,6 +1167,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            settings?: Profile['settings']
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -1199,6 +1204,7 @@ describe('runner through seed, drive and judge', () => {
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
                     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '0',
                     CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '0',
+                    ...settings,
                 },
             })
         )
@@ -1619,6 +1625,7 @@ describe('runner through seed, drive and judge', () => {
             {
                 measures: [{ name: 'pg_client_errors', params: {} }],
                 load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                settings: SES_ROOM,
             },
         ],
         [
@@ -2017,6 +2024,7 @@ describe('runner through seed, drive and judge', () => {
                     driveFor: '20s',
                     stopOnBreak: true,
                     load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                    settings: SES_ROOM,
                 }),
                 NEVER_ABORTED
             )

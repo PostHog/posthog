@@ -562,6 +562,21 @@ describe('scenario environment', () => {
                 "since a setting the loader's rate check reads comes from the profile or the server default only",
                 '1000',
             ],
+            [
+                'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_CAPACITY',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CONSUMER_BATCH_SIZE',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '10',
+            ],
         ])('drops an inherited %s, %s', (name, _reason, value) => {
             const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 
