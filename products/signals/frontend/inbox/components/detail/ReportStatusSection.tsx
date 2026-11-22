@@ -148,6 +148,7 @@ export function ReportStatusSection({
     selectedPullRequestUrl = null,
     onSelectPullRequest,
     onToggleAgentDecisions,
+    onToggleCollapsed,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
@@ -162,6 +163,7 @@ export function ReportStatusSection({
     selectedPullRequestUrl?: string | null
     onSelectPullRequest?: (url: string) => void
     onToggleAgentDecisions?: (collapsed: boolean) => void
+    onToggleCollapsed?: (collapsed: boolean) => void
 }): JSX.Element {
     const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')
     const externalClaim = externalClaimLabel(report)
@@ -175,7 +177,13 @@ export function ReportStatusSection({
     )
 
     return (
-        <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
+        <DetailSection
+            icon={<IconInfo />}
+            title="Status"
+            rightSlot={rightSlot}
+            collapsible
+            onToggleCollapsed={onToggleCollapsed}
+        >
             <div className="flex flex-col gap-2">
                 <dl className="m-0 flex flex-col gap-2">
                     <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>

@@ -41,19 +41,51 @@ export function getReviewerExplanation(reviewer: EnrichedReviewer): string | nul
     return reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
 }
 
+function ReviewerSourceTag({ reviewer, reason }: { reviewer: EnrichedReviewer; reason?: string }): JSX.Element {
+    const sourceLabel = getReviewerSourceLabel(reviewer)
+    if (isScoutReviewer(reviewer)) {
+        return <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} reason={reason} />
+    }
+    // A manual addition's reason already names the teammate, so it replaces the generic label.
+    if (reason && sourceLabel === 'Added by teammate' && reason.startsWith('Added by ')) {
+        return (
+            <LemonTag type="muted" size="small" wrap className="max-w-32">
+                {reason}
+            </LemonTag>
+        )
+    }
+    if (!reason) {
+        return (
+            <LemonTag type="muted" size="small" wrap className="max-w-32">
+                {sourceLabel}
+            </LemonTag>
+        )
+    }
+    // The tag is a div, so it needs a tab stop: the hover card holds the only copy of the reason.
+    return (
+        <Tooltip title={reason} interactive openOnClick>
+            <LemonTag type="muted" size="small" wrap className="max-w-32 cursor-help" tabIndex={0}>
+                {sourceLabel}
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 export function SuggestedReviewerPerson({
     reviewer,
+    reason,
     disabled,
     onRemove,
     claim,
 }: {
     reviewer: EnrichedReviewer
+    /** The agent's reason for this reviewer, shown in a hover card on the source tag. */
+    reason?: string
     disabled: boolean
     onRemove: (removal?: ReviewerRemoval) => void
     claim?: ReviewerClaim
 }): JSX.Element {
     const displayName = getReviewerDisplayName(reviewer)
-    const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5">
@@ -85,13 +117,7 @@ export function SuggestedReviewerPerson({
                 </Tooltip>
             </ReviewerRowMenu>
             <div className="flex items-center gap-2">
-                {isScoutReviewer(reviewer) ? (
-                    <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
-                ) : (
-                    <LemonTag type="muted" size="small" wrap className="max-w-32">
-                        {sourceLabel}
-                    </LemonTag>
-                )}
+                <ReviewerSourceTag reviewer={reviewer} reason={reason} />
                 <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
             </div>
         </div>

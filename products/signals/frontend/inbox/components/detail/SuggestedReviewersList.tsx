@@ -10,7 +10,6 @@ import {
     isScoutReviewer,
     SuggestedReviewerPerson,
 } from './SuggestedReviewerPerson'
-import { SuggestedReviewerReasonGroup } from './SuggestedReviewerReasonGroup'
 
 const MAX_VISIBLE_SUGGESTIONS = 5
 
@@ -96,14 +95,18 @@ export function SuggestedReviewersList({
         <div className="@container flex flex-col gap-1.5">
             {visibleItems.map((item) =>
                 item.kind === 'reason-group' ? (
-                    <SuggestedReviewerReasonGroup
-                        key={item.key}
-                        reviewers={item.reviewers}
-                        reason={item.reason}
-                        disabled={disabled}
-                        onRemove={(reviewer, removal) => onRemove([reviewer], removal)}
-                        claim={claim}
-                    />
+                    <div key={item.key} className="flex flex-col">
+                        {item.reviewers.map((reviewer) => (
+                            <SuggestedReviewerPerson
+                                key={reviewerKey(reviewer)}
+                                reviewer={reviewer}
+                                reason={item.reason}
+                                disabled={disabled}
+                                onRemove={(removal) => onRemove([reviewer], removal)}
+                                claim={claim}
+                            />
+                        ))}
+                    </div>
                 ) : (
                     <SuggestedReviewerPerson
                         key={item.key}

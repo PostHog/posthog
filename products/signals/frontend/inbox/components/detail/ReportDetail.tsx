@@ -525,6 +525,7 @@ export function InboxDetailFrame({
                                 selectPullRequest(url)
                             }}
                             onToggleAgentDecisions={captureSectionToggle('agent_decisions')}
+                            onToggleCollapsed={captureSectionToggle('status')}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}

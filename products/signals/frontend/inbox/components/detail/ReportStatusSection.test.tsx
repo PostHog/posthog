@@ -177,6 +177,17 @@ describe('ReportStatusSection', () => {
         ])
     })
 
+    it('reports each Status toggle with the new collapsed state', async () => {
+        const onToggleCollapsed = jest.fn()
+        render(<ReportStatusSection report={makeReport({ priority: 'P2' })} onToggleCollapsed={onToggleCollapsed} />)
+
+        await userEvent.click(screen.getByText('Status'))
+        expect(screen.queryByText('Report status')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('Status'))
+
+        expect(onToggleCollapsed.mock.calls).toEqual([[true], [false]])
+    })
+
     it('selects a pull request from its line when the report has several', async () => {
         function StatusWithSelection(): JSX.Element {
             const [selectedUrl, setSelectedUrl] = useState(pullRequest(1).url)
