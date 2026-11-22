@@ -13,7 +13,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
 from posthog.clickhouse.query_tagging import Feature
-from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags
 from posthog.dags.flag_evaluations_backfill import GIB, shard_workload, tagged
 from posthog.dataclasses import frozen
@@ -25,9 +24,12 @@ from posthog.models.flag_evaluations.sql import (
 
 _CLUSTER_DOESNT_EXIST = 701
 
+# Hosted development and end-to-end deployments have no flags cluster and hold the table on data nodes.
+_PRODUCTION_DEPLOYMENTS = {"US", "EU"}
+
 OWNER_TAG = {"owner": JobOwners.TEAM_FEATURE_FLAGS.value}
 
-_DEFAULT_START_DAYS_AGO = FLAG_EVALUATIONS_RETENTION_DAYS - 1
+_DEFAULT_START_DAYS_AGO = FLAG_EVALUATIONS_RETENTION_DAYS
 
 
 class FlagEvaluationsJsonParityConfig(dagster.Config):
@@ -62,7 +64,7 @@ class FlagEvaluationsJsonParityConfig(dagster.Config):
 
 def _day_query(table: str) -> str:
     return f"""
-SELECT toDate(timestamp) AS day, uniqExact(uuid)
+SELECT toDate(timestamp) AS day, uniqExact(team_id, uuid)
 FROM {table}
 WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day
@@ -71,7 +73,7 @@ GROUP BY day
 
 def _flag_query(table: str) -> str:
     return f"""
-SELECT toDate(timestamp) AS day, flag_key, response, uniqExact(uuid)
+SELECT toDate(timestamp) AS day, flag_key, response, uniqExact(team_id, uuid)
 FROM {table}
 WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day, flag_key, response
@@ -82,11 +84,11 @@ GROUP BY day, flag_key, response
 # stays after FINAL has a different sort key from its twin, so no merge will ever remove it.
 def _duplicate_query(table: str) -> str:
     return f"""
-SELECT toDate(timestamp) AS day, count() - uniqExact(uuid)
+SELECT toDate(timestamp) AS day, count() - uniqExact(team_id, uuid)
 FROM {table} FINAL
 WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day
-HAVING count() > uniqExact(uuid)
+HAVING count() > uniqExact(team_id, uuid)
 """
 
 
@@ -130,7 +132,7 @@ def flags_cluster(cluster: ClickhouseCluster) -> FlagsCluster:
             node_role=NodeRole.FLAGS,
         )
     except ServerException as exc:
-        if exc.code != _CLUSTER_DOESNT_EXIST or is_cloud():
+        if exc.code != _CLUSTER_DOESNT_EXIST or settings.CLOUD_DEPLOYMENT in _PRODUCTION_DEPLOYMENTS:
             raise
         workload, node_role = shard_workload()
         return FlagsCluster(cluster=cluster, workload=workload, node_role=node_role)
@@ -144,7 +146,7 @@ def compare_flag_evaluations_json_parity(
 ) -> None:
     """Compare the distinct uuids of each day, and of each day, flag_key and response, in both tables.
 
-    The count is `uniqExact(uuid)`, never `count()`, because unmerged ReplacingMergeTree copies make the row
+    The count is `uniqExact(team_id, uuid)`, never `count()`, because unmerged ReplacingMergeTree copies make the row
     counts differ. That also hides a call stored twice under different sort keys, so a separate query lists the
     days on which the new table holds a call more than once after a merge would have run. Fails on a differing
     count or a duplicate. The comparison reads only the two tables, so it holds for a new table filled by any

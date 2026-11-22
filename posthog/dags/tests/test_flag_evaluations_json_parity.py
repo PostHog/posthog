@@ -3,12 +3,19 @@ from datetime import UTC, datetime, time, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 import dagster
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags.flag_evaluations_json_parity import CountDiff, compare_counts, flag_evaluations_json_parity_job
+from posthog.dags.flag_evaluations_json_parity import (
+    CountDiff,
+    compare_counts,
+    flag_evaluations_json_parity_job,
+    flags_cluster,
+)
 
 WINDOW_DAYS = 3
 
@@ -34,10 +41,11 @@ def seed_legacy(
     *,
     flag_key: str = "flag-a",
     response: str = "control",
+    team_id: int = 1,
 ) -> None:
     properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": response})
     row = (
-        1,
+        team_id,
         f"{label}-user",
         uuid5(NAMESPACE_URL, f"{label}-user"),
         call_uuid(label),
@@ -66,11 +74,12 @@ def seed_json(
     flag_key: str = "flag-a",
     response: str = "control",
     ingested_at: datetime | None = None,
+    team_id: int = 1,
 ) -> None:
     # The flag_key, response and request_id defaults read JSON columns that this insert leaves out, so each is
     # set here. The writable table has no flag_key column to insert into, so the insert goes to the shard.
     row = (
-        1,
+        team_id,
         f"{label}-user",
         uuid5(NAMESPACE_URL, f"{label}-user"),
         call_uuid(label),
@@ -195,3 +204,59 @@ def test_parity_reports_duplicate_rows_that_the_distinct_counts_hide(
     assert "more than once" in message
     assert str(when.date()) in message
     assert "differ" not in message
+
+
+@pytest.mark.django_db
+def test_parity_passes_when_two_teams_share_a_uuid_in_both_tables(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
+    # Capture accepts client-supplied uuids, and the sort key holds team_id, so both rows stay after a merge.
+    for team_id in (1, 2):
+        seed_legacy(cluster, "shared", when, team_id=team_id)
+        seed_json(cluster, "shared", when, team_id=team_id)
+
+    assert run_parity(cluster, now).success
+
+
+@pytest.mark.django_db
+def test_parity_fails_when_one_of_two_teams_sharing_a_uuid_lacks_the_call(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
+    for team_id in (1, 2):
+        seed_legacy(cluster, "shared", when, team_id=team_id)
+    seed_json(cluster, "shared", when, team_id=1)
+
+    assert not run_parity(cluster, now).success
+
+
+@pytest.mark.django_db
+def test_the_default_window_covers_the_oldest_of_90_days(cluster: ClickhouseCluster, now: datetime) -> None:
+    oldest = datetime.combine(now.date() - timedelta(days=90), time(12), tzinfo=UTC)
+    seed_legacy(cluster, "oldest", oldest)
+
+    result = flag_evaluations_json_parity_job.execute_in_process(
+        resources={"cluster": cluster}, instance=dagster.DagsterInstance.ephemeral(), raise_on_error=False
+    )
+
+    assert str(oldest.date()) in failure_message(result)
+
+
+def cluster_without_a_flags_cluster() -> MagicMock:
+    cluster = MagicMock(spec=ClickhouseCluster)
+    cluster.sibling.side_effect = ServerException("no such cluster", 701)
+    return cluster
+
+
+@pytest.mark.parametrize("deployment", ["DEV", "E2E", None])
+def test_flags_cluster_falls_back_to_the_data_cluster_outside_production(deployment: str | None) -> None:
+    cluster = cluster_without_a_flags_cluster()
+
+    with patch("posthog.dags.flag_evaluations_json_parity.settings.CLOUD_DEPLOYMENT", deployment):
+        assert flags_cluster(cluster).cluster is cluster
+
+
+@pytest.mark.parametrize("deployment", ["US", "EU"])
+def test_flags_cluster_refuses_a_missing_flags_cluster_in_production(deployment: str) -> None:
+    with patch("posthog.dags.flag_evaluations_json_parity.settings.CLOUD_DEPLOYMENT", deployment):
+        with pytest.raises(ServerException):
+            flags_cluster(cluster_without_a_flags_cluster())
