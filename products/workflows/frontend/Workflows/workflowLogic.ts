@@ -44,6 +44,8 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType,
 
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
+import { messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
@@ -121,6 +123,7 @@ import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
     prefilledWorkflow,
+    templatePrefilledWorkflow,
     withEmailBrand,
     withEmailSender,
     withSandboxSender,
@@ -136,12 +139,13 @@ export interface WorkflowLogicProps {
     editTemplateId?: string
     triggerPrefill?: string
     emailPrefill?: string
+    messageTemplateId?: string
     draftSource?: string
     entrySource?: string
 }
 
 export function workflowLogicKey(props: WorkflowLogicProps): string {
-    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}-${props.messageTemplateId || 'default'}`
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -232,6 +236,22 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // row, and an internal event are all things no PostHog person is attached to. Keep in sync with
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
+
+async function loadEmailTemplate(
+    projectId: string,
+    templateId: string | undefined
+): Promise<MessageTemplateApi | null> {
+    if (!templateId) {
+        return null
+    }
+    try {
+        const template = await messagingTemplatesRetrieve(projectId, templateId)
+        return template.content?.email ? template : null
+    } catch {
+        lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
+        return null
+    }
+}
 
 async function loadEmailSenders(): Promise<IntegrationConfigApi[]> {
     const teamId = String(ApiConfig.getCurrentTeamId())
@@ -3902,6 +3922,14 @@ export const workflowLogic = kea<workflowLogicType>([
                             return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        const messageTemplate = triggerConfig
+                            ? await loadEmailTemplate(String(values.currentProjectId), props.messageTemplateId)
+                            : null
+                        if (triggerConfig && messageTemplate) {
+                            return await withDefaultEmailSender(
+                                templatePrefilledWorkflow(NEW_WORKFLOW, triggerConfig, messageTemplate)
+                            )
+                        }
                         if (triggerConfig) {
                             const prefilled = prefilledWorkflow(
                                 NEW_WORKFLOW,

@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 
 import { HogFlow } from './hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './workflowLogic'
-import { type WorkflowTriggerConfig } from './workflowTriggerPrefill'
+import { EVENT_TRIGGER_WITH_NO_EVENT, type WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
 const template: HogFlow = {
     ...NEW_WORKFLOW,
@@ -61,6 +61,30 @@ const linkedMixedEventTrigger: WorkflowTriggerConfig = {
             { id: 'user_signed_up', type: 'events' },
             { id: '$account_custom_property_changed', type: 'events' },
         ],
+    },
+}
+
+const transactionalTemplate = {
+    id: 'message-template-1',
+    name: 'Order receipt',
+    description: '',
+    sensitive: true,
+    transactional_hog_flow_id: 'transactional-flow-1',
+    content: {
+        templating: 'liquid',
+        email: {
+            from: { integrationId: 42, email: 'orders@example.com', name: 'Shop' },
+            replyTo: 'help@example.com',
+            subject: 'Your order {{ event.properties.order_id }}',
+            preheader: 'Thanks for your order',
+            html: '<p>Thanks</p>',
+            text: 'Thanks',
+            design: { body: { rows: [] } },
+        },
+    },
+    draft_content: {
+        templating: 'liquid',
+        email: { subject: 'Unpublished subject', html: '<p>Draft</p>', text: 'Draft' },
     },
 }
 
@@ -152,5 +176,63 @@ describe('workflowLogic pages opened from a link or a template', () => {
         ])
         expect(logics.map((logic) => logic.values.logicProps)).toEqual(opened)
         expect(workflowLogic({ id: 'wf-a' }).values.workflow.name).toBe('Renamed a')
+    })
+
+    it('opens an event workflow that sends the published email of a transactional template', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/messaging_templates/:id/': transactionalTemplate },
+        })
+        const logic = workflowLogic({
+            id: 'new',
+            triggerPrefill: JSON.stringify(EVENT_TRIGGER_WITH_NO_EVENT),
+            messageTemplateId: transactionalTemplate.id,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const { workflow } = logic.values
+        const [trigger, email, exit] = workflow.actions
+        expect(workflow.name).toBe('Order receipt')
+        expect(trigger.config).toEqual(EVENT_TRIGGER_WITH_NO_EVENT)
+        expect(workflow.trigger_masking ?? null).toBeNull()
+        expect(exit.type).toBe('exit')
+        expect(workflow.edges).toEqual([
+            { from: trigger.id, to: email.id, type: 'continue' },
+            { from: email.id, to: exit.id, type: 'continue' },
+        ])
+        expect(email).toMatchObject({
+            type: 'function_email',
+            name: 'Order receipt',
+            config: {
+                template_id: 'template-email',
+                message_category_type: 'transactional',
+                sensitive: true,
+                inputs: {
+                    email: {
+                        templating: 'liquid',
+                        value: {
+                            ...transactionalTemplate.content.email,
+                            to: { email: '{{ person.properties.email }}', name: '' },
+                        },
+                    },
+                },
+            },
+        })
+    })
+
+    it('opens the event workflow without an email step when the template no longer exists', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/messaging_templates/:id/': () => [404, { detail: 'Not found.' }] },
+        })
+        const logic = workflowLogic({
+            id: 'new',
+            triggerPrefill: JSON.stringify(EVENT_TRIGGER_WITH_NO_EVENT),
+            messageTemplateId: 'deleted-template',
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        expect(logic.values.workflow.actions.map((action) => action.type)).toEqual(['trigger', 'exit'])
+        expect(logic.values.workflow.actions[0].config).toEqual(EVENT_TRIGGER_WITH_NO_EVENT)
     })
 })

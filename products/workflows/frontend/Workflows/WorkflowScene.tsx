@@ -55,7 +55,7 @@ import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSandboxSenderBanner } from './WorkflowSandboxSenderBanner'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
-import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { MESSAGE_TEMPLATE_PREFILL_PARAM, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -87,6 +87,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
     const emailPrefill =
         rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const messageTemplateId = searchParams[MESSAGE_TEMPLATE_PREFILL_PARAM]
     const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
     const draftSource =
         rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
@@ -96,6 +97,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         editTemplateId,
         triggerPrefill,
         emailPrefill,
+        messageTemplateId: typeof messageTemplateId === 'string' ? messageTemplateId : undefined,
         draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }

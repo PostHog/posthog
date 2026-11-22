@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconLock, IconTrash } from '@posthog/icons'
+import { IconBolt, IconLock, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -40,6 +40,7 @@ import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { urlForEventWorkflowWithEmailTemplate } from '../Workflows/workflowTriggerPrefill'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
@@ -146,6 +147,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 : !template.name
                   ? 'Name is required'
                   : undefined)
+    // The workflow copies the published email, so unpublished edits would not reach it.
+    const sendOnEventDisabledReason =
+        editDisabledReason ??
+        (draftsEnabled && (hasDraft || hasUnsavedChanges)
+            ? 'Publish your changes first'
+            : !draftsEnabled && templateChanged
+              ? 'Save your changes first'
+              : undefined)
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
@@ -251,6 +260,29 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         aria-label="Protect sensitive data"
                                         data-attr="message-template-sensitive-toggle"
                                     />
+                                </div>
+                            </LemonCard>
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                                        <IconBolt className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Send this email when an event happens</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                Create a workflow that sends this email to a person each time they do an
+                                                event you pick, without code. The workflow gets its own copy of the
+                                                email, so later edits here don&apos;t change it.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        to={urlForEventWorkflowWithEmailTemplate(props.id)}
+                                        disabledReason={sendOnEventDisabledReason}
+                                        data-attr="message-template-send-on-event"
+                                    >
+                                        Create workflow
+                                    </LemonButton>
                                 </div>
                             </LemonCard>
                             <TransactionalEmailApiExample templateId={props.id} />

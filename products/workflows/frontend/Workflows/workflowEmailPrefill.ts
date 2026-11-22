@@ -1,3 +1,5 @@
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { EmailBrand, applyEmailBrand } from '../MessageAudience/emailBrand'
 import { MessageDraft, messageDraftEmail } from '../MessageAudience/messageDrafts'
 import type { TeamUtmDefaults } from './hogflows/steps/components/utmDefaults'
@@ -6,8 +8,10 @@ import type { HogFlow, HogFlowAction } from './hogflows/types'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
 export const EMAIL_ACTION_ID = 'action_function_email_prefilled'
+export const TEMPLATE_EMAIL_ACTION_ID = 'action_function_email_from_template'
 // The same "One time" setting as the trigger's frequency picker, so the editor shows it selected.
 const ONCE_PER_PERSON_MASKING = { hash: '{person.id}', ttl: null, threshold: null }
+const PERSON_RECIPIENT = { email: '{{ person.properties.email }}', name: '' }
 
 /**
  * A new workflow that opens ready to enable: the trigger, then the email, then exit. An event
@@ -15,46 +19,80 @@ const ONCE_PER_PERSON_MASKING = { hash: '{person.id}', ttl: null, threshold: nul
  * otherwise get the same email again.
  */
 export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig, email: MessageDraft | null): HogFlow {
+    if (!email) {
+        return withTriggerConfigOnly(base, trigger)
+    }
+    const emailAction = emailStep(EMAIL_ACTION_ID, 'Email', {
+        from: {},
+        replyTo: '',
+        cc: '',
+        bcc: '',
+        ...messageDraftEmail(email),
+    })
+    const workflow = withEmailStep(base, trigger, emailAction)
+    return trigger.type === 'event'
+        ? { ...workflow, trigger_masking: ONCE_PER_PERSON_MASKING as HogFlow['trigger_masking'] }
+        : workflow
+}
+
+/**
+ * A new workflow that sends a transactional template's published email, the way its API sends do:
+ * on every trigger, past marketing opt-outs, and as sensitive as the template.
+ */
+export function templatePrefilledWorkflow(
+    base: HogFlow,
+    trigger: WorkflowTriggerConfig,
+    template: Pick<MessageTemplateApi, 'name' | 'sensitive' | 'content'>
+): HogFlow {
+    const { from, ...content } = template.content?.email ?? {}
+    const emailAction = emailStep(
+        TEMPLATE_EMAIL_ACTION_ID,
+        template.name,
+        { cc: '', bcc: '', replyTo: '', ...content, from: from ?? {} },
+        { message_category_type: 'transactional', sensitive: !!template.sensitive }
+    )
+    return { ...withEmailStep(base, trigger, emailAction), name: template.name }
+}
+
+function withTriggerConfigOnly(base: HogFlow, trigger: WorkflowTriggerConfig): HogFlow {
+    return {
+        ...base,
+        actions: base.actions.map((action) =>
+            action.type === 'trigger' ? ({ ...action, config: trigger } as HogFlowAction) : action
+        ),
+    }
+}
+
+function emailStep(
+    id: string,
+    name: string,
+    value: Record<string, unknown>,
+    stepConfig: Record<string, unknown> = {}
+): HogFlowAction {
+    return {
+        id,
+        type: 'function_email',
+        name,
+        description: 'Send an email to the user.',
+        created_at: 0,
+        updated_at: 0,
+        config: {
+            template_id: 'template-email',
+            ...stepConfig,
+            inputs: { email: { templating: 'liquid', value: { ...value, to: PERSON_RECIPIENT } } },
+        },
+    } as HogFlowAction
+}
+
+function withEmailStep(base: HogFlow, trigger: WorkflowTriggerConfig, emailAction: HogFlowAction): HogFlow {
     const triggerAction = base.actions.find((action) => action.type === 'trigger')
     const exitAction = base.actions.find((action) => action.type === 'exit')
     if (!triggerAction || !exitAction) {
         return base
     }
     const withTrigger = { ...triggerAction, config: trigger } as HogFlowAction
-    if (!email) {
-        return {
-            ...base,
-            actions: base.actions.map((action) => (action.type === 'trigger' ? withTrigger : action)),
-        }
-    }
-    const content = messageDraftEmail(email)
-    const emailAction = {
-        id: EMAIL_ACTION_ID,
-        type: 'function_email',
-        name: 'Email',
-        description: 'Send an email to the user.',
-        created_at: 0,
-        updated_at: 0,
-        config: {
-            template_id: 'template-email',
-            inputs: {
-                email: {
-                    templating: 'liquid',
-                    value: {
-                        to: { email: '{{ person.properties.email }}', name: '' },
-                        from: {},
-                        replyTo: '',
-                        cc: '',
-                        bcc: '',
-                        ...content,
-                    },
-                },
-            },
-        },
-    } as HogFlowAction
     return {
         ...base,
-        ...(trigger.type === 'event' ? { trigger_masking: ONCE_PER_PERSON_MASKING as HogFlow['trigger_masking'] } : {}),
         actions: [withTrigger, emailAction, exitAction],
         edges: [
             { from: withTrigger.id, to: emailAction.id, type: 'continue' },
