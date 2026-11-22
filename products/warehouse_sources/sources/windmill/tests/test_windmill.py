@@ -268,7 +268,12 @@ class TestSync:
             endpoint,
             route(
                 {
-                    f"/{kind}/list": [_json_response([{"path": "u/ann/etl"}, {"path": "f/ops/gone"}])],
+                    # A scoped token's list drops paths after LIMIT, so a short page precedes more rows.
+                    f"/{kind}/list": [
+                        _json_response([{"path": "u/ann/etl"}]),
+                        _json_response([{"path": "f/ops/gone"}]),
+                        _json_response([]),
+                    ],
                     # Runnable paths keep their slashes: the history route matches them with a wildcard.
                     f"/{kind}/history/p/u/ann/etl": [_json_response([version])],
                     f"/{kind}/history/p/f/ops/gone": [_json_response({"error": "not found"}, status_code=404)],
@@ -280,9 +285,33 @@ class TestSync:
         assert result.paths == [
             f"/api/w/{WORKSPACE}/{kind}/list",
             f"/api/w/{WORKSPACE}/{kind}/history/p/u/ann/etl",
+            f"/api/w/{WORKSPACE}/{kind}/list",
             f"/api/w/{WORKSPACE}/{kind}/history/p/f/ops/gone",
+            f"/api/w/{WORKSPACE}/{kind}/list",
         ]
         assert result.rows == [{**version, parent_column: "u/ann/etl"}]
+
+    def test_history_resumes_after_finished_runnables(self):
+        resumed = _driver().run(
+            "script_versions",
+            route(
+                {
+                    "/scripts/list": [
+                        _json_response([{"path": "u/ann/etl"}, {"path": "u/bob/sync"}]),
+                        _json_response([]),
+                    ],
+                    "/scripts/history/p/u/bob/sync": [_json_response([{"script_hash": "c3"}])],
+                }
+            ),
+            resume_state=WindmillResumeConfig(
+                fanout_state={"completed": ["/scripts/history/p/u/ann/etl"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert resumed.raised is None
+        assert resumed.saved_states and all(state.fanout_state for state in resumed.saved_states)
+        assert f"/api/w/{WORKSPACE}/scripts/history/p/u/ann/etl" not in resumed.paths
+        assert resumed.rows == [{"script_hash": "c3", "script_path": "u/bob/sync"}]
 
     @pytest.mark.parametrize(
         "endpoint, expected_url",

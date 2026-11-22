@@ -16033,7 +16033,7 @@ Diffed against: <https://raw.githubusercontent.com/windmill-labs/windmill/main/b
 - [x] `groups/list + groups/get (GET /w/{workspace}/groups/list, /groups/get)` — group membership and ownership lookup for the ACLs on synced runnables (high)
 - [x] `workspaces/list (GET /workspaces/list)` — lookup resolving the workspace id every other table is scoped by (high)
 - [x] `users/list_usage + workspaces/usage` — per-user and per-workspace execution counts, the natural cost/usage metric (medium)
-- [x] `workers/list, workers/queue_counts, workers/queue_metrics` — worker capacity and queue depth telemetry to pair with queued_jobs/completed_jobs (medium) Built as `workers` and `queue_metrics`; queue_counts skipped: a point-in-time count per tag with no timestamp, and queue_metrics already holds the `queue_count_<tag>` series.
+- [x] `workers/list, workers/queue_counts, workers/queue_metrics` — worker capacity and queue depth telemetry to pair with queued_jobs/completed_jobs (medium) Built as `workers` and `queue_metrics`; `queue_counts` skipped: a point-in-time count per tag with no timestamp, and `queue_metrics` already holds the queue count series per tag.
 - [x] `scripts/history, flows/history, apps/history` — deployment version history for the runnables we already sync (medium)
 - [ ] `concurrency_groups/list (GET /concurrency_groups/list)` — concurrency limits and running counts explaining job queue waits (medium) Skipped: instance superadmin only, and it returns a point-in-time running count per key with no timestamp.
 - [x] `assets/list (GET /w/{workspace}/assets/list)` — data assets (S3 paths, resources, DB tables) referenced by scripts and flows (low)

@@ -160,6 +160,8 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
     ),
     # Version history is one request per runnable, so it is opt-in. The history routes return the
     # whole list when no page is asked for, and the path wildcard keeps a runnable path's slashes.
+    # The script, flow and app lists drop rows outside a scoped token's paths after LIMIT/OFFSET, so
+    # only an empty page ends the parent walk.
     "script_versions": WindmillEndpointConfig(
         name="script_versions",
         path="/scripts/list",
@@ -168,6 +170,7 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
         detail_path="/scripts/history/p/{path}",
         detail_key="path",
         parent_key_column="script_path",
+        stop_on_short_page=False,
         partition_key="created_at",
         should_sync_default=False,
         description="Every deployed version of each script, with its hash, deployment message, author and time. Fetches the history of each script once.",
@@ -180,6 +183,7 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
         detail_path="/flows/history/p/{path}",
         detail_key="path",
         parent_key_column="flow_path",
+        stop_on_short_page=False,
         partition_key="created_at",
         should_sync_default=False,
         description="Every deployed version of each flow, with its deployment message, author and time. Fetches the history of each flow once.",
@@ -192,6 +196,7 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
         detail_path="/apps/history/p/{path}",
         detail_key="path",
         parent_key_column="app_path",
+        stop_on_short_page=False,
         partition_key="created_at",
         should_sync_default=False,
         description="Every deployed version of each app, with its deployment message, author and time. Fetches the history of each app once.",

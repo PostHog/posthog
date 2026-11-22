@@ -41,7 +41,10 @@ class WindmillHostNotAllowedError(Exception):
 class WindmillResumeConfig:
     # 1-based page number to fetch on resume. A saved value points at the next page to fetch after
     # the last durably-committed one; on resume the scan restarts there and merge dedupes any overlap.
-    page: int
+    page: Optional[int] = None
+    # Detail endpoints fan out over a list endpoint. Their state is the shape the framework
+    # checkpoints: which parents finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_base_url(url: str) -> str:
@@ -265,11 +268,10 @@ def windmill_source(
     # may have advanced since the page was saved (a partial run commits rows and moves the cursor),
     # reshuffling the filtered pages so page N would skip earlier unsynced rows. Restart from page 1
     # in that case; the watermark still bounds the scan and merge dedupes.
-    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume: Optional[WindmillResumeConfig] = None
     if config.paginated and not config.body_cursor and after_value is None and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"page": resume.page}
+    initial_paginator_state = {"page": resume.page} if resume is not None and resume.page is not None else None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the hook fires after a page is yielded, so the saved
@@ -277,11 +279,18 @@ def windmill_source(
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(WindmillResumeConfig(page=int(state["page"])))
 
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WindmillResumeConfig(fanout_state=state))
+
     if config.detail_path is not None:
-        # These endpoints restart from page 1 rather than resume a parent/child walk. Groups are a
-        # small lookup, and the history tables re-read each runnable's full history anyway.
         resources = rest_api_resources(
-            _detail_rest_config(endpoint, config, client_config, list_endpoint), team_id, job_id, None
+            _detail_rest_config(endpoint, config, client_config, list_endpoint),
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume is not None else None,
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:
