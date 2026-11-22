@@ -32,6 +32,12 @@ const EMAIL_OUTCOME_TAG: Record<EmailOutcome, { label: string; description: stri
 
 export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
     const succeeded = row.status === 'succeeded'
+    // A bounce is the run's error and a complaint its warning, so the icon only adds news when an
+    // error sits next to a complaint.
+    const showWarningIcon =
+        succeeded &&
+        row.problem_log_level !== null &&
+        (row.email_outcome === null || (row.email_outcome === 'complained' && row.problem_log_level === 'error'))
     return (
         <div className="flex flex-wrap items-center gap-1">
             <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
@@ -39,7 +45,8 @@ export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
                 <Tooltip title={EMAIL_OUTCOME_TAG[row.email_outcome].description}>
                     <LemonTag type="danger">{EMAIL_OUTCOME_TAG[row.email_outcome].label}</LemonTag>
                 </Tooltip>
-            ) : succeeded && row.problem_log_level ? (
+            ) : null}
+            {showWarningIcon ? (
                 <Tooltip
                     title={
                         row.problem_log_level === 'error'
