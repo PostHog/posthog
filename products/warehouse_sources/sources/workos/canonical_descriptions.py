@@ -53,6 +53,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             last_sign_in_at="Time at which the user last signed in.",
         ),
     },
+    "organization_memberships": {
+        "description": "A user's membership in an organization in WorkOS, including the role they hold there.",
+        "docs_url": "https://workos.com/docs/reference/user-management/organization-membership",
+        "columns": _columns(
+            user_id="ID of the user the membership belongs to. Joins to `users.id`.",
+            organization_id="ID of the organization the membership belongs to. Joins to `organizations.id`.",
+            status="Status of the membership: active, inactive, or pending.",
+            role="The role the user holds in the organization, as an object with a `slug`.",
+            roles="All roles the user holds in the organization, each an object with a `slug`.",
+        ),
+    },
     "connections": {
         "description": "An SSO connection between an organization and an identity provider.",
         "docs_url": "https://workos.com/docs/reference/sso/connection",

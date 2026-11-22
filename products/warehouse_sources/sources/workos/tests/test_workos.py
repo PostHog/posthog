@@ -53,6 +53,37 @@ class TestWorkOSEndpoints:
         assert all(cfg.partition_key == "created_at" for cfg in WORKOS_ENDPOINTS.values())
 
 
+class TestWorkOSOrganizationMemberships:
+    @staticmethod
+    def _run(script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+        return SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "organization_memberships", script, **inputs
+        )
+
+    def test_is_listed_as_a_full_refresh_schema(self) -> None:
+        schemas = {
+            schema.name: schema
+            for schema in WorkOSSource().get_schemas(WorkOSSourceConfig(api_key="sk_test_123"), team_id=123)
+        }
+
+        assert "organization_memberships" in schemas
+        assert schemas["organization_memberships"].supports_incremental is False
+        assert schemas["organization_memberships"].supports_webhooks is False
+
+    def test_walks_every_page_of_the_memberships_endpoint(self) -> None:
+        result = self._run(
+            [
+                ScriptedResponse(json=_page(["om_1", "om_2"], after="om_2")),
+                ScriptedResponse(json=_page(["om_3"], after=None)),
+            ]
+        )
+
+        assert [row["id"] for row in result.rows] == ["om_1", "om_2", "om_3"]
+        assert result.paths == ["/user_management/organization_memberships"] * 2
+        assert result.params("limit") == ["100", "100"]
+        assert result.params("after") == [None, "om_2"]
+
+
 class TestWorkOSSourceResumeBehavior:
     """End-to-end resume behaviour through the shared ``rest_api_resource`` path."""
 

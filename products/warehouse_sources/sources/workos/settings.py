@@ -29,6 +29,11 @@ WAITLISTS_PARENT = WorkOSEndpointConfig(name="waitlists", path="/user_management
 WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
     "organizations": WorkOSEndpointConfig(name="organizations", path="/organizations"),
     "users": WorkOSEndpointConfig(name="users", path="/user_management/users"),
+    # Full refresh only: WorkOS publishes `organization_membership.*` webhook events, but wiring them
+    # into WEBHOOK_EVENTS_BY_SCHEMA is left for a follow-up.
+    "organization_memberships": WorkOSEndpointConfig(
+        name="organization_memberships", path="/user_management/organization_memberships"
+    ),
     "connections": WorkOSEndpointConfig(name="connections", path="/connections"),
     "directories": WorkOSEndpointConfig(name="directories", path="/directories"),
     "directory_users": WorkOSEndpointConfig(name="directory_users", path="/directory_users"),
