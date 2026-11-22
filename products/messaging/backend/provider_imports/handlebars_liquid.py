@@ -256,6 +256,7 @@ class HandlebarsToLiquid:
             item_name=names[0] if names else None,
             index_name=names[1] if len(names) == 2 else None,
         )
+        before = (len(self.unsupported), len(self.converted), self._written, self._after_raw_html)
         # The second pass of the body follows whatever raw HTML the first pass printed.
         self._after_raw_html = self._after_raw_html or (self.is_html and _has_raw_output(block.body))
         start = self._snapshot()
@@ -267,6 +268,14 @@ class HandlebarsToLiquid:
             body = self._branch(start, ends, block.body, (*frames, frame))
         finally:
             self._loop_names.pop()
+        if ends[-1] != start:
+            # Each pass after the first starts where the last one ended, so values converted for the first pass
+            # could land somewhere else, such as an unquoted attribute.
+            unsupported, converted, self._written, self._after_raw_html = before
+            del self.unsupported[unsupported:], self.converted[converted:]
+            if self._html is not None and start is not None:
+                self._html.restore(start)
+            return self._literal_block(block)
         parts = [opening, body]
         if block.inverse:
             parts.append(self._spend("{% else %}"))
