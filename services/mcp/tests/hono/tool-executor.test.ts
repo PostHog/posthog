@@ -11,7 +11,11 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
+import {
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_SERVED_SKILLS_LIST_FLAG,
+    MCP_TIME_SERIES_CHARTS_FLAG,
+} from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -22,6 +26,7 @@ import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import servedSkillsJson from '@/skills/served-skills.json'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -322,6 +327,34 @@ describe('ToolExecutor', () => {
                 expect(result.content[0].text).not.toContain('call skill-list')
             }
         )
+
+        it('does not point a store miss at learn for a skill that learn does not serve', async () => {
+            const unlistedSkill = 'internal-runbook'
+            const skills = new SkillCatalog([
+                {
+                    name: unlistedSkill,
+                    description: 'A skill for a PostHog job.',
+                    files: [makeSkillFile('SKILL.md', '# Internal runbook')],
+                },
+            ])
+            const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                getCatalog: () => skills,
+            } as any)
+            const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
+            const state = makeToolExecutorState(tools as any, {
+                useSingleExec: true,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_SERVED_SKILLS_LIST_FLAG]: true },
+                context: skillMissContext(unlistedSkill, `{"detail":"Skill with name '${unlistedSkill}' not found."}`),
+            })
+
+            const result = (await skillExecutor.handleToolCall(
+                { name: 'exec', arguments: { command: `call skill-get {"skill_name":"${unlistedSkill}"}` } },
+                state
+            )) as any
+
+            expect(result.content[0].text).toContain(`No skill named "${unlistedSkill}"`)
+            expect(result.content[0].text).not.toContain('learn posthog:')
+        })
     })
 
     describe('handleToolsList', () => {
@@ -797,6 +830,52 @@ describe('ToolExecutor', () => {
                 expect((await call('learn posthog:sample-skill')).content[0]!.text).toContain('# Sample skill')
             }
         )
+
+        describe('served skills', () => {
+            // Names come from the real list, so an edit to the list cannot break these cases.
+            const listed = Object.entries(servedSkillsJson.skills) as [string, { feature_flag?: string }][]
+            const openSkill = listed.find(([, entry]) => !entry.feature_flag)![0]
+            const [gatedSkill, { feature_flag: gate }] = listed.find(([, entry]) => entry.feature_flag)!
+            const unlistedSkill = 'internal-runbook'
+            const skills = new SkillCatalog(
+                [openSkill, gatedSkill, unlistedSkill].map((name) => ({
+                    name,
+                    description: `The ${name} skill.`,
+                    files: [makeSkillFile('SKILL.md', `# ${name}`)],
+                }))
+            )
+            const skillExecutor = (): ToolExecutor =>
+                new ToolExecutor(catalog, new InstructionsBuilder(''), { getCatalog: () => skills } as any)
+            const learn = async (
+                command: string,
+                state: ResolvedState
+            ): Promise<{ content: { text: string }[]; isError?: boolean }> =>
+                (await skillExecutor().handleToolCall({ name: 'exec', arguments: { command } }, state)) as any
+
+            it.each([
+                { label: 'an unlisted skill before the rollout', skill: unlistedSkill, rollout: false, served: true },
+                { label: 'a listed skill', skill: openSkill, rollout: true, served: true },
+                { label: 'an unlisted skill', skill: unlistedSkill, rollout: true, served: false },
+                { label: 'a gated skill without its flag', skill: gatedSkill, rollout: true, served: false },
+                { label: 'a gated skill with its flag', skill: gatedSkill, rollout: true, gateOn: true, served: true },
+            ])('learn serves $label: $served', async ({ skill, rollout, gateOn, served }) => {
+                const state = makeToolExecutorState([], {
+                    useSingleExec: true,
+                    toolFeatureFlags: {
+                        [MCP_EXEC_SKILLS_FEATURE_FLAG]: true,
+                        [MCP_SERVED_SKILLS_LIST_FLAG]: rollout,
+                        ...(gateOn ? { [gate!]: true } : {}),
+                    },
+                })
+
+                const read = await learn(`learn posthog:${skill}`, state)
+                const search = await learn(`learn -s "${skill}"`, state)
+
+                expect(read.content[0]!.text.includes(`# ${skill}`)).toBe(served)
+                expect(read.content[0]!.text.includes('Unknown skill')).toBe(!served)
+                expect(search.content[0]!.text.includes(`posthog:${skill}`)).toBe(served)
+            })
+        })
 
         it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeToolExecutorState(

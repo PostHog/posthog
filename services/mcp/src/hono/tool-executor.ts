@@ -35,6 +35,8 @@ import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
+import { isSkillServed } from '@/skills/served-skills'
+import type { SkillCatalog } from '@/skills/skill-catalog'
 import {
     createExecTool,
     describeApiValidationError,
@@ -72,7 +74,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
-import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
+import { MCP_SERVED_SKILLS_LIST_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -961,6 +963,18 @@ export class ToolExecutor {
     }
 
     /**
+     * The loaded catalog holds every skill in the release, including the skills written
+     * for PostHog's own jobs, which `learn` must not serve to a customer's agent.
+     */
+    private servedSkillCatalog(state: ResolvedState): SkillCatalog | undefined {
+        const catalog = this.skillCatalogService?.getCatalog()
+        if (!catalog || state.toolFeatureFlags?.[MCP_SERVED_SKILLS_LIST_FLAG] !== true) {
+            return catalog
+        }
+        return catalog.filter((name) => isSkillServed(name, state.toolFeatureFlags))
+    }
+
+    /**
      * What this connection knows about the built-in PostHog skill catalog.
      *
      * Read from the catalog the server loads at startup, not from the `learn`
@@ -968,12 +982,17 @@ export class ToolExecutor {
      * is the case where an agent told to load a built-in skill has nowhere else to
      * go. A catalog that never loaded reports every name as absent, so the message
      * falls back to the store's own.
+     *
+     * A connection with `learn` is told to run it, so only a skill `learn` serves
+     * counts as built-in there. A connection without `learn` reads its installed
+     * copy, which holds every skill in the release.
      */
     private builtInSkillHint(state: ResolvedState): BuiltInSkillHint {
-        const catalog = this.skillCatalogService?.getCatalog()
+        const learnAvailable = this.instructionsBuilder.execSkillsEnabled(state)
+        const catalog = learnAvailable ? this.servedSkillCatalog(state) : this.skillCatalogService?.getCatalog()
         return {
             isBuiltIn: (name) => catalog?.has(name) === true,
-            learnAvailable: this.instructionsBuilder.execSkillsEnabled(state),
+            learnAvailable,
         }
     }
 
@@ -1058,10 +1077,7 @@ export class ToolExecutor {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
-                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
-                    state,
-                    this.skillCatalogService?.getCatalog()
-                ),
+                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(state, this.servedSkillCatalog(state)),
                 flagGatedTools: state.flagGatedTools,
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
