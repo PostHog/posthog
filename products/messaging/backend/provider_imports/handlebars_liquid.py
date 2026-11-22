@@ -11,7 +11,8 @@ matches an empty object, and `length` alone an object with a `length` key. Liqui
 so the last test groups as intended.
 
 `{{#each}}` becomes a `for` loop over the values Handlebars would loop over: a list's items or an object's values,
-and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once.
+and none for anything else. Liquid alone would loop over an object's key and value pairs, and over a string once. An
+object whose `length` key equals its number of keys still reads as a list.
 """
 
 import re
@@ -42,7 +43,7 @@ _TAKEN_NAMES = frozenset(
     | {"and", "or", "contains", "in"}
 )
 # Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
-_LIST_NAME = re.compile(r"(?:kind|values|pair)\d+")
+_LIST_NAME = re.compile(r"(?:object|raw)\d+")
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
 _MAX_OUTPUT_CHARS = 5_000_000
 HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
@@ -267,7 +268,21 @@ class HandlebarsToLiquid:
         start = self._snapshot()
         # A loop body that runs zero times or many times has to leave the HTML where it found it.
         ends: list[Place | None] = [start]
-        opening = self._spend(self._loop_values(source, loop_name))
+        self._lists += 1
+        is_object, raw = f"object{self._lists}", f"raw{self._lists}"
+        # Handlebars loops over a list's items and an object's values, and over nothing else. Liquid loops over an
+        # object's key and value pairs and over a string once. A list or string has a `length` that matches its
+        # `size`, and only a string has `[0]` without `first`. These read properties, so the renderer charges
+        # nothing for the collection's size.
+        guard = self._spend(
+            f"{{% capture {is_object} %}}{{% if {source}.size != {source}.length %}}1{{% endif %}}{{% endcapture %}}"
+            f'{{% if {source}.first != {source}[0] and {is_object} == "" %}}'
+        )
+        opening = self._spend(
+            f"{{% else %}}{{% for {raw} in {source} %}}"
+            f'{{% if {is_object} == "1" %}}{{% assign {loop_name} = {raw}[1] %}}'
+            f"{{% else %}}{{% assign {loop_name} = {raw} %}}{{% endif %}}"
+        )
         self._loop_names.append(loop_name)
         try:
             body = self._branch(start, ends, block.body, (*frames, frame))
@@ -283,12 +298,13 @@ class HandlebarsToLiquid:
                 self._html.restore(start)
                 self._html.untrusted = untrusted
             return self._literal_block(block)
-        parts = [opening, body]
-        if block.inverse:
-            parts.append(self._spend("{% else %}"))
-            parts.append(self._branch(start, ends, block.inverse, frames))
+        inverse = self._branch(start, ends, block.inverse, frames) if block.inverse else ""
         self._merge(ends)
-        return _joined([*parts, self._spend("{% endfor %}")])
+        parts = [guard, inverse, opening, body]
+        if inverse:
+            parts.append(self._spend("{% else %}"))
+            parts.append(self._spend(inverse))
+        return _joined([*parts, self._spend("{% endfor %}{% endif %}")])
 
     def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         if not block.parsed or len(block.params) != 1 or block.hash_args or len(block.block_params) > 1:
@@ -427,19 +443,6 @@ class HandlebarsToLiquid:
             and name not in _TAKEN_NAMES
             and name not in self._loop_names
             and not _LIST_NAME.fullmatch(name)
-        )
-
-    def _loop_values(self, source: str, loop_name: str) -> str:
-        """Opens a loop over what Handlebars loops over. The value's JSON starts with `[` for a list and `{` for an
-        object, whose values are gathered first. Anything else has nothing to loop over."""
-        self._lists += 1
-        kind, values, pair = f"kind{self._lists}", f"values{self._lists}", f"pair{self._lists}"
-        return (
-            f"{{% assign {kind} = {source} | json | slice: 0 %}}{{% assign {values} = {source} %}}"
-            f'{{% if {kind} == "{{" %}}{{% assign {values} = "" | split: "," %}}'
-            f"{{% for {pair} in {source} %}}{{% assign {values} = {values} | push: {pair}[1] %}}{{% endfor %}}"
-            f'{{% elsif {kind} != "[" %}}{{% assign {values} = "" | split: "," %}}{{% endif %}}'
-            f"{{% for {loop_name} in {values} %}}"
         )
 
     def _next_loop_name(self) -> str:

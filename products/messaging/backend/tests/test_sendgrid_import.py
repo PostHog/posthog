@@ -220,8 +220,7 @@ class TestSendGridImport(BaseTest):
         assert receipt.content["templating"] == "liquid"
         assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
         assert "Old" not in email["html"]
-        assert "{% assign kind1 = variables.items | json | slice: 0 %}" in email["html"]
-        assert "{% for item in values1 %}" in email["html"]
+        assert "{% for raw1 in variables.items %}" in email["html"]
         assert '{% raw %}{{formatDate order.placed_at "MMMM DD, YYYY"}}{% endraw %}' in email["html"]
         assert "{{ unsubscribe_url }}" in email["html"]
         assert '"first_name": "Ada"' in receipt.description
