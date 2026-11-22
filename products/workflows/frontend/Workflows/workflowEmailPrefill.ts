@@ -49,18 +49,20 @@ export function templatePrefilledWorkflow(
     const emailAction = emailStep(
         TEMPLATE_EMAIL_ACTION_ID,
         template.name,
-        { cc: '', bcc: '', replyTo: '', ...content, from: from ?? {} },
+        { cc: '', bcc: '', replyTo: '', ...content, from: typeof from === 'object' && from ? from : {} },
         { message_category_type: 'transactional', sensitive: !!template.sensitive }
     )
     return { ...withEmailStep(base, trigger, emailAction), name: template.name }
 }
 
-const API_VARIABLE = /(^|[^\w.])variables\./g
+// `variables` as a name of its own, not the end of `person.properties.variables` or `my-variables`. The email
+// editor saves a space in a link as `%20`, and `{{-` and `{%-` trim whitespace.
+const API_VARIABLE = /(^|[^\w.-]|[{%]-|%20)variables(?=[.[])/g
 
 /** An event run gets no send API `variables`, so the copied email reads the same names from the event's properties. */
 function withEventPropertiesForVariables<T>(value: T): T {
     if (typeof value === 'string') {
-        return value.replace(LIQUID_EXPRESSION, (tag) => tag.replace(API_VARIABLE, '$1event.properties.')) as T
+        return value.replace(LIQUID_EXPRESSION, (tag) => tag.replace(API_VARIABLE, '$1event.properties')) as T
     }
     if (Array.isArray(value)) {
         return value.map(withEventPropertiesForVariables) as T

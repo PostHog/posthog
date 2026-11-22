@@ -1,5 +1,5 @@
 import { draftMessage } from '../MessageAudience/messageDrafts'
-import { prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
+import { prefilledWorkflow, templatePrefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
 import { NEW_WORKFLOW } from './workflowLogic'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
@@ -40,5 +40,40 @@ describe('workflowEmailPrefill', () => {
         expect(filled.filled).toBe(true)
         expect((filled.workflow.actions[1].config as any).inputs.email.value.from).toEqual({ integrationId: 5 })
         expect(refilled).toEqual({ workflow: filled.workflow, filled: false })
+    })
+
+    it.each([
+        [
+            'a link the email editor saved with encoded spaces',
+            '<a href="{{%20variables.link%20}}">',
+            '<a href="{{%20event.properties.link%20}}">',
+        ],
+        ['a bracket lookup', "{{ variables['order-id'] }}", "{{ event.properties['order-id'] }}"],
+        ['whitespace control', '{{-variables.name-}}', '{{-event.properties.name-}}'],
+        ['a loop', '{% for item in variables.items %}', '{% for item in event.properties.items %}'],
+        [
+            'a property that ends in variables',
+            '{{ person.properties.variables.x }}',
+            '{{ person.properties.variables.x }}',
+        ],
+        ['a hyphenated name that ends in variables', '{{ my-variables.x }}', '{{ my-variables.x }}'],
+    ])('copies a template email with %s', (_, html, expected) => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            sensitive: false,
+            content: { templating: 'liquid', email: { html } },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value.html).toBe(expected)
+    })
+
+    it('copies a template whose sender is a plain address as a step without a sender', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            sensitive: false,
+            content: { templating: 'liquid', email: { from: 'orders@example.com', html: '<p>Hi</p>' } },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value.from).toEqual({})
     })
 })
