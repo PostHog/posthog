@@ -54,6 +54,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value_under_a_comparison_of_two_values", "{{#notEquals a b}}{{token}}{{/notEquals}}", "{{token}}"),
             ("value_under_a_comparison_with_empty_text", '{{#equals a ""}}{{token}}{{/equals}}', "{{token}}"),
             (
+                "value_under_a_comparison_with_a_number_too_large_to_hold",
+                "{{#notEquals a " + "9" * 400 + "}}{{token}}{{/notEquals}}",
+                "{{token}}",
+            ),
+            (
                 "value_under_a_lookup_with_include_zero",
                 '{{#if (lookup flags "enabled") includeZero=true}}{{token}}{{/if}}',
                 "{{token}}",

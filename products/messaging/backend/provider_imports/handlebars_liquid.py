@@ -15,6 +15,7 @@ and none for anything else. Liquid alone would loop over an object's key and val
 """
 
 import re
+import math
 from collections.abc import Callable, Iterator
 from typing import Literal
 
@@ -653,8 +654,9 @@ def _number_text(text: str) -> str:
     if number.is_integer() and abs(number) < 2**53:
         return str(int(number))
     shown = repr(number)
-    # Past 2**53, or in exponent form, JavaScript and Python print a number differently.
-    if number.is_integer() or "e" in shown:
+    # Past 2**53, in exponent form, or too large to hold (Python prints "inf", JavaScript "Infinity"), the two
+    # print a number differently.
+    if not math.isfinite(number) or number.is_integer() or "e" in shown:
         raise _Unsupported
     return shown
 
