@@ -3357,7 +3357,7 @@ Re-audited 2026-11-19 against <https://developer.clari.com/default/documentation
 
 ## Clarifai — gaps
 
-Today (14): `annotations`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `tasks`, `workflow_versions`, `workflows`
+Today (18): `annotations`, `apps`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `pipeline_version_runs`, `pipeline_versions`, `pipelines`, `tasks`, `workflow_versions`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
@@ -3376,10 +3376,10 @@ Note: Vendor Swagger and documentation hosts failed DNS resolution, so the offic
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
-- [ ] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
-- [ ] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
-- [ ] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
-- [ ] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
+- [x] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
+- [x] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
+- [x] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
+- [x] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
 - [ ] `Deployments (ListDeployments, GET /v2/users/{user_id}/deployments)` — Model deployments on compute, to see what is serving and where (medium)
 - [ ] `Compute clusters (ListComputeClusters, GET /v2/users/{user_id}/compute_clusters)` — Compute infrastructure the user owns, parent for nodepools and deployments (low)
 - [ ] `Nodepools (ListNodepools, GET /v2/users/{user_id}/compute_clusters/{compute_cluster_id}/nodepools)` — Nodepool capacity and config per cluster, fan-out under compute clusters (low)
