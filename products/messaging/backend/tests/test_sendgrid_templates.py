@@ -61,6 +61,22 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
             ("value_in_a_loop_that_ends_inside_a_tag", "{{#each items}}{{token}}<img alt={{/each}}>", "{{token}}"),
             ("value_after_a_with_that_ends_inside_a_tag", "{{#with u}}<img alt={{/with}}{{token}}>", "{{token}}"),
+            ("value_after_an_escaped_tag_that_names_endraw", '<img alt=\\{{ ="endraw}}{{token}}>', "{{token}}"),
+            (
+                "value_in_a_style_only_the_else_branch_opens",
+                '{{#if c}}<style>a<b alt="{{else}}<style>{{token}}{{/if}}',
+                "{{token}}",
+            ),
+            (
+                "value_in_a_comment_only_the_else_branch_opens",
+                '{{#if c}}<!--a<b alt="{{else}}<!--{{token}}{{/if}}',
+                "{{token}}",
+            ),
+            (
+                "value_in_a_style_after_a_loop_kept_as_written",
+                "{{#each items}}<style>a<b alt={{/each}}<style>{{token}}",
+                "{{token}}",
+            ),
             ("value_after_a_no_break_space_in_an_unquoted_value", '<img alt=x\u00a0title="{{token}}">', "{{token}}"),
             ("value_in_a_script_opened_around_a_comment", "<{{!-- c --}}script>var a = {{x}};</script>", "{{x}}"),
             ("raw_value_in_an_attribute", '<a href="{{{token}}}">x</a>', "{{{token}}}"),

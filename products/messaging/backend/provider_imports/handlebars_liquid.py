@@ -111,8 +111,7 @@ class HandlebarsToLiquid:
                 for piece in self._text(node.text):
                     _append(out, self._spend(piece))
             elif isinstance(node, _Liquid):
-                # Handlebars prints an escaped tag as written, so the HTML around the next value sees that text.
-                self._feed(node.liquid.removeprefix("{% raw %}").removesuffix("{% endraw %}"))
+                self._feed(node.printed)
                 _append(out, self._spend(node.liquid))
             elif isinstance(node, _Output):
                 _append(out, self._spend(self._output(node, frames)))
@@ -336,7 +335,7 @@ class HandlebarsToLiquid:
                     self._feed(piece)
                     _append(out, self._spend(_literal_text(piece)))
             elif isinstance(node, _Liquid):
-                self._feed(node.liquid.removeprefix("{% raw %}").removesuffix("{% endraw %}"))
+                self._feed(node.printed)
                 _append(out, self._spend(node.liquid))
             elif isinstance(node, _Output):
                 _append(out, self._spend(self._literal(node.source)))

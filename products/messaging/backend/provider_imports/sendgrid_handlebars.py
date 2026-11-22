@@ -71,6 +71,8 @@ class _Text:
 @frozen
 class _Liquid:
     liquid: str
+    # What Handlebars prints, which the HTML around the next value sees. `liquid` can spell it differently.
+    printed: str = ""
 
 
 @frozen
@@ -128,7 +130,7 @@ def _tokenize(source: str, is_html: bool) -> list[_Tag]:
             end = source.find("}}", start)
             end = len(source) if end == -1 else end + 2
             tags.append(_Tag(kind="text", source=source[position : start - 1]))
-            tags.append(_Tag(kind="liquid", source=liquid_literal(source[start:end])))
+            tags.append(_Tag(kind="liquid", source=liquid_literal(source[start:end]), body=source[start:end]))
             position = end
             continue
         if start > position:
@@ -261,7 +263,7 @@ def _parse_until(tags: list[_Tag], position: int, depth: int) -> _ParsedNodes:
         if tag.kind == "text":
             nodes.append(_Text(text=tag.source))
         elif tag.kind == "liquid":
-            nodes.append(_Liquid(liquid=tag.source))
+            nodes.append(_Liquid(liquid=tag.source, printed=tag.body))
         elif tag.kind == "output":
             nodes.append(_Output(source=tag.source, body=tag.body, raw=tag.raw))
         elif tag.kind == "open":

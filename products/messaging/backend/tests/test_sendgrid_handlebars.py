@@ -26,7 +26,7 @@ class TestSendGridHandlebars(SimpleTestCase):
     def test_one_backslash_keeps_a_tag_as_text_and_two_print_one_and_run_it(self) -> None:
         escaped, doubled = _parse("\\{{n}}"), _parse("\\\\{{n}}")
 
-        assert escaped == (_Text(text=""), _Liquid(liquid="{% raw %}{{n}}{% endraw %}"))
+        assert escaped == (_Text(text=""), _Liquid(liquid="{% raw %}{{n}}{% endraw %}", printed="{{n}}"))
         assert doubled[0] == _Text(text="\\")
         assert isinstance(doubled[1], _Output) and doubled[1].body == "n"
 

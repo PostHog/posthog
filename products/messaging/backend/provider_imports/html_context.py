@@ -2,6 +2,7 @@
 escaped."""
 
 import re
+from dataclasses import field
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +15,9 @@ class Place:
     closing: bool = False
     raw_element: str = ""
     partial: str = ""
+    # Text fed but not read yet, such as the tail kept back while a closing tag is looked for. Restoring it means
+    # the next branch is read from where this place was, not after what another branch fed.
+    unread: str = field(default="", compare=False, repr=False)
 
 
 # Elements whose content isn't page text, so a value inside one is escaped some other way.
@@ -46,21 +50,24 @@ class HtmlContext:
     def snapshot(self) -> "Place":
         """Where the text is now, so two branches of a condition can be compared. Outside a tag the last tag's name
         and attribute no longer matter, so they don't count."""
+        unread = self.text[self.position :]
         if self.state in ("text", "comment", "bogus"):
-            return Place(state=self.state, partial=self.partial)
+            return Place(state=self.state, partial=self.partial, unread=unread)
         if self.state == "raw":
-            return Place(state=self.state, raw_element=self.raw_element)
+            return Place(state=self.state, raw_element=self.raw_element, unread=unread)
         return Place(
             state=self.state,
             attribute=self.attribute,
             tag_name=self.tag_name,
             closing=self.closing,
             raw_element=self.raw_element,
+            unread=unread,
         )
 
     def restore(self, place: "Place") -> None:
         self.state, self.attribute, self.tag_name = place.state, place.attribute, place.tag_name
         self.closing, self.raw_element, self.partial = place.closing, place.raw_element, place.partial
+        self.text, self.position = place.unread, 0
 
     def feed(self, chunk: str) -> None:
         if self.position > _SEARCH_OVERLAP:
