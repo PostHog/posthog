@@ -62,17 +62,15 @@ describe('LemonButton', () => {
         { desc: 'a link', to: '/insights' },
     ])('does not fire click handlers on $desc when disabledReason is set', async ({ to }) => {
         const user = userEvent.setup()
-        const onClick = jest.fn()
-        const onClickCapture = jest.fn()
-        const onAuxClick = jest.fn()
+        const fired: string[] = []
 
         render(
             <LemonButton
                 disabledReason="Nope"
                 to={to}
-                onClick={onClick}
-                onClickCapture={onClickCapture}
-                onAuxClick={onAuxClick}
+                onClick={() => fired.push('onClick')}
+                onClickCapture={() => fired.push('onClickCapture')}
+                onAuxClick={() => fired.push('onAuxClick')}
             >
                 Go
             </LemonButton>
@@ -82,9 +80,7 @@ describe('LemonButton', () => {
         await user.click(button)
         fireEvent(button, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
 
-        expect(onClick).not.toHaveBeenCalled()
-        expect(onClickCapture).not.toHaveBeenCalled()
-        expect(onAuxClick).not.toHaveBeenCalled()
+        expect(fired).toEqual([])
     })
 
     it('keeps htmlType submit in the DOM when disabledReason is set', () => {
