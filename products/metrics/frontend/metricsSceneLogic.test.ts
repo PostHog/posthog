@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -24,7 +25,7 @@ import {
 
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { metricsViewerLogic } from './components/metricsViewerLogic'
-import { metricsSetupLogic } from './emptyState/metricsSetupLogic'
+import { metricsSetupDetection } from './emptyState/metricsSetupDetection'
 import { metricsSceneLogic } from './metricsSceneLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
@@ -422,7 +423,7 @@ describe('metricsSceneLogic', () => {
 
     describe('landing tab', () => {
         afterEach(() => {
-            metricsSetupLogic.unmount()
+            setupDetectionLogic(metricsSetupDetection).unmount()
         })
 
         // The overview reads only ingested metrics, so a team with only derived series would land on zero counts.
@@ -450,8 +451,8 @@ describe('metricsSceneLogic', () => {
             router.actions.push('/metrics', params)
             await expectLogic(logic).toFinishAllListeners()
 
-            await expectLogic(metricsSetupLogic, () => {
-                metricsSetupLogic.mount()
+            await expectLogic(setupDetectionLogic(metricsSetupDetection), () => {
+                setupDetectionLogic(metricsSetupDetection).mount()
             }).toDispatchActions(['detectStatusSuccess'])
             await expectLogic(logic).toFinishAllListeners()
 

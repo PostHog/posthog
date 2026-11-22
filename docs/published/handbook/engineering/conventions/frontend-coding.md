@@ -44,7 +44,7 @@ Hence the explicit separation between the data and view layers.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
   - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
-  - In `createSetupDetectionLogic`, return `null` when a setup check cannot answer. Like a thrown error, it preserves an existing setup status or shows the product scene if no answer exists yet. Return `unknown` when the scene itself should handle the result, such as showing an access-denied screen. Successful checks can still advance setup when data arrives.
+  - In the `detect` function you give `setupDetectionLogic`, return `null` when a setup check cannot answer. Like a thrown error, it preserves an existing setup status or shows the product scene if no answer exists yet. Return `unknown` when the scene itself should handle the result, such as showing an access-denied screen. Successful checks can still advance setup when data arrives.
   - When renaming a feature, sweep code symbols completely — but analytics-facing strings (event names, property names and values, `data-attr` values) and persisted keys are a frozen API: leave them as-is, with a comment noting they're pinned.
 - Scenes
   - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.

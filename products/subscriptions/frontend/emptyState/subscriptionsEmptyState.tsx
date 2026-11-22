@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { SubscriptionsPreview } from './SubscriptionsPreview'
 import { SubscriptionsPrimaryAction } from './SubscriptionsPrimaryAction'
-import { subscriptionsSetupLogic } from './subscriptionsSetupLogic'
+import { subscriptionsSetupDetection } from './subscriptionsSetupDetection'
 
 const HedgehogTownCrier = pngHoggie(townCrierPng)
 
 export const subscriptionsEmptyState: SceneProductEmptyState = {
-    statusLogic: subscriptionsSetupLogic,
+    detection: subscriptionsSetupDetection,
     config: {
         productKey: ProductKey.SUBSCRIPTIONS,
         productName: 'Subscriptions',

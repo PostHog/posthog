@@ -10,12 +10,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { SessionReplayPreview } from './SessionReplayPreview'
-import { sessionReplaySetupLogic } from './sessionReplaySetupLogic'
+import { sessionReplaySetupDetection } from './sessionReplaySetupDetection'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
 export const sessionReplayEmptyState: SceneProductEmptyState = {
-    statusLogic: sessionReplaySetupLogic,
+    detection: sessionReplaySetupDetection,
     config: {
         productKey: ProductKey.SESSION_REPLAY,
         productName: 'Session replay',

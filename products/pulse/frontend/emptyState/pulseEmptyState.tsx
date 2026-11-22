@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { PulsePreview } from './PulsePreview'
 import { PulsePrimaryAction } from './PulsePrimaryAction'
-import { pulseSetupLogic } from './pulseSetupLogic'
+import { pulseSetupDetection } from './pulseSetupDetection'
 
 const HedgehogDoctor = pngHoggie(doctorPng)
 
 export const pulseEmptyState: SceneProductEmptyState = {
-    statusLogic: pulseSetupLogic,
+    detection: pulseSetupDetection,
     // The whole product is behind this flag; the scene's own 404 gate handles the flag-off case.
     featureFlag: FEATURE_FLAGS.PULSE,
     config: {

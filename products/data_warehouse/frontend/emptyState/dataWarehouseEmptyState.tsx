@@ -8,12 +8,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehousePreview } from './DataWarehousePreview'
-import { dataWarehouseSetupLogic } from './dataWarehouseSetupLogic'
+import { dataWarehouseSetupDetection } from './dataWarehouseSetupDetection'
 
 const HedgehogOrganized = pngHoggie(organizedPng)
 
 export const dataWarehouseEmptyState: SceneProductEmptyState = {
-    statusLogic: dataWarehouseSetupLogic,
+    detection: dataWarehouseSetupDetection,
     config: {
         productKey: ProductKey.DATA_WAREHOUSE,
         productName: 'Data warehouse',

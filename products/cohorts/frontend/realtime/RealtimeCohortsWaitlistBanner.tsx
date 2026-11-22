@@ -7,11 +7,12 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { ConceptWaitlistCTA } from 'lib/components/FeaturePreviews/ConceptWaitlistCTA'
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
+import { cohortsSetupDetection } from '../emptyState/cohortsSetupDetection'
 import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
@@ -27,7 +28,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: DISMISS_KEY }))
     // Teams with no cohorts get the setup screen today; this keeps them out if it becomes skippable.
-    const { setupStatus } = useValues(cohortsSetupLogic)
+    const { setupStatus } = useValues(setupDetectionLogic(cohortsSetupDetection))
     // A team with realtime cohort targeting sees "Realtime" tags in the table below; a waitlist
     // above them would contradict the page.
     const alreadyHasRealtimeCohorts = useRealtimeCohortsServing()

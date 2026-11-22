@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DashboardsPreview } from './DashboardsPreview'
 import { DashboardsPrimaryAction } from './DashboardsPrimaryAction'
-import { dashboardsSetupLogic } from './dashboardsSetupLogic'
+import { dashboardsSetupDetection } from './dashboardsSetupDetection'
 
 const HedgehogChart = pngHoggie(chartPng)
 
 export const dashboardsEmptyState: SceneProductEmptyState = {
-    statusLogic: dashboardsSetupLogic,
+    detection: dashboardsSetupDetection,
     config: {
         productKey: ProductKey.DASHBOARDS,
         productName: 'Dashboards',

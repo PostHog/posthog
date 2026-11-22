@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ActionsPreview } from './ActionsPreview'
-import { actionsSetupLogic } from './actionsSetupLogic'
+import { actionsSetupDetection } from './actionsSetupDetection'
 
 const HedgehogCursor = pngHoggie(cursorPng)
 
 export const actionsEmptyState: SceneProductEmptyState = {
-    statusLogic: actionsSetupLogic,
+    detection: actionsSetupDetection,
     config: {
         productKey: ProductKey.ACTIONS,
         productName: 'Actions',

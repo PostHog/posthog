@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertsPreview } from './AlertsPreview'
 import { AlertsPrimaryAction } from './AlertsPrimaryAction'
-import { alertsSetupLogic } from './alertsSetupLogic'
+import { alertsSetupDetection } from './alertsSetupDetection'
 
 const HedgehogLifeguard = pngHoggie(lifeguardPng)
 
 export const alertsEmptyState: SceneProductEmptyState = {
-    statusLogic: alertsSetupLogic,
+    detection: alertsSetupDetection,
     config: {
         productKey: ProductKey.ALERTS,
         productName: 'Alerts',

@@ -8,12 +8,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DestinationsPreview } from './DestinationsPreview'
-import { destinationsSetupLogic } from './destinationsSetupLogic'
+import { destinationsSetupDetection } from './destinationsSetupDetection'
 
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
 export const destinationsEmptyState: SceneProductEmptyState = {
-    statusLogic: destinationsSetupLogic,
+    detection: destinationsSetupDetection,
     config: {
         productKey: ProductKey.PIPELINE_DESTINATIONS,
         productName: 'Destinations',

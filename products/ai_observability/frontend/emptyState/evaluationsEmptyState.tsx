@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { EvaluationsPreview } from './EvaluationsPreview'
-import { evaluationsSetupLogic } from './evaluationsSetupLogic'
+import { evaluationsSetupDetection } from './evaluationsSetupDetection'
 
 const HedgehogJudge = pngHoggie(judgePng)
 
 export const evaluationsEmptyState: SceneProductEmptyState = {
-    statusLogic: evaluationsSetupLogic,
+    detection: evaluationsSetupDetection,
     SceneNav: function EvaluationsEmptyStateNav(): JSX.Element {
         return <EvaluationsTabs activeTab="online-evals" />
     },

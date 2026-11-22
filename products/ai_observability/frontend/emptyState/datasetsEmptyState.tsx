@@ -11,12 +11,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { OfflineEvaluationsTabs } from '../offline-evaluations/OfflineEvaluationsTabs'
 import { DatasetsPreview } from './DatasetsPreview'
-import { datasetsSetupLogic } from './datasetsSetupLogic'
+import { datasetsSetupDetection } from './datasetsSetupDetection'
 
 const HedgehogResearch = pngHoggie(researchPng)
 
 export const datasetsEmptyState: SceneProductEmptyState = {
-    statusLogic: datasetsSetupLogic,
+    detection: datasetsSetupDetection,
     SceneNav: function DatasetsEmptyStateNav(): JSX.Element {
         return (
             <EvaluationsTabs activeTab="offline-evals">

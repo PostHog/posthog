@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksPreview } from './NotebooksPreview'
-import { notebooksSetupLogic } from './notebooksSetupLogic'
+import { notebooksSetupDetection } from './notebooksSetupDetection'
 
 const HedgehogReading = pngHoggie(readingPng)
 
 export const notebooksEmptyState: SceneProductEmptyState = {
-    statusLogic: notebooksSetupLogic,
+    detection: notebooksSetupDetection,
     config: {
         productKey: ProductKey.NOTEBOOKS,
         productName: 'Notebooks',

@@ -9,7 +9,7 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
-    // Boot-time approximation of webAnalyticsSetupLogic.
+    // Boot-time approximation of webAnalyticsSetupDetection.
     setupProbe: {
         productKey: ProductKey.WEB_ANALYTICS,
         hasDataEvents: ['$pageview'],

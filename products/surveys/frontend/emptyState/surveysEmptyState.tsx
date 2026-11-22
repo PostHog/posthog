@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { NewSurveyActions } from './NewSurveyActions'
 import { SurveysPreview } from './SurveysPreview'
-import { surveysSetupLogic } from './surveysSetupLogic'
+import { surveysSetupDetection } from './surveysSetupDetection'
 
 const HedgehogReporter = pngHoggie(reporterPng)
 
 export const surveysEmptyState: SceneProductEmptyState = {
-    statusLogic: surveysSetupLogic,
+    detection: surveysSetupDetection,
     config: {
         productKey: ProductKey.SURVEYS,
         productName: 'Surveys',

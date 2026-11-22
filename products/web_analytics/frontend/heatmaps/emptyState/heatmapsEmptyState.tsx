@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HeatmapsPreview } from './HeatmapsPreview'
-import { heatmapsSetupLogic } from './heatmapsSetupLogic'
+import { heatmapsSetupDetection } from './heatmapsSetupDetection'
 
 const HedgehogCursor = pngHoggie(cursorPng)
 
 export const heatmapsEmptyState: SceneProductEmptyState = {
-    statusLogic: heatmapsSetupLogic,
+    detection: heatmapsSetupDetection,
     config: {
         productKey: ProductKey.HEATMAPS,
         productName: 'Heatmaps',

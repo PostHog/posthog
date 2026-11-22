@@ -10,12 +10,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BusinessKnowledgeSetupCard } from '../components/BusinessKnowledgeSetupCard/BusinessKnowledgeSetupCard'
 import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { BusinessKnowledgePreview } from './BusinessKnowledgePreview'
-import { businessKnowledgeSetupLogic } from './businessKnowledgeSetupLogic'
+import { businessKnowledgeSetupDetection } from './businessKnowledgeSetupDetection'
 
 const HedgehogReading = pngHoggie(readingIsMagicPng)
 
 export const businessKnowledgeEmptyState: SceneProductEmptyState = {
-    statusLogic: businessKnowledgeSetupLogic,
+    detection: businessKnowledgeSetupDetection,
     // The scene already shows "not found" when the flag is off, so keep the gate behind it.
     featureFlag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
     // The gate replaces the scene, so the Libraries / Settings tab bar inside it never mounts.

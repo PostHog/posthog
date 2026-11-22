@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FeatureFlagPreview } from './FeatureFlagPreview'
-import { featureFlagsSetupLogic } from './featureFlagsSetupLogic'
+import { featureFlagsSetupDetection } from './featureFlagsSetupDetection'
 
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
 export const featureFlagsEmptyState: SceneProductEmptyState = {
-    statusLogic: featureFlagsSetupLogic,
+    detection: featureFlagsSetupDetection,
     config: {
         productKey: ProductKey.FEATURE_FLAGS,
         productName: 'Feature flags',

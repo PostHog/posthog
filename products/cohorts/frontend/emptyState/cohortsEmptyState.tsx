@@ -8,12 +8,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CohortsPreview } from './CohortsPreview'
-import { cohortsSetupLogic } from './cohortsSetupLogic'
+import { cohortsSetupDetection } from './cohortsSetupDetection'
 
 const HedgehogParty = pngHoggie(partyPng)
 
 export const cohortsEmptyState: SceneProductEmptyState = {
-    statusLogic: cohortsSetupLogic,
+    detection: cohortsSetupDetection,
     config: {
         productKey: ProductKey.COHORTS,
         productName: 'Cohorts',

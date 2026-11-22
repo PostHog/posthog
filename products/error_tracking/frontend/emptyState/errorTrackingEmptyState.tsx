@@ -10,12 +10,12 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ErrorTrackingPreview } from './ErrorTrackingPreview'
-import { errorTrackingSetupLogic } from './errorTrackingSetupLogic'
+import { errorTrackingSetupDetection } from './errorTrackingSetupDetection'
 
 const HedgehogError = pngHoggie(errorPng)
 
 export const errorTrackingEmptyState: SceneProductEmptyState = {
-    statusLogic: errorTrackingSetupLogic,
+    detection: errorTrackingSetupDetection,
     config: {
         productKey: ProductKey.ERROR_TRACKING,
         productName: 'Error tracking',

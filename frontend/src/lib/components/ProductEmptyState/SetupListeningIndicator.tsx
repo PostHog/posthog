@@ -1,4 +1,4 @@
-import { type LogicWrapper, useMountedLogic, useValues } from 'kea'
+import { type BuiltLogic, type LogicWrapper, useMountedLogic, useValues } from 'kea'
 
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -16,8 +16,8 @@ export interface SetupListeningIndicatorDestination {
 
 export interface SetupListeningIndicatorProps {
     productKey: ProductKey
-    /** The product's detection logic, the same one its empty state declares as `statusLogic`. */
-    statusLogic: LogicWrapper
+    /** The product's detection logic, the same one its empty state's gate mounts. */
+    statusLogic: BuiltLogic | LogicWrapper
     dataName: string
     destination: SetupListeningIndicatorDestination
 }

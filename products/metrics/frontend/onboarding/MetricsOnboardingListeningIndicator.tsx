@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { SetupListeningIndicator } from 'lib/components/ProductEmptyState/SetupListeningIndicator'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
@@ -7,7 +8,7 @@ import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { metricsSetupLogic } from '../emptyState/metricsSetupLogic'
+import { metricsSetupDetection } from '../emptyState/metricsSetupDetection'
 
 export function MetricsOnboardingListeningIndicator(): JSX.Element {
     const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
@@ -27,7 +28,7 @@ export function MetricsOnboardingListeningIndicator(): JSX.Element {
     return (
         <SetupListeningIndicator
             productKey={ProductKey.METRICS}
-            statusLogic={metricsSetupLogic}
+            statusLogic={setupDetectionLogic(metricsSetupDetection)}
             dataName="metric"
             destination={{ label: 'Continue', onClick: advance }}
         />

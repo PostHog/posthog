@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { emptyStateStatusLogic } from 'lib/components/ProductEmptyState/emptyStateStatusLogic'
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
@@ -28,7 +29,7 @@ export function WelcomeProductStatus({
 
     return (
         <>
-            <WelcomeProductDetection statusLogic={emptyState.statusLogic} />
+            <WelcomeProductDetection statusLogic={emptyStateStatusLogic(emptyState)} />
             {status === 'loading' ? (
                 <WelcomeLoading />
             ) : status === 'has-data' ? (

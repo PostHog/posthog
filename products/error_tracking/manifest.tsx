@@ -73,7 +73,7 @@ export const manifest: ProductManifest = {
         '/error_tracking/:id': ({ id }, searchParams, hashParams) =>
             combineUrl(`/error-tracking/${id}`, searchParams, hashParams).url,
     },
-    // Boot-time approximation of errorTrackingSetupLogic: a $exception definition
+    // Boot-time approximation of errorTrackingSetupDetection: a $exception definition
     // existing means issues exist. The in-scene check stays the source of truth
     // (it also reads the autocapture opt-in for the waiting state).
     setupProbe: {

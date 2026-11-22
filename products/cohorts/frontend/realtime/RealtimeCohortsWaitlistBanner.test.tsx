@@ -6,10 +6,11 @@ import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
+import { cohortsSetupDetection } from '../emptyState/cohortsSetupDetection'
 import { RealtimeCohortsWaitlistBanner } from './RealtimeCohortsWaitlistBanner'
 import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
@@ -73,7 +74,7 @@ function setupMocks(
         if (logic === featurePreviewsLogic) {
             return { earlyAccessFeatures, waitlistSurveysEnabled: true, conceptSurveySubmissions: {} }
         }
-        if (logic === cohortsSetupLogic) {
+        if (logic === setupDetectionLogic(cohortsSetupDetection)) {
             return { setupStatus }
         }
         return { isDismissed }

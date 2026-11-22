@@ -18,7 +18,7 @@ HAS_METRICS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 # (posthog/models/product_intent) reaches this from the un-throttled
 # add_product_intent request path, so an uncached False is a fresh ClickHouse
 # query per request — a resource-exhaustion path. The TTL stays well under the
-# setup prompt's 5s poll interval (metricsSetupLogic.pollIntervalMs), so a team
+# setup prompt's 5s poll interval (metricsSetupDetection.pollIntervalMs), so a team
 # that just wired up OTel sees the no-metrics -> has-metrics flip within one
 # extra poll cycle instead of being pinned to a stale empty state.
 HAS_METRICS_NEGATIVE_CACHE_TTL = int(dt.timedelta(seconds=4).total_seconds())

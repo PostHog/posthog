@@ -2,6 +2,7 @@ import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconListTree } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { SetupListeningIndicator } from 'lib/components/ProductEmptyState/SetupListeningIndicator'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { urls } from 'scenes/urls'
@@ -11,12 +12,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { TRACING_DOCS_URL } from '../traceLinks'
 import { TracingOtlpSetup } from './TracingOtlpSetup'
 import { TracingPreview } from './TracingPreview'
-import { tracingSetupLogic } from './tracingSetupLogic'
+import { tracingSetupDetection } from './tracingSetupDetection'
 
 const HedgehogXRay = pngHoggie(xRayPng)
 
 export const tracingEmptyState: SceneProductEmptyState = {
-    statusLogic: tracingSetupLogic,
+    detection: tracingSetupDetection,
     config: {
         productKey: ProductKey.TRACING,
         productName: 'Tracing',
@@ -35,7 +36,7 @@ export const tracingEmptyState: SceneProductEmptyState = {
         statusIndicator: (
             <SetupListeningIndicator
                 productKey={ProductKey.TRACING}
-                statusLogic={tracingSetupLogic}
+                statusLogic={setupDetectionLogic(tracingSetupDetection)}
                 dataName="span"
                 destination={{ label: 'Go to Tracing', url: urls.tracing() }}
             />

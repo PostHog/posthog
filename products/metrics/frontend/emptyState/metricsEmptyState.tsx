@@ -2,6 +2,7 @@ import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconGraph } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { SetupListeningIndicator } from 'lib/components/ProductEmptyState/SetupListeningIndicator'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,12 +12,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MetricsPreview } from './MetricsPreview'
 import { MetricsScrapeAgentSetup } from './MetricsScrapeAgentSetup'
-import { metricsSetupLogic } from './metricsSetupLogic'
+import { metricsSetupDetection } from './metricsSetupDetection'
 
 const HedgehogChart = pngHoggie(chartPng)
 
 export const metricsEmptyState: SceneProductEmptyState = {
-    statusLogic: metricsSetupLogic,
+    detection: metricsSetupDetection,
     // The whole product is behind this flag; its feature-preview gate handles the flag-off case.
     featureFlag: FEATURE_FLAGS.METRICS,
     config: {
@@ -39,7 +40,7 @@ export const metricsEmptyState: SceneProductEmptyState = {
         statusIndicator: (
             <SetupListeningIndicator
                 productKey={ProductKey.METRICS}
-                statusLogic={metricsSetupLogic}
+                statusLogic={setupDetectionLogic(metricsSetupDetection)}
                 dataName="metric"
                 destination={{ label: 'Go to Metrics', url: urls.metrics() }}
             />

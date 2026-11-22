@@ -12,6 +12,7 @@ import { useSceneContentReady } from 'scenes/useSceneContentReady'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { emptyStateStatusLogic } from './emptyStateStatusLogic'
 import {
     EMPTY_STATE_PARAM,
     activeProductEmptyStateGateRender,
@@ -75,8 +76,8 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
 }
 
 function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
-    const { config, statusLogic } = emptyState
-    useMountedLogic(statusLogic)
+    const { config } = emptyState
+    useMountedLogic(emptyStateStatusLogic(emptyState))
     const setupLogic = productSetupStatusLogic({ productKey: config.productKey })
     const { status, skipped, mode } = useValues(setupLogic)
     const { unskipEmptyState } = useActions(setupLogic)

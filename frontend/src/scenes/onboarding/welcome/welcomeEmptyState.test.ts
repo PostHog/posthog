@@ -1,3 +1,5 @@
+import type { LogicWrapper } from 'kea'
+
 import type { ProductEmptyStateConfig, SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -6,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { pickWelcomeEmptyState } from './welcomeEmptyState'
 
 function emptyStateWith(
-    emptyState: Partial<SceneProductEmptyState> & { productKey: ProductKey }
+    emptyState: Partial<Omit<SceneProductEmptyState, 'statusLogic' | 'detection'>> & { productKey: ProductKey }
 ): SceneProductEmptyState {
     const { productKey, ...rest } = emptyState
     return {
         config: { productKey } as ProductEmptyStateConfig,
-        statusLogic: {} as SceneProductEmptyState['statusLogic'],
+        statusLogic: {} as LogicWrapper,
         ...rest,
     }
 }

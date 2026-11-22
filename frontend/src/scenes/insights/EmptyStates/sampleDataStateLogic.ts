@@ -1,13 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { dataWarehouseSetupLogic } from 'products/data_warehouse/frontend/emptyState/dataWarehouseSetupLogic'
+import { dataWarehouseSetupDetection } from 'products/data_warehouse/frontend/emptyState/dataWarehouseSetupDetection'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 
@@ -85,7 +86,7 @@ export const sampleDataStateLogic = kea<sampleDataStateLogicType>([
                 if (cache.warehouseDetectionTeamId !== values.currentTeam?.id) {
                     cache.disposables.add(
                         () => {
-                            const unmount = dataWarehouseSetupLogic.mount()
+                            const unmount = setupDetectionLogic(dataWarehouseSetupDetection).mount()
                             cache.warehouseDetectionTeamId = values.currentTeam?.id
                             return () => {
                                 unmount()

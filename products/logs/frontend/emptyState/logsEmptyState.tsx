@@ -7,12 +7,12 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsPreview } from './LogsPreview'
-import { logsSetupLogic } from './logsSetupLogic'
+import { logsSetupDetection } from './logsSetupDetection'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
 export const logsEmptyState: SceneProductEmptyState = {
-    statusLogic: logsSetupLogic,
+    detection: logsSetupDetection,
     config: {
         productKey: ProductKey.LOGS,
         productName: 'Logs',

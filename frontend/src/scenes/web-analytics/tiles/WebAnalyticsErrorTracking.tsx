@@ -4,10 +4,11 @@ import { useCallback } from 'react'
 
 import * as panicPng from '@posthog/brand/hoggies/png/panic'
 import * as starPng from '@posthog/brand/hoggies/png/star'
-import { errorTrackingSetupLogic } from '@posthog/products-error-tracking/frontend/emptyState/errorTrackingSetupLogic'
+import { errorTrackingSetupDetection } from '@posthog/products-error-tracking/frontend/emptyState/errorTrackingSetupDetection'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -94,7 +95,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
     const to = urls.errorTracking()
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    useMountedLogic(errorTrackingSetupLogic)
+    useMountedLogic(setupDetectionLogic(errorTrackingSetupDetection))
     const { status: errorTrackingStatus } = useValues(
         productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
     )

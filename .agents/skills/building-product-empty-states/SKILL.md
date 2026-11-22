@@ -23,22 +23,23 @@ This system is for product landing scenes. `ProductIntroduction` stays the inlin
 
 The status must come from a **real signal**: a data-existence query (HogQL count / exists API), the product's opt-in flag, or an entity count for creation-first products. Never a dismissal flag — `has_completed_onboarding_for` is routing metadata, not evidence of data.
 
-Default: one call to `createSetupDetectionLogic` (`lib/components/ProductEmptyState/setupDetectionLogic.ts`). Supply a `detect` function resolving the product's status; the factory owns the shared contract - detect on mount, optionally poll until data lands (stopping for good on `has-data`, pausing on hidden tabs), fail open on errors, and wait out bootstrap before the first check:
+Default: export settings for the shared `setupDetectionLogic` (`lib/components/ProductEmptyState/setupDetectionLogic.ts`), keyed by product key. Supply a `detect` function resolving the product's status; the logic owns the shared contract - detect on mount, optionally poll until data lands (stopping for good on `has-data`, pausing on hidden tabs), fail open on errors, and wait out bootstrap before the first check:
 
 ```ts
-export const logsSetupLogic = createSetupDetectionLogic({
+export const logsSetupDetection: SetupDetectionProps = {
   productKey: ProductKey.LOGS,
-  path: ['products', 'logs', 'frontend', 'emptyState', 'logsSetupLogic'],
   detect: async () => ((await api.logs.hasLogs()) ? 'has-data' : 'needs-setup'),
   // Only for products where data arrives from outside (SDK events); entity-count
   // products omit it - the gate remounts the logic on every scene entry.
   pollIntervalMs: 20000,
-})
+}
 ```
 
-`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick. `recheckActionTypes` re-detects immediately when app state changes elsewhere (a team-setting opt-in). `cacheHasData` remembers a has-data answer in localStorage so returning users skip the spinner and the query - use it for products with no boot-time probe. Add `revalidateCachedHasData` when the data can go away (entities users delete, recordings that expire, a lookback window): the cached answer still opens the gate at once, detection runs once in the background, and a `needs-setup` or `waiting-for-data` answer clears the cache so the next visit shows the empty state. It never replaces the mounted scene, so an open modal or a half-created entity survives. Plain `cacheHasData` is for ingested data that stays. Recheck actions stop re-detecting once the status is `has-data`, since their job is to flip the gate open after the first entity is created in place. For a creation-first product that must return to its empty state after its last entity is deleted, set `allowReturnToSetup: true`. Include successful creation, deletion, bulk deletion, and restore actions in `recheckActionTypes`. The factory then refreshes the count after those actions and clears its cached answer when the product becomes empty. Keep the default for data-based products so a background check cannot replace an active scene.
+The empty state declares it as `detection: logsSetupDetection`, and the gate mounts `setupDetectionLogic(logsSetupDetection)`. Anything else that needs the status mounts the same keyed logic.
 
-Products whose detection drives more than the gate (extra selectors, staged dashboards) keep a bespoke logic instead - template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts`. It must push the status from a listener and handle failure the same way the factory does:
+`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick. `recheckActionTypes` re-detects immediately when app state changes elsewhere (a team-setting opt-in). `cacheHasData` remembers a has-data answer in localStorage so returning users skip the spinner and the query - use it for products with no boot-time probe. Add `revalidateCachedHasData` when the data can go away (entities users delete, recordings that expire, a lookback window): the cached answer still opens the gate at once, detection runs once in the background, and a `needs-setup` or `waiting-for-data` answer clears the cache so the next visit shows the empty state. It never replaces the mounted scene, so an open modal or a half-created entity survives. Plain `cacheHasData` is for ingested data that stays. Recheck actions stop re-detecting once the status is `has-data`, since their job is to flip the gate open after the first entity is created in place. For a creation-first product that must return to its empty state after its last entity is deleted, set `allowReturnToSetup: true`. Include successful creation, deletion, bulk deletion, and restore actions in `recheckActionTypes`. The logic then refreshes the count after those actions and clears its cached answer when the product becomes empty. Keep the default for data-based products so a background check cannot replace an active scene.
+
+Products whose detection drives more than the gate (extra selectors, staged dashboards) keep a bespoke logic instead, declared on the empty state as `statusLogic` - template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts`. It must push the status from a listener and handle failure the same way the shared logic does:
 
 ```ts
 connect(() => ({

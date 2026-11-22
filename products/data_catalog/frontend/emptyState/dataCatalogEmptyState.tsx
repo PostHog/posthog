@@ -10,12 +10,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DATA_CATALOG_DOCS_URL } from '../common'
 import { DataCatalogPreview } from './DataCatalogPreview'
 import { DataCatalogPrimaryAction } from './DataCatalogPrimaryAction'
-import { dataCatalogSetupLogic } from './dataCatalogSetupLogic'
+import { dataCatalogSetupDetection } from './dataCatalogSetupDetection'
 
 const HedgehogStampApproved = pngHoggie(stampApprovedPng)
 
 export const dataCatalogEmptyState: SceneProductEmptyState = {
-    statusLogic: dataCatalogSetupLogic,
+    detection: dataCatalogSetupDetection,
     scenes: [{ scene: 'DataCatalog', tabs: [undefined, 'metrics'], tabSource: 'search' }],
     bypassFeatureFlag: FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
     config: {

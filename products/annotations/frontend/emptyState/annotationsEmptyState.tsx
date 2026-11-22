@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AnnotationsPreview } from './AnnotationsPreview'
 import { AnnotationsPrimaryAction } from './AnnotationsPrimaryAction'
-import { annotationsSetupLogic } from './annotationsSetupLogic'
+import { annotationsSetupDetection } from './annotationsSetupDetection'
 
 const HedgehogReporter = pngHoggie(reporterPng)
 
 export const annotationsEmptyState: SceneProductEmptyState = {
-    statusLogic: annotationsSetupLogic,
+    detection: annotationsSetupDetection,
     config: {
         productKey: ProductKey.ANNOTATIONS,
         productName: 'Annotations',

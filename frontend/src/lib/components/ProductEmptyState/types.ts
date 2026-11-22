@@ -8,6 +8,8 @@ import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 import type { ProductKey } from '~/queries/schema/schema-general'
 import type { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { SetupDetectionProps } from './setupDetectionLogic'
+
 /**
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
  * by the product's own detection logic (data-existence query, exists API, opt-in
@@ -192,14 +194,26 @@ export type ProductEmptyStateOverride = Partial<
  * These fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
  * preview widgets) never enter the eager graph.
  */
-export interface SceneProductEmptyState {
+export type SceneProductEmptyState = SceneProductEmptyStateBase &
+    (
+        | {
+              /** Settings for the shared `setupDetectionLogic`, which the gate mounts keyed by product. */
+              detection: SetupDetectionProps
+              statusLogic?: never
+          }
+        | {
+              /**
+               * The product's own detection logic. The gate mounts it; it must push its
+               * normalized status into `productSetupStatusLogic({ productKey })` via
+               * `setDetectedStatus`.
+               */
+              statusLogic: LogicWrapper
+              detection?: never
+          }
+    )
+
+interface SceneProductEmptyStateBase {
     config: ProductEmptyStateConfig
-    /**
-     * The product's detection logic. The gate mounts it; it must push its
-     * normalized status into `productSetupStatusLogic({ productKey })` via
-     * `setDetectedStatus`.
-     */
-    statusLogic: LogicWrapper
     /**
      * Only gate when this feature flag is enabled. Set it when the scene itself is
      * flag-gated (so the scene's own gate keeps handling the flag-off case), or to

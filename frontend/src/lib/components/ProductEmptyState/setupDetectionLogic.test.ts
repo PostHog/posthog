@@ -10,10 +10,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { createSetupDetectionLogic } from './setupDetectionLogic'
+import { setupDetectionLogic } from './setupDetectionLogic'
 import type { ProductSetupStatus } from './types'
 
-describe('createSetupDetectionLogic', () => {
+describe('setupDetectionLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
@@ -25,14 +25,12 @@ describe('createSetupDetectionLogic', () => {
     function buildLogic(
         detect: jest.Mock<Promise<ProductSetupStatus | null>, []>,
         pollIntervalMs?: number
-    ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> {
-        const logic = createSetupDetectionLogic({
+    ): ReturnType<typeof setupDetectionLogic.build> {
+        return setupDetectionLogic({
             productKey: ProductKey.LOGS,
-            path: ['test', 'setupDetectionLogic'],
             detect,
             pollIntervalMs,
         })
-        return logic.build()
     }
 
     // The factory's whole job is feeding the scene gate: a status that never
@@ -211,12 +209,11 @@ describe('createSetupDetectionLogic', () => {
                 .fn<Promise<ProductSetupStatus>, []>()
                 .mockResolvedValueOnce(initial)
                 .mockResolvedValue('waiting-for-data')
-            const logic = createSetupDetectionLogic({
+            const logic = setupDetectionLogic({
                 productKey: ProductKey.LOGS,
-                path: ['test', 'setupDetectionLogic'],
                 detect,
                 recheckActionTypes: () => [teamLogic.actionTypes.updateCurrentTeamSuccess],
-            }).build()
+            })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(initial)
@@ -238,13 +235,12 @@ describe('createSetupDetectionLogic', () => {
                 .fn<Promise<ProductSetupStatus>, []>()
                 .mockResolvedValueOnce('needs-setup')
                 .mockResolvedValue('waiting-for-data')
-            const logic = createSetupDetectionLogic({
+            const logic = setupDetectionLogic({
                 productKey: ProductKey.LOGS,
-                path: ['test', 'setupDetectionLogic'],
                 detect,
                 recheckActionTypes: () => [teamLogic.actionTypes.updateCurrentTeamSuccess],
                 statusFromRecheck: () => fromPayload,
-            }).build()
+            })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -259,14 +255,13 @@ describe('createSetupDetectionLogic', () => {
         const onDetected = jest.fn()
         const buildCached = (
             detect: jest.Mock<Promise<ProductSetupStatus>, []>
-        ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> =>
-            createSetupDetectionLogic({
+        ): ReturnType<typeof setupDetectionLogic.build> =>
+            setupDetectionLogic({
                 productKey: ProductKey.LOGS,
-                path: ['test', 'setupDetectionLogic'],
                 detect,
                 cacheHasData: true,
                 onDetected,
-            }).build()
+            })
 
         const first = buildCached(jest.fn().mockResolvedValue('has-data'))
         first.mount()
@@ -289,14 +284,13 @@ describe('createSetupDetectionLogic', () => {
         function buildCached(
             detect: jest.Mock<Promise<ProductSetupStatus | null>, []>,
             revalidateCachedHasData: boolean
-        ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> {
-            return createSetupDetectionLogic({
+        ): ReturnType<typeof setupDetectionLogic.build> {
+            return setupDetectionLogic({
                 productKey: ProductKey.LOGS,
-                path: ['test', 'setupDetectionLogic'],
                 detect,
                 cacheHasData: true,
                 revalidateCachedHasData,
-            }).build()
+            })
         }
 
         async function seedCachedHasData(): Promise<void> {

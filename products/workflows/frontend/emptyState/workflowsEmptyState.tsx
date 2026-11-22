@@ -9,12 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { WorkflowsPathChoice } from '../setupGuide/WorkflowsPathChoice'
 import { WorkflowsPreview } from './WorkflowsPreview'
-import { workflowsSetupLogic } from './workflowsSetupLogic'
+import { workflowsSetupDetection } from './workflowsSetupDetection'
 
 const HedgehogWorkflows = pngHoggie(workflowsPng)
 
 export const workflowsEmptyState: SceneProductEmptyState = {
-    statusLogic: workflowsSetupLogic,
+    detection: workflowsSetupDetection,
     // One scene serves every tab here, but only the workflow list is the product being gated.
     // Channels, the message library, opt-outs, suppression, and reputation configure resources
     // that stand on their own, and a person often sets a channel up before a first workflow.

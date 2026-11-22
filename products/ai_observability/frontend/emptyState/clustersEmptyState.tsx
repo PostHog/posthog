@@ -8,13 +8,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ClustersSetupActions } from '../clusters/ClustersSetupActions'
 import { ClustersPreview } from './ClustersPreview'
-import { clustersSetupLogic } from './clustersSetupLogic'
+import { clustersSetupDetection } from './clustersSetupDetection'
 import { ClustersWaitingForData } from './ClustersWaitingForData'
 
 const HedgehogScientist = pngHoggie(scientistPng)
 
 export const clustersEmptyState: SceneProductEmptyState = {
-    statusLogic: clustersSetupLogic,
+    detection: clustersSetupDetection,
     config: {
         productKey: ProductKey.LLM_CLUSTERS,
         productName: 'Clusters',

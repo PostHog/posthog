@@ -8,12 +8,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { EngineeringAnalyticsPreview } from './EngineeringAnalyticsPreview'
-import { engineeringAnalyticsSetupLogic } from './engineeringAnalyticsSetupLogic'
+import { engineeringAnalyticsSetupDetection } from './engineeringAnalyticsSetupDetection'
 
 const HedgehogCodingGroup = pngHoggie(codingGroupPng)
 
 export const engineeringAnalyticsEmptyState: SceneProductEmptyState = {
-    statusLogic: engineeringAnalyticsSetupLogic,
+    detection: engineeringAnalyticsSetupDetection,
     config: {
         productKey: ProductKey.ENGINEERING_ANALYTICS,
         productName: 'Engineering analytics',

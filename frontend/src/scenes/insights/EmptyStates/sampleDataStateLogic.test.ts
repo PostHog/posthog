@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { clearAllCachedHasData, setupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +11,7 @@ import { ExportType } from '~/exporter/types'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { dataWarehouseSetupLogic } from 'products/data_warehouse/frontend/emptyState/dataWarehouseSetupLogic'
+import { dataWarehouseSetupDetection } from 'products/data_warehouse/frontend/emptyState/dataWarehouseSetupDetection'
 
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -36,7 +36,7 @@ describe('sampleDataStateLogic', () => {
     it('shows the placeholder for a project that never ingested an event', async () => {
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
         expect(logic.values.shouldShowSampleData).toBe(false)
-        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection)).toDispatchActions(['detectStatusSuccess'])
         await expectLogic(logic).toMatchValues({ shouldShowSampleData: true })
     })
 
@@ -48,14 +48,14 @@ describe('sampleDataStateLogic', () => {
             get: { [resource as string]: response },
         })
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
-        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection)).toDispatchActions(['detectStatusSuccess'])
         expect(logic.values.shouldShowSampleData).toBe(false)
     })
 
     it('does not claim the project is empty when warehouse detection fails', async () => {
         useMocks({ get: { '/api/projects/:team_id/warehouse_tables/': () => [503, {}] } })
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
-        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection)).toDispatchActions(['detectStatusSuccess'])
         expect(logic.values.shouldShowSampleData).toBe(false)
     })
 
@@ -64,28 +64,28 @@ describe('sampleDataStateLogic', () => {
         async (team) => {
             mount({ ...MOCK_DEFAULT_TEAM, ...team })
             await expectLogic(logic).toMatchValues({ shouldShowSampleData: false })
-            expect(dataWarehouseSetupLogic.isMounted()).toBe(false)
+            expect(setupDetectionLogic(dataWarehouseSetupDetection).isMounted()).toBe(false)
         }
     )
 
     it('starts detection when the team loads and stops it after ingestion', async () => {
         mount(null)
-        expect(dataWarehouseSetupLogic.isMounted()).toBe(false)
+        expect(setupDetectionLogic(dataWarehouseSetupDetection).isMounted()).toBe(false)
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
-        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection)).toDispatchActions(['detectStatusSuccess'])
         expect(logic.values.shouldShowSampleData).toBe(true)
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: true })
-        expect(dataWarehouseSetupLogic.isMounted()).toBe(false)
+        expect(setupDetectionLogic(dataWarehouseSetupDetection).isMounted()).toBe(false)
         expect(logic.values.shouldShowSampleData).toBe(false)
     })
 
     it('refreshes warehouse setup on navigation while the detector stays mounted', async () => {
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
-        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection)).toDispatchActions(['detectStatusSuccess'])
         expect(logic.values.shouldShowSampleData).toBe(true)
 
         useMocks({ get: { '/api/projects/:team_id/external_data_sources/exists/': { exists: true } } })
-        await expectLogic(dataWarehouseSetupLogic, () => router.actions.push(urls.sources()))
+        await expectLogic(setupDetectionLogic(dataWarehouseSetupDetection), () => router.actions.push(urls.sources()))
             .toFinishAllListeners()
             .toMatchValues({ setupStatus: 'has-data' })
         expect(logic.values.shouldShowSampleData).toBe(false)
@@ -98,6 +98,6 @@ describe('sampleDataStateLogic', () => {
         window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: undefined })
         await expectLogic(logic).toMatchValues({ shouldShowSampleData: false })
-        expect(dataWarehouseSetupLogic.isMounted()).toBe(false)
+        expect(setupDetectionLogic(dataWarehouseSetupDetection).isMounted()).toBe(false)
     })
 })

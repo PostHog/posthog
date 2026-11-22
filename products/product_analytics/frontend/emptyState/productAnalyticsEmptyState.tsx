@@ -8,12 +8,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductAnalyticsPreview } from './ProductAnalyticsPreview'
 import { ProductAnalyticsPrimaryAction } from './ProductAnalyticsPrimaryAction'
-import { productAnalyticsSetupLogic } from './productAnalyticsSetupLogic'
+import { productAnalyticsSetupDetection } from './productAnalyticsSetupDetection'
 
 const HedgehogChart = pngHoggie(chartPng)
 
 export const productAnalyticsEmptyState: SceneProductEmptyState = {
-    statusLogic: productAnalyticsSetupLogic,
+    detection: productAnalyticsSetupDetection,
     config: {
         productKey: ProductKey.PRODUCT_ANALYTICS,
         productName: 'Product analytics',

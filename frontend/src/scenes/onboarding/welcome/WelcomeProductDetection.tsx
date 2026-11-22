@@ -1,6 +1,6 @@
-import { type LogicWrapper, useMountedLogic } from 'kea'
+import { type BuiltLogic, type LogicWrapper, useMountedLogic } from 'kea'
 
-export function WelcomeProductDetection({ statusLogic }: { statusLogic: LogicWrapper }): null {
+export function WelcomeProductDetection({ statusLogic }: { statusLogic: BuiltLogic | LogicWrapper }): null {
     useMountedLogic(statusLogic)
     return null
 }

@@ -8,12 +8,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TransformationsPreview } from './TransformationsPreview'
-import { transformationsSetupLogic } from './transformationsSetupLogic'
+import { transformationsSetupDetection } from './transformationsSetupDetection'
 
 const HedgehogTransformer = pngHoggie(transformerPng)
 
 export const transformationsEmptyState: SceneProductEmptyState = {
-    statusLogic: transformationsSetupLogic,
+    detection: transformationsSetupDetection,
     config: {
         productKey: ProductKey.PIPELINE_TRANSFORMATIONS,
         productName: 'Transformations',

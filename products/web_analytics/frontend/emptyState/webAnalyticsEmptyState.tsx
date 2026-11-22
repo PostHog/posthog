@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { WebAnalyticsPreview } from './WebAnalyticsPreview'
-import { webAnalyticsSetupLogic } from './webAnalyticsSetupLogic'
+import { webAnalyticsSetupDetection } from './webAnalyticsSetupDetection'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 
@@ -18,7 +18,7 @@ const HedgehogExplorer = pngHoggie(explorerPng)
  * have not sent a pageview yet.
  */
 export const webAnalyticsEmptyState: SceneProductEmptyState = {
-    statusLogic: webAnalyticsSetupLogic,
+    detection: webAnalyticsSetupDetection,
     config: {
         productKey: ProductKey.WEB_ANALYTICS,
         productName: 'Web analytics',
