@@ -6,7 +6,6 @@ import {
     Button,
     DataTable,
     type DataTableProps,
-    Heading,
     Text,
     Tooltip,
     TooltipContent,
@@ -21,11 +20,11 @@ import { urls } from 'scenes/urls'
 import { newMetricUrl } from '../common'
 import { QuillMetricCodeBlock } from '../components/QuillMetricCodeBlock'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
+import { GovernanceColumnHeader } from '../governance/GovernanceColumnHeader'
+import { GovernanceSectionFailed } from '../governance/GovernanceSectionFailed'
+import { GovernanceTableEmpty } from '../governance/GovernanceTableEmpty'
 import { ProposedRow, complexityLabel, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
-import { GovernanceColumnHeader } from './GovernanceColumnHeader'
-import { GovernanceSectionFailed } from './GovernanceSectionFailed'
-import { GovernanceTableEmpty } from './GovernanceTableEmpty'
 import { QuillProposedMetricSources } from './QuillProposedMetricSources'
 
 const PAGE_SIZE = 10
@@ -85,7 +84,9 @@ function ProposedMetricName({ row, expanded }: { row: ProposedRow; expanded: boo
                 // Zero width keeps the SQL out of the column's natural width, so a long query wraps inside the cell.
                 // The ignore attribute lets a person select text in the SQL without collapsing the row.
                 <div className="mt-2 flex w-0 min-w-full flex-col gap-2" data-row-click-ignore>
-                    {row.measures > 1 && <Text size="xs">This proposal merges {row.measures} recurring measures.</Text>}
+                    {row.measures > 1 && (
+                        <Text size="xs">This suggestion merges {row.measures} recurring measures.</Text>
+                    )}
                     <QuillMetricCodeBlock code={row.sql} language={Language.SQL} wrap />
                 </div>
             )}
@@ -111,7 +112,7 @@ function proposedColumns(expandedKeys: Set<string>): DataTableProps<ProposedRow,
         },
         {
             accessorKey: 'name',
-            header: 'Proposed metric',
+            header: 'Suggested metric',
             meta: { expand: true },
             enableSorting: false,
             cell: ({ row }) => <ProposedMetricName row={row.original} expanded={expandedKeys.has(row.original.key)} />,
@@ -183,7 +184,9 @@ const NO_PROPOSALS = (
     </GovernanceTableEmpty>
 )
 
-export function GovernanceProposedTable(): JSX.Element {
+// The API and the classic layout name these rows proposed metrics. This layout names them suggested,
+// because the Metrics tab already uses Proposed for the status of a metric that waits for approval.
+export function CatalogSuggestedMetricsTable(): JSX.Element {
     const { proposedRows, failureReasons } = useValues(usageLogic)
     const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
 
@@ -201,10 +204,12 @@ export function GovernanceProposedTable(): JSX.Element {
     }, [])
 
     return (
-        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-proposed">
-            <Heading size="sm" render={<h3 className="m-0" />}>
-                Proposed metrics
-            </Heading>
+        <section
+            aria-label="Suggested metrics"
+            className="flex min-w-0 flex-col gap-2"
+            // pinned: autocapture reads the data-attr values in this file, so they keep the name of the tab that first held this table
+            data-attr="data-catalog-governance-proposed"
+        >
             {failureReasons.uncovered ? (
                 <GovernanceSectionFailed reason={failureReasons.uncovered} />
             ) : (

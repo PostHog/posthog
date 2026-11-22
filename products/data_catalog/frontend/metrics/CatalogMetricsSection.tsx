@@ -2,6 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { Skeleton } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { ModelsOverviewErrorCallout } from 'products/data_modeling/frontend/ModelsOverviewErrorCallout'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
@@ -13,6 +18,8 @@ import { CatalogMetricsEmptyState } from './CatalogMetricsEmptyState'
 import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsTable } from './CatalogMetricsTable'
 import { CatalogMetricsToolbar } from './CatalogMetricsToolbar'
+import { CatalogMetricsViewToggle } from './CatalogMetricsViewToggle'
+import { CatalogSuggestedMetrics } from './CatalogSuggestedMetrics'
 import { MetricsIntroStrip } from './MetricsIntroStrip'
 
 const SKELETON_ROWS = 5
@@ -77,17 +84,27 @@ function MetricsNotice(): JSX.Element | null {
 }
 
 export function CatalogMetricsSection(): JSX.Element {
-    const { selectedMetricIds } = useValues(catalogMetricsLogic)
+    const { selectedMetricIds, view } = useValues(catalogMetricsLogic)
     const { catalogEmpty } = useValues(metricsLogic)
+    const usageEnabled = useFeatureFlag('DATA_CATALOG_USAGE')
+    // A suggestion shows SQL over warehouse tables, so it needs the access that the usage scan results need.
+    const suggestionsAvailable =
+        usageEnabled && userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)
+    const showSuggested = suggestionsAvailable && view === 'suggested'
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
             <MetricsNotice />
-            {/* Search and filters have nothing to act on in an empty catalog. */}
-            {!catalogEmpty && <CatalogMetricsToolbar />}
-            <ChecksLoadError />
-            <MetricsContent />
-            {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}
+            {suggestionsAvailable && <CatalogMetricsViewToggle />}
+            {showSuggested && <CatalogSuggestedMetrics />}
+            {/* The defined view stays mounted, so a switch back keeps the page and the selection, and the empty state does not report a second impression. */}
+            <div className={showSuggested ? 'hidden' : 'contents'}>
+                {/* Search and filters have nothing to act on in an empty catalog. */}
+                {!catalogEmpty && <CatalogMetricsToolbar />}
+                <ChecksLoadError />
+                <MetricsContent />
+                {selectedMetricIds.length > 0 && <CatalogMetricsBulkBar />}
+            </div>
         </section>
     )
 }

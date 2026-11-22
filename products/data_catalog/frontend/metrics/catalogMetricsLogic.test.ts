@@ -84,6 +84,15 @@ describe('catalogMetricsLogic', () => {
         )
     })
 
+    it('opens the suggested view from a link and removes the filter from the URL', () => {
+        expect(logic.values.view).toBe('defined')
+
+        router.actions.push(urls.dataCatalog(), { tab: 'metrics', filter: 'suggested' })
+
+        expect(logic.values.view).toBe('suggested')
+        expect(router.values.searchParams).toEqual({ tab: 'metrics' })
+    })
+
     it('goes back to the first page when the search changes', () => {
         logic.actions.setPage(2)
         expect(logic.values.page).toBe(2)

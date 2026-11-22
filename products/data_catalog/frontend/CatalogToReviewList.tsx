@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { certificationsLogic } from './certificationsLogic'
+import { SUGGESTED_METRICS_URL_FILTER } from './metrics/catalogMetricsLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
 
@@ -24,13 +25,22 @@ interface ProposalLink {
 
 export interface CatalogToReviewListProps {
     suggestionsBanner?: JSX.Element
+    /** Measures that the usage scan found with no metric. Zero hides the row. */
+    suggestedMetricCount?: number
 }
+
+const SUGGESTED_METRICS_URL = combineUrl(urls.dataCatalog('metrics'), {
+    [TABLES_FILTER_PARAM]: SUGGESTED_METRICS_URL_FILTER,
+}).url
 
 function proposedUrl(tab: 'tables' | 'relationships' | 'metrics'): string {
     return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url
 }
 
-export function CatalogToReviewList({ suggestionsBanner }: CatalogToReviewListProps): JSX.Element | null {
+export function CatalogToReviewList({
+    suggestionsBanner,
+    suggestedMetricCount = 0,
+}: CatalogToReviewListProps): JSX.Element | null {
     const { proposedCount: proposedMetrics } = useValues(metricsLogic)
     const { proposedCount: proposedCertifications } = useValues(certificationsLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
@@ -56,7 +66,7 @@ export function CatalogToReviewList({ suggestionsBanner }: CatalogToReviewListPr
         },
     ].filter(({ count }) => count > 0)
 
-    if (!suggestionsBanner && proposals.length === 0) {
+    if (!suggestionsBanner && proposals.length === 0 && suggestedMetricCount === 0) {
         return null
     }
 
@@ -87,6 +97,26 @@ export function CatalogToReviewList({ suggestionsBanner }: CatalogToReviewListPr
                                     <IconChevronRight />
                                 </Button>
                             ))}
+                        </ItemActions>
+                    </Item>
+                )}
+                {suggestedMetricCount > 0 && (
+                    <Item variant="outline" size="sm" className="flex-wrap">
+                        <ItemContent>
+                            <Text size="sm" className="text-secondary">
+                                Suggested from usage
+                            </Text>
+                        </ItemContent>
+                        <ItemActions>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                render={<LinkPrimitive to={SUGGESTED_METRICS_URL} />}
+                                data-attr="data-catalog-review-suggested-metrics"
+                            >
+                                {pluralize(suggestedMetricCount, 'metric')}
+                                <IconChevronRight />
+                            </Button>
                         </ItemActions>
                     </Item>
                 )}

@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -24,6 +25,7 @@ import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from '../c
 import {
     CheckCounts,
     ChecksFilter,
+    TABLES_FILTER_PARAM,
     displayedCheckCounts,
     matchesChecksFilter,
     passingShare,
@@ -36,9 +38,16 @@ import type { MetricsFilters } from '../metricsLogic'
 
 export type MetricsSortColumn = 'name' | 'status' | 'checks' | 'owner' | 'updated'
 export type MetricsSort = ColumnSort<MetricsSortColumn>
+/** `defined` lists the metrics in the catalog. `suggested` lists the measures that the usage scan found with no metric. */
+export type MetricsView = 'defined' | 'suggested'
 
 export const DEFAULT_METRICS_SORT: MetricsSort = { column: 'status', direction: 'asc' }
 export const DEFAULT_METRIC_CHECKS_FILTER: ChecksFilter = 'any'
+// pinned: URL filter value, links from other sections use it to open the suggested view
+export const SUGGESTED_METRICS_URL_FILTER = 'suggested'
+
+// pinned: analytics event name and properties, renaming breaks the insights built on them
+const METRICS_VIEW_CHANGED_EVENT = 'data catalog metrics view changed'
 
 const STATUS_RANK: Record<string, number> = { proposed: 0, approved: 1 }
 
@@ -81,6 +90,7 @@ export interface catalogMetricsLogicValues {
     pageMetrics: DataCatalogMetricApi[]
     selectedMetricIds: string[]
     sort: MetricsSort | null
+    view: MetricsView
     visibleMetrics: DataCatalogMetricApi[]
 }
 
@@ -110,6 +120,9 @@ export interface catalogMetricsLogicActions {
     }
     setPage: (page: number) => {
         page: number
+    }
+    setView: (view: MetricsView) => {
+        view: MetricsView
     }
     toggleMetricSelected: (metricId: string) => {
         metricId: string
@@ -173,6 +186,7 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
         toggleSort: (column: MetricsSortColumn) => ({ column }),
         setChecksFilter: (checks: ChecksFilter) => ({ checks }),
         setPage: (page: number) => ({ page }),
+        setView: (view: MetricsView) => ({ view }),
         openMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         toggleMetricSelected: (metricId: string) => ({ metricId }),
         setMetricsSelected: (metricIds: string[], selected: boolean) => ({ metricIds, selected }),
@@ -199,6 +213,12 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
                 setMetricsSelected: (state, { metricIds, selected }) =>
                     selected ? [...new Set([...state, ...metricIds])] : state.filter((id) => !metricIds.includes(id)),
                 clearMetricSelection: () => [],
+            },
+        ],
+        view: [
+            'defined' as MetricsView,
+            {
+                setView: (_, { view }) => view,
             },
         ],
         page: [
@@ -278,7 +298,23 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
         openMetric: ({ metric }) => {
             router.actions.push(urls.dataCatalogMetric(metric.name))
         },
+        setView: ({ view }) => {
+            posthog.capture(METRICS_VIEW_CHANGED_EVENT, { view })
+        },
     }),
+    urlToAction(({ actions }) => ({
+        [urls.dataCatalog()]: (_, searchParams, hashParams) => {
+            if (searchParams.tab !== 'metrics' || searchParams[TABLES_FILTER_PARAM] !== SUGGESTED_METRICS_URL_FILTER) {
+                return
+            }
+            actions.setView('suggested')
+            router.actions.replace(
+                urls.dataCatalog(),
+                { ...searchParams, [TABLES_FILTER_PARAM]: undefined },
+                hashParams
+            )
+        },
+    })),
     afterMount(({ actions }) => {
         actions.ensureAllMembersLoaded()
     }),
