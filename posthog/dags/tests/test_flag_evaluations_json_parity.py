@@ -280,3 +280,14 @@ def test_parity_applies_the_ingestion_cutoff_to_the_newest_copy_of_a_call(
     seed_json(cluster, "one", when, ingested_at=now)
 
     assert run_parity(cluster, now).success
+
+
+@pytest.mark.django_db
+def test_parity_fails_when_the_new_table_lacks_one_of_two_flags_that_share_a_uuid(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
+    seed_legacy(cluster, "one", when, flag_key="flag-a")
+    seed_legacy(cluster, "one", when + timedelta(hours=1), flag_key="flag-b")
+    seed_json(cluster, "one", when + timedelta(hours=1), flag_key="flag-b")
+
+    assert "flag-a" in failure_message(run_parity(cluster, now))

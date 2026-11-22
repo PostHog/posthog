@@ -50,8 +50,10 @@ class FlagEvaluationsJsonParityConfig(dagster.Config):
     ingestion_margin_minutes: int = pydantic.Field(
         default=60,
         description=(
-            "Skip rows whose Kafka _timestamp is less than this many minutes before the job started. Each table "
-            "has its own Kafka consumer, so a recent row can be in one table and not yet in the other."
+            "Skip a call whose newest copy has a Kafka _timestamp less than this many minutes before the job started. Each table "
+            "has its own Kafka consumer, so a recent row can be in one table and not yet in the other. A redelivery "
+            "that reached only one table can still fail the run for a call that is otherwise settled: run it again "
+            "once the margin has passed."
         ),
     )
     max_execution_time_seconds: int = pydantic.Field(
@@ -80,13 +82,12 @@ GROUP BY day
 
 def _flag_query(table: str) -> str:
     return f"""
-SELECT day, latest_flag_key AS flag_key, latest_response AS response, count()
+SELECT day, flag_key, latest_response AS response, count()
 FROM (
-    SELECT toDate(timestamp) AS day, team_id, uuid,
-        argMax(flag_key, _timestamp) AS latest_flag_key, argMax(response, _timestamp) AS latest_response
+    SELECT toDate(timestamp) AS day, team_id, flag_key, uuid, argMax(response, _timestamp) AS latest_response
     FROM {table}
     WHERE timestamp >= %(start)s AND timestamp < %(end)s
-    GROUP BY day, team_id, uuid
+    GROUP BY day, team_id, flag_key, uuid
     HAVING max(_timestamp) < %(ingested_before)s
 )
 GROUP BY day, flag_key, response
