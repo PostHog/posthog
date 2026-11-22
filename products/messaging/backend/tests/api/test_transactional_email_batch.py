@@ -198,9 +198,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
         capture.side_effect = analytics.capture
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
         merged_data = {"message_data": {"link": "https://example.com/a", "n": 2}} if form == "template" else {}
-        flag_samples_before_single = _flag_stage_samples()
         assert self._single(form, distinct_id="user-0", **merged_data).status_code == status.HTTP_202_ACCEPTED
-        flag_samples_before_batch = _flag_stage_samples()
         single = _forwarded(mock_post.call_args)
         mock_post.return_value = self._queued_answer(2)
         first_recipient: dict[str, Any] = {
@@ -214,9 +212,6 @@ class TestTransactionalEmailBatch(APIBaseTest):
         response = self._batch(form, [first_recipient, {"to": "user1@example.com", "idempotency_key": "key-1"}])
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (
-            _flag_stage_samples() - flag_samples_before_batch == flag_samples_before_batch - flag_samples_before_single
-        )
         assert response.json() == {
             "results": [
                 {"message_id": self._id("key-0"), "status": "queued", "replayed": False},
@@ -243,6 +238,17 @@ class TestTransactionalEmailBatch(APIBaseTest):
             (2, "queued", True)
         ] * 2
         assert batch_events[0]["batch_id"] == batch_events[1]["batch_id"]
+
+    def test_a_batch_times_its_flag_checks_as_one_sample_as_a_single_send_does(self, mock_post, _flag, _capture):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
+        before_single = _flag_stage_samples()
+        assert self._single().status_code == status.HTTP_202_ACCEPTED
+        before_batch = _flag_stage_samples()
+        mock_post.return_value = self._queued_answer(2)
+
+        assert self._batch().status_code == status.HTTP_200_OK
+
+        assert _flag_stage_samples() - before_batch == before_batch - before_single == 1
 
     def test_each_forward_carries_a_token_for_its_own_route(self, mock_post, _flag, _capture):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
