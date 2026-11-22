@@ -20,7 +20,6 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
-import { isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
@@ -237,9 +236,9 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
-    // a click-tracking redirect unless the send turns clicks on. Opens and deliveries are still tracked.
-    const allLinksOptedOut = !(invocation.state?.send?.tracking.clicks ?? !isSensitiveMessage(invocation))
+    // Click tracking follows the send's tracking setting, sensitive or not. A sensitive email's click
+    // events keep only the link's origin, so a login code or reset token in the path is never recorded.
+    const allLinksOptedOut = invocation.state?.send?.tracking.clicks === false
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++

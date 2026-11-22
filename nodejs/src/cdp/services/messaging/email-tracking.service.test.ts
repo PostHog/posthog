@@ -165,12 +165,9 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
-        const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
-
         it.each([
             ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
             ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
-            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
             [
                 'clicktracking="off" after a quoted >',
                 '<body><a href="https://example.com" title="1 > 0" clicktracking="off">x</a></body>',
@@ -309,12 +306,6 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com" data-ph-no-track>x</a>',
                     invocation,
                     '<a href="https://example.com" data-ph-no-track ses:no-track>x</a>',
-                ],
-                [
-                    'a sensitive template',
-                    '<a href="https://example.com">x</a>',
-                    sensitiveInvocation,
-                    '<a href="https://example.com" ses:no-track>x</a>',
                 ],
                 [
                     'clicktracking="off" after a quoted >',
