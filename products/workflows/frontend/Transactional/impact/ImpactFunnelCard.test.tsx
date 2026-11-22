@@ -104,6 +104,12 @@ describe('ImpactFunnelCard', () => {
         ],
         ['no tracked send was clicked', { clicked: 0 }, 'No clicks were recorded in this period.', ''],
         [
+            'every send went untracked but an open was recorded',
+            { opened: 1, clicked: 0, untracked: 10 },
+            'No clicks were recorded in this period.',
+            '',
+        ],
+        [
             'no clicked send could be followed',
             { clicked: 2 },
             'PostHog followed none of the clicked sends.',

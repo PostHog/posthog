@@ -140,6 +140,13 @@ describe('impactSteps', () => {
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
         [
+            'every counted send went out untracked but a click was recorded',
+            { ...untracked, clicked: 3 },
+            [0, undefined],
+            [3, undefined],
+            [null, 'None followed', "PostHog couldn't tie any of the 3 clicked sends"],
+        ],
+        [
             'some sends went out untracked and nobody opened or clicked',
             { ...untracked, untracked: 40 },
             [0, undefined],
