@@ -65,36 +65,30 @@ export interface HogInvocationRow {
     person_id: string
     parent_run_id: string
     /**
-     * Worst log-entry level for this invocation (`error` > `warn`), or null.
-     * Surfaces async problems (e.g. an SES bounce/complaint logged after the
-     * invocation already finished `succeeded`) so a run that went wrong doesn't
-     * read as a clean success at the row level.
+     * Worst log-entry level for this invocation (`error` > `warn`), or null, so a run that logged a problem after it
+     * finished `succeeded` doesn't read as a clean success. A workflow run leaves out the lines `email_outcome` names.
      */
     problem_log_level: 'warn' | 'error' | null
-    /** Read from the bounce and complaint lines in the run's warn and error log entries. */
     email_outcome: EmailOutcome | null
 }
 
 export type EmailOutcome = 'bounced' | 'complained'
 
 interface RunProblems {
-    level: 'warn' | 'error'
+    level: 'warn' | 'error' | null
     emailOutcome: EmailOutcome | null
 }
 
-// pinned: the bounce and complaint log lines that formatSesEventLogs in
-// nodejs/src/cdp/services/messaging/helpers/ses.ts writes, with the optional [Action:<id>] prefix.
+// pinned: the lines formatSesEventLogs in nodejs/src/cdp/services/messaging/helpers/ses.ts writes
 const BOUNCE_LOG_PATTERN = /^(\[Action:[\w-]+\] )?(Permanent|Transient|Undetermined) bounce to /
 const COMPLAINT_LOG_PATTERN = /^(\[Action:[\w-]+\] )?Complaint from /
-// A "not-spam" feedback type corrects an earlier spam report, so the SES handler does not count it as a complaint.
-const NOT_SPAM_FEEDBACK_PATTERN = /, feedback type: not-spam$/i
 
 // A bounce outranks a complaint: a complaint means the email arrived.
 const emailOutcomeFromLogMessages = (messages: string[]): EmailOutcome | null => {
     if (messages.some((message) => BOUNCE_LOG_PATTERN.test(message))) {
         return 'bounced'
     }
-    if (messages.some((message) => COMPLAINT_LOG_PATTERN.test(message) && !NOT_SPAM_FEEDBACK_PATTERN.test(message))) {
+    if (messages.some((message) => COMPLAINT_LOG_PATTERN.test(message))) {
         return 'complained'
     }
     return null
@@ -786,7 +780,7 @@ async function fetchRunsPage(
 }
 
 /**
- * Worst log-entry level (`warn`/`error`) and email outcome per invocation for the given page ids.
+ * Worst log-entry level (`warn`/`error`) per invocation for the given page ids.
  * An SES bounce/complaint (and similar async failures) writes an error/warn log entry
  * after the invocation already finished `succeeded`, so without this a delivery failure
  * reads as a clean success. Kept off the runs query's critical path — see `enrichProblems`.
@@ -804,20 +798,20 @@ async function fetchRunProblems(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
-    // Only workflow runs get SES bounce and complaint lines. Separate caps keep many complaints from
-    // crowding out a bounce, since groupUniqArray has no order. A byte cut inside a character fails the query.
-    const emailColumns =
+    // Only workflow runs log SES lines. The level skips the lines the tag names; a not-spam correction stays a warning.
+    // Separate caps stop complaints from crowding out a bounce, and a byte cut inside a character fails the query.
+    const bounceLine = `message LIKE '%bounce to %'`
+    const complaintLine = `message LIKE '%Complaint from %' AND NOT message ILIKE '%feedback type: not-spam'`
+    const columns =
         props.functionKind === 'hog_flow'
             ? hogql.raw(
-                  `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), message LIKE '%bounce to %'), 1, 5) AS bounce_messages` +
-                      `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), message LIKE '%Complaint from %' AND NOT message ILIKE '%feedback type: not-spam'), 1, 5) AS complaint_messages`
+                  `maxIf(if(lower(level) = 'error', 2, 1), NOT (${bounceLine} OR (${complaintLine}))) AS sev` +
+                      `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), ${bounceLine}), 1, 5) AS bounce_messages` +
+                      `, arraySlice(groupUniqArrayIf(substringUTF8(message, 1, 400), ${complaintLine}), 1, 5) AS complaint_messages`
               )
-            : hogql.raw('')
+            : hogql.raw(`max(if(lower(level) = 'error', 2, 1)) AS sev`)
     const severityQuery = hogql`
-        SELECT
-            instance_id,
-            max(if(lower(level) = 'error', 2, 1)) AS sev
-            ${emailColumns}
+        SELECT instance_id, ${columns}
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
@@ -845,7 +839,7 @@ async function fetchRunProblems(
             string[] | null,
         ]
         problemsByInvocationId[instanceId] = {
-            level: Number(sev) >= 2 ? 'error' : 'warn',
+            level: Number(sev) >= 2 ? 'error' : Number(sev) === 1 ? 'warn' : null,
             emailOutcome: emailOutcomeFromLogMessages([...(bounceMessages ?? []), ...(complaintMessages ?? [])]),
         }
     }

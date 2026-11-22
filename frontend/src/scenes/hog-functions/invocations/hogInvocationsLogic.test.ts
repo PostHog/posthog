@@ -184,35 +184,54 @@ describe('hogInvocationsLogic', () => {
 
         it.each([
             {
-                messages: ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
+                lines: 'a hard bounce',
+                row: [
+                    'inv-1',
+                    0,
+                    ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
+                    [],
+                ],
+                level: null,
                 outcome: 'bounced',
             },
-            { messages: ['Transient bounce to a@example.com'], outcome: 'bounced' },
-            { messages: ['[Action:send_1] Complaint from a@example.com, feedback type: abuse'], outcome: 'complained' },
-            { messages: ['[Action:send_1] Complaint from a@example.com, feedback type: not-spam'], outcome: null },
             {
-                messages: ['Complaint from a@example.com', '[Action:send_2] Undetermined bounce to b@example.com'],
+                lines: 'a soft bounce and an unrelated error',
+                row: ['inv-1', 2, ['Transient bounce to a@example.com'], []],
+                level: 'error',
                 outcome: 'bounced',
             },
-            { messages: ['Email sent to bounce@example.com from Hedgehog <hi@example.com>'], outcome: null },
-            { messages: ['Error executing function: timeout'], outcome: null },
             {
+                lines: 'a spam complaint',
+                row: ['inv-1', 0, [], ['[Action:send_1] Complaint from a@example.com, feedback type: abuse']],
+                level: null,
+                outcome: 'complained',
+            },
+            {
+                lines: 'a complaint and a bounce',
+                row: [
+                    'inv-1',
+                    0,
+                    ['[Action:send_2] Undetermined bounce to b@example.com'],
+                    ['Complaint from a@example.com'],
+                ],
+                level: null,
+                outcome: 'bounced',
+            },
+            { lines: 'a warning and no email lines', row: ['inv-1', 1, [], []], level: 'warn', outcome: null },
+            {
+                lines: 'a destination error',
                 functionKind: 'hog_function' as const,
-                messages: ['Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
+                row: ['inv-1', 2],
+                level: 'error',
                 outcome: null,
             },
-        ])('reads $outcome from $messages', async ({ functionKind, messages, outcome }) => {
+        ])('reads level $level and outcome $outcome from $lines', async ({ functionKind, row, level, outcome }) => {
             useMocks({
                 post: {
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
                         const sql: string = ((await request.json()) as any).query.query
                         if (sql.includes('FROM log_entries') && sql.includes('GROUP BY instance_id')) {
-                            if (!sql.includes('bounce_messages')) {
-                                return [200, { results: [['inv-1', 2]] }]
-                            }
-                            const bounces = messages.filter((message) => message.includes('bounce to '))
-                            const others = messages.filter((message) => !message.includes('bounce to '))
-                            return [200, { results: [['inv-1', 2, bounces, others]] }]
+                            return [200, { results: [row] }]
                         }
                         if (sql.includes('argMax(error_message, version)')) {
                             return [200, { results: [succeededRun] }]
@@ -228,7 +247,7 @@ describe('hogInvocationsLogic', () => {
             logic.actions.loadRuns(null)
             await expectLogic(logic).toDispatchActions(['loadRunsSuccess', 'enrichProblemsSuccess'])
 
-            expect(logic.values.runs[0]).toMatchObject({ problem_log_level: 'error', email_outcome: outcome })
+            expect(logic.values.runs[0]).toMatchObject({ problem_log_level: level, email_outcome: outcome })
 
             logic.unmount()
         })
