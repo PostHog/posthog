@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -481,7 +481,7 @@ class RemoteConfig(UUIDTModel):
 
             self.config = config
             self.synced_at = timezone.now()
-            self.save()
+            self._save_config()
 
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
@@ -502,6 +502,21 @@ class RemoteConfig(UUIDTModel):
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
+
+    def _save_config(self) -> None:
+        if not self._state.adding:
+            self.save()
+            return
+        try:
+            with transaction.atomic():
+                self.save()
+        except IntegrityError:
+            # Creating a team enqueues several syncs that run at once after the same commit.
+            # Each one finds no row and inserts, so all but the first hit the unique team_id constraint.
+            # They all read the same committed state, so this config goes onto the row that won.
+            self.pk = RemoteConfig.objects.values_list("pk", flat=True).get(team_id=self.team_id)
+            self._state.adding = False
+            self.save()
 
     def sync_after_token_change(self, old_token: str) -> None:
         """

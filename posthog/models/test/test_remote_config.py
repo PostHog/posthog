@@ -1080,6 +1080,18 @@ class TestRemoteConfigRaceCondition(_RemoteConfigBase):
             f"If this fails, the race condition fix is not working properly."
         )
 
+    def test_sync_of_a_concurrent_new_instance_updates_the_existing_row(self):
+        self.remote_config.config["surveys"] = "stale"
+        self.remote_config.save()
+
+        concurrent = RemoteConfig(team=self.team)
+        concurrent.sync()
+
+        stored = RemoteConfig.objects.get(team=self.team)
+        assert stored.pk == self.remote_config.pk
+        assert stored.config == concurrent.config
+        assert stored.config["surveys"] != "stale"
+
 
 def _write_accessor(kind: str) -> AuthAccessor:
     return getattr(getattr(IntegrationManager, kind), default_auth_type(kind).value)
