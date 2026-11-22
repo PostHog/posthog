@@ -93,6 +93,9 @@ class TopicCluster:
     session_count: int
     people: int
     coverage: TopicCoverage
+    # The tables and views that the topic's sessions read, or None when the scan could not trace one session,
+    # and on scans before the field. The API does not return this field; each read uses it to hide the topic.
+    tables: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -232,7 +235,7 @@ class UsageSnapshotSummary:
 @dataclass(frozen=True)
 class UsageSnapshotDetail(UsageSnapshotSummary):
     payload: UsageSnapshotPayload
-    topics_hidden: bool = False
+    hidden_topics: int = 0
 
 
 @dataclass(frozen=True)

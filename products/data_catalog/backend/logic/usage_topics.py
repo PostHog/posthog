@@ -8,9 +8,8 @@ describe what people ask; the run counts count scouts apart.
 """
 
 import re
-import json
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -35,6 +34,7 @@ from .agent_sessions import (
     SessionText,
     ask_model,
     ask_model_json,
+    decode_nested_json,
     fetch_candidate_chains,
     gather_each,
     joined_sessions,
@@ -43,6 +43,7 @@ from .agent_sessions import (
 from .usage_adjusted import paged_rows
 from .usage_judge import JUDGE_MODEL, require_ai_consent
 from .usage_snapshots import previous_topic_list, read_payload, usage_snapshot_window, write_payload_sections
+from .usage_topic_reads import topic_tables, trace_session_tables
 
 logger = structlog.get_logger(__name__)
 
@@ -312,6 +313,7 @@ def build_topics(
     definitions: list[TopicDefinition],
     members_by_title: dict[str, list[ReadSession]],
     coverage_by_session: dict[str, SessionCoverage],
+    tables_by_session: Mapping[str, frozenset[str] | None],
 ) -> list[TopicCluster]:
     """Rank topics by people, so a repeated job cannot lead the list. A topic with no sessions drops out.
 
@@ -334,6 +336,7 @@ def build_topics(
                     table=coverage[SessionCoverage.TABLE],
                     nothing=coverage[SessionCoverage.NOTHING],
                 ),
+                tables=topic_tables(ids, tables_by_session),
             )
         )
     topics.sort(key=lambda topic: (topic.title == OTHER_TOPIC, -topic.people, -topic.session_count, topic.title))
@@ -374,18 +377,6 @@ def new_topics_to_add(
     for candidate in eligible:
         distinct.setdefault(candidate.definition.title, candidate)
     return list(distinct.values())[: max(0, MAX_TOPICS - len(existing_titles))]
-
-
-def decode_nested_json(raw: str) -> Any:
-    value: Any = raw
-    for _ in range(2):
-        if not isinstance(value, str):
-            break
-        try:
-            value = json.loads(value)
-        except ValueError:
-            break
-    return value
 
 
 def query_text(raw_input: str) -> str:
@@ -719,6 +710,19 @@ def _load_topic_inputs(*, team_id: int, snapshot_id: UUID, telemetry_team_id: in
     )
 
 
+def _trace_session_tables(
+    *, team_id: int, telemetry_team_id: int, inputs: _TopicInputs, sessions: list[SessionText]
+) -> dict[str, frozenset[str] | None]:
+    return trace_session_tables(
+        team=Team.objects.get(id=team_id),
+        telemetry_team=Team.objects.get(id=telemetry_team_id),
+        window_start=inputs.window_start,
+        window_end=inputs.window_end,
+        sessions=sessions,
+        members=inputs.members,
+    )
+
+
 def _load_session_lookups(
     *, team_id: int, telemetry_team_id: int, inputs: _TopicInputs, session_ids: list[str]
 ) -> dict[str, SessionLookups]:
@@ -766,6 +770,7 @@ async def collect_topics_into_snapshot(
         members: dict[str, list[ReadSession]] = {}
         verdicts: dict[str, CoverageVerdict] = {}
         lookups: dict[str, SessionLookups] = {}
+        tables_by_session: dict[str, frozenset[str] | None] = {}
         asked: list[ReadSession] = []
         if in_topics:
             definitions, members = await group_into_topics(client, in_topics, inputs.previous, heartbeat)
@@ -774,6 +779,12 @@ async def collect_topics_into_snapshot(
                 telemetry_team_id=telemetry_team_id,
                 inputs=inputs,
                 session_ids=[member.session.session_id for member in in_topics],
+            )
+            tables_by_session = await database_sync_to_async(_trace_session_tables, thread_sensitive=False)(
+                team_id=team_id,
+                telemetry_team_id=telemetry_team_id,
+                inputs=inputs,
+                sessions=[member.session for member in in_topics],
             )
             # Coverage counts only questions about a number a team could define once and reuse.
             asked = [
@@ -807,7 +818,7 @@ async def collect_topics_into_snapshot(
         )
         for member in asked
     }
-    topics = build_topics(definitions, members, coverage_by_session)
+    topics = build_topics(definitions, members, coverage_by_session, tables_by_session)
     unchecked = sum(verdict.failed for verdict in verdicts.values())
     await database_sync_to_async(write_payload_sections, thread_sensitive=False)(
         team_id,

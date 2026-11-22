@@ -223,7 +223,8 @@ function ScanWindow({ scan }: { scan: UsageSnapshotApi }): JSX.Element {
 }
 
 function TopicsSection(): JSX.Element {
-    const { topics, topicsEmptyMessage, topicSessionsSummary, failureReasons } = useValues(usageLogic)
+    const { topics, topicsEmptyMessage, hiddenTopicsMessage, topicSessionsSummary, failureReasons } =
+        useValues(usageLogic)
     return (
         <section className="flex min-w-0 flex-col gap-2">
             <h3 className="m-0 flex min-h-6 items-center gap-1">
@@ -239,6 +240,9 @@ function TopicsSection(): JSX.Element {
             ) : (
                 <>
                     {failureReasons.adjusted_runs && <LemonBanner type="warning">{AGENT_COUNTS_MISSING}</LemonBanner>}
+                    {topics.length > 0 && hiddenTopicsMessage && (
+                        <LemonBanner type="info">{hiddenTopicsMessage}</LemonBanner>
+                    )}
                     <LemonTable
                         id={TOPICS_TABLE_ID}
                         columns={TOPIC_COLUMNS}

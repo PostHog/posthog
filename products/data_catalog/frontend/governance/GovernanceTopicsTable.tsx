@@ -68,7 +68,8 @@ const COLUMNS: DataTableProps<TopicClusterApi, unknown>['columns'] = [
 ]
 
 export function GovernanceTopicsTable(): JSX.Element {
-    const { topics, topicsEmptyMessage, topicSessionsSummary, failureReasons } = useValues(usageLogic)
+    const { topics, topicsEmptyMessage, hiddenTopicsMessage, topicSessionsSummary, failureReasons } =
+        useValues(usageLogic)
     return (
         <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-topics">
             <div className="flex min-h-6 items-center gap-1">
@@ -92,6 +93,13 @@ export function GovernanceTopicsTable(): JSX.Element {
                         <Item variant="outline" tone="warning">
                             <ItemContent>
                                 <ItemDescription>{AGENT_COUNTS_MISSING}</ItemDescription>
+                            </ItemContent>
+                        </Item>
+                    )}
+                    {topics.length > 0 && hiddenTopicsMessage && (
+                        <Item variant="outline">
+                            <ItemContent>
+                                <ItemDescription>{hiddenTopicsMessage}</ItemDescription>
                             </ItemContent>
                         </Item>
                     )}

@@ -215,6 +215,18 @@ def _proposal_visible(
     return hidden_measures.isdisjoint(digests) and not sql_reads_denied_table(proposal.definition, reader.denied_tables)
 
 
+def _topic_visible(topic: TopicCluster, reader: UsageReader) -> bool:
+    """A topic title sums up the questions of its sessions, so a topic that read a denied table stays hidden.
+    A topic whose tables the scan could not trace counts as one that read a denied table."""
+    if not reader.denied_tables:
+        return True
+    return topic.tables is not None and not references_denied_table(topic.tables, set(reader.denied_tables))
+
+
+def _visible_topics(payload: UsageSnapshotPayload, reader: UsageReader) -> list[TopicCluster] | None:
+    return None if payload.topics is None else [topic for topic in payload.topics if _topic_visible(topic, reader)]
+
+
 def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> UsageSnapshotPayload:
     """The payload without rows that would show a hidden metric or SQL over a denied table.
 
@@ -226,17 +238,23 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
     )
     shown_measures = {group.fingerprint_digest for group in uncovered or []}
     hidden_measures = {group.fingerprint_digest for group in payload.uncovered or []} - shown_measures
+    topics = _visible_topics(payload, reader)
+    # A listed topic with no sessions this scan has no tables to check, so a reader with a denied table gets
+    # only the definitions of the topics it sees.
+    shown_titles = {topic.title for topic in topics or []}
     return dataclasses.replace(
         payload,
         metric_runs=None
         if payload.metric_runs is None
         else [counts for counts in payload.metric_runs if counts.metric_id in reader.visible_metric_ids],
-        # Topic titles come from every member's questions and carry no source tables to check, so a reader
-        # with any denied table gets none.
-        topics=None if payload.topics is None else ([] if reader.denied_tables else payload.topics),
+        topics=topics,
         topic_definitions=None
         if payload.topic_definitions is None
-        else ([] if reader.denied_tables else payload.topic_definitions),
+        else [
+            definition
+            for definition in payload.topic_definitions
+            if not reader.denied_tables or definition.title in shown_titles
+        ],
         table_sources=None
         if payload.table_sources is None
         else [
@@ -262,10 +280,9 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
     )
 
 
-def topics_hidden_from(payload: UsageSnapshotPayload, reader: UsageReader) -> bool:
-    """An empty topic list after `visible_payload` cannot tell a withheld list from a scan with no topics, so the
-    read reports the withheld case on its own."""
-    return bool(reader.denied_tables) and bool(payload.topics or payload.topic_definitions)
+def hidden_topic_count(payload: UsageSnapshotPayload, reader: UsageReader) -> int:
+    """`visible_payload` drops hidden topics without a trace, so the read reports how many it dropped."""
+    return len(payload.topics or []) - len(_visible_topics(payload, reader) or [])
 
 
 def latest_usage_snapshot(team_id: int, reader: UsageReader) -> UsageSnapshotDetail | None:
@@ -274,7 +291,7 @@ def latest_usage_snapshot(team_id: int, reader: UsageReader) -> UsageSnapshotDet
         return None
     detail = _detail(row)
     payload = _viewable_charts(visible_payload(detail.payload, reader), reader)
-    return dataclasses.replace(detail, payload=payload, topics_hidden=topics_hidden_from(detail.payload, reader))
+    return dataclasses.replace(detail, payload=payload, hidden_topics=hidden_topic_count(detail.payload, reader))
 
 
 def _charts_the_reader_may_open(

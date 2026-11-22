@@ -27,7 +27,7 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
     judge_model: 'claude-opus-5-5',
     computed_at: '2026-10-29T07:12:00Z',
     created_at: '2026-10-29T06:00:00Z',
-    topics_hidden: false,
+    hidden_topics: 0,
     payload: {
         metric_runs: [
             {

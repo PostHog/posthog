@@ -290,7 +290,9 @@ class TestTopicCoverage(SimpleTestCase):
             "Flags": [],
         }
 
-        topics = build_topics(definitions, members, {"a": SessionCoverage.NOTHING, "b": SessionCoverage.METRIC})
+        tables = {"a": frozenset({"billing"}), "b": frozenset({"plans"}), "c": frozenset(), "d": frozenset(), "e": None}
+
+        topics = build_topics(definitions, members, {"a": SessionCoverage.NOTHING, "b": SessionCoverage.METRIC}, tables)
 
         assert [(topic.title, topic.people, topic.session_count) for topic in topics] == [
             ("Revenue", 2, 2),
@@ -300,6 +302,7 @@ class TestTopicCoverage(SimpleTestCase):
         assert topics[0].description == "Money."
         assert topics[0].coverage == TopicCoverage(metric=1, table=0, nothing=1)
         assert topics[1].coverage == TopicCoverage(metric=0, table=0, nothing=0)
+        assert [topic.tables for topic in topics] == [["billing", "plans"], None, None]
 
     def test_session_kinds_count_every_read_including_failed_ones(self) -> None:
         readings = [
@@ -611,6 +614,7 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
                         session_count=3,
                         people=3,
                         coverage=TopicCoverage(metric=2, table=0, nothing=1),
+                        tables=["billing"],
                     )
                 ],
                 TopicSessionCounts(analysis=3, lookup=1, automation=0, unclear=0, unread=0, coverage_unchecked=1),
@@ -646,6 +650,10 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
         with (
             patch(f"{_MODULE}._load_topic_inputs", return_value=inputs),
             patch(f"{_MODULE}._load_session_lookups", return_value=lookups),
+            patch(
+                f"{_MODULE}._trace_session_tables",
+                return_value={"ran": frozenset({"billing"}), "adapted": frozenset(), "unjudged": frozenset()},
+            ),
             patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
             patch(f"{_MODULE}.write_payload_sections") as write,
         ):

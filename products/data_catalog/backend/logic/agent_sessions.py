@@ -142,6 +142,19 @@ async def gather_each(items: Iterable[Awaitable[T]], heartbeat: Callable[[], Non
     return await asyncio.gather(*(run(item) for item in items))
 
 
+def decode_nested_json(raw: str) -> Any:
+    """Telemetry stores a tool input as JSON inside a JSON string, so this decodes up to two levels."""
+    value: Any = raw
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except ValueError:
+            break
+    return value
+
+
 def is_data_tool(tool: str) -> bool:
     return tool in DATA_TOOLS or tool.startswith(DATA_TOOL_PREFIX)
 

@@ -23,6 +23,8 @@ from products.data_catalog.backend.facade.contracts import (
     ProposedMetric,
     SectionFailure,
     TableSource,
+    TopicCluster,
+    TopicCoverage,
     TopicDefinition,
     UncoveredGroup,
     UsageSnapshotPayload,
@@ -41,8 +43,8 @@ from products.data_catalog.backend.logic.usage_snapshots import (
     UsageReader,
     _denied_tables_and_views,
     _viewable_charts,
+    hidden_topic_count,
     payload_to_json,
-    topics_hidden_from,
     visible_payload,
 )
 from products.data_catalog.backend.models import Metric, UsageSnapshot
@@ -158,22 +160,47 @@ class TestVisiblePayload(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("open_reader", frozenset(), True, 1, False),
-            ("reader_with_a_denied_table", frozenset({"billing"}), True, 0, True),
-            ("reader_with_a_denied_table_and_no_topics", frozenset({"billing"}), False, 0, False),
+            (
+                "open_reader",
+                frozenset(),
+                ["Payroll", "Signups", "Untraced"],
+                ["Payroll", "Signups", "Untraced", "Dormant"],
+            ),
+            ("reader_denied_a_topic_table", frozenset({"billing"}), ["Signups"], ["Signups"]),
+            (
+                "reader_denied_another_table",
+                frozenset({"system.data_deletion_requests"}),
+                ["Payroll", "Signups"],
+                ["Payroll", "Signups"],
+            ),
         ]
     )
-    def test_topic_titles_reach_only_readers_without_denied_tables(
-        self, _name: str, denied: frozenset[str], has_topics: bool, kept: int, hidden: bool
+    def test_a_topic_reaches_a_reader_unless_its_sessions_read_a_denied_or_untraced_table(
+        self, _name: str, denied: frozenset[str], topics: list[str], definitions: list[str]
     ) -> None:
-        definitions = [TopicDefinition(title="Payroll", description="Salaries.")] if has_topics else []
-        payload = UsageSnapshotPayload(topic_definitions=definitions)
+        def topic(title: str, tables: list[str] | None) -> TopicCluster:
+            return TopicCluster(
+                title=title,
+                description="",
+                session_count=1,
+                people=1,
+                coverage=TopicCoverage(metric=0, table=0, nothing=0),
+                tables=tables,
+            )
+
+        payload = UsageSnapshotPayload(
+            topics=[topic("Payroll", ["stripe.billing"]), topic("Signups", []), topic("Untraced", None)],
+            topic_definitions=[
+                TopicDefinition(title=title, description="") for title in ("Payroll", "Signups", "Untraced", "Dormant")
+            ],
+        )
         reader = UsageReader(visible_metric_ids=frozenset(), denied_tables=denied)
 
         visible = visible_payload(payload, reader)
 
-        assert len(visible.topic_definitions or []) == kept
-        assert topics_hidden_from(payload, reader) is hidden
+        assert [shown.title for shown in visible.topics or []] == topics
+        assert [shown.title for shown in visible.topic_definitions or []] == definitions
+        assert hidden_topic_count(payload, reader) == 3 - len(topics)
 
     def test_reader_does_not_see_measures_or_proposals_over_denied_tables_or_hidden_metrics(self) -> None:
         payload = UsageSnapshotPayload(
@@ -345,7 +372,7 @@ class TestUsageSnapshotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == str(newest.id)
         assert response.json()["payload"]["metric_runs"] is None
-        assert response.json()["topics_hidden"] is False
+        assert response.json()["hidden_topics"] == 0
 
     def test_metric_usage_returns_only_that_metrics_slice(self) -> None:
         mrr = upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
