@@ -1662,6 +1662,27 @@ mod tests {
                 .collect()
         }
 
+        /// Recreates `database` with the person overrides table, then runs `statements` in order.
+        async fn create_database(database: &str, statements: impl IntoIterator<Item = String>) {
+            let admin = connect(None);
+            let setup = [
+                format!("DROP DATABASE IF EXISTS {database}"),
+                format!("CREATE DATABASE {database}"),
+                format!(
+                    "CREATE TABLE {database}.person_distinct_id_overrides (\
+                        team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
+                     ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
+                ),
+            ];
+            for statement in setup.into_iter().chain(statements) {
+                admin
+                    .query(&statement)
+                    .execute()
+                    .await
+                    .unwrap_or_else(|error| panic!("{error}\n{statement}"));
+            }
+        }
+
         fn connect(database: Option<&str>) -> ClickHouseClient {
             let mut config =
                 Config::init_from_env().expect("the seeder config falls back to its defaults");
@@ -1725,11 +1746,7 @@ mod tests {
                 )
             };
             let my_flag = r#"{"$feature_flag":"my-flag"}"#;
-            let admin = connect(None);
-            let flag_evaluations_tables = fixture_statements(FLAG_EVALUATIONS_DDL, database);
             let statements = [
-                format!("DROP DATABASE IF EXISTS {database}"),
-                format!("CREATE DATABASE {database}"),
                 format!(
                     "CREATE TABLE {database}.sharded_events ({events_columns}, \
                      `mat_$feature_flag` String DEFAULT {FLAG_KEY_EXPRESSION}) \
@@ -1739,14 +1756,9 @@ mod tests {
                     "CREATE TABLE {database}.events ({events_columns}, `mat_$feature_flag` String) \
                      ENGINE = Merge('{database}', '^sharded_events$')"
                 ),
-                format!(
-                    "CREATE TABLE {database}.person_distinct_id_overrides (\
-                        team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
-                     ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
-                ),
             ]
             .into_iter()
-            .chain(flag_evaluations_tables)
+            .chain(fixture_statements(FLAG_EVALUATIONS_DDL, database))
             .chain([
                 format!(
                     "INSERT INTO {database}.sharded_events (uuid, event, properties, timestamp, \
@@ -1765,13 +1777,7 @@ mod tests {
                     flag_row(24, "not json", 5),
                 ),
             ]);
-            for statement in statements {
-                admin
-                    .query(&statement)
-                    .execute()
-                    .await
-                    .unwrap_or_else(|error| panic!("{error}\n{statement}"));
-            }
+            create_database(database, statements).await;
             connect(Some(database))
         }
 
@@ -1927,18 +1933,8 @@ mod tests {
                     clickhouse_string_literal(person_properties),
                 )
             };
-            let admin = connect(None);
-            let statements = [
-                format!("DROP DATABASE IF EXISTS {database}"),
-                format!("CREATE DATABASE {database}"),
-                format!(
-                    "CREATE TABLE {database}.person_distinct_id_overrides (\
-                        team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
-                     ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
-                ),
-            ]
-            .into_iter()
-            .chain(fixture_statements(FLAG_EVALUATIONS_DDL, database))
+            let statements = fixture_statements(FLAG_EVALUATIONS_DDL, database)
+                .into_iter()
             .chain(fixture_statements(FLAG_EVALUATIONS_JSON_DDL, database))
             .chain([
                 format!(
@@ -1966,14 +1962,9 @@ mod tests {
                     json_row(31, other_flag, "[]", ("{}", "[]"), "{}", "[]", 3),
                 ),
             ]);
-            for statement in statements {
-                admin
-                    .query(&statement)
-                    .execute()
-                    .await
-                    .unwrap_or_else(|error| panic!("{error}\n{statement}"));
-            }
-            // A server whose profile leaves the setting off, so the scan's own setting decides.
+            create_database(database, statements).await;
+            // The client turns the setting off, as a server profile without it would. The scan's own
+            // setting then decides how a dotted key reads back.
             connect(Some(database)).with_option("json_type_escape_dots_in_keys", "0")
         }
 

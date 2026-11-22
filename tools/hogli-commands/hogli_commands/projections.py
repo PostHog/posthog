@@ -170,7 +170,9 @@ PROJECTIONS: tuple[Projection, ...] = (
             "posthog/clickhouse/events_json.py",
         ),
         outputs=("rust/cohort-seeder/src/clickhouse/flag_evaluations_json_documents.generated.json",),
-        # The document builder imports the HogQL printer package, which loads the project settings.
+        # The renderer loads the project settings through the HogQL printer package. Setting Django up
+        # first loads them with TEST set. With TEST set, the app ready() hooks do not connect to Postgres.
+        django=True,
         tier=Tier.CI,
     ),
     Projection(
