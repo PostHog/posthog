@@ -27,6 +27,8 @@ def _report(result: TeamEffectiveness) -> dict[str, object]:
         "sessions_read": result.sessions_read,
         "is_sample": result.is_sample,
         "unread_sessions": result.unread_sessions,
+        "scheduled_sessions": result.scheduled_sessions,
+        "unclear_sessions": result.unclear_sessions,
         "analysis_sessions": result.analysis_sessions,
         "unchecked_queries": result.unchecked_queries,
         "unchecked_sessions": result.unchecked_sessions,

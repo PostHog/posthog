@@ -1,3 +1,4 @@
+import type { BreakPointFunction } from 'kea'
 import {
     MakeLogicType,
     actions,
@@ -9,19 +10,24 @@ import {
     path,
     reducers,
     selectors,
+    sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { retryWithBackoff } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
-
-import { signalsAnomaliesSearchRetrieve } from 'products/signals/frontend/generated/api'
-import type { AnomalySearchResponseApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsAnomaliesPointsCreate, signalsAnomaliesSearchRetrieve } from 'products/signals/frontend/generated/api'
+import type {
+    AnomalyPointsResponseApi,
+    AnomalySearchResponseApi,
+    AnomalySeriesApi,
+    AnomalySeriesPointApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalsAnomaliesSearchRetrieveInterval,
     SignalsAnomaliesSearchRetrieveOrder,
@@ -30,6 +36,8 @@ import {
 export const ANOMALIES_PAGE_SIZE = 50
 // Matches `scored_history_ready` in the anomaly search, which needs 14 scored days.
 export const SCORED_HISTORY_READY_DAYS = 14
+export const CHART_POINTS_MAX_ATTEMPTS = 3
+export const CHART_POINTS_RETRY_DELAY_MS = 1000
 
 export interface AnomaliesFilters {
     dateFrom: string
@@ -37,18 +45,33 @@ export interface AnomaliesFilters {
     interval: SignalsAnomaliesSearchRetrieveInterval | null
     dashboardId: number | null
     search: string
-    order: SignalsAnomaliesSearchRetrieveOrder
 }
 
 export const DEFAULT_ANOMALIES_FILTERS: AnomaliesFilters = {
-    dateFrom: '-14d',
+    dateFrom: '-3d',
     interval: null,
     dashboardId: null,
     search: '',
-    order: SignalsAnomaliesSearchRetrieveOrder.Recent,
 }
 
 export type AnomaliesLoadError = 'not_available' | 'failed'
+
+export interface AnomalyChartPoints {
+    // The start of the chart window. It does not follow the flag window.
+    chartFrom: string
+    points: AnomalySeriesPointApi[]
+}
+
+export type AnomalyRowRating = 'useful' | 'not_useful'
+
+export function anomalySeriesKey(series: Pick<AnomalySeriesApi, 'insight_id' | 'series_key' | 'interval'>): string {
+    return `${series.insight_id}-${series.series_key}-${series.interval}`
+}
+
+// Feedback is about the newest flagged bucket, so a later flag on the same series asks again.
+export function anomalyRatingKey(series: AnomalySeriesApi): string {
+    return `${anomalySeriesKey(series)}-${series.last_flagged_bucket ?? ''}`
+}
 
 // The flagged series of one insight, so a breakdown with many flagged values takes one row until it is expanded.
 export interface InsightSeriesGroup {
@@ -57,9 +80,19 @@ export interface InsightSeriesGroup {
     series: AnomalySeriesApi[]
 }
 
+function errorStatus(error: unknown): number | undefined {
+    return (error as { status?: number } | undefined)?.status
+}
+
 function errorKind(error: unknown): AnomaliesLoadError {
     // The search endpoint answers 404 while its own feature flag is off for the user.
-    return (error as { status?: number } | undefined)?.status === 404 ? 'not_available' : 'failed'
+    return errorStatus(error) === 404 ? 'not_available' : 'failed'
+}
+
+// A client error gives the same answer on the next try.
+function isRetryableChartError(error: unknown): boolean {
+    const status = errorStatus(error)
+    return status == null || status >= 500
 }
 
 // Leaves out the search text, which can hold insight names.
@@ -67,7 +100,6 @@ function filterProperties(filters: AnomaliesFilters): Record<string, unknown> {
     return {
         date_from: filters.dateFrom,
         interval: filters.interval,
-        order: filters.order,
         has_dashboard: filters.dashboardId != null,
         has_search: !!filters.search.trim(),
     }
@@ -80,10 +112,10 @@ async function searchAnomalies(
 ): Promise<AnomalySearchResponseApi> {
     return await signalsAnomaliesSearchRetrieve(String(projectId), {
         date_from: filters.dateFrom,
-        order: filters.order,
+        order: SignalsAnomaliesSearchRetrieveOrder.Recent,
         group_by: 'series',
         only_flagged: true,
-        include_points: true,
+        include_points: false,
         limit: ANOMALIES_PAGE_SIZE,
         offset,
         ...(filters.interval != null && { interval: filters.interval }),
@@ -92,11 +124,26 @@ async function searchAnomalies(
     })
 }
 
+// The flagged bucket identifies what the person judged. Names and labels stay out, because they can hold user data.
+function seriesProperties(series: AnomalySeriesApi): Record<string, unknown> {
+    return {
+        insight_id: series.insight_id,
+        series_key: series.series_key,
+        interval: series.interval,
+        flagged_bucket: series.last_flagged_bucket,
+        flagged_buckets: series.flagged_buckets,
+        scored_buckets: series.scored_buckets,
+        anomaly_rate: series.anomaly_rate,
+    }
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface anomaliesTabLogicValues {
     currentProjectId: number | null // projectLogic
     anomalies: AnomalySearchResponseApi | null
     anomaliesLoading: boolean
+    chartPoints: Record<string, AnomalyChartPoints>
+    chartPointsStatus: Record<string, 'failed' | 'loading'>
     expandedInsightIds: Record<number, boolean>
     filters: AnomaliesFilters
     hasMore: boolean
@@ -104,13 +151,11 @@ export interface anomaliesTabLogicValues {
     loadError: AnomaliesLoadError | null
     loadingMore: boolean
     series: AnomalySeriesApi[]
+    seriesRatings: Record<string, AnomalyRowRating>
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface anomaliesTabLogicActions {
-    loadDashboardsIfNeeded: () => {
-        value: true
-    } // dashboardsModel
     loadAnomalies: ({ debounce }?: { debounce?: boolean }) => {
         debounce?: boolean
     }
@@ -132,6 +177,9 @@ export interface anomaliesTabLogicActions {
             debounce?: boolean
         }
     }
+    loadChartPoints: (series: AnomalySeriesApi[]) => {
+        series: AnomalySeriesApi[]
+    }
     loadMoreAnomalies: () => any
     loadMoreAnomaliesFailure: (
         error: string,
@@ -147,6 +195,22 @@ export interface anomaliesTabLogicActions {
         anomalies: AnomalySearchResponseApi | null
         payload?: any
     }
+    rateSeries: (
+        series: AnomalySeriesApi,
+        rating: AnomalyRowRating,
+        position: number
+    ) => {
+        position: number
+        rating: AnomalyRowRating
+        series: AnomalySeriesApi
+    }
+    reportCreateAlertOpened: (
+        series: AnomalySeriesApi,
+        position: number
+    ) => {
+        position: number
+        series: AnomalySeriesApi
+    }
     reportInsightOpened: (
         series: AnomalySeriesApi,
         position: number
@@ -156,6 +220,16 @@ export interface anomaliesTabLogicActions {
     }
     resetFilters: () => {
         value: true
+    }
+    setChartPoints: (
+        requested: string[],
+        response: AnomalyPointsResponseApi
+    ) => {
+        requested: string[]
+        response: AnomalyPointsResponseApi
+    }
+    setChartPointsFailed: (requested: string[]) => {
+        requested: string[]
     }
     setFilters: (filters: Partial<AnomaliesFilters>) => {
         filters: Partial<AnomaliesFilters>
@@ -174,6 +248,17 @@ export interface anomaliesTabLogicActions {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface anomaliesTabLogicMeta {
+    sharedListeners: {
+        loadMissingChartPoints: (
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: string
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>
+    }
     __keaTypeGenInternalSelectorTypes: {
         series: (anomalies: AnomalySearchResponseApi | null) => AnomalySeriesApi[]
         insightGroups: (series: AnomalySeriesApi[]) => InsightSeriesGroup[]
@@ -192,14 +277,22 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
     path(['products', 'product_analytics', 'frontend', 'insights', 'anomalies', 'anomaliesTabLogic']),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-        actions: [dashboardsModel, ['loadDashboardsIfNeeded']],
     })),
     actions({
         setFilters: (filters: Partial<AnomaliesFilters>) => ({ filters }),
         resetFilters: true,
         reportInsightOpened: (series: AnomalySeriesApi, position: number) => ({ series, position }),
+        rateSeries: (series: AnomalySeriesApi, rating: AnomalyRowRating, position: number) => ({
+            series,
+            rating,
+            position,
+        }),
+        reportCreateAlertOpened: (series: AnomalySeriesApi, position: number) => ({ series, position }),
         toggleInsightExpanded: (insightId: number, position: number) => ({ insightId, position }),
         setLoadError: (loadError: AnomaliesLoadError) => ({ loadError }),
+        loadChartPoints: (series: AnomalySeriesApi[]) => ({ series }),
+        setChartPoints: (requested: string[], response: AnomalyPointsResponseApi) => ({ requested, response }),
+        setChartPointsFailed: (requested: string[]) => ({ requested }),
     }),
     reducers({
         filters: [
@@ -274,12 +367,51 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                 toggleInsightExpanded: (state, { insightId }) => ({ ...state, [insightId]: !state[insightId] }),
             },
         ],
+        seriesRatings: [
+            {} as Record<string, AnomalyRowRating>,
+            {
+                rateSeries: (state, { series, rating }) => ({ ...state, [anomalyRatingKey(series)]: rating }),
+            },
+        ],
         loadingMore: [
             false,
             {
                 loadMoreAnomalies: () => true,
                 loadMoreAnomaliesSuccess: () => false,
                 loadMoreAnomaliesFailure: () => false,
+            },
+        ],
+        chartPoints: [
+            {} as Record<string, AnomalyChartPoints>,
+            {
+                loadAnomalies: () => ({}),
+                setChartPoints: (state, { requested, response }) => {
+                    const next = { ...state }
+                    // The response leaves out a series the user cannot read. It charts as empty, not as loading.
+                    for (const id of requested) {
+                        next[id] = { chartFrom: response.date_to, points: [] }
+                    }
+                    for (const row of response.series) {
+                        next[anomalySeriesKey(row)] = { chartFrom: row.date_from, points: row.points }
+                    }
+                    return next
+                },
+            },
+        ],
+        chartPointsStatus: [
+            {} as Record<string, 'loading' | 'failed'>,
+            {
+                loadAnomalies: () => ({}),
+                loadChartPoints: (state, { series }) => ({
+                    ...state,
+                    ...Object.fromEntries(series.map((row) => [anomalySeriesKey(row), 'loading' as const])),
+                }),
+                setChartPoints: (state, { requested }) =>
+                    Object.fromEntries(Object.entries(state).filter(([id]) => !requested.includes(id))),
+                setChartPointsFailed: (state, { requested }) => ({
+                    ...state,
+                    ...Object.fromEntries(requested.map((id) => [id, 'failed' as const])),
+                }),
             },
         ],
     }),
@@ -306,7 +438,64 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         ],
         hasMore: [(s) => [s.anomalies], (anomalies: AnomalySearchResponseApi | null): boolean => !!anomalies?.has_more],
     }),
-    listeners(({ actions, values }) => ({
+    sharedListeners(({ actions, values }) => ({
+        // Skips failed rows too, so a new page does not retry them. The next list load does.
+        loadMissingChartPoints: () => {
+            const missing = values.series.filter((row) => {
+                const id = anomalySeriesKey(row)
+                return !values.chartPoints[id] && !values.chartPointsStatus[id]
+            })
+            for (let start = 0; start < missing.length; start += ANOMALIES_PAGE_SIZE) {
+                actions.loadChartPoints(missing.slice(start, start + ANOMALIES_PAGE_SIZE))
+            }
+        },
+    })),
+    listeners(({ actions, values, selectors, sharedListeners, cache }) => ({
+        loadAnomalies: () => {
+            // Re-adding the key aborts the chart requests of the replaced list. The unmount aborts the last one.
+            cache.disposables.add(
+                () => {
+                    const controller = new AbortController()
+                    cache.chartPointsSignal = controller.signal
+                    return () => controller.abort()
+                },
+                'chartPointsRequests',
+                { pauseOnPageHidden: false }
+            )
+        },
+        loadAnomaliesSuccess: sharedListeners.loadMissingChartPoints,
+        loadMoreAnomaliesSuccess: sharedListeners.loadMissingChartPoints,
+        loadChartPoints: async ({ series }) => {
+            const requested = series.map(anomalySeriesKey)
+            const signal: AbortSignal = cache.chartPointsSignal
+            const projectId = values.currentProjectId
+            if (projectId == null) {
+                actions.setChartPointsFailed(requested)
+                return
+            }
+            const body = {
+                series: series.map(({ insight_id, series_key, interval }) => ({ insight_id, series_key, interval })),
+            }
+            try {
+                const response = await retryWithBackoff(
+                    () => signalsAnomaliesPointsCreate(String(projectId), body, { signal }),
+                    {
+                        maxAttempts: CHART_POINTS_MAX_ATTEMPTS,
+                        initialDelayMs: CHART_POINTS_RETRY_DELAY_MS,
+                        signal,
+                        shouldRetry: isRetryableChartError,
+                    }
+                )
+                // The response can arrive after the abort, so the signal is checked here too.
+                if (!signal.aborted) {
+                    actions.setChartPoints(requested, response)
+                }
+            } catch {
+                if (!signal.aborted) {
+                    actions.setChartPointsFailed(requested)
+                }
+            }
+        },
         setFilters: ({ filters }) => {
             const changed = Object.keys(filters)
             posthog.capture('anomalies tab filter changed', { changed, ...filterProperties(values.filters) })
@@ -316,14 +505,29 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             actions.loadAnomalies()
         },
         loadMoreAnomalies: () => {
-            posthog.capture('anomalies tab load more', { offset: values.series.length, order: values.filters.order })
+            posthog.capture('anomalies tab load more', { offset: values.series.length })
         },
         reportInsightOpened: ({ series, position }) => {
             posthog.capture('anomalies tab insight opened', {
                 insight_id: series.insight_id,
                 interval: series.interval,
                 flagged_buckets: series.flagged_buckets,
-                order: values.filters.order,
+                position,
+            })
+        },
+        rateSeries: ({ series, rating, position }, _, __, previousState) => {
+            if (selectors.seriesRatings(previousState)[anomalyRatingKey(series)] === rating) {
+                return
+            }
+            posthog.capture('anomalies tab series rated', {
+                ...seriesProperties(series),
+                rating,
+                position,
+            })
+        },
+        reportCreateAlertOpened: ({ series, position }) => {
+            posthog.capture('anomalies tab create alert opened', {
+                ...seriesProperties(series),
                 position,
             })
         },
@@ -335,7 +539,6 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
             posthog.capture('anomalies tab insight expanded', {
                 insight_id: insightId,
                 flagged_series: group?.series.length ?? 0,
-                order: values.filters.order,
                 position,
             })
         },
@@ -343,7 +546,5 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
     afterMount(({ actions, values }) => {
         posthog.capture('anomalies tab viewed', filterProperties(values.filters))
         actions.loadAnomalies()
-        // The dashboard filter lists these, and nothing else on the tab loads them.
-        actions.loadDashboardsIfNeeded()
     }),
 ])

@@ -59,6 +59,7 @@ from products.replay_vision.backend.scanning import (
     run_inline_scan,
     scan_existing_scanner,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -1326,7 +1327,7 @@ def _scanner_query_for(recordings_filters: MaxRecordingUniversalFilters | None) 
 
 def _has_recording_filter(scanner: ReplayScanner) -> bool:
     query = scanner.query if isinstance(scanner.query, dict) else {}
-    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(scanner.experiment_scope())
+    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or experiment_id_of(scanner) is not None
 
 
 CREATE_SCANNER_TOOL_DESCRIPTION = """

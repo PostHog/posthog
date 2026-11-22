@@ -103,4 +103,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_read": "Whether the user that owns the API key marked the notification as read.",
         },
     },
+    "templates": {
+        "description": "Workflow templates that Unstructured offers as starting points for new workflows.",
+        "docs_url": "https://docs.unstructured.io/api-reference",
+        "columns": {
+            "id": "Unique identifier of the template.",
+            "name": "Human-readable name of the template.",
+            "version": "Version of the template.",
+            "last_updated": "When the template was last updated.",
+            "description": "What the template does.",
+        },
+    },
+    "source_connection_checks": {
+        "description": "The latest connection check of each source connector, to tell whether Unstructured can reach the source.",
+        "docs_url": "https://docs.unstructured.io/api-reference",
+        "columns": {
+            "source_id": "Identifier of the source connector that was checked.",
+            "id": "Unique identifier of the connection check.",
+            "status": "Outcome of the check: SCHEDULED, SUCCESS, or FAILURE.",
+            "reason": "Why the check failed, if it did.",
+            "created_at": "Timestamp when the check was requested.",
+            "reported_at": "Timestamp when the check reported its result; null while it is still scheduled.",
+        },
+    },
+    "destination_connection_checks": {
+        "description": "The latest connection check of each destination connector, to tell whether Unstructured can reach the destination.",
+        "docs_url": "https://docs.unstructured.io/api-reference",
+        "columns": {
+            "destination_id": "Identifier of the destination connector that was checked.",
+            "id": "Unique identifier of the connection check.",
+            "status": "Outcome of the check: SCHEDULED, SUCCESS, or FAILURE.",
+            "reason": "Why the check failed, if it did.",
+            "created_at": "Timestamp when the check was requested.",
+            "reported_at": "Timestamp when the check reported its result; null while it is still scheduled.",
+        },
+    },
 }

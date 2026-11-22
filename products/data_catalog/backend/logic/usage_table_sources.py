@@ -49,8 +49,8 @@ SELECT
     toString(a.properties.$session_id) AS session,
     a.distinct_id,
     a.timestamp,
-    substring(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
-    substring(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output
+    substringUTF8(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
+    substringUTF8(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output
 FROM posthog.ai_events AS a
 WHERE a.event = '$ai_span'
     AND a.span_name = 'execute-sql'
@@ -77,7 +77,7 @@ _QUERIES_QUERY = """
 SELECT
     toString(a.properties.$session_id) AS session,
     a.timestamp,
-    substring(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
+    substringUTF8(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
 FROM posthog.ai_events AS a
 WHERE a.event = '$ai_generation'
     AND a.span_name = 'execute-sql'

@@ -12,12 +12,12 @@ from products.warehouse_sources.sources.jumpcloud.jumpcloud import (
     EVENTS_PAGE_SIZE,
     REST_PAGE_SIZE,
     JumpcloudResumeConfig,
-    JumpcloudRetryableError,
     _parse_search_after,
     validate_credentials,
 )
 from products.warehouse_sources.sources.jumpcloud.settings import ENDPOINTS, JUMPCLOUD_ENDPOINTS
 from products.warehouse_sources.sources.jumpcloud.source import JumpcloudSource
+from products.warehouse_sources.sources.sdk import RetryableHTTPError
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -52,16 +52,19 @@ def _fanout_script(
 
     def respond(request: RecordedRequest) -> ScriptedResponse:
         assert request.method == "GET"
-        skip = int(request.param("skip") or "0")
         if request.path == parent_config.path:
+            skip = int(request.param(parent_config.offset_param) or "0")
             index = skip // REST_PAGE_SIZE
             rows = parent_pages[index] if index < len(parent_pages) else []
             return _page(parent_config.name, rows)
-        parent_id = request.path.split("/")[4]
+        parent_id = request.path.split("/")[-2]
         assert request.path == config.path.replace("{parent_id}", parent_id)
+        skip = int(request.param(config.offset_param) or "0")
         child = children.get(parent_id, [])
         if isinstance(child, int):
             return ScriptedResponse(status=child)
+        if not config.paginated:
+            return _page(endpoint, child)
         return _page(endpoint, child[skip : skip + REST_PAGE_SIZE])
 
     return respond
@@ -71,7 +74,7 @@ class TestRequest:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_exhaust_retries(self, _name: str, status: int) -> None:
         result = _driver().run("users", always(ScriptedResponse(status=status)))
-        assert isinstance(result.raised, JumpcloudRetryableError)
+        assert isinstance(result.raised, RetryableHTTPError)
         assert len(result.requests) >= 5
         assert set(result.paths) == {"/api/systemusers"}
 
@@ -83,7 +86,7 @@ class TestRequest:
 
     def test_429_carries_server_retry_after(self) -> None:
         result = _driver().run("users", always(ScriptedResponse(status=429, headers={"Retry-After": "7"})))
-        assert isinstance(result.raised, JumpcloudRetryableError)
+        assert isinstance(result.raised, RetryableHTTPError)
         assert result.raised.retry_after == 7.0
 
     @parameterized.expand([("moved_permanently", 301), ("temporary_redirect", 307)])
@@ -135,6 +138,13 @@ class TestRestRows:
                 "identity_risk_events",
                 "https://console.jumpcloud.com/api/v2/identityrisk/events?",
             ),
+            ("software_apps", "software_apps", "https://console.jumpcloud.com/api/v2/softwareapps?"),
+            ("directories", "directories", "https://console.jumpcloud.com/api/v2/directories?"),
+            (
+                "wrapped_saas_licenses",
+                "saas_application_licenses",
+                "https://console.jumpcloud.com/api/v2/saas-management/application-licenses?",
+            ),
         ]
     )
     def test_v2_endpoint_rows(self, _name: str, endpoint: str, url_prefix: str) -> None:
@@ -176,7 +186,56 @@ class TestRestRows:
 
     @parameterized.expand(
         [
+            (
+                "commands",
+                "commands",
+                {"_id": "c1", "name": "Rotate", "command": "export TOKEN=secret"},
+                {"_id": "c1", "name": "Rotate"},
+            ),
+            (
+                "command_results",
+                "command_results",
+                {
+                    "_id": "r1",
+                    "command": "export TOKEN=secret",
+                    "exitCode": 1,
+                    "response": {"data": {"exitCode": 1, "output": "secret"}, "error": "secret"},
+                },
+                {"_id": "r1", "exitCode": 1, "response": {"data": {"exitCode": 1}}},
+            ),
+            (
+                "command_results_without_response",
+                "command_results",
+                {"_id": "r2", "exitCode": 0, "response": None},
+                {"_id": "r2", "exitCode": 0, "response": None},
+            ),
+        ]
+    )
+    def test_command_script_and_output_are_stripped(
+        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = self._run(endpoint, [_page(endpoint, [row])])
+        assert result.raised is None
+        assert result.rows == [expected]
+
+    def test_saas_listing_pages_with_offset(self) -> None:
+        full_page = [{"id": f"a{i}"} for i in range(REST_PAGE_SIZE)]
+        result = self._run(
+            "saas_applications",
+            [_page("saas_applications", full_page), _page("saas_applications", [{"id": "last"}])],
+        )
+        assert result.raised is None
+        assert len(result.rows) == REST_PAGE_SIZE + 1
+        assert result.paths == ["/api/v2/saas-management/applications"] * 2
+        assert result.params("offset") == ["0", str(REST_PAGE_SIZE)]
+        assert result.params("skip") == [None, None]
+        assert result.saved_states == [JumpcloudResumeConfig(skip=REST_PAGE_SIZE)]
+
+    @parameterized.expand(
+        [
             ("applications", False),
+            ("commands", False),
+            ("command_results", False),
             ("users", True),
             ("application_users", False),
             ("system_users", True),
@@ -265,6 +324,42 @@ class TestFanoutRows:
         assert [request.url.split("?")[0] for request in result.requests[1:]] == [
             "https://console.jumpcloud.com/api/v2/applications/last/usergroups"
         ]
+
+    def test_saas_accounts_page_children_with_offset(self) -> None:
+        many_accounts = [{"id": f"acc{i}"} for i in range(REST_PAGE_SIZE + 1)]
+        result = _driver().run(
+            "saas_application_accounts",
+            _fanout_script("saas_application_accounts", [[{"id": "app1"}]], {"app1": many_accounts}),
+        )
+        assert result.raised is None
+        assert len(result.rows) == REST_PAGE_SIZE + 1
+        assert {row["application_id"] for row in result.rows} == {"app1"}
+        assert result.response is not None
+        assert result.response.primary_keys == ["application_id", "id"]
+        assert result.params("offset") == ["0", "0", str(REST_PAGE_SIZE)]
+
+    def test_saas_usage_requests_each_application_once_with_day_count(self) -> None:
+        # Usage takes no limit/offset, so a large response must not be read as a full page to follow.
+        many_usages = [{"account_id": f"acc{i}"} for i in range(REST_PAGE_SIZE + 5)]
+        result = _driver().run(
+            "saas_application_usage",
+            _fanout_script(
+                "saas_application_usage",
+                [[{"id": "app1"}, {"id": "app2"}]],
+                {"app1": many_usages, "app2": [{"account_id": "acc0"}]},
+            ),
+        )
+        child_requests = result.requests[1:]
+        assert result.raised is None
+        assert len(result.rows) == REST_PAGE_SIZE + 6
+        assert [request.path for request in child_requests] == [
+            "/api/v2/saas-management/applications/app1/usage",
+            "/api/v2/saas-management/applications/app2/usage",
+        ]
+        assert [request.param("day_count") for request in child_requests] == ["90", "90"]
+        assert [request.param("limit") for request in child_requests] == [None, None]
+        assert result.response is not None
+        assert result.response.primary_keys == ["application_id", "account_id"]
 
     def test_parent_deleted_mid_sync_is_skipped(self) -> None:
         result = _driver().run(
@@ -390,6 +485,7 @@ class TestJumpcloudSourceResponse:
     def test_partition_keys_are_stable_fields(self) -> None:
         # Guards against accidentally partitioning on a churning field like lastContact.
         assert all(
-            cfg.partition_key in (None, "created", "createdAt", "startedAt", "timestamp")
+            cfg.partition_key
+            in (None, "created", "createdAt", "startedAt", "timestamp", "requestTime", "discovered_at")
             for cfg in JUMPCLOUD_ENDPOINTS.values()
         )

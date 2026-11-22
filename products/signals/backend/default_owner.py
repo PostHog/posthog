@@ -21,6 +21,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ReviewerProposal, SuggestedReviewerEntry, SuggestedReviewers
 from products.signals.backend.assignment_flags import default_owner_fallback_enabled
 from products.signals.backend.github_optional import team_has_code_access
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -222,10 +223,21 @@ def assign_default_owner(team: Team, report_id: str) -> bool:
             )
             if contains_reviewer(snapshot.corrections.excluded, entry):
                 return False
+            previous = (
+                SignalReportArtefact.objects.filter(team_id=team.id, id=snapshot.state.reviewers_id).first()
+                if snapshot.state.reviewers_id is not None
+                else None
+            )
+            authorization = (
+                ImplementationAuthorization.from_stored(previous.implementation_authorization)
+                if previous is not None
+                else ImplementationAuthorization(mode="reviewer")
+            )
             artefact = SignalReportArtefact.append_status(
                 team_id=team.id,
                 report_id=report_id,
                 content=SuggestedReviewers(root=[entry]),
+                implementation_authorization=authorization,
                 attribution=ArtefactAttribution.system(),
                 # Autostart never runs as a default owner, so this write cannot change its decision.
                 reevaluate_autostart=False,

@@ -31,9 +31,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
@@ -65,13 +67,14 @@ from products.data_modeling.backend.facade.api import (
     duplicate_output_columns,
     duplicate_output_columns_message,
     get_incremental_state,
-    inject_incremental_filter,
+    narrow_to_incremental_window,
     parse_model_query,
     print_describe_variant,
     record_incremental_history,
     rename_described_columns,
     resolve_write_plan,
     set_incremental_state,
+    wrap_with_incremental_guard,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -633,11 +636,14 @@ async def hogql_table(
     """Execute a HogQL query and yield batches of results.
 
     With a ``window``, the query is narrowed to rows at or after its lower bound before anything
-    else happens — in particular before the arrow type-conversion wrapper below re-wraps the node,
-    so the guard's column reference still resolves against the user's own output.
+    else happens. Its guard goes on after DESCRIBE, once the columns carry the names ClickHouse
+    gives them, and before the arrow type-conversion wrapper below re-wraps the node, so the
+    guard's column reference still resolves against the user's own output.
     """
     if window is not None:
-        query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
+        query_node = narrow_to_incremental_window(
+            parse_select(query), incremental_key=window.incremental_key, since=window.since
+        )
     else:
         query_node = parse_model_query(query)
     if query_node is None:
@@ -760,8 +766,20 @@ async def hogql_table(
             query_typings.append((column.name, column.ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    # The guard and the type wrapper both re-select the output by name through HogQL, which keeps one
+    # column per name. ClickHouse keeps a bare column's qualifier when another column takes its plain
+    # name, so it can name columns `a.event` and `event` where HogQL names both `event`. Each item
+    # carries its described name as its alias, so every column reaches the re-select.
+    if window is not None or has_type_to_convert:
+        alias_output_columns(query_node, [column.name for column in described_columns])
+    if window is not None:
+        query_node = wrap_with_incremental_guard(query_node, incremental_key=window.incremental_key, since=window.since)
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
+        # ClickHouse keeps a bare column's qualifier when another column takes its plain name, so it
+        # can name columns `a.event` and `event` where HogQL names both `event`. The wrapper reads the
+        # columns by their described names, so each item carries that name as its alias.
+        alias_output_columns(query_node, [column.name for column in described_columns])
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:

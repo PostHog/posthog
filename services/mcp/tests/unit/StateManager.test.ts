@@ -162,11 +162,9 @@ describe('StateManager', () => {
 
         await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
 
-        expect(capture).toHaveBeenCalledWith(
-            error,
-            undefined,
-            expect.objectContaining({ suppress_analytics: suppressed === true })
-        )
+        expect(capture).toHaveBeenCalledWith(error, {
+            properties: expect.objectContaining({ suppress_analytics: suppressed === true }),
+        })
         expect(lookup).not.toHaveBeenCalled()
         capture.mockRestore()
     })

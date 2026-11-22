@@ -3,7 +3,7 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import type { QueryToolInfo } from '@/lib/instructions'
+import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
@@ -12,9 +12,12 @@ import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import EXEC_READ_ONLY_LEAD from '@/templates/sections/exec-read-only-lead.md'
+import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec-names'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -91,7 +94,7 @@ export class InstructionsBuilder {
 
         const ctx = this.buildContext(state)
         if (state.useSingleExec) {
-            return this.formatter.buildExecInstructions(ctx)
+            return this.formatter.buildExecInstructions({ ...ctx, splitWrites: state.splitWrites })
         }
         return this.formatter.buildToolsInstructions({ ...ctx, learnToolEnabled: this.isLearnToolEnabled(state) })
     }
@@ -126,16 +129,56 @@ export class InstructionsBuilder {
         }
     }
 
+    buildExecToolEntries(state: ExecToolState & Pick<ResolvedState, 'splitWrites'>): McpTool[] {
+        if (!state.splitWrites) {
+            return [this.buildExecToolEntry(state)]
+        }
+        return [this.buildExecReadToolEntry(state), this.buildExecWriteToolEntry()]
+    }
+
     buildExecToolEntry(state: ExecToolState): McpTool {
         const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
-            name: 'exec',
+            name: EXEC_TOOL_NAME,
             title: 'Execute PostHog command',
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
             annotations: { ...EXEC_TOOL_ANNOTATIONS },
+        }
+    }
+
+    buildExecReadToolEntry(state: ExecToolState): McpTool {
+        const commandReference = nameExecRead(this.buildExecCommandReference(state))
+        return {
+            name: EXEC_READ_TOOL_NAME,
+            title: 'Read PostHog data',
+            description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${nameExecRead(this.buildExecToolDescription(state))}`,
+            inputSchema: {
+                type: 'object',
+                properties: { command: { type: 'string', description: commandReference } },
+                required: ['command'],
+            },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: true },
+        }
+    }
+
+    /** Short on purpose: discovery stays on `exec-read`, so this schema adds no command reference to the agent's context. */
+    buildExecWriteToolEntry(): McpTool {
+        return {
+            name: EXEC_WRITE_TOOL_NAME,
+            title: 'Change PostHog data',
+            description: EXEC_WRITE_TOOL.trim(),
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'call [--json] [--confirm] <tool_name> [json_input]' },
+                },
+                required: ['command'],
+            },
+            // It can run deletes, and unlike `exec` it carries no reads that a destructive hint would make prompt.
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, destructiveHint: true },
         }
     }
 

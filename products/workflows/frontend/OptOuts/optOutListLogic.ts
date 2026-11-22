@@ -35,6 +35,7 @@ import type {
 import { MessageCategory } from './optOutCategoriesLogic'
 import { BULK_OPT_OUT_CHUNK_SIZE, MAX_REPORTED_ERRORS, parseOptOutRows, remapEntryErrors } from './optOutCsvImport'
 import { optOutSceneLogic } from './optOutSceneLogic'
+import { providerImportLogic } from './providerImportLogic'
 import type { OptOutPersonPreference } from './types'
 
 async function parseCsvFile(file: File): Promise<string[][]> {
@@ -534,6 +535,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
         }
     }),
     listeners(({ actions, values }) => ({
+        [providerImportLogic.actionTypes.importedDataChanged]: () => actions.loadOptOutPersons(values.currentPage),
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadOptOutPersons()

@@ -122,6 +122,17 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 
 Always wrap form controls in `Field` (see Composition Patterns below).
 
+To disable a control, pass `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip that a keyboard user can also reach. These take it: `Button`, every menu item, `ComboboxItem`, `Checkbox`, `Switch`, `RadioGroupItem`, `ToggleGroupItem`, `SelectTrigger`, `SelectItem`, `NumberFieldRoot`, `Slider`, `ComboboxInput`, `ComboboxChips`, `Input`, `InputGroupInput` and `Textarea`. Never hand-wrap a disabled control in a Tooltip.
+
+- `Checkbox`, `Switch` and `RadioGroupItem` also describe themselves with the reason (`aria-describedby` on hidden text), because screen readers and touch never see a tooltip.
+- A choice card (a `FieldLabel` wrapping a `Field` with the control) takes `disabledReason` on the `FieldLabel`, not the control. The whole card shows the tooltip and joins the tab order, and the control inside disables itself and takes the same description. Write the reason once.
+- `SelectTrigger` passes the reason to its Button, which stays focusable. A `render` that replaces that Button takes its own `disabledReason`.
+- `NumberFieldRoot`, `Slider`, `ComboboxInput` (its input group) and `ComboboxChips` show the tooltip on the whole field, which joins the tab order while the reason is set.
+- `ComboboxChips` also disables its `ComboboxChipsInput` and each chip's remove button.
+- `Input`, `InputGroupInput` and `Textarea` turn read-only with `aria-disabled` instead of natively disabled, so they keep the pointer and their place in the tab order. A read-only field is still submitted with its form.
+- `InputGroupInput` dims its whole `InputGroup`.
+- `SelectItem` opens its reason beside the row. Arrow keys skip a disabled item, so the reason is hover-only.
+
 For a run of questions asked one at a time — an agent needing a few decisions before it can carry on — use `Questionnaire` rather than stacking Fields yourself; it owns the ordering, progress, validation, and navigation. See its section below.
 
 ### Text
@@ -366,7 +377,13 @@ For a select-all over a partly selected list, pass `indeterminate`: the box fill
 
 Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
-`disabledReason` on a Checkbox or Switch disables it and shows the reason in a tooltip.
+`disabledReason` on a Checkbox, Switch or `RadioGroupItem` disables it and shows the reason in a tooltip.
+When the control has a disabled reason, pass its label as `children` rather than as a sibling `Label`. For a choice card, put `disabledReason` on the card's `FieldLabel` instead (see Form controls). The label then wraps the control and opens the tooltip too, so hovering the text explains why it is off. A sibling `Label` stays outside the tooltip.
+
+```tsx
+<Checkbox disabledReason="Add a phone number to get SMS alerts">Text me when an alert fires</Checkbox>
+<Switch disabledReason="Only admins can change this">Autocapture</Switch>
+```
 
 ### Select
 
@@ -388,6 +405,10 @@ Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 ```
 
 Small trigger: `<SelectTrigger size="sm">`
+
+Disabled with a reason: `<SelectTrigger disabledReason="Only admins can change this">`
+
+A disabled option with a reason: `<SelectItem value="daily" disabledReason="Upgrade to sync daily">`
 
 Attached panel outside the popup: pass `popupSibling` on `SelectContent` — rendered in the positioner beside the popup, outside its overflow and scroll mask; position it absolute so it never resizes the option list.
 
@@ -682,7 +703,7 @@ The arrow inherits the popup's border and background, so restyling the popover c
 
 ### Tooltip
 
-A Button, menu item, Checkbox or Switch that only needs a text tooltip or a disabled reason takes the `tooltip` / `disabledReason` prop; reach for the composed form below for anything else.
+A Button or menu item that only needs a text tooltip takes the `tooltip` prop, and every control in the `disabledReason` list under Form controls takes that prop for a disabled reason; reach for the composed form below for anything else.
 
 ```tsx
 <Tooltip>
@@ -709,6 +730,19 @@ const [tooltip] = React.useState(() => createTooltipHandle<string>())
 ```
 
 ### Radio Group
+
+A `RadioGroupItem` takes its label as `children`, like Checkbox and Switch. Use it for an item with a `disabledReason`, so the label shows the reason too:
+
+```tsx
+<RadioGroup value={value} onValueChange={setValue}>
+  <RadioGroupItem value="email">Email</RadioGroupItem>
+  <RadioGroupItem value="sms" disabledReason="Add a phone number to get SMS notifications">
+    SMS
+  </RadioGroupItem>
+</RadioGroup>
+```
+
+With a sibling `Label`:
 
 ```tsx
 <RadioGroup value={value} onValueChange={setValue}>

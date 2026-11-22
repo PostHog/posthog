@@ -4,7 +4,10 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
+import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { emailImpactLogic } from './emailImpactLogic'
+import { noClickReason } from './impactSteps'
 
 interface LiftSentence {
     event: string
@@ -22,7 +25,7 @@ export function ImpactLiftLine(): JSX.Element | null {
         return <ClickedLift {...sentence} clicked={lift.clicked} notClicked={lift.notClicked} />
     }
     if (lift.notClicked !== null) {
-        return <NotClickedLift {...sentence} notClicked={lift.notClicked} clicks={impact.clicked} />
+        return <NotClickedLift {...sentence} notClicked={lift.notClicked} impact={impact} />
     }
     return (
         <p className="text-sm m-0">
@@ -64,11 +67,11 @@ function NotClickedLift({
     days,
     note,
     notClicked,
-    clicks,
-}: LiftSentence & { notClicked: number; clicks: number }): JSX.Element {
+    impact,
+}: LiftSentence & { notClicked: number; impact: TransactionalEmailImpactApi }): JSX.Element {
     return (
         <p className="text-sm m-0">
-            <NoClickToFollow clicks={clicks} />
+            <NoClickToFollow impact={impact} />
             <strong>{percentage(notClicked, 1)}</strong> of delivered sends with no recorded click were followed by{' '}
             <strong>{event}</strong> within <span>{days}</span> days of the send.
             <FollowedNote note={note} />
@@ -76,13 +79,11 @@ function NotClickedLift({
     )
 }
 
-function NoClickToFollow({ clicks }: { clicks: number }): JSX.Element {
+function NoClickToFollow({ impact }: { impact: TransactionalEmailImpactApi }): JSX.Element {
     return (
         <>
             <span>
-                {clicks === 0
-                    ? 'No clicks were recorded in this period.'
-                    : 'PostHog followed none of the clicked sends.'}
+                {impact.clicked === 0 ? noClickReason(impact) : 'PostHog followed none of the clicked sends.'}
             </span>{' '}
         </>
     )

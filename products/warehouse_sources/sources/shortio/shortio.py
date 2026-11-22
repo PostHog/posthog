@@ -1,5 +1,5 @@
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
 from requests import Request, Response
 
@@ -23,6 +23,12 @@ SHORTIO_BASE_URL = "https://api.short.io"
 # validates access to the domain list.
 DEFAULT_PROBE_PATH = "/api/domains"
 
+# The top endpoints rank values by clicks and default to 10 values.
+TOP_LIMIT = 100
+TOP_DIMENSIONS = ("country", "city", "browser", "os", "refhost", "social", "utm_source", "utm_medium", "utm_campaign")
+# A link has one path, so path rankings only apply to a whole domain.
+DOMAIN_TOP_DIMENSIONS = ("path", *TOP_DIMENSIONS)
+
 
 def _auth_headers(api_key: str) -> dict[str, str]:
     # Short.io expects the raw secret API key in the Authorization header — no `Bearer` prefix.
@@ -38,6 +44,17 @@ class StatisticsPaginator(SinglePagePaginator):
     def init_request(self, request: Request) -> None:
         # Dependent REST resources do not forward endpoint.json to the child request.
         request.json = {"period": "total", "tz": "UTC", "clicksChartInterval": "day"}
+
+
+class TopPaginator(SinglePagePaginator):
+    def init_request(self, request: Request) -> None:
+        # Dependent resources format only the path for each parent row, so the dimension rides in
+        # the query and moves to the body here.
+        url = urlsplit(request.url)
+        query = parse_qs(url.query)
+        dimension = query.pop("column")[0]
+        request.url = urlunsplit(url._replace(query=urlencode(query, doseq=True)))
+        request.json = {"period": "total", "tz": "UTC", "column": dimension, "limit": TOP_LIMIT}
 
 
 class LastClicksPaginator(StatisticsPaginator):
@@ -134,33 +151,82 @@ def _interval_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _last_click_row(row: dict[str, Any]) -> dict[str, Any]:
+def _domain_stat_row(row: dict[str, Any]) -> dict[str, Any]:
     row["domain_id"] = row.pop("_domains_id")
     return row
 
 
+def _domain_top_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "domain_id": row.pop("_domains_id"),
+        "dimension": row.pop("_domains_dimension"),
+        "value": row.pop("column"),
+        **row,
+    }
+
+
+def _link_top_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "domain_id": row.pop("_links_domain_id"),
+        "link_id": row.pop("_links_idString"),
+        "dimension": row.pop("_links_dimension"),
+        "value": row.pop("column"),
+        **row,
+    }
+
+
+def _with_dimensions(row: dict[str, Any], dimensions: tuple[str, ...]) -> list[dict[str, Any]]:
+    return [{**row, "dimension": dimension} for dimension in dimensions]
+
+
+def _domain_top_parent_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return _with_dimensions(row, DOMAIN_TOP_DIMENSIONS)
+
+
+def _link_top_parent_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
+    return _with_dimensions(_link_parent_row(row), TOP_DIMENSIONS)
+
+
+def _domain_resource(endpoint: str) -> EndpointResource:
+    domain_params: dict[str, Any] = {"domain_id": {"type": "resolve", "resource": "domains", "field": "id"}}
+    child_endpoint: Endpoint = {
+        "path": SHORTIO_ENDPOINTS[endpoint].path,
+        "method": "POST",
+        "params": domain_params,
+        "data_selector_required": True,
+    }
+    resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": child_endpoint,
+        "include_from_parent": ["id"],
+        "data_map": _domain_stat_row,
+    }
+    if endpoint == "last_clicks":
+        child_endpoint["paginator"] = LastClicksPaginator()
+    elif endpoint == "domain_by_interval":
+        child_endpoint.update({"paginator": StatisticsPaginator(), "data_selector": "clickStatistics"})
+    else:
+        domain_params["dimension"] = {"type": "resolve", "resource": "domains", "field": "dimension"}
+        child_endpoint["paginator"] = TopPaginator()
+        resource.update({"include_from_parent": ["id", "dimension"], "data_map": _domain_top_row})
+    return resource
+
+
 def _resources(endpoint: str) -> list[EndpointResource]:
-    resources: list[EndpointResource] = [
-        {"name": "domains", "endpoint": {"path": "/api/domains", "data_selector_required": True}}
-    ]
+    domains: EndpointResource = {
+        "name": "domains",
+        "endpoint": {"path": "/api/domains", "data_selector_required": True},
+    }
+    resources: list[EndpointResource] = [domains]
     if endpoint == "domains":
         return resources
-    if endpoint == "last_clicks":
-        resources.append(
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": SHORTIO_ENDPOINTS[endpoint].path,
-                    "method": "POST",
-                    "params": {"domain_id": {"type": "resolve", "resource": "domains", "field": "id"}},
-                    "paginator": LastClicksPaginator(),
-                    "data_selector_required": True,
-                },
-                "include_from_parent": ["id"],
-                "data_map": _last_click_row,
-            }
-        )
+    if endpoint in ("last_clicks", "domain_by_interval", "domain_top"):
+        if endpoint == "domain_top":
+            domains["data_map"] = _domain_top_parent_rows
+        resources.append(_domain_resource(endpoint))
         return resources
+
+    link_parent_map = {"links": _link_row, "link_clicks": _link_row, "link_top": _link_top_parent_rows}
 
     resources.append(
         {
@@ -180,7 +246,7 @@ def _resources(endpoint: str) -> list[EndpointResource]:
                 ),
             },
             "include_from_parent": ["id"],
-            "data_map": _link_row if endpoint in ("links", "link_clicks") else _link_parent_row,
+            "data_map": link_parent_map.get(endpoint, _link_parent_row),
         }
     )
     if endpoint == "links":
@@ -193,7 +259,6 @@ def _resources(endpoint: str) -> list[EndpointResource]:
         "path": SHORTIO_ENDPOINTS[endpoint].path,
         "params": stats_params,
         "paginator": SinglePagePaginator(),
-        "data_selector": "$",
     }
     resource: EndpointResource = {
         "name": endpoint,
@@ -203,6 +268,12 @@ def _resources(endpoint: str) -> list[EndpointResource]:
     }
     if endpoint == "link_clicks":
         stats_params["domain_id"] = {"type": "resolve", "resource": "links", "field": "domain_id"}
+        stats_endpoint["data_selector"] = "$"
+    elif endpoint == "link_top":
+        stats_params["dimension"] = {"type": "resolve", "resource": "links", "field": "dimension"}
+        stats_endpoint.update({"method": "POST", "data_selector_required": True, "paginator": TopPaginator()})
+        resource["include_from_parent"] = ["domain_id", "idString", "dimension"]
+        resource["data_map"] = _link_top_row
     else:
         stats_endpoint.update(
             {

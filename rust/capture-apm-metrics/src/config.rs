@@ -75,8 +75,8 @@ pub struct Config {
     #[envconfig(from = "METRICS_LABEL_CARDINALITY_VALUE_LIMIT", default = "10000")]
     pub metrics_label_cardinality_value_limit: u64,
 
-    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MIN_SHARE", default = "0.5")]
-    pub metrics_label_cardinality_min_share: f64,
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE", default = "0.5")]
+    pub metrics_label_cardinality_min_new_share: f64,
 
     #[envconfig(
         from = "METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES",
@@ -121,7 +121,7 @@ impl Config {
             mode: self.metrics_label_cardinality_mode,
             window: Duration::from_secs(self.metrics_series_label_interval_secs),
             value_limit: self.metrics_label_cardinality_value_limit,
-            min_share: self.metrics_label_cardinality_min_share,
+            min_new_share: self.metrics_label_cardinality_min_new_share,
             candidate_min_new_series: self.metrics_label_cardinality_candidate_min_new_series,
             max_candidates: self.metrics_label_cardinality_max_candidates,
             max_candidates_per_token: self.metrics_label_cardinality_max_candidates_per_token,
@@ -148,9 +148,9 @@ impl Config {
                 name: "METRICS_SERIES_REDIS_PULL_INTERVAL_SECS",
             });
         }
-        if !(0.0..=1.0).contains(&config.metrics_label_cardinality_min_share) {
+        if !(0.0..=1.0).contains(&config.metrics_label_cardinality_min_new_share) {
             return Err(envconfig::Error::ParseError {
-                name: "METRICS_LABEL_CARDINALITY_MIN_SHARE",
+                name: "METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE",
             });
         }
         Ok(config)

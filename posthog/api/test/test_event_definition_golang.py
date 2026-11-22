@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.event_definition_generators.golang import GolangGenerator
+from posthog.api.event_definition_generators.golang import GO_SDK_IMPORT_PATHS, GolangGenerator, GoSDK
 
 from products.event_definitions.backend.models import (
     EventDefinition,
@@ -505,6 +505,38 @@ class TestGolangGeneratorAPI(APIBaseTest):
         # Verify telemetry was called
         self._test_telemetry_called(mock_report)
 
+    @parameterized.expand(
+        [
+            ("no_sdk", "", GoSDK.POSTHOG_GO),
+            ("posthog_go", "?sdk=posthog-go", GoSDK.POSTHOG_GO),
+            ("posthog_go_v2", "?sdk=posthog-go-v2", GoSDK.POSTHOG_GO_V2),
+        ]
+    )
+    def test_golang_endpoint_imports_the_requested_sdk(self, _name, query, sdk):
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["sdk"], sdk.value)
+        imported = [line.strip() for line in data["content"].splitlines() if "github.com/posthog/" in line]
+        self.assertEqual(
+            imported[-1:],
+            [f'"{GO_SDK_IMPORT_PATHS[sdk]}"'],
+            "the package imports exactly the requested posthog-go major",
+        )
+
+    def test_golang_endpoint_refuses_an_unknown_sdk(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang?sdk=posthog-go-v3")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "sdk")
+
+    def test_golang_schema_hash_differs_between_sdks(self):
+        url = f"/api/projects/{self.project.id}/event_definitions/golang"
+        self.assertNotEqual(
+            self.client.get(url).json()["schema_hash"],
+            self.client.get(f"{url}?sdk=posthog-go-v2").json()["schema_hash"],
+        )
+
     def test_golang_endpoint_excludes_non_core_system_events(self):
         # $money is not a core PostHog event so it should be excluded
         # $pageview is a core event and should be included
@@ -532,7 +564,8 @@ class TestGolangGeneratorAPI(APIBaseTest):
         # Verify telemetry was called herre
         self._test_telemetry_called(mock_report)
 
-    def test_golang_code_compiles(self):
+    @parameterized.expand([(sdk.name.lower(), sdk) for sdk in GoSDK])
+    def test_golang_code_compiles(self, _name, sdk):
         """
         This test:
         1. Creates event definitions with schemas
@@ -562,17 +595,21 @@ class TestGolangGeneratorAPI(APIBaseTest):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
 
-            response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
+            response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang?sdk={sdk.value}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             go_content = response.json()["content"]
 
-            self._write_posthog_go_stub(tmpdir_path)
+            # The stub exists only at the requested major's import path, so a package
+            # that imports the other major does not resolve.
+            module_path = GO_SDK_IMPORT_PATHS[sdk]
+            stub_version = "v2.0.0" if module_path.endswith("/v2") else "v0.0.0"
+            self._write_posthog_go_stub(tmpdir_path, module_path)
 
             (tmpdir_path / "go.mod").write_text(
                 "module testmodule\n\n"
                 "go 1.21\n\n"
-                "require github.com/posthog/posthog-go v0.0.0\n\n"
-                "replace github.com/posthog/posthog-go => ./posthog-go\n"
+                f"require {module_path} {stub_version}\n\n"
+                f"replace {module_path} => ./posthog-go\n"
             )
 
             # Write generated types
@@ -589,7 +626,7 @@ class TestGolangGeneratorAPI(APIBaseTest):
 import (
 	"time"
 	"testmodule/typed"
-	"github.com/posthog/posthog-go"
+	"MODULE_PATH"
 )
 
 func main() {
@@ -634,7 +671,7 @@ func main() {
 	)
 	_ = cap4
 }
-"""
+""".replace("MODULE_PATH", module_path)
             )
 
             # Run Go compiler offline; the local stub resolves posthog-go.
@@ -680,7 +717,7 @@ func main() {
 
         self.assertIn("VerifiedNoSchemaCapture", code)
 
-    def _write_posthog_go_stub(self, tmpdir_path: Path) -> None:
+    def _write_posthog_go_stub(self, tmpdir_path: Path, module_path: str) -> None:
         """Write a minimal local posthog-go module so the compile check needs no network.
 
         It provides only the symbols the generated code and main.go reference:
@@ -688,7 +725,7 @@ func main() {
         """
         stub_dir = tmpdir_path / "posthog-go"
         stub_dir.mkdir()
-        (stub_dir / "go.mod").write_text("module github.com/posthog/posthog-go\n\ngo 1.21\n")
+        (stub_dir / "go.mod").write_text(f"module {module_path}\n\ngo 1.21\n")
         (stub_dir / "posthog.go").write_text(
             """package posthog
 
