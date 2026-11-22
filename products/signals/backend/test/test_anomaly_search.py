@@ -21,12 +21,20 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import ChartShare, FlaggedPoint, SeriesSummary, rank_series, rollup
+from products.signals.backend.anomaly_scores.read import (
+    ChartShare,
+    FlaggedPoint,
+    SeriesSummary,
+    chart_shares,
+    rank_series,
+    rollup,
+)
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
     SCORING_SOURCE_OFF_MESSAGE,
     SCORING_TURNED_OFF_MESSAGE,
+    interval_ranges,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
@@ -206,6 +214,58 @@ class TestAnomalyRanking(SimpleTestCase):
             2,
         )
         assert insight.anomaly_rate == 2 / 15
+
+
+class TestAnomalyIntervalRanges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("last_two_weeks_from_sunday", IntervalType.WEEK, "UTC", 0, _day(20), NOW, "2026-10-04T00:00:00+00:00"),
+            (
+                "last_two_weeks_from_monday_in_the_project_timezone",
+                IntervalType.WEEK,
+                "America/New_York",
+                1,
+                _day(20),
+                NOW,
+                "2026-10-05T00:00:00-04:00",
+            ),
+            ("last_month", IntervalType.MONTH, "UTC", 0, _day(20), NOW, "2026-09-01T00:00:00+00:00"),
+            ("day_keeps_the_requested_start", IntervalType.DAY, "UTC", 0, _day(20), NOW, "2026-10-20T00:00:00+00:00"),
+            (
+                "a_longer_range_applies_as_chosen",
+                IntervalType.WEEK,
+                "UTC",
+                0,
+                _day(1),
+                NOW,
+                "2026-10-01T00:00:00+00:00",
+            ),
+            (
+                "weeks_completed_by_a_past_end",
+                IntervalType.WEEK,
+                "UTC",
+                0,
+                _day(7),
+                _day(10),
+                "2026-09-20T00:00:00+00:00",
+            ),
+        ]
+    )
+    def test_starts_weekly_and_monthly_ranges_early_enough_to_hold_completed_buckets(
+        self,
+        _name: str,
+        interval: IntervalType,
+        timezone: str,
+        week_start_day: int,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        expected_from: str,
+    ) -> None:
+        team = Team(timezone=timezone, week_start_day=week_start_day)
+
+        [applied] = interval_ranges(team, [interval], date_from=date_from, date_to=date_to, now=NOW)
+
+        assert (applied.interval, applied.date_from.isoformat(), applied.date_to) == (interval, expected_from, date_to)
 
 
 @time_machine.travel(NOW, tick=False)
@@ -447,17 +507,26 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flagged_only_reads_flagged_series_first", 1, {}, 1, False),
-            ("every_series_counts_against_the_cap", 1, {"only_flagged": False}, 1, True),
-            ("flagged_series_alone_pass_the_cap", 2, {}, 1, True),
-            ("insight_rollups_need_every_series", 1, {"group_by": "insight"}, 1, True),
+            ("flagged_only_reads_flagged_series_first", 1, 0, {}, 1, False),
+            ("every_series_counts_against_the_cap", 1, 0, {"only_flagged": False}, 1, True),
+            ("flagged_series_alone_pass_the_cap", 2, 0, {}, 1, True),
+            ("insight_rollups_need_every_series", 1, 0, {"group_by": "insight"}, 1, True),
+            ("forged_series_never_count_against_the_cap", 1, 3, {}, 1, False),
         ]
     )
     def test_search_reports_when_the_series_cap_drops_series_it_needs(
-        self, _name: str, flagged: int, params: dict[str, Any], expected_rows: int, expected_capped: bool
+        self,
+        _name: str,
+        flagged: int,
+        forged: int,
+        params: dict[str, Any],
+        expected_rows: int,
+        expected_capped: bool,
     ) -> None:
         for index in range(flagged):
             self._score(_day(22), score=0.99, flag=1, series_key=f"flagged_{index}")
+        for index in range(forged):
+            self._score(_day(22), score=0.99, flag=1, series_key=f"forged_{index}", interval="second")
         for index in range(30):
             self._score(_day(22), score=0.10, flag=0, series_key=f"quiet_{index}")
 
@@ -471,6 +540,21 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             expected_capped,
             expected_capped,
         )
+
+    def test_chart_shares_count_each_requested_series_in_the_window_of_its_requested_interval(self) -> None:
+        # The insight was hourly before it turned daily, and its series kept the same key.
+        self._score(_day(12), score=0.90, flag=1, interval="hour")
+        self._score(_day(20), score=0.10, flag=0)
+        self._score(_day(22), score=0.90, flag=1)
+        # Before the daily chart window.
+        self._score(datetime.datetime(2026, 9, 10, tzinfo=datetime.UTC), score=0.90, flag=1)
+        for index in range(20):
+            self._score(_day(22), score=0.10, flag=0, series_key=f"other_{index}")
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES", 1):
+            shares = chart_shares(self.team, date_to=NOW, series={(self.insight.id, "signups"): IntervalType.DAY})
+
+        assert shares == {(self.insight.id, "signups"): ChartShare(scored_buckets=3, flagged_buckets=2)}
 
     def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
         for hours_ago in range(1, 25):
@@ -491,6 +575,32 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             [("weekly", "week"), ("older", "day")],
         ]
         assert [page["scored_through"] for page in pages] == ["2026-10-23T11:00:00+00:00"] * 2
+
+    def test_search_checks_weekly_and_monthly_series_in_a_short_range(self) -> None:
+        self.team.week_start_day = 1
+        self.team.save()
+        # The last 2 completed weeks start on Mondays Oct 5 and Oct 12, and the last completed month on Sep 1.
+        for week in (datetime.datetime(2026, 9, 28, tzinfo=datetime.UTC), _day(5), _day(12)):
+            self._score(week, score=0.99, flag=1, series_key="weekly", interval="week")
+        for month in (
+            datetime.datetime(2026, 8, 1, tzinfo=datetime.UTC),
+            datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
+        ):
+            self._score(month, score=0.99, flag=1, series_key="monthly", interval="month")
+        self._score(_day(19), score=0.99, flag=1, series_key="daily")
+
+        body = self._get("search", date_from="-3d").json()
+
+        assert {
+            row["series_key"]: (row["scored_buckets"], row["flagged_buckets"], row["expected_buckets"])
+            for row in body["series"]
+        } == {"weekly": (2, 2, 2), "monthly": (1, 1, 1)}
+        assert [(row["interval"], row["date_from"]) for row in body["interval_ranges"]] == [
+            ("hour", "2026-10-20T12:00:00+00:00"),
+            ("day", "2026-10-20T12:00:00+00:00"),
+            ("week", "2026-10-05T00:00:00+00:00"),
+            ("month", "2026-09-01T00:00:00+00:00"),
+        ]
 
     @parameterized.expand(
         [
