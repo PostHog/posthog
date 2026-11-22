@@ -13143,14 +13143,14 @@ Note (2026-11-19): Parsed every operation in the current Graph swagger.json. The
 
 ## Semaphore (Semaphore CI) — gaps
 
-Today (3): `deployment_targets`, `pipelines`, `workflows`
+Today (7): `deployment_history`, `deployment_targets`, `flaky_test_disruptions`, `flaky_tests`, `members`, `pipelines`, `workflows`
 
 Diffed against: <https://docs.semaphore.io/reference/api>
 
-- [ ] `Organization members (GET /api/v1alpha/members)` — resolve workflow requester IDs to people and compare build activity across organization members (high)
-- [ ] `Deployment target history (GET /api/v1alpha/deployment_targets/{target_id}/history)` — measure deployment frequency and outcomes, with links to the pipelines that caused each deployment (high)
-- [ ] `Flaky tests (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests)` — identify unreliable tests and measure their failure rates and disruption counts (high)
-- [ ] `Flaky test disruptions (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests/{id}/disruptions)` — connect unreliable tests to affected pipeline runs, branches, and commits (medium)
+- [x] `Organization members (GET /api/v1alpha/members)` — resolve workflow requester IDs to people and compare build activity across organization members (high) → `members` (full refresh, human users only)
+- [x] `Deployment target history (GET /api/v1alpha/deployment_targets/{target_id}/history)` — measure deployment frequency and outcomes, with links to the pipelines that caused each deployment (high) → `deployment_history` (full refresh, fan-out over `deployment_targets`)
+- [x] `Flaky tests (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests)` — identify unreliable tests and measure their failure rates and disruption counts (high) → `flaky_tests` (full refresh)
+- [x] `Flaky test disruptions (GET /api/v1alpha/projects/{project_id}/test_results/flaky_tests/{id}/disruptions)` — connect unreliable tests to affected pipeline runs, branches, and commits (medium) → `flaky_test_disruptions` (full refresh, fan-out over `flaky_tests`)
 - [ ] `Promotions (GET /api/v1alpha/promotions?pipeline_id={pipeline_id})` — compare promotion outcomes across pipelines and find failed release steps (medium)
 - [ ] `Project members (GET /api/v1alpha/projects/{project_id}/members)` — connect project access and roles to development activity (medium)
 - [ ] `Flaky test history (GET /api/v1alpha/projects/{project_id}/test_results/flaky_history)` — track changes in test reliability over time without reconstructing historical test states (medium)
