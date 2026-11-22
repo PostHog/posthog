@@ -162,6 +162,68 @@ describe('hogInvocationsLogic', () => {
         })
     })
 
+    describe('email outcome of a finished run', () => {
+        const succeededRun = [
+            'inv-1',
+            'hog_flow',
+            'succeeded',
+            1,
+            0,
+            '',
+            '',
+            '2026-11-20T10:00:00Z',
+            '2026-11-20T10:00:00Z',
+            '2026-11-20T10:00:00Z',
+            '2026-11-20T10:00:01Z',
+            1000,
+            'event-1',
+            'distinct-1',
+            'person-1',
+            '',
+        ]
+
+        // The messages are the warn and error log lines of the run, as the SES feedback handler writes them.
+        it.each([
+            {
+                messages: ['[Action:send_1] Permanent bounce to a@example.com, smtp; 550 5.1.1 user unknown'],
+                outcome: 'bounced',
+            },
+            { messages: ['Transient bounce to a@example.com'], outcome: 'bounced' },
+            { messages: ['[Action:send_1] Complaint from a@example.com, feedback type: abuse'], outcome: 'complained' },
+            {
+                messages: ['Complaint from a@example.com', '[Action:send_2] Undetermined bounce to b@example.com'],
+                outcome: 'bounced',
+            },
+            { messages: ['Email sent to bounce@example.com from Hedgehog <hi@example.com>'], outcome: null },
+            { messages: ['Error executing function: timeout'], outcome: null },
+        ])('reads $outcome from $messages', async ({ messages, outcome }) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
+                        const sql: string = ((await request.json()) as any).query.query
+                        if (sql.includes('FROM log_entries') && sql.includes('GROUP BY instance_id')) {
+                            return [200, { results: [['inv-1', 2, messages]] }]
+                        }
+                        if (sql.includes('argMax(error_message, version)')) {
+                            return [200, { results: [succeededRun] }]
+                        }
+                        return [200, { results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            logic.actions.loadRuns(null)
+            await expectLogic(logic).toDispatchActions(['loadRunsSuccess', 'enrichProblemsSuccess'])
+
+            expect(logic.values.runs[0]).toMatchObject({ problem_log_level: 'error', email_outcome: outcome })
+
+            logic.unmount()
+        })
+    })
+
     describe('reading filters from the URL', () => {
         beforeEach(() => {
             useMocks({

@@ -39,6 +39,7 @@ import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
 import { renderHogFunctionMessage } from '../logs/renderHogFunctionMessage'
 import {
     BulkRerunParams,
+    EmailOutcome,
     HOG_INVOCATIONS_RERUN_MAX_COUNT,
     HogInvocationRow,
     HogInvocationsFilters,
@@ -72,6 +73,19 @@ const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
         default:
             return 'warning'
     }
+}
+
+const EMAIL_OUTCOME_TAG: Record<EmailOutcome, { label: string; description: string }> = {
+    bounced: {
+        label: 'Email bounced',
+        description:
+            "The run finished, but the recipient's mail server refused the email. Expand the row to see the recipient and the reason.",
+    },
+    complained: {
+        label: 'Marked as spam',
+        description:
+            'The run finished, but the recipient marked the email as spam. Expand the row to see the recipient.',
+    },
 }
 
 const formatDurationMs = (ms: number | null): string => {
@@ -294,9 +308,13 @@ export function HogInvocations({
             dataIndex: 'status',
             width: 0,
             render: (_, row) => (
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                     <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-                    {row.problem_log_level && row.status === 'succeeded' ? (
+                    {row.email_outcome && row.status === 'succeeded' ? (
+                        <Tooltip title={EMAIL_OUTCOME_TAG[row.email_outcome].description}>
+                            <LemonTag type="danger">{EMAIL_OUTCOME_TAG[row.email_outcome].label}</LemonTag>
+                        </Tooltip>
+                    ) : row.problem_log_level && row.status === 'succeeded' ? (
                         <Tooltip
                             title={
                                 row.problem_log_level === 'error'
