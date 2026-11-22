@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
@@ -17,6 +18,7 @@ from posthog.query_cache import storage
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, Budget
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 QUERY_SINGLE_FLIGHT_FLAG = "query-single-flight"
 
@@ -257,24 +259,32 @@ class QuerySingleFlight:
         wait_while_leader_queries = (
             FLIGHT_MAX_LEADER_SECONDS[self._budget] + FLIGHT_LOCK_TTL if timeout_seconds is None else timeout_seconds
         )
-        start = time.monotonic()
-        leader_querying = False
-        interval = FLIGHT_POLL_INTERVAL
-        while True:
-            poll = self._poll()
-            if poll.wait is not None:
-                result = poll.wait
-                break
-            leader_querying = leader_querying or poll.leader_querying
-            deadline = start + (wait_while_leader_queries if leader_querying else wait_before_leader_queries)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                result = FlightWait(outcome="timeout")
-                break
-            time.sleep(min(interval, remaining))
-            interval = min(interval * 2, FLIGHT_MAX_POLL_INTERVAL)
-        QUERY_SINGLE_FLIGHT_WAIT_SECONDS.observe(time.monotonic() - start)
-        return result
+        with tracer.start_as_current_span("query_cache.single_flight.wait") as span:
+            start = time.monotonic()
+            leader_querying = False
+            interval = FLIGHT_POLL_INTERVAL
+            while True:
+                poll = self._poll()
+                if poll.wait is not None:
+                    result = poll.wait
+                    break
+                leader_querying = leader_querying or poll.leader_querying
+                deadline = start + (wait_while_leader_queries if leader_querying else wait_before_leader_queries)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    result = FlightWait(outcome="timeout")
+                    break
+                time.sleep(min(interval, remaining))
+                interval = min(interval * 2, FLIGHT_MAX_POLL_INTERVAL)
+            QUERY_SINGLE_FLIGHT_WAIT_SECONDS.observe(time.monotonic() - start)
+            span.set_attributes(
+                {
+                    "query_cache.single_flight.outcome": result.outcome,
+                    "query_cache.single_flight.budget": self._budget,
+                    "query_cache.single_flight.leader_querying": leader_querying,
+                }
+            )
+            return result
 
     def _poll(self) -> _FlightPoll:
         """While the leader holds the lock, whether it has started querying, otherwise what it published."""

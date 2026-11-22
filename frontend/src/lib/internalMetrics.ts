@@ -28,6 +28,7 @@ export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
     context: string
     scene: string | null
     time_since_mount_ms: number
+    metadata_load_ms?: number
     failed_tile_count?: number
     last_tile_id?: string | null
     last_tile_kind?: string | null

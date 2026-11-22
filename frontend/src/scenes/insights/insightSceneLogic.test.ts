@@ -53,6 +53,200 @@ describe('insightSceneLogic', () => {
         sceneLogic.mount()
     })
 
+    it.each([
+        { cached: false, queryOverride: false },
+        { cached: true, queryOverride: false },
+        { cached: true, queryOverride: true },
+    ])(
+        'includes metadata in saved page load timing (cached: $cached, override: $queryOverride)',
+        async ({ cached, queryOverride }) => {
+            const useMetadataResult = cached && !queryOverride
+            let now = 0
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            const pageLoads = (): unknown[][] =>
+                capture.mock.calls.filter(
+                    ([event, properties]) => event === 'time to see data' && properties?.context === 'saved-insight'
+                )
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => {
+                        now = 400
+                        return {
+                            results: [
+                                {
+                                    id: 42,
+                                    short_id: Insight42,
+                                    query: { kind: NodeKind.InsightVizNode, source: examples.InsightTrendsQuery },
+                                    result: cached ? [] : null,
+                                    is_cached: cached,
+                                },
+                            ],
+                        }
+                    },
+                },
+            })
+            try {
+                router.actions.push(
+                    combineUrl(
+                        urls.insightView(Insight42),
+                        {},
+                        queryOverride
+                            ? {
+                                  q: JSON.stringify({
+                                      kind: NodeKind.InsightVizNode,
+                                      source: examples.InsightTrendsQuery,
+                                  }),
+                              }
+                            : {}
+                    ).url
+                )
+                logic = insightSceneLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(pageLoads()).toHaveLength(useMetadataResult ? 1 : 0)
+                now = 1000
+                const node = dataNodeLogic.findMounted({
+                    key: insightVizDataNodeKey(logic.values.insightLogicRef!.logic.props),
+                    query: examples.InsightTrendsQuery,
+                })!
+                await expectLogic(node, () =>
+                    node.actions.setResponse({ results: [], is_cached: false })
+                ).toFinishAllListeners()
+
+                expect(pageLoads()).toEqual([
+                    [
+                        'time to see data',
+                        expect.objectContaining({
+                            type: 'page_load',
+                            context: 'saved-insight',
+                            scene: Scene.Insight,
+                            status: 'success',
+                            metadata_load_ms: 400,
+                            time_to_see_data_ms: useMetadataResult ? 400 : 1000,
+                            insights_fetched_cached: useMetadataResult ? 1 : 0,
+                        }),
+                    ],
+                ])
+                logic.unmount()
+                expect(pageLoads()).toHaveLength(1)
+            } finally {
+                clock.mockRestore()
+                capture.mockRestore()
+            }
+        }
+    )
+
+    it('records cancellation when leaving before saved insight metadata arrives', async () => {
+        let now = 0
+        const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        let releaseMetadata!: () => void
+        const pendingMetadata = new Promise<void>((resolve) => {
+            releaseMetadata = resolve
+        })
+        let requestStarted!: () => void
+        const requested = new Promise<void>((resolve) => {
+            requestStarted = resolve
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': async () => {
+                    requestStarted()
+                    await pendingMetadata
+                    return { results: [{ id: 42, short_id: Insight42, result: [] }] }
+                },
+            },
+        })
+        try {
+            router.actions.push(urls.insightView(Insight42))
+            logic = insightSceneLogic()
+            logic.mount()
+            await requested
+            now = 300
+            logic.unmount()
+            releaseMetadata()
+
+            expect(
+                capture.mock.calls.filter(
+                    ([event, properties]) => event === 'time to see data' && properties?.context === 'saved-insight'
+                )
+            ).toEqual([
+                ['time to see data', expect.objectContaining({ status: 'cancelled', time_to_see_data_ms: 300 })],
+            ])
+        } finally {
+            releaseMetadata()
+            clock.mockRestore()
+            capture.mockRestore()
+        }
+    })
+
+    it.each(['metadata', 'query', 'query_response'])(
+        'records one saved page failure in the %s phase',
+        async (phase) => {
+            let now = 0
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => {
+                        now = 400
+                        return phase === 'metadata'
+                            ? [404, { detail: 'Not found' }]
+                            : {
+                                  results: [
+                                      {
+                                          id: 42,
+                                          short_id: Insight42,
+                                          query: { kind: NodeKind.InsightVizNode, source: examples.InsightTrendsQuery },
+                                          result: null,
+                                      },
+                                  ],
+                              }
+                    },
+                },
+            })
+            try {
+                router.actions.push(urls.insightView(Insight42))
+                logic = insightSceneLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                if (phase !== 'metadata') {
+                    now = 1000
+                    const node = dataNodeLogic.findMounted({
+                        key: insightVizDataNodeKey(logic.values.insightLogicRef!.logic.props),
+                        query: examples.InsightTrendsQuery,
+                    })!
+                    await expectLogic(node, () => {
+                        if (phase === 'query') {
+                            node.actions.loadDataFailure('Query failed', { queryId: 'failed-query', status: 400 })
+                        } else {
+                            node.actions.setResponse({ error: 'Query failed' })
+                        }
+                    }).toFinishAllListeners()
+                }
+                logic.unmount()
+                expect(
+                    capture.mock.calls.filter(
+                        ([event, properties]) => event === 'time to see data' && properties?.context === 'saved-insight'
+                    )
+                ).toEqual([
+                    [
+                        'time to see data',
+                        expect.objectContaining({
+                            status: 'failure',
+                            time_to_see_data_ms: phase === 'metadata' ? 400 : 1000,
+                        }),
+                    ],
+                ])
+            } finally {
+                clock.mockRestore()
+                capture.mockRestore()
+            }
+        }
+    )
+
     it('captures an insight start after the logic unmounts during the debounce', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         jest.useFakeTimers()

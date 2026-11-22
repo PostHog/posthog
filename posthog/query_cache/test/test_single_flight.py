@@ -7,6 +7,9 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
 from posthog.query_cache import single_flight, storage
@@ -19,6 +22,43 @@ def _cache_key() -> str:
 
 
 class TestQuerySingleFlight(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("done", {"last_refresh": "2026-01-01T00:00:00+00:00"}, False),
+            ("failed", {"failure": {"message": "Private query details", "code": 241}}, False),
+            ("released", None, False),
+            ("timeout", None, True),
+            ("unavailable", {"last_refresh": "invalid"}, False),
+        ]
+    )
+    def test_wait_exports_its_outcome_under_the_request_span(self, outcome, publication, locked):
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        self.addCleanup(provider.shutdown)
+        tracer = provider.get_tracer(__name__)
+        flight = QuerySingleFlight(_cache_key(), BUDGET_INTERACTIVE)
+        client = storage.query_cache_raw_client()
+        if publication is not None:
+            client.set(flight.result_key, json.dumps(publication))
+        if locked:
+            client.set(flight.lock_key, "leader")
+
+        with (
+            mock.patch.object(single_flight, "tracer", tracer),
+            tracer.start_as_current_span("request") as parent,
+        ):
+            assert flight.wait(timeout_seconds=0).outcome == outcome
+
+        spans = [span for span in exporter.get_finished_spans() if span.name == "query_cache.single_flight.wait"]
+        assert len(spans) == 1
+        assert spans[0].parent == parent.get_span_context()
+        assert spans[0].attributes == {
+            "query_cache.single_flight.outcome": outcome,
+            "query_cache.single_flight.budget": BUDGET_INTERACTIVE,
+            "query_cache.single_flight.leader_querying": False,
+        }
+
     def test_only_one_leader_until_release(self):
         key = _cache_key()
         leader = QuerySingleFlight(key, BUDGET_INTERACTIVE)

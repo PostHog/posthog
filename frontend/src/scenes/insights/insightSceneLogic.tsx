@@ -72,6 +72,7 @@ import {
 import { AlertType } from 'products/alerts/frontend/types'
 import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+import { insightPageTimingLogic } from 'products/product_analytics/frontend/insights/insightPageTimingLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { QuerySchema } from '../../queries/schema/schema-general'
@@ -745,6 +746,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
          * when the URL insight does not match which insight this editor was opened from.
          */
         reloadInsightLogic: () => {
+            const startedAt = performance.now()
+            cache.disposables.dispose('pageLoadTiming')
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
             const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
@@ -788,6 +791,28 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     values.filtersOverride,
                     values.variablesOverride,
                     values.tileFiltersOverride
+                )
+            }
+            const timingProps = values.insightLogicRef?.logic.props
+            if (
+                timingProps &&
+                insightId &&
+                insightId !== 'new' &&
+                !insightId.startsWith('new-') &&
+                (values.insightMode === ItemMode.View || values.insightMode === ItemMode.Edit)
+            ) {
+                cache.disposables.add(
+                    () => {
+                        const timing = insightPageTimingLogic(timingProps)
+                        const unmount = timing.mount()
+                        timing.actions.startPageLoad(startedAt, !router.values.hashParams.q)
+                        return () => {
+                            timing.actions.finishPageLoad('cancelled')
+                            unmount()
+                        }
+                    },
+                    'pageLoadTiming',
+                    { pauseOnPageHidden: false }
                 )
             }
         },
