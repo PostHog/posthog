@@ -226,13 +226,14 @@ class ResendImportProvider(ImportProvider):
             label="Contacts",
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. Each "
-                "person updated counts as one event. Needs Suppression list, Unsubscribed contacts and Topic "
+                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. "
+                "Needs Suppression list, Unsubscribed contacts and Topic "
                 "preferences selected too, so no one who left in Resend gets marketing email."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=("suppressions", "opt_outs", "topic_opt_outs"),
             needs=("suppressions", "opt_outs", "topic_opt_outs"),
+            counts_as_events=True,
         ),
         new_people_step("Resend"),
         # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
@@ -242,11 +243,12 @@ class ResendImportProvider(ImportProvider):
             description=(
                 "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
                 "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads up to about 25,000 contacts an hour. Each person updated counts as one event."
+                "PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),
             needs=("contacts",),
+            counts_as_events=True,
         ),
     )
 

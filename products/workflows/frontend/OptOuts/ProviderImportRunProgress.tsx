@@ -1,5 +1,7 @@
+import { useState } from 'react'
+
 import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import type {
     ImportStepItemApi,
@@ -53,6 +55,38 @@ function ItemRow({ item, onOpenLink }: { item: ImportStepItemApi; onOpenLink?: (
     )
 }
 
+// The window scrolls as a whole, so a long list shows its first rows until the person asks for the rest.
+const COLLAPSED_ITEM_COUNT = 5
+
+function StepItems({ step, onOpenLink }: { step: ImportStepProgressApi; onOpenLink?: () => void }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const shown = expanded ? step.items : step.items.slice(0, COLLAPSED_ITEM_COUNT)
+    const hidden = step.items.length - shown.length
+
+    return (
+        <ul className="m-0 ml-6 pl-0 list-none divide-y divide-border">
+            {shown.map((item, index) => (
+                <ItemRow key={`${item.label}-${index}`} item={item} onOpenLink={onOpenLink} />
+            ))}
+            {hidden > 0 && (
+                <li className="py-1">
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => setExpanded(true)}
+                        data-attr={`${step.key}-import-items-show-all`}
+                    >
+                        Show {hidden.toLocaleString()} more
+                    </LemonButton>
+                </li>
+            )}
+            {step.items_omitted > 0 && (
+                <li className="py-1.5 text-xs text-secondary">And {step.items_omitted.toLocaleString()} more.</li>
+            )}
+        </ul>
+    )
+}
+
 export function ProviderImportRunProgress({
     run,
     onOpenLink,
@@ -98,18 +132,7 @@ export function ProviderImportRunProgress({
                             )}
                         </ul>
                     )}
-                    {step.items.length > 0 && (
-                        <ul className="m-0 ml-6 pl-0 list-none max-h-60 overflow-y-auto divide-y divide-border">
-                            {step.items.map((item, index) => (
-                                <ItemRow key={`${item.label}-${index}`} item={item} onOpenLink={onOpenLink} />
-                            ))}
-                            {step.items_omitted > 0 && (
-                                <li className="py-1.5 text-xs text-secondary">
-                                    And {step.items_omitted.toLocaleString()} more.
-                                </li>
-                            )}
-                        </ul>
-                    )}
+                    {step.items.length > 0 && <StepItems step={step} onOpenLink={onOpenLink} />}
                 </li>
             ))}
         </ul>
