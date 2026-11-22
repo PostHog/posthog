@@ -2,8 +2,9 @@
 
 import os
 import sys
-import select
+import queue
 import signal
+import threading
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -41,28 +42,49 @@ def exits_once():
     open(EXITED_ONCE, "w").close()
 
 
+def ignores_sigterm():
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    report("ignores_sigterm")
+    while True:
+        signal.pause()
+
+
 def fails():
     report("fails")
     sys.exit(3)
 
 
-ROLES = {{"stays": stays, "exits_once": exits_once, "fails": fails}}
-names, min_uptime_seconds = sys.argv[1].split(","), float(sys.argv[2])
-sys.exit(shared_python_parent.supervise({{name: ROLES[name] for name in names}}, min_uptime_seconds))
+ROLES = {{"stays": stays, "exits_once": exits_once, "fails": fails, "ignores_sigterm": ignores_sigterm}}
+names, min_uptime_seconds, stop_grace_seconds = sys.argv[1].split(","), float(sys.argv[2]), float(sys.argv[3])
+sys.exit(
+    shared_python_parent.supervise(
+        {{name: ROLES[name] for name in names}},
+        min_uptime_seconds,
+        stop_resend_seconds=0.2,
+        stop_grace_seconds=stop_grace_seconds,
+    )
+)
 """
 
 
 class TestSharedPythonParent(unittest.TestCase):
-    def start(self, tmp: str, roles: str, min_uptime_seconds: int) -> subprocess.Popen:
+    def setUp(self) -> None:
+        self.reports: dict[int, queue.Queue[str]] = {}
+
+    def start(self, tmp: str, roles: str, min_uptime_seconds: int, stop_grace_seconds: float = 60) -> subprocess.Popen:
         Path(tmp, "driver.py").write_text(DRIVER)
         launcher = subprocess.Popen(
-            [sys.executable, "driver.py", roles, str(min_uptime_seconds)],
+            [sys.executable, "driver.py", roles, str(min_uptime_seconds), str(stop_grace_seconds)],
             cwd=tmp,
             stdout=subprocess.PIPE,
             text=True,
             start_new_session=True,
         )
         self.addCleanup(self.kill, launcher)
+        assert launcher.stdout is not None
+        lines: queue.Queue[str] = queue.Queue()
+        self.reports[launcher.pid] = lines
+        threading.Thread(target=lambda: [lines.put(line) for line in launcher.stdout], daemon=True).start()
         return launcher
 
     def kill(self, launcher: subprocess.Popen) -> None:
@@ -71,15 +93,13 @@ class TestSharedPythonParent(unittest.TestCase):
         except ProcessLookupError:
             pass
         launcher.wait()
-        assert launcher.stdout is not None
-        launcher.stdout.close()
 
     def read_report(self, launcher: subprocess.Popen) -> tuple[str, int, int]:
-        assert launcher.stdout is not None
-        ready, _, _ = select.select([launcher.stdout], [], [], 30)
-        if not ready:
+        try:
+            line = self.reports[launcher.pid].get(timeout=30)
+        except queue.Empty:
             self.fail("no role reported within 30 seconds")
-        name, imported_by, pid = launcher.stdout.readline().split()
+        name, imported_by, pid = line.split()
         return name, int(imported_by), int(pid)
 
     def test_roles_fork_from_the_parent_and_a_role_that_exits_is_started_again(self) -> None:
@@ -101,6 +121,16 @@ class TestSharedPythonParent(unittest.TestCase):
             launcher = self.start(tmp, "stays,fails", min_uptime_seconds=3600)
 
             self.assertEqual(launcher.wait(timeout=30), 1)
+
+    def test_a_role_that_ignores_sigterm_does_not_keep_the_launcher_alive_past_the_grace_period(self) -> None:
+        with TemporaryDirectory() as tmp:
+            launcher = self.start(tmp, "ignores_sigterm,stays", min_uptime_seconds=0, stop_grace_seconds=1)
+            for _ in range(2):
+                self.read_report(launcher)
+
+            launcher.terminate()
+
+            self.assertEqual(launcher.wait(timeout=30), 0)
 
 
 if __name__ == "__main__":

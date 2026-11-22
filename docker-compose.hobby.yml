@@ -845,7 +845,7 @@ services:
         environment:
             <<: *hypercache-s3
             # Shared secret for authenticated Django → flags calls (flag test evaluation);
-            # must match INTERNAL_REQUEST_TOKEN on web and worker. The installers generate it.
+            # must match INTERNAL_REQUEST_TOKEN on web, which also runs the worker. The installers generate it.
             # Never fall back to POSTHOG_SECRET: this container faces the internet, and that
             # value is Django's SECRET_KEY.
             INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}

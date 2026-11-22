@@ -47,6 +47,15 @@ TEMPORAL_METRICS_PORT = "8003"
 # A role that exits before this many seconds have passed counts as unable to start.
 MIN_UPTIME_SECONDS = 60
 
+# After a stop, the launcher sends SIGTERM again to the roles that remain on this interval, because
+# a worker can lose the first one while it starts up. This is the interval that
+# bin/temporal-django-worker uses.
+STOP_RESEND_SECONDS = 30
+# The launcher then kills the roles that remain. The Temporal worker waits up to 5 minutes for its
+# activities to finish (DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT in posthog/temporal/common/shutdown.py),
+# so this is longer than that. A Celery task that is still running at this point is lost.
+STOP_GRACE_SECONDS = 330
+
 
 def log(message: str) -> None:
     sys.stderr.write(f"shared_python_parent: {message}\n")
@@ -77,6 +86,11 @@ def run_web(prometheus_dir: str | None) -> None:
 def run_celery() -> None:
     from celery.__main__ import main
 
+    from posthog.async_migrations.setup import setup_async_migrations
+
+    # Django skips this in the parent's ready() by default, which keeps web and Temporal as they
+    # were in their own containers. bin/docker-worker-celery turns it on for the worker only.
+    setup_async_migrations()
     os.environ["CELERY_METRICS_PORT"] = CELERY_METRICS_PORT
     argv = ["celery", "-A", "posthog", "worker", "-Ofair", "-n", "node@%h"]
     argv += ["--beat", "--scheduler", "redbeat.RedBeatScheduler", "--without-mingle", "--without-heartbeat"]
@@ -101,8 +115,6 @@ def run_temporal() -> None:
 
 def import_the_app() -> None:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-    # bin/docker-worker-celery starts the worker with this value, and Django reads it during the import.
-    os.environ["SKIP_ASYNC_MIGRATIONS_SETUP"] = "0"
     # posthog/celery.py reads this during the import and deletes the metric files in that directory
     # when the worker starts, so it must not be the directory that web writes to.
     os.environ["PROMETHEUS_MULTIPROC_DIR"] = CELERY_PROMETHEUS_DIR
@@ -125,29 +137,61 @@ def import_the_app() -> None:
     gc.freeze()
 
 
-def supervise(roles: dict[str, Callable[[], None]], min_uptime_seconds: float = MIN_UPTIME_SECONDS) -> int:
+def supervise(
+    roles: dict[str, Callable[[], None]],
+    min_uptime_seconds: float = MIN_UPTIME_SECONDS,
+    stop_resend_seconds: float = STOP_RESEND_SECONDS,
+    stop_grace_seconds: float = STOP_GRACE_SECONDS,
+) -> int:
     children: dict[int, tuple[str, float]] = {}
     stopping = False
+    stopped_at = 0.0
+    last_term_at = 0.0
+    stop_signals = {signal.SIGTERM, signal.SIGINT}
 
     def start(name: str) -> None:
-        pid = os.fork()
-        if pid == 0:
-            signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            signal.signal(signal.SIGINT, signal.default_int_handler)
-            # The role exits the way it does as its own process, so its exit handlers run.
-            roles[name]()
-            sys.exit(0)
-        children[pid] = (name, time.monotonic())
-        log(f"started {name} as pid {pid}")
+        # A stop signal that arrives between the fork and the bookkeeping would leave a child
+        # that nobody signals, so the signals wait until both are done.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, stop_signals)
+        try:
+            if stopping:
+                return
+            pid = os.fork()
+            if pid == 0:
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                signal.signal(signal.SIGINT, signal.default_int_handler)
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                # The role exits the way it does as its own process, so its exit handlers run.
+                roles[name]()
+                sys.exit(0)
+            children[pid] = (name, time.monotonic())
+            log(f"started {name} as pid {pid}")
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
-    def stop(signum: int | None = None, frame: object = None) -> None:
-        nonlocal stopping
-        stopping = True
+    def send(signum: int) -> None:
         for pid in list(children):
             try:
-                os.kill(pid, signal.SIGTERM)
+                os.kill(pid, signum)
             except ProcessLookupError:
                 pass
+
+    def stop(signum: int | None = None, frame: object = None) -> None:
+        nonlocal stopping, stopped_at, last_term_at
+        if not stopping:
+            stopped_at = last_term_at = time.monotonic()
+        stopping = True
+        send(signal.SIGTERM)
+
+    def escalate() -> None:
+        nonlocal last_term_at
+        now = time.monotonic()
+        if now - stopped_at >= stop_grace_seconds:
+            log(f"{len(children)} roles are still running after {stop_grace_seconds:.0f} seconds, killing them")
+            send(signal.SIGKILL)
+        elif now - last_term_at >= stop_resend_seconds:
+            last_term_at = now
+            send(signal.SIGTERM)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -156,8 +200,17 @@ def supervise(roles: dict[str, Callable[[], None]], min_uptime_seconds: float = 
 
     exit_code = 0
     while children:
-        pid, status = os.wait()
-        # As PID 1 of a container this process also reaps orphans that are not its roles.
+        try:
+            pid, status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if pid == 0:
+            if stopping:
+                escalate()
+            time.sleep(0.1)
+            continue
+        # When this process is PID 1 of its container, orphaned descendants are reparented to it.
+        # Reaping them here keeps them from staying as zombies.
         if pid not in children:
             continue
         name, started_at = children.pop(pid)
@@ -174,6 +227,9 @@ def supervise(roles: dict[str, Callable[[], None]], min_uptime_seconds: float = 
 
 
 def main() -> None:
+    if os.environ.get("GRANIAN_INTERFACE", "asgi") != "asgi":
+        log("the web role runs the ASGI app, so GRANIAN_INTERFACE must be asgi")
+        sys.exit(2)
     web_prometheus_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
     started_at = time.monotonic()
     import_the_app()
