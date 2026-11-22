@@ -45,7 +45,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
-const EMAIL_ACTION = 'email'
+export const EMAIL_ACTION = 'email'
 export const WEBHOOK_ACTION = 'webhook'
 
 const unitAddress = (unit: Unit): string => `${unit.unitId}@${UNIT_EMAIL_DOMAIN}`

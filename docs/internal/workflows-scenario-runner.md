@@ -46,14 +46,15 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 **Evidence** stays on the box, under `$XDG_CACHE_HOME/posthog-scenarios/<run id>/` (`~/.cache` when the variable is unset), outside the repository:
 
-| File              | Holds                                                                             |
-| ----------------- | --------------------------------------------------------------------------------- |
-| `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects        |
-| `truth.json`      | Every request the provider edge received and how it answered                      |
-| `logs/<role>.log` | Each role's log lines from this run                                               |
-| `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
-| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
-| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used          |
+| File              | Holds                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects                                     |
+| `truth.json`      | Every request the provider edge received and how it answered                                                   |
+| `writer-cpu.json` | Each read of the Aurora writer's CPU for a writer CPU bar: its window, and a point a minute or why it has none |
+| `logs/<role>.log` | Each role's log lines from this run                                                                            |
+| `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                              |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second                                      |
+| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used                                       |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
@@ -230,6 +231,7 @@ Each card is drawn from a failure class on the delivery path.
 
 A `cyclotron-breaking-point` run that holds every step through 320x ends as a ceiling at 320x, which is a valid result and not a failure of the card.
 The event pipeline rate limits each workflow (`CDP_RATE_LIMITER_REFILL_RATE`, 100 runs a second by default) and drops the runs over it, so one workflow carrying a ramp's top step would measure that limit and not Cyclotron. Every seeded team runs one workflow per traffic kind, and units pick their team at random, so a kind's load splits over `setup.teams` workflows, as traffic from many customers does. The loader refuses a card whose event or capture traffic would send any workflow more than 80% of the limit at its top step, reading the limit from the profile's settings or the server default, because the card may load on a machine other than the run host. The roles drop an inherited limit from the run host's environment, so they run with the limit the loader checked. The loader names the team count that would fit. It also refuses an event kind listed twice, because each listing seeds its own workflow and every unit would run twice. Transactional sends are not rate limited by workflow.
+Every email worker takes a token from one shared SES bucket (`CDP_SES_RATE_LIMIT_REFILL_PER_SECOND`, 100 a second by default) for each job it dequeues, so a ramp could measure that bucket and not the email queue. For a card that sends email on a profile with a `load` block, the loader refuses a top step whose email claim target, scaled and raised by the load tolerance, passes 50% of the refill, and names the refill that fits. It also refuses a `CDP_SES_RATE_LIMIT_CAPACITY` under one consumer batch for each email replica. Each replica claims tokens for every row it sees, so on a shallow queue one job can cost up to one token per replica. The check leaves that worst case out, because no run measures it. A `load` block on a card that sends email must name `claimsPerSecond.email`. A profile without a `load` block names no email claim rate, so the loader does not check it. The roles drop an inherited `CDP_SES_RATE_LIMIT_REFILL_PER_SECOND`, `CDP_SES_RATE_LIMIT_CAPACITY` and `CONSUMER_BATCH_SIZE` from the run host's environment, so they run with the values the loader checked; set them in the profile instead.
 On `cyclotron-breaking-point`, a broken bar or a refusal over the `refused_at_intake` gate at step N halts the drive by the end of step N+1, step N+2 never starts before step N is judged, and the run places the break at step N. The other invariants are judged after convergence: they place a break at its step but do not stop the drive.
 
 ## Call paths

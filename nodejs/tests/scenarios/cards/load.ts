@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
-import { TRAFFIC } from '../generator/traffic'
+import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
@@ -140,13 +140,17 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
 const RATE_LIMIT_SHARE = 0.8
 
 // The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
-function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
-    const key = 'CDP_RATE_LIMITER_REFILL_RATE'
+function settingOf(profile: Profile, defaults: Settings, key: string): number {
     const fallback = Number(defaults[key])
     const raw = profile.settings[key]
-    const limit = raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
-    const ceiling = limit * RATE_LIMIT_SHARE
-    const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+    return raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
+}
+
+const topScaleOf = (card: Card): number => Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+
+function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
+    const ceiling = settingOf(profile, defaults, 'CDP_RATE_LIMITER_REFILL_RATE') * RATE_LIMIT_SHARE
+    const topScale = topScaleOf(card)
     return card.drive.traffic.flatMap(({ name }) => {
         const kind = TRAFFIC.find((traffic) => traffic.name === name)
         const shape = kind?.profile.safeParse(profile.traffic[name])
@@ -160,6 +164,50 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
                   `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
               ]
     })
+}
+
+const SES_SHARE = 0.5
+
+const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
+
+function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
+    const sendsEmail = card.drive.traffic.some(({ name }) =>
+        TRAFFIC.find((traffic) => traffic.name === name)?.deliveries.includes(EMAIL_ACTION)
+    )
+    if (profile.load === undefined || !sendsEmail) {
+        return []
+    }
+    const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
+    const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
+    const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
+    return [
+        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
+        ...(capacity >= burst
+            ? []
+            : [
+                  `profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: ${capacity} cannot hold one batch for every email replica (${replicas}) at once; raise it to ${burst} or more`,
+              ]),
+    ]
+}
+
+function checkSesRefill(
+    card: Card,
+    profile: Profile,
+    defaults: Settings,
+    claims: number | undefined,
+    tolerance: number
+): string[] {
+    if (claims === undefined) {
+        return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
+    }
+    const topScale = topScaleOf(card)
+    const peak = withoutFloatNoise(claims * topScale * (1 + tolerance))
+    const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
+    return peak <= ceiling
+        ? []
+        : [
+              `profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to ${Math.ceil(peak)} jobs a second at the ${topScale}x step, over ${ceiling}, ${SES_SHARE * 100}% of the SES limiter refill; raise it to ${Math.ceil(peak / SES_SHARE)} or more`,
+          ]
 }
 
 // Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
@@ -232,6 +280,7 @@ function check(
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
+                  ...checkSesLimiter(card, loaded.profile, defaults),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),
