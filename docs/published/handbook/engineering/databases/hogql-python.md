@@ -317,7 +317,8 @@ Custom properties on `posthog.ai_events` use their event property definitions fo
 Properties mapped to native String AI columns stay strings even when property detection reports another type.
 Subqueries and CTEs expose the types of the expressions they return, including reads kept as strings for parsing.
 Unconverted Duration projections keep their stored string type.
-Numeric parsers such as `toFloatOrZero` stringify numeric projections before parsing them.
+`toFloatOrZero` and `toIntOrZero` stringify non-String projections before parsing them.
+`toFloatOrDefault` and `toIntOrDefault` keep native numeric inputs, including decimal truncation for integer conversions.
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.

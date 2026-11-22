@@ -317,15 +317,31 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         assert result.results == [(123.0, True)]
 
     @parameterized.expand(
-        [(table, projection) for table in ("events", "posthog.ai_events") for projection in ("cte", "subquery")]
+        [
+            (table, projection, property_type, value, expected)
+            for table in ("events", "posthog.ai_events")
+            for projection in ("cte", "subquery")
+            for property_type, value, expected in (
+                ("Numeric", 123, (123.0, 123)),
+                ("Boolean", True, (0.0, 0)),
+                ("DateTime", "2024-04-05T06:07:08Z", (0.0, 0)),
+            )
+        ]
     )
-    def test_numeric_projection_inside_string_parser(self, table: str, projection: str) -> None:
-        PropertyDefinition.objects.create(team=self.team, name="example_number", property_type="Numeric")
+    def test_typed_projection_inside_string_parser(
+        self,
+        table: str,
+        projection: str,
+        property_type: str,
+        value: str | bool | int,
+        expected: tuple[float | int, ...],
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_number", property_type=property_type)
         event = {
             "event": "$ai_generation",
             "team": self.team,
             "distinct_id": "example-user",
-            "properties": {"example_number": 123},
+            "properties": {"example_number": value},
         }
         if table == "events":
             _create_event(**event)
@@ -333,14 +349,17 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
             bulk_create_ai_events([event])
 
         source = f"SELECT properties.example_number AS n FROM {table}"
-        select = "SELECT toFloatOrZero(n), toIntOrZero(n), toFloatOrDefault(n, 7), toIntOrDefault(n, 7)"
+        select = "SELECT toFloatOrZero(n), toIntOrZero(n)"
+        if property_type == "Numeric":
+            select += ", toFloatOrDefault(n, 7), toIntOrDefault(n, 7)"
+            expected += expected
         query = (
             f"WITH numbers AS ({source}) {select} FROM numbers" if projection == "cte" else f"{select} FROM ({source})"
         )
 
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
-        assert result.results == [(123.0, 123, 123.0, 123)]
+        assert result.results == [expected]
 
     @parameterized.expand(
         [

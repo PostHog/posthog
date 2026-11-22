@@ -58,6 +58,7 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
@@ -77,6 +78,15 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    def test_default_numeric_conversions_preserve_decimal_values(self) -> None:
+        result = execute_hogql_query(
+            "SELECT toIntOrDefault(toDecimal('3.50', 2), 7), toFloatOrDefault(toDecimal('3.50', 2), 7)",
+            team=self.team,
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3, 3.5)]
 
     @parameterized.expand(
         [

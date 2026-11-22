@@ -286,10 +286,12 @@ class PropertySwapper(CloningVisitor):
         ):
             value_type = result.expr.type
             if isinstance(value_type, ast.PropertyType) and value_type.joined_subquery is None:
+                # An unconverted property exports its stored type, which can differ from its detected type.
                 constant_type = dataclasses.replace(
                     value_type.field_type.resolve_constant_type(self.context), nullable=True
                 )
                 if constant_type == value_type.resolve_constant_type(self.context):
+                    # Rebuilding an unchanged CTE field would lose its existing property null-comparison semantics.
                     return result
             else:
                 constant_type = value_type.resolve_constant_type(self.context)

@@ -187,7 +187,8 @@ class Program(AST):
 class FieldAliasType(Type):
     alias: str
     type: Type
-    # Keep the source binding for property lowering when a conversion changes the projected type.
+    # The type the alias projects when a property conversion changes it.
+    # `type` keeps the original PropertyType because property lowering still reads it.
     constant_type: Optional[ConstantType] = None
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
