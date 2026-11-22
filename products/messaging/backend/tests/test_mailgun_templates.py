@@ -10,7 +10,7 @@ from parameterized import parameterized
 from products.messaging.backend.provider_imports import mailgun_templates
 from products.messaging.backend.provider_imports.mailgun_templates import convert_text, convert_version
 
-ESCAPED_X = "{{ variables.x }}"
+ESCAPED_X = '{{ variables.x | join: "," }}'
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 
 
@@ -23,7 +23,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         [
             ("text", "handlebars", "<p>{{x}}</p>", f"<p>{ESCAPED_X}</p>"),
             ("spaces", "handlebars", "<p>{{ x }}</p>", f"<p>{ESCAPED_X}</p>"),
-            ("raw_in_text", "handlebars", "<p>{{{x}}}</p>", "<p>{{ variables.x | raw }}</p>"),
+            ("raw_in_text", "handlebars", "<p>{{{x}}}</p>", '<p>{{ variables.x | join: "," | raw }}</p>'),
             ("handlebars_link", "handlebars", '<a href="{{x}}">', f'<a href="{ESCAPED_X}">'),
             (
                 "after_a_style",
@@ -54,6 +54,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("raw_in_an_attribute", '<a title="{{{x}}}">', "{{{x}}}"),
             ("tag_name", "<{{x}}>", "{{x}}"),
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
+            ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
             ("after_any_script", "<script>x</script><p>{{x}}</p>", "{{x}}"),
             ("script", "<script>var x = {{x}};</script>", "{{x}}"),
@@ -97,24 +98,24 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     def test_a_template_kept_as_text_has_a_note(self) -> None:
         converted = convert_version({"template": "<p>{{name}}</p><p>{{lookup a b}}</p>", "headers": {"Subject": "Hi"}})
 
-        assert converted.html == "<p>{{ variables.name }}</p><p>{% raw %}{{lookup a b}}{% endraw %}</p>"
+        assert converted.html == '<p>{{ variables.name | join: "," }}</p><p>{% raw %}{{lookup a b}}{% endraw %}</p>'
         assert any("can't convert {{lookup a b}}, so the email shows it as written" in note for note in converted.notes)
 
     @parameterized.expand(
         [
             ("fixed", "%recipient_email%", True, ESCAPED_X.replace("variables.x", "variables.recipient_email")),
             ("custom", "%recipient.first-name%", True, ESCAPED_X.replace("variables.x", "variables.first-name")),
-            ("custom_text", "%recipient.city%", False, "{{ variables.city }}"),
+            ("custom_text", "%recipient.city%", False, '{{ variables.city | join: "," }}'),
             ("custom_with_space_stays", "%recipient.a b%", True, "%recipient.a b%"),
             ("unsubscribe_in_a_link", 'href="%unsubscribe_url%"', True, 'href="{{ unsubscribe_url }}"'),
             ("percent_signs_alone", "100% of 50%", True, "100% of 50%"),
             ("unsubscribe_email_stays", "%unsubscribe_email%", True, "%unsubscribe_email%"),
-            ("triple_in_subject_has_no_raw", "{{{x}}}", False, "{{ variables.x }}"),
+            ("triple_in_subject_has_no_raw", "{{{x}}}", False, ESCAPED_X),
             (
                 "after_raw_html",
                 "{{{a}}}%recipient.x%",
                 True,
-                '{{ variables.a | raw }}{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
             ),
         ]
     )

@@ -51,6 +51,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("escaped_tag_opening_an_attribute", "\\{{<img src=x }}{{token}}", "{{token}}"),
             ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', '{{#if (lookup permissions "allow")}}'),
             ("value_under_a_lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', "{{token}}"),
+            (
+                "value_under_a_lookup_with_include_zero",
+                '{{#if (lookup flags "enabled") includeZero=true}}{{token}}{{/if}}',
+                "{{token}}",
+            ),
             ("parent_path_under_with_this", "{{#each xs}}{{#with this}}{{../name}}{{/with}}{{/each}}", "{{../name}}"),
             ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}", "{{@key}}"),
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),

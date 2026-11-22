@@ -218,7 +218,8 @@ class HandlebarsToLiquid:
             raise _Unsupported
         if name == "formatDate" and len(params) == 2:
             date_format = _date_format(params[1])
-            return self._print(f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"', False), False
+            date = f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"'
+            return self._print(date, False, may_be_a_list=False), False
         if name == "insert" and len(params) <= 2:
             value = self._value_path(params[0], frames)
             if len(params) == 1:
@@ -231,12 +232,13 @@ class HandlebarsToLiquid:
                 raise _Unsupported
             return self._print(f"{value} | default: {fallback}", raw), raw
         if name == "length" and len(params) == 1:
-            return self._print(f"{self._value_path(params[0], frames)} | size", False), False
+            return self._print(f"{self._value_path(params[0], frames)} | size", False, may_be_a_list=False), False
         raise _Unsupported
 
-    def _print(self, value: str, raw: bool) -> str:
-        # Handlebars prints a list with commas between its items, and Liquid runs them together.
-        value = f'{value} | join: ","'
+    def _print(self, value: str, raw: bool, *, may_be_a_list: bool = True) -> str:
+        if may_be_a_list:
+            # Handlebars prints a list with commas between its items, and Liquid runs them together.
+            value = f'{value} | join: ","'
         if not self.is_html:
             return f"{{{{ {value} }}}}"
         if raw:
@@ -509,22 +511,22 @@ class HandlebarsToLiquid:
     def _operand(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         if isinstance(param, _Literal):
             return param.liquid
-        if (
-            self._dialect == "sendgrid"
-            and isinstance(param, _Call)
-            and param.name == "length"
-            and len(param.params) == 1
-        ):
-            # The `size` filter gives 0 for a missing value or an object, as SendGrid's `length` does.
-            return self._assign(f"{self._value_path(param.params[0], frames)} | size", "length", setup)
+        if isinstance(param, _Call):
+            return self._assign(self._length(param, frames), "length", setup)
         return self._value_path(param, frames)
+
+    def _length(self, call: _Call, frames: tuple[_Frame, ...]) -> str:
+        if self._dialect != "sendgrid" or call.name != "length" or len(call.params) != 1:
+            raise _Unsupported
+        # The `size` filter gives 0 for a missing value or an object, as SendGrid's `length` does.
+        return f"{self._value_path(call.params[0], frames)} | size"
 
     def _as_text(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         """Both providers compare `equals` as text, so 5 equals "5". Liquid compares by type."""
         if isinstance(param, _Literal):
             if param.text is None:
                 raise _Unsupported
-            literal = liquid_string(param.text)
+            literal = liquid_string(_number_text(param.text) if _is_number(param) else param.text)
             if literal is None:
                 raise _Unsupported
             return literal
@@ -540,7 +542,11 @@ class HandlebarsToLiquid:
         if isinstance(param, _Literal):
             return "true" if _literal_truthy(param, include_zero) else "false"
         if isinstance(param, _Call):
-            return "true" if include_zero else f"{self._operand(param, frames, setup)} > 0"
+            if include_zero:
+                # A length is always a number, so with includeZero only the check that it is one is left.
+                self._length(param, frames)
+                return "true"
+            return f"{self._operand(param, frames, setup)} > 0"
         path = self._value_path(param, frames)
         if path == "forloop.index0":
             return "true" if include_zero else f"{path} != 0"
@@ -640,6 +646,22 @@ def _is_word(param: object) -> bool:
         and param.liquid != param.text
         and not re.fullmatch(r"-?\d+(?:\.\d+)?|true|false|null|undefined", param.text)
     )
+
+
+def _is_number(literal: _Literal) -> bool:
+    return literal.liquid == literal.text and literal.text not in ("true", "false")
+
+
+def _number_text(text: str) -> str:
+    """How JavaScript prints a number, which is the text Handlebars compares: `5.0` is the number 5 and prints as 5."""
+    number = float(text)
+    if number.is_integer() and abs(number) < 2**53:
+        return str(int(number))
+    shown = repr(number)
+    # Past 2**53, or in exponent form, JavaScript and Python print a number differently.
+    if number.is_integer() or "e" in shown:
+        raise _Unsupported
+    return shown
 
 
 def _literal_truthy(literal: _Literal, include_zero: bool) -> bool:

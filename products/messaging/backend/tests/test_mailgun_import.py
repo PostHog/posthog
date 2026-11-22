@@ -249,12 +249,14 @@ class TestMailgunImport(BaseTest):
         templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
         assert set(templates) >= {"welcome", DOMAIN_WELCOME, EU_WELCOME}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
-        assert templates["welcome"].content["email"]["subject"] == "Welcome {{ variables.name }}"
+        assert templates["welcome"].content["email"]["subject"] == 'Welcome {{ variables.name | join: "," }}'
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
         assert (
             templates["welcome"]
             .content["email"]["html"]
-            .startswith("<h1>Hello {{ variables.name }}</h1>{% if variables.vip != blank and variables.vip != 0 %}")
+            .startswith(
+                '<h1>Hello {{ variables.name | join: "," }}</h1>{% if variables.vip != blank and variables.vip != 0 %}'
+            )
         )
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]
         assert templates[DOMAIN_WELCOME].content["email"]["html"].startswith("&lt;p&gt;Hi")
