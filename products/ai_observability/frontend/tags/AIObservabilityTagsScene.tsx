@@ -120,13 +120,8 @@ function AIObservabilityTagsContent(): JSX.Element {
                         </Link>
                     )
                 }
-                return (
-                    <span className={tagger.enabled ? 'text-success' : 'text-muted'}>
-                        {tagger.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                )
+                return null
             },
-            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {
             title: 'Runs',

@@ -15,7 +15,6 @@ import {
     extractEvaluationContext,
     filterAndParseMessages,
     groupEventsByTeam,
-    unwrapOrLog,
 } from './evaluation-scheduler'
 
 jest.mock('~/ai-observability/services/temporal.service', () => {
@@ -371,48 +370,6 @@ describe('Evaluation Scheduler', () => {
         })
     })
 
-    describe('unwrapOrLog', () => {
-        it('returns the value when the promise was fulfilled', () => {
-            const result = unwrapOrLog(
-                { status: 'fulfilled', value: { 1: ['a'], 2: ['b'] } } as PromiseSettledResult<
-                    Record<string, string[]>
-                >,
-                'should not log'
-            )
-
-            expect(result).toEqual({ 1: ['a'], 2: ['b'] })
-        })
-
-        it('returns an empty object and logs when rejected', () => {
-            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
-
-            const result = unwrapOrLog(
-                { status: 'rejected', reason: new Error('db down') } as PromiseSettledResult<Record<string, string[]>>,
-                'fetch failed'
-            )
-
-            expect(result).toEqual({})
-            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'db down' })
-
-            errorSpy.mockRestore()
-        })
-
-        it('coerces non-Error rejection reasons to string for the log payload', () => {
-            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
-
-            unwrapOrLog(
-                { status: 'rejected', reason: 'plain string failure' } as PromiseSettledResult<
-                    Record<string, string[]>
-                >,
-                'fetch failed'
-            )
-
-            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'plain string failure' })
-
-            errorSpy.mockRestore()
-        })
-    })
-
     describe('extractEvaluationContext', () => {
         it('extracts string trace, session, and ai session ids', () => {
             const event = createAiGenerationEvent(teamId, {
@@ -737,6 +694,18 @@ describe('Evaluation Scheduler', () => {
             expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
             const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock.calls[0][0] as number[]
             expect(teamsAsked.sort((a, b) => a - b)).toEqual([2, 7, 99])
+        })
+
+        it('logs and skips the batch when the evaluation fetch fails', async () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+            ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockRejectedValueOnce(new Error('db down'))
+
+            await expect(
+                eachBatchEvaluationScheduler([messageFor(2)], noopEvaluationManager, noopTemporal)
+            ).resolves.toBeUndefined()
+            expect(errorSpy).toHaveBeenCalledWith('Failed to fetch evaluations for teams', { error: 'db down' })
+
+            errorSpy.mockRestore()
         })
 
         it('skips Postgres entirely when the batch has no $ai_generation events', async () => {

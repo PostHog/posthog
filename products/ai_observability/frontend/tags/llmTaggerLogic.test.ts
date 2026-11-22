@@ -43,6 +43,7 @@ describe('llmTaggerLogic', () => {
             get: {
                 '/api/projects/:team_id/taggers/tagger-123/': mockTagger,
                 '/api/projects/:team_id/taggers/missing/': () => [404, { detail: 'Not found.' }],
+                '/api/projects/:team_id/taggers/broken/': () => [500, { detail: 'Server error' }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': { results: [] },
@@ -56,15 +57,17 @@ describe('llmTaggerLogic', () => {
     })
 
     it.each([
-        ['an existing tagger', 'tagger-123', mockTagger],
-        ['a missing tagger', 'missing', null],
-    ])('loads %s and stops loading', async (_label, id, expectedTagger) => {
+        ['an existing tagger', 'tagger-123', 'loadTaggerSuccess', mockTagger, null],
+        ['a missing tagger as not found', 'missing', 'loadTaggerSuccess', null, null],
+        ['a server error as a load error', 'broken', 'loadTaggerFailure', null, 500],
+    ])('loads %s and stops loading', async (_label, id, finalAction, expectedTagger, expectedErrorStatus) => {
         logic = llmTaggerLogic({ id })
         logic.mount()
 
         await expectLogic(logic)
-            .toDispatchActions(['loadTaggerSuccess'])
+            .toDispatchActions([finalAction])
             .toMatchValues({ tagger: expectedTagger, taggerLoading: false })
+        expect(logic.values.taggerLoadError?.status ?? null).toBe(expectedErrorStatus)
     })
 
     it('loads tag runs on mount', async () => {

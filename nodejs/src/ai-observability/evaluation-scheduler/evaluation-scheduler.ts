@@ -71,23 +71,6 @@ const evaluationSchedulerHeaderValues = new Counter({
 
 // Pure functions for testability
 
-/**
- * Pull the value out of an awaited Promise.allSettled entry, falling back to an
- * empty object map and logging the rejection reason.
- */
-export function unwrapOrLog<T extends Record<string, unknown>>(
-    result: PromiseSettledResult<T>,
-    errorMessage: string
-): T {
-    if (result.status === 'fulfilled') {
-        return result.value
-    }
-    logger.error(errorMessage, {
-        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-    })
-    return {} as T
-}
-
 export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
     return messages
         .filter((message) => {
@@ -320,18 +303,12 @@ export interface ProviderKeyGateOptions {
     providerKeyManager?: Pick<ProviderKeyManagerService, 'getProviderKey'>
 }
 
-type ProviderKeyGateDefinition = {
-    id: string
-    team_id: number
-    provider_key_id?: string | null
-    evaluation_type?: string
-}
+type ProviderKeyGateDefinition = Pick<Evaluation, 'id' | 'team_id' | 'provider_key_id' | 'evaluation_type'>
 
 const NON_PROVIDER_KEY_RUNTIMES = new Set(['hog', 'sentiment'])
 
 function definitionUsesProviderKey(definition: ProviderKeyGateDefinition): boolean {
-    const runtime = definition.evaluation_type
-    return !runtime || !NON_PROVIDER_KEY_RUNTIMES.has(runtime)
+    return !NON_PROVIDER_KEY_RUNTIMES.has(definition.evaluation_type)
 }
 
 export async function eachBatchEvaluationScheduler(
@@ -365,8 +342,14 @@ export async function eachBatchEvaluationScheduler(
     const teamIds = Array.from(eventsByTeam.keys())
 
     // A failed fetch skips this batch's evaluations instead of failing the Kafka consumer loop.
-    const [evaluationsResult] = await Promise.allSettled([evaluationManager.getEvaluationsForTeams(teamIds)])
-    const evaluationsByTeam = unwrapOrLog(evaluationsResult, 'Failed to fetch evaluations for teams')
+    const evaluationsByTeam = await evaluationManager
+        .getEvaluationsForTeams(teamIds)
+        .catch((error: unknown): Record<number, Evaluation[]> => {
+            logger.error('Failed to fetch evaluations for teams', {
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return {}
+        })
     const matcher = new EvaluationMatcher()
     const tasks: Promise<void>[] = []
 

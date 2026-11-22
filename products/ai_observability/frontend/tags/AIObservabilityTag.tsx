@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTabs,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -130,13 +139,23 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
 }
 
 export function AIObservabilityTag({ id }: { id: string }): JSX.Element {
-    const { tagger, taggerLoading, activeTab } = useValues(llmTaggerLogic({ id }))
-    const { setActiveTab } = useActions(llmTaggerLogic({ id }))
+    const { tagger, taggerLoading, taggerLoadError, activeTab } = useValues(llmTaggerLogic({ id }))
+    const { setActiveTab, loadTagger } = useActions(llmTaggerLogic({ id }))
 
     if (taggerLoading) {
         return (
             <SceneContent>
                 <LemonSkeleton className="w-full h-96" />
+            </SceneContent>
+        )
+    }
+
+    if (taggerLoadError) {
+        return (
+            <SceneContent>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadTagger }}>
+                    {taggerLoadError.detail || "Couldn't load this tagger. Try again."}
+                </LemonBanner>
             </SceneContent>
         )
     }
@@ -154,12 +173,7 @@ export function AIObservabilityTag({ id }: { id: string }): JSX.Element {
             <TaggersDeprecationBanner migratedToEvaluationId={tagger.migrated_to_evaluation_id} />
             <div className="space-y-6">
                 <div className="flex justify-between items-start pb-4 border-b">
-                    <div className="space-y-2">
-                        <h1 className="text-2xl font-semibold">{tagger.name}</h1>
-                        <LemonTag type={tagger.enabled ? 'success' : 'default'}>
-                            {tagger.enabled ? 'Enabled' : 'Disabled'}
-                        </LemonTag>
-                    </div>
+                    <h1 className="text-2xl font-semibold">{tagger.name}</h1>
                     <LemonButton type="secondary" icon={<IconArrowLeft />} to={urls.aiObservabilityTags()}>
                         Back
                     </LemonButton>

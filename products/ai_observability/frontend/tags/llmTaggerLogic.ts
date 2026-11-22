@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { escapeHogQLString } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ApiError } from '~/lib/api-error'
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -44,6 +45,7 @@ export interface llmTaggerLogicValues {
     tagRuns: TagRun[]
     tagRunsLoading: boolean
     tagger: TaggerApi | null
+    taggerLoadError: ApiError | null
     taggerLoading: boolean
 }
 
@@ -126,8 +128,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 loadTagger: async () => {
                     try {
                         return await taggersRetrieve(String(values.currentTeamId), props.id)
-                    } catch {
-                        return null
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
                     }
                 },
             },
@@ -135,6 +140,15 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     })),
 
     reducers({
+        taggerLoadError: [
+            null as ApiError | null,
+            {
+                loadTagger: () => null,
+                loadTaggerSuccess: () => null,
+                loadTaggerFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError ? errorObject : new ApiError("Couldn't load this tagger"),
+            },
+        ],
         activeTab: [
             'runs' as string,
             {

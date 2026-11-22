@@ -54,7 +54,7 @@ const baseTagger: TaggerApi = {
 }
 
 const meta: Meta<typeof TaggerConfiguration> = {
-    title: 'Scenes-App/LLM observability/Tagger configuration',
+    title: 'Scenes-App/AI observability/Tagger configuration',
     component: TaggerConfiguration,
     parameters: {
         viewMode: 'story',
@@ -78,4 +78,16 @@ export const HogTagger: Story = {
             conditions: [{ id: 'cond-1', rollout_percentage: 100, properties: [] }],
         },
     },
+}
+
+export const Narrow: Story = {
+    args: { tagger: baseTagger },
+    decorators: [
+        // Phone width, where the prompt and the condition filters have to wrap.
+        (Story) => (
+            <div className="w-[360px]">
+                <Story />
+            </div>
+        ),
+    ],
 }
