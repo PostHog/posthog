@@ -440,11 +440,11 @@ CREATE TABLE posthog.flag_evaluations (
   response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String COMMENT 'column_materializer::properties::$session_id',
   request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
-  properties_group_custom Map(String, String),
-  person_properties_map_custom Map(String, String),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
+  _partition UInt64,
+  properties_group_custom Map(String, String),
+  person_properties_map_custom Map(String, String)
 ) ENGINE = Distributed('flags', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE TABLE posthog.groups (
   group_type_index UInt8,
