@@ -2809,6 +2809,8 @@ class ProductIntentContext(StrEnum):
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
     TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY = "transactional_email_impact_turn_on_replay"
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = "workflow_survey_trigger_create_survey"
+    WORKFLOW_WAREHOUSE_TRIGGER_SET_UP_SOURCE = "workflow_warehouse_trigger_set_up_source"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
     BATCH_EXPORT_UPDATED = "batch_export_updated"

@@ -46705,6 +46705,8 @@
                 "feature_preview_enabled",
                 "workflow_created",
                 "transactional_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
