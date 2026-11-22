@@ -697,6 +697,10 @@ export interface ImportStepOptionApi {
     label: string
     /** What the step imports and where it lands in PostHog. */
     description: string
+    /** Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty. */
+    needs: string[]
+    /** Whether the step creates or updates people. Each of those counts as one event on the bill. */
+    counts_as_events: boolean
 }
 
 export interface ImportSettingChoiceApi {
@@ -1910,6 +1914,18 @@ export interface WorkflowEmailDetailApi {
     clicked: boolean
     /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
     timeline: TransactionalEmailLogEventApi[]
+}
+
+export type MessagingEmailsStatusRetrieveParams = {
+    /**
+     * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string
 }
 
 export type MessagingCategoriesListParams = {

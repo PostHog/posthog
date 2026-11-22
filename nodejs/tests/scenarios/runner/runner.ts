@@ -62,6 +62,7 @@ import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
 
+const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -518,6 +519,14 @@ export function createRunner(
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
+            const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
+            const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
+                const read = await writerCpuFor(card.bars, window, readSignal)
+                if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
+                    writerCpuReads.push({ startedAt: window.startedAt, endedAt: window.endedAt, read })
+                }
+                return read
+            }
             try {
                 await opened.connect()
                 live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
@@ -597,7 +606,7 @@ export function createRunner(
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
                               profile,
-                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                              writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
                           liveSignal
@@ -619,7 +628,10 @@ export function createRunner(
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
                 const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
-                const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
+                const driveWindow: DriveWindow = {
+                    startedAt: driveStartedAt,
+                    endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
@@ -651,7 +663,7 @@ export function createRunner(
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
+                    writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
                 })
                 const ramp = card.drive.stopOnBreak
@@ -745,7 +757,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
-            const host = os.hostname()
+            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -753,6 +765,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                if (writerCpuReads.length > 0) {
+                    writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
+                }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }

@@ -91,6 +91,9 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
     profile: { ...SMOKE.profile, settings },
 })
 
+// The loader refuses an email claim target of 500 a second at a 2x step on the default SES limiter.
+const SES_ROOM = { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2200', CDP_SES_RATE_LIMIT_CAPACITY: '500' }
+
 let processMetrics: { url: string; server: http.Server }
 let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
@@ -580,6 +583,29 @@ describe('runner', () => {
                 owners: [],
                 host: os.hostname(),
             })
+        })
+
+        it('names a run host by a neutral label in its evidence and the run store, not by its machine name', async () => {
+            const runId = '0d9e3c1a-7b2f-4e6d-8a51-c4f0e2b9d713'
+            const manifest = path.join(cacheHome, 'manifest.json')
+            writeFileSync(
+                manifest,
+                JSON.stringify({
+                    runId,
+                    account: '000000000000',
+                    stackName: `scn-${runId}`,
+                    schedules: [],
+                    expiresAt: '2026-01-05T16:00:00.000Z',
+                })
+            )
+
+            const result = await runnerWith({ ...store.envOf(cacheHome), SCENARIO_RUN_MANIFEST: manifest }).run(
+                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+                NEVER_ABORTED
+            )
+
+            const saved = parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))
+            expect([result.runId, saved.host, (await store.read(runId))?.host]).toEqual([runId, 'run-host', 'run-host'])
         })
 
         it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
@@ -1129,6 +1155,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            settings = {},
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -1140,6 +1167,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            settings?: Profile['settings']
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -1176,6 +1204,7 @@ describe('runner through seed, drive and judge', () => {
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
                     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '0',
                     CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '0',
+                    ...settings,
                 },
             })
         )
@@ -1596,6 +1625,7 @@ describe('runner through seed, drive and judge', () => {
             {
                 measures: [{ name: 'pg_client_errors', params: {} }],
                 load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                settings: SES_ROOM,
             },
         ],
         [
@@ -1641,6 +1671,7 @@ describe('runner through seed, drive and judge', () => {
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
             })
+            expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)
         },
         30_000
     )
@@ -1859,12 +1890,14 @@ describe('runner through seed, drive and judge', () => {
             ]
 
             const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
+            const reads = evidenceOf(result, 'writer-cpu.json') as { read: unknown }[]
 
             expect({
                 status: result.status,
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
                 statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
@@ -1878,6 +1911,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
         30_000
@@ -1936,12 +1970,24 @@ describe('runner through seed, drive and judge', () => {
         const result = await running
         results.push(result)
 
-        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
+        expect({
+            convergence: result.convergence?.converged,
+            ramp: result.ramp,
+            reads: evidenceOf(result, 'writer-cpu.json'),
+        }).toEqual({
             convergence: false,
             ramp: expect.objectContaining({
                 end: 'harness_limit',
                 reason: expect.stringContaining('CloudWatch throttled the read'),
             }),
+            reads: expect.arrayContaining([
+                {
+                    startedAt: expect.any(Number),
+                    endedAt: expect.any(Number),
+                    read: { unread: 'the writer CPU read failed: CloudWatch throttled the read' },
+                },
+                { startedAt: expect.any(Number), endedAt: expect.any(Number), read: [] },
+            ]),
         })
     }, 60_000)
 
@@ -1978,7 +2024,7 @@ describe('runner through seed, drive and judge', () => {
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         const refusingIntake = http.createServer((_request, response) => {
-            response.writeHead(503).end()
+            response.writeHead(429).end()
         })
         await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
         try {
@@ -1994,6 +2040,7 @@ describe('runner through seed, drive and judge', () => {
                     driveFor: '20s',
                     stopOnBreak: true,
                     load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                    settings: SES_ROOM,
                 }),
                 NEVER_ABORTED
             )
@@ -2021,9 +2068,10 @@ describe('runner through seed, drive and judge', () => {
         }
     }, 30_000)
 
-    it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
-        const slowIntake = http.createServer((_request, response) => {
-            setTimeout(() => response.writeHead(503).end(), 3_000)
+    it('ends the drive window with its last step and leaves a valve due after it unapplied while an intake answer is still pending', async () => {
+        let requests = 0
+        const slowIntake = http.createServer(() => {
+            requests += 1
         })
         await new Promise<void>((resolve) => slowIntake.listen(0, '127.0.0.1', resolve))
         try {
@@ -2042,6 +2090,11 @@ describe('runner through seed, drive and judge', () => {
                 },
             ])
             expect(exits).toEqual([])
+            const { drive } = evidenceOf(result, 'probes.json') as { drive: { startedAt: number; endedAt: number } }
+            expect({ pending: requests > 0, endedAt: drive.endedAt }).toEqual({
+                pending: true,
+                endedAt: result.units?.steps.at(-1)?.endedAt,
+            })
         } finally {
             slowIntake.closeAllConnections()
             await new Promise((resolve) => slowIntake.close(resolve))

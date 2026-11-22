@@ -41,6 +41,13 @@ class ImportStepOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    needs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty.",
+    )
+    counts_as_events = serializers.BooleanField(
+        help_text="Whether the step creates or updates people. Each of those counts as one event on the bill."
+    )
 
 
 class ImportSettingChoiceSerializer(serializers.Serializer):

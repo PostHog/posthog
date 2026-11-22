@@ -141,6 +141,57 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
         ],
         [
+            'a valve applied only after the drive ended',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        observedAt: at(53),
+                        releaseIntentAt: at(54),
+                        releasedAt: at(55),
+                    },
+                ],
+            },
+            'invalid',
+            'pg.failover on cyclotron was not observed: applied after the drive ended',
+        ],
+        [
+            'a valve that failed to apply after the drive ended',
+            {
+                timeline: [
+                    {
+                        valve: 'role.freeze',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.freeze on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
+            'a valve that applied after the drive ended but was never observed',
+            {
+                timeline: [
+                    {
+                        valve: 'role.kill',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        releasedAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
             'an invariant failed while a valve was never observed',
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
@@ -385,6 +436,24 @@ describe('statusOf', () => {
             { timeline: [failedOver], writer: probed((second) => (second === 52 ? '08006' : false)) },
             'invalid',
             `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
+        ],
+        [
+            'the writer probe lost its connection after the drive but before a late valve applied',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(54),
+                        appliedAt: at(54),
+                        observedAt: at(54),
+                        releaseIntentAt: undefined,
+                        releasedAt: at(55),
+                    },
+                ],
+                writer: probed((second) => (second === 52 ? '08006' : false)),
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) before any valve applied, at ${at(52)}`,
         ],
         [
             'a card without a valve whose writer probe lost its connection across the drive end',

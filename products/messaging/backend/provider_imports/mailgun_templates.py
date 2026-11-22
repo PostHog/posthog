@@ -16,6 +16,8 @@ from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.provider_imports.html_context import HtmlContext
+
 _MAX_NOTED_TAGS = 5
 # Liquid can't parse a longer template.
 _MAX_OUTPUT_CHARS = 5_000_000
@@ -32,10 +34,6 @@ _FIXED_VARIABLE = re.compile(
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
 _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailing_list_unsubscribe_url"})
-# Elements whose content isn't page text, so a value inside one is escaped some other way.
-_RAW_ELEMENTS = frozenset(
-    {"script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"}
-)
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
 
@@ -287,24 +285,19 @@ class _Converter:
     def _check_contexts(self, values: list[_Value]) -> None:
         """Raises _Unsupported for a value anywhere but page text or a quoted attribute value its engine escapes the
         way Liquid does."""
-        tracker = _HtmlTracker(self.text)
+        context = HtmlContext()
+        cursor = 0
         for value in values:
-            where = tracker.advance(value.start)
-            # A script's end can hide inside a comment or a string in it, so nothing after one opens is trusted.
-            if tracker.script_opened:
+            context.feed(self.text[cursor : value.start])
+            if context.untrusted:
                 raise _Unsupported(f"{value.source} after a script")
-            if where == "text":
-                continue
-            if where == "value" and not value.raw and self._plain_attribute(tracker.attribute):
-                tracker.skip(value.end)
-                continue
-            raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
-
-    def _plain_attribute(self, name: str) -> bool:
-        if name.startswith("on") or name in ("style", "srcset"):
-            return False
-        # Go escapes an attribute value by what the attribute holds, such as a link, and Liquid can't.
-        return self.engine == "handlebars"
+            where = context.where()
+            # Go escapes an attribute value by what the attribute holds, such as a link, and Liquid can't.
+            in_plain_attribute = where == "value" and context.plain_attribute() and self.engine == "handlebars"
+            if where != "text" and (value.raw or not in_plain_attribute):
+                raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
+            context.feed("x")
+            cursor = value.end
 
     def _as_text(self) -> str:
         """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
@@ -319,123 +312,6 @@ _PLACES = {
     "raw": "inside a script, style or similar element",
     "comment": "inside an HTML comment",
 }
-
-
-class _HtmlTracker:
-    """Follows where the text sits in HTML, the way a browser reads it, so a value's place is known."""
-
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.position = 0
-        self.state = "text"
-        self.attribute = ""
-        self.tag_name = ""
-        self.closing = False
-        self.raw_element = ""
-        self.script_opened = False
-
-    def skip(self, position: int) -> None:
-        self.position = position
-
-    def advance(self, target: int) -> str:
-        """Reads up to `target` and says where it is: text, value, raw, comment or tag."""
-        text = self.text
-        while self.position < target:
-            i = self.position
-            state = self.state
-            if state == "text":
-                opening = text.find("<", i, target)
-                if opening < 0:
-                    self.position = target
-                    break
-                self.position = opening + 1
-                self._open(opening)
-            elif state == "raw":
-                found = _find_end_tag(text, self.raw_element, i)
-                if found < 0 or found >= target:
-                    self.position = target
-                    break
-                self.position = found + 2
-                self.state, self.tag_name, self.closing = "tag_name", "", True
-            elif state in ("comment", "bogus"):
-                end = "-->" if state == "comment" else ">"
-                found = text.find(end, i)
-                if found < 0 or found >= target:
-                    self.position = target
-                    break
-                self.position = found + len(end)
-                self.state = "text"
-            elif state in ("dq", "sq"):
-                quote = '"' if state == "dq" else "'"
-                found = text.find(quote, i, target)
-                if found < 0:
-                    self.position = target
-                    break
-                self.position = found + 1
-                self.state = "before_attribute"
-            else:
-                self._tag_character(text[i])
-                self.position = i + 1
-        return {"dq": "value", "sq": "value", "text": "text", "raw": "raw", "comment": "comment"}.get(self.state, "tag")
-
-    def _open(self, opening: int) -> None:
-        rest = self.text[opening + 1 : opening + 4]
-        if rest.startswith("!--"):
-            self.position = opening + 4
-            self.state = "comment"
-        elif rest[:1].isalpha():
-            self.state, self.tag_name, self.closing = "tag_name", "", False
-        elif rest[:1] == "/" and rest[1:2].isalpha():
-            self.position = opening + 2
-            self.state, self.tag_name, self.closing = "tag_name", "", True
-        elif rest[:1] in ("!", "?", "/"):
-            self.state = "bogus"
-
-    def _tag_character(self, character: str) -> None:
-        state = self.state
-        if character == ">":
-            opened_raw = not self.closing and self.tag_name in _RAW_ELEMENTS
-            self.state = "raw" if opened_raw else "text"
-            self.raw_element = self.tag_name if opened_raw else ""
-            self.script_opened = self.script_opened or (opened_raw and self.tag_name == "script")
-            return
-        if state == "tag_name":
-            if character.isspace() or character == "/":
-                self.state = "before_attribute"
-            else:
-                self.tag_name = (self.tag_name + character.lower())[:20]
-        elif state == "before_attribute":
-            if not character.isspace() and character != "/":
-                self.state, self.attribute = "attribute", character.lower()
-        elif state == "attribute":
-            if character == "=":
-                self.state = "before_value"
-            elif character.isspace():
-                self.state = "after_attribute"
-            elif character == "/":
-                self.state = "before_attribute"
-            else:
-                self.attribute = (self.attribute + character.lower())[:40]
-        elif state == "after_attribute":
-            if character == "=":
-                self.state = "before_value"
-            elif not character.isspace() and character != "/":
-                self.state, self.attribute = "attribute", character.lower()
-        elif state == "before_value":
-            if character == '"':
-                self.state = "dq"
-            elif character == "'":
-                self.state = "sq"
-            elif not character.isspace():
-                self.state = "unquoted"
-        elif state == "unquoted" and character.isspace():
-            self.state = "before_attribute"
-
-
-def _find_end_tag(text: str, name: str, start: int) -> int:
-    pattern = re.compile(rf"</{re.escape(name)}[\s/>]", re.IGNORECASE)
-    match = pattern.search(text, start)
-    return match.start() if match else -1
 
 
 def _escaped(path: str) -> str:
