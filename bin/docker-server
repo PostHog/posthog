@@ -41,6 +41,18 @@ else
     export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
 fi
 
+# Web, the Celery worker and the Temporal worker as children of one process that
+# imported the app, for hosts short on memory. See bin/shared_python_parent.py.
+# It stays root so that the two workers run as they do in their own containers,
+# and it drops the web role to the unprivileged user itself.
+if [ "${POSTHOG_SHARED_PYTHON_PARENT:-false}" = "true" ]; then
+    if [ -z "${CELERY_WORKER_QUEUES}" ]; then
+        source ./bin/celery-queues.env
+        export CELERY_WORKER_QUEUES
+    fi
+    exec python ./bin/shared_python_parent.py
+fi
+
 # The container runs as root, so drop the application itself to an unprivileged
 # user. PROMETHEUS_MULTIPROC_DIR is world-writable and the ports are >1024.
 DROP_PRIVILEGES="setpriv --reuid=nobody --regid=nogroup --clear-groups"

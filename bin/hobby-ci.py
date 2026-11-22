@@ -1097,22 +1097,7 @@ runcmd:
                 state = c.get("State", "")
                 restart_count = c.get("RestartCount", 0)
 
-                # Worker gets special handling - it may restart while waiting for migrations
-                # Allow "restarting" state (between restart cycles) as long as under threshold
-                if service_name == "worker":
-                    max_restarts = 30
-                    if state not in ("running", "restarting"):
-                        unhealthy.append({"Service": service_name, "State": state, "RestartCount": restart_count})
-                    elif restart_count >= max_restarts:
-                        unhealthy.append(
-                            {
-                                "Service": service_name,
-                                "State": f"restarted {restart_count}x",
-                                "RestartCount": restart_count,
-                            }
-                        )
-                # Other containers must be running and under restart threshold
-                elif state != "running":
+                if state != "running":
                     unhealthy.append({"Service": service_name, "State": state, "RestartCount": restart_count})
                 elif restart_count >= 3:
                     unhealthy.append(
@@ -1332,8 +1317,8 @@ runcmd:
             time.sleep(retry_interval)
 
     def _print_container_logs(self) -> None:
-        """Print recent logs from web, worker, and proxy containers."""
-        for name, tail in [("web", 15), ("worker", 10), ("proxy", 5)]:
+        """Print recent logs from the web and proxy containers. web also runs the Celery and Temporal workers."""
+        for name, tail in [("web", 25), ("proxy", 5)]:
             print(f"\n📋 {name} container logs (last {tail} lines):", flush=True)
             result = self.run_ssh_command(f"docker logs --tail={tail} hobby-{name}-1 2>&1 || true", timeout=15)
             if result["exit_code"] == 0 and result["stdout"].strip():

@@ -1392,3 +1392,7 @@ environment:
         bin_script: devbox-worktree-hook
         description: 'Start or stop the devbox of this worktree from an app create or remove hook'
         hidden: true
+    shared_python_parent:
+        bin_script: shared_python_parent.py
+        description: 'Run web, the Celery worker and the Temporal worker as children of one process that imported the app'
+        hidden: true
