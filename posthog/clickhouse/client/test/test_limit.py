@@ -218,6 +218,7 @@ class TestRateLimit(SimpleTestCase):
         assert result == 11
 
     @parameterized.expand([(False, 1.0, 0.5), (True, 0.0, 0.5), (True, 0.0, 15.0), (True, 1.0, 15.0)])
+    @patch("posthog.clickhouse.client.limit._is_in_temporal", new=lambda: True)
     def test_retry_mechanism_raises_exception(self, jitter: bool, fraction: float, timeout: float) -> None:
         retry_limit = RateLimit(
             max_concurrency=1,
@@ -259,6 +260,7 @@ class TestRateLimit(SimpleTestCase):
         assert timeout - 0.01 < sum(time_helper.sleep_times) <= timeout
 
     @parameterized.expand([(False,), (True,)])
+    @patch("posthog.clickhouse.client.limit._is_in_temporal", new=lambda: True)
     def test_retry_mechanism_acquires_slot(self, jitter: bool) -> None:
         retry_limit = RateLimit(
             max_concurrency=1,
@@ -298,17 +300,27 @@ class TestRateLimit(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (get_api_team_rate_limiter, 0.1005),
-            (get_materialized_endpoints_rate_limiter, 0.134),
-            (get_app_telemetry_queries_rate_limiter, 0.075),
+            (factory, expected_wait, background)
+            for factory, expected_wait in [
+                (get_api_team_rate_limiter, 0.1005),
+                (get_materialized_endpoints_rate_limiter, 0.134),
+                (get_app_telemetry_queries_rate_limiter, 0.075),
+            ]
+            for background in ["celery", "temporal"]
         ]
     )
-    def test_factory_retry_policy(self, factory: Callable[[], RateLimit], expected_wait: float) -> None:
+    def test_factory_retry_policy(
+        self, factory: Callable[[], RateLimit], expected_wait: float, background: str
+    ) -> None:
         time_helper = TimeHelper()
         limiter = replace(factory(), get_time=time_helper.get_time, sleep=time_helper.sleep, allow_team_bypass=False)
         limiter.redis_client = Mock()
         limiter.redis_client.eval.side_effect = [0, 1]
-        with patch("posthog.clickhouse.client.limit.random.uniform", side_effect=lambda low, high: (low + high) / 2):
+        with (
+            patch("posthog.clickhouse.client.limit.current_task", Mock() if background == "celery" else None),
+            patch("posthog.clickhouse.client.limit._is_in_temporal", return_value=background == "temporal"),
+            patch("posthog.clickhouse.client.limit.random.uniform", side_effect=lambda low, high: (low + high) / 2),
+        ):
             slot = limiter.use(task_id="waiting")
         self.assertIsNotNone(slot)
         self.assertAlmostEqual(sum(time_helper.sleep_times), expected_wait)
@@ -340,16 +352,29 @@ class TestRateLimit(SimpleTestCase):
             or 0.0
         )
 
-    def test_full_limiter_without_queue_wait_rejects_at_once(self) -> None:
-        limiter, _, time_helper = self._full_limiter()
+    @parameterized.expand(
+        [("no_wait", False, False), ("retry", True, False), ("queue", False, True), ("retry_and_queue", True, True)]
+    )
+    def test_foreground_full_limiter_rejects_without_waiting(self, _name: str, retry: bool, queue: bool) -> None:
+        limiter, slot, time_helper = self._full_limiter()
         waited_before = self._queue_wait_count("waited")
+        limiter.retry = 0.1 if retry else None
+        time_helper.on_sleep = lambda _: limiter.release(slot)
+        queue_wait = QueueWait() if queue else None
 
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            limiter.use(task_id=2, team_id=5)
+        with (
+            patch("posthog.clickhouse.client.limit.current_task", None),
+            patch("posthog.clickhouse.client.limit._is_in_temporal", return_value=False),
+            self.assertRaises(ConcurrencyLimitExceeded),
+        ):
+            limiter.use(task_id=2, team_id=5, queue_wait=queue_wait)
 
         assert time_helper.sleep_times == []
         assert self._queue_wait_count("waited") == waited_before
+        assert limiter.redis_client.zcard(slot.running_tasks_key) == 1
+        assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
 
+    @patch("posthog.clickhouse.client.limit._is_in_temporal", new=lambda: True)
     def test_queue_wait_admits_when_a_slot_frees(self) -> None:
         limiter, slot, time_helper = self._full_limiter()
 
@@ -372,6 +397,7 @@ class TestRateLimit(SimpleTestCase):
         assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
 
     @parameterized.expand([("fresh_budget", 0.0), ("budget_partly_spent_on_another_limiter", 7.5)])
+    @patch("posthog.clickhouse.client.limit._is_in_temporal", new=lambda: True)
     def test_queue_wait_rejects_once_the_budget_runs_out(self, _name: str, already_waited: float) -> None:
         limiter, slot, time_helper = self._full_limiter()
         rejected_before = self._queue_wait_count("waited_then_rejected")
@@ -386,6 +412,7 @@ class TestRateLimit(SimpleTestCase):
         assert self._queue_wait_count("waited_then_rejected") == rejected_before + 1
         assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
 
+    @patch("posthog.clickhouse.client.limit._is_in_temporal", new=lambda: True)
     def test_queue_wait_rejects_at_once_when_the_team_has_too_many_waiters(self) -> None:
         limiter, slot, time_helper = self._full_limiter()
         waiters_key = f"{slot.running_tasks_key}:waiters:5"
