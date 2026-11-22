@@ -122,22 +122,26 @@ def null_member_pairs_sql(null_keys_sql: str) -> str:
     """`"key":null` strings for the top-level keys that a null-keys array lists.
 
     An entry with a `.` is a nested path. The cleaner also drops a nested null from the container string it stores,
-    so a nested null has no member here either. The exception is `$feature_flags.<key>`: the cleaner records a flag
-    sent as `null` under that path, and the SDK sent it as the top-level `$feature/<key>`. `%2E` is the stored
-    spelling of a `.` inside one key.
+    so a nested null has no member here either. `%2E` is the stored spelling of a `.` inside one key.
     """
-    flag_path_prefix = escape_clickhouse_string(f"{_FEATURE_FLAGS_KEY}.")
-    flag_key_start = len(_FEATURE_FLAGS_KEY) + 2
-    member_key = (
-        f"if(startsWith(key, {flag_path_prefix}), "
-        f"concat({escape_clickhouse_string(FEATURE_FLAG_PROPERTY_PREFIX)}, substring(key, {flag_key_start})), key)"
-    )
-    is_top_level = (
-        f"position(key, '.') = 0 or (startsWith(key, {flag_path_prefix}) and position(key, '.', {flag_key_start}) = 0)"
-    )
     return (
-        f"arrayMap(key -> concat(toJSONString(replaceAll({member_key}, '%2E', '.')), ':null'), "
-        f"arrayFilter(key -> {is_top_level}, {null_keys_sql}))"
+        f"arrayMap(key -> concat(toJSONString(replaceAll(key, '%2E', '.')), ':null'), "
+        f"arrayFilter(key -> position(key, '.') = 0, {null_keys_sql}))"
+    )
+
+
+def feature_flag_null_keys_sql(null_keys_sql: str) -> str:
+    """A null-keys array with each `$feature_flags.<key>` entry renamed to the `$feature/<key>` the SDK sent.
+
+    The cleaner moves a `$feature/<key>` property into the `$feature_flags` map, so it records a flag sent as `null`
+    under that path.
+    """
+    flag_path_prefix = f"{_FEATURE_FLAGS_KEY}."
+    flag_key = f"substring(key, {len(flag_path_prefix) + 1})"
+    renamed = f"concat({escape_clickhouse_string(FEATURE_FLAG_PROPERTY_PREFIX)}, {flag_key})"
+    return (
+        f"arrayMap(key -> if(startsWith(key, {escape_clickhouse_string(flag_path_prefix)}), {renamed}, key), "
+        f"{null_keys_sql})"
     )
 
 
@@ -180,7 +184,8 @@ def event_document_sql(
 
     `feature_flags_sql` is the flags map to rebuild from, already filtered of restricted flags, or None when every
     flag is hidden. The `$feature_flags` member of `properties` is left out because its entries come back as
-    `$feature/<key>` pairs. Each of `null_keys_sqls` adds a null member for each top-level key it lists.
+    `$feature/<key>` pairs. Each of `null_keys_sqls` adds a null member for each top-level key it lists, and for each
+    flag sent as `null` unless every flag is hidden.
     """
     pairs = [
         json_member_pairs_sql(
@@ -192,5 +197,7 @@ def event_document_sql(
     if feature_flags_sql is not None:
         pairs.append(feature_flag_pairs_sql(feature_flags_sql))
     pairs.append(json_member_pairs_sql(temporary_properties_sql))
+    if feature_flags_sql is not None:
+        null_keys_sqls = [feature_flag_null_keys_sql(null_keys_sql) for null_keys_sql in null_keys_sqls]
     pairs.extend(map(null_member_pairs_sql, null_keys_sqls))
     return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
