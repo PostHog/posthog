@@ -30,6 +30,8 @@ import {
     KAFKA_EMAIL_STATUS,
     KAFKA_LOG_ENTRIES,
 } from '~/common/config/kafka-topics'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
@@ -1341,6 +1343,40 @@ describe('EmailTrackingService', () => {
                     expect(await unavailable()).toBe(unavailableBefore + 4)
                 }
             )
+
+            it('records a redelivered notification again, without stalling the batch, when Redis stops answering', async () => {
+                const valkey = new StallingValkeyProxy({
+                    host: defaultConfig.CDP_REDIS_HOST,
+                    port: defaultConfig.CDP_REDIS_PORT,
+                })
+                const silentRedis = createRedisV2PoolFromConfig({
+                    connection: {
+                        url: '127.0.0.1',
+                        options: {
+                            port: await valkey.start(),
+                            password: defaultConfig.CDP_REDIS_PASSWORD,
+                            retryStrategy: () => null,
+                        },
+                        name: 'ses-recorded-marks-stall',
+                        exitOnRepeatedErrors: false,
+                    },
+                    poolMinSize: 0,
+                    poolMaxSize: 1,
+                })
+                valkey.stopAnswering()
+                jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(silentRedis.usePipeline)
+                await postBounce({ functionId: hogFunction.id })
+                const batch = queuedSesNotifications()
+
+                try {
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+                } finally {
+                    valkey.stop()
+                }
+
+                expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+            })
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()

@@ -134,6 +134,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             return new Set()
         }
         const results = await this.recordedMarksPipeline('read', (pipeline) => {
+            // One GET per key, because an MGET fails with CROSSSLOT when the keys map to different cluster slots.
             for (const id of ids) {
                 pipeline.get(sesNotificationRecordedKey(id))
             }
@@ -152,8 +153,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         })
     }
 
-    // One command per key, because a multi-key command fails with CROSSSLOT when the keys map to different cluster
-    // slots. failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
+    // failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
     private async recordedMarksPipeline(
         operation: 'read' | 'write',
         addCommands: (pipeline: RedisClientPipeline) => void
