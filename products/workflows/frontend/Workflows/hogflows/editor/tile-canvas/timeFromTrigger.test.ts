@@ -144,16 +144,47 @@ describe('timeFromTrigger', () => {
         ],
         ['a time window open at any time does not wait', chain(timeWindow('a', 'any', 'any')), 'target', undefined],
         [
-            'a daily time window waits up to a day',
+            'a daily time window waits up to a day, plus the hour a clock change can add',
             chain(timeWindow('a', 'any', ['09:00', '17:00'])),
             'target',
-            'Reached up to 1 day after the trigger',
+            'Reached up to 1 day 1 hour after the trigger',
         ],
         [
-            'a time window on some days waits up to a week',
+            'a time window on some days waits up to a week, plus the hour a clock change can add',
             chain(timeWindow('a', 'weekday', 'any')),
             'target',
-            'Reached up to 7 days after the trigger',
+            'Reached up to 7 days 1 hour after the trigger',
+        ],
+        [
+            'a delay under a second still names a time',
+            chain(delay('a', '.4s')),
+            'target',
+            'Reached 1 second after the trigger',
+        ],
+        [
+            'a fractional delay does not gain a second from floating point',
+            chain(delay('a', '4.15m')),
+            'target',
+            'Reached 4 minutes 9 seconds after the trigger',
+        ],
+        [
+            'a loop back to an earlier wait has no upper bound',
+            flow(
+                [
+                    step('trigger', 'trigger'),
+                    delay('retry_delay', '1d'),
+                    step('retry', 'conditional_branch'),
+                    step('exit', 'exit'),
+                ],
+                [
+                    next('trigger', 'retry_delay'),
+                    next('retry_delay', 'retry'),
+                    branch('retry', 'retry_delay'),
+                    next('retry', 'exit'),
+                ]
+            ),
+            'exit',
+            'Reached 1 day or more after the trigger',
         ],
     ])('%s', (_, workflow, id, expected) => {
         expect(stepText(workflow, id)).toEqual(expected)

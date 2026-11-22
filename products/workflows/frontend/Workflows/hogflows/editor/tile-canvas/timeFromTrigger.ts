@@ -28,9 +28,10 @@ const DELAY_CEILINGS: Record<DurationUnit, number> = { d: 365, h: 24, m: 60, s: 
 const WAIT_CEILINGS: Record<DurationUnit, number> = { d: 30, h: 24, m: 60, s: 60 }
 const DEFAULT_DATE_WAIT_CEILING = '30d'
 
-const DAY_SECONDS = SECONDS_PER_UNIT.d
-// The executor looks at most a week ahead for the next day in the window.
-const WEEK_SECONDS = 7 * DAY_SECONDS
+// The executor schedules a time window by local calendar days, and the day the clocks go back has 25 hours.
+const LONGEST_DAY_SECONDS = SECONDS_PER_UNIT.d + SECONDS_PER_UNIT.h
+// The executor looks at most a week ahead for the next day in the window, and a clock change can add an hour.
+const LONGEST_WEEK_SECONDS = 7 * SECONDS_PER_UNIT.d + SECONDS_PER_UNIT.h
 
 const NO_WAIT: TimeFromTrigger = { minSeconds: 0, maxSeconds: 0 }
 const UNKNOWN_WAIT: TimeFromTrigger = { minSeconds: 0, maxSeconds: null }
@@ -62,9 +63,9 @@ function delayWait(action: ActionOf<'delay'>): TimeFromTrigger {
 
 function timeWindowWait({ config }: ActionOf<'wait_until_time_window'>): TimeFromTrigger {
     if (config.day === 'any') {
-        return config.time === 'any' ? NO_WAIT : upTo(DAY_SECONDS)
+        return config.time === 'any' ? NO_WAIT : upTo(LONGEST_DAY_SECONDS)
     }
-    return upTo(WEEK_SECONDS)
+    return upTo(LONGEST_WEEK_SECONDS)
 }
 
 /** The time a step holds people before they take the arrow out of it. */
@@ -108,11 +109,24 @@ export function timeFromTrigger(workflow: FlowGraph): TimesFromTrigger {
     const triggerIds = workflow.actions.filter((action) => action.type === 'trigger').map((action) => action.id)
     triggerIds.forEach((id) => steps.set(id, NO_WAIT))
     // Each step comes before the steps it leads to, so every path into a step is counted before the step is read.
-    executionOrder(workflow, triggerIds).forEach((id) => {
-        const reached = steps.get(id)
-        if (!reached) {
+    // The one exception is an arrow back to an earlier step, which the API allows to build a retry loop.
+    const order = executionOrder(workflow, triggerIds)
+    const position = new Map(order.map((id, index) => [id, index]))
+    const isLoopBack = (edge: HogFlowEdge): boolean => (position.get(edge.to) ?? 0) <= (position.get(edge.from) ?? 0)
+    const loopStarts = order.flatMap((id) =>
+        outgoingEdges(workflow, id)
+            .filter(isLoopBack)
+            .map((edge) => edge.to)
+    )
+    // A person can go round a loop any number of times, so the steps from a loop onwards have no upper bound.
+    const afterLoop = new Set(executionOrder(workflow, loopStarts))
+    order.forEach((id) => {
+        const counted = steps.get(id)
+        if (!counted) {
             return
         }
+        const reached = afterLoop.has(id) ? { ...counted, maxSeconds: null } : counted
+        steps.set(id, reached)
         outgoingEdges(workflow, id).forEach((edge) => {
             const taken = plus(reached, waitAlong(actionsById.get(id), edge))
             edges.set(getEdgeId(edge), taken)
@@ -131,7 +145,9 @@ const UNIT_NAMES: [seconds: number, one: string, many: string][] = [
 
 /** The two largest units of a duration, such as "1 day 4 hours". */
 function durationText(totalSeconds: number): string {
-    let rest = Math.round(totalSeconds)
+    // Round up so that a wait under a second still names a time. The rounding to milliseconds first keeps a
+    // floating point product such as 1.1 * 3600 = 3960.0000000000005 from gaining a second.
+    let rest = Math.ceil(Math.round(totalSeconds * 1000) / 1000)
     const parts: string[] = []
     for (const [seconds, one, many] of UNIT_NAMES) {
         const count = Math.floor(rest / seconds)
