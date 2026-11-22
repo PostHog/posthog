@@ -3154,7 +3154,7 @@ Note: Official OpenAPI 3.0.1 (2.8 MB, 173 paths) is served at api-reference.chec
 
 ## Chess.com — gaps
 
-Today (2): `games`, `ratings`
+Today (6): `games`, `ratings`, `players`, `tournaments`, `team_matches`, `leaderboards`
 
 Diffed against: <https://www.chess.com/news/view/published-data-api>
 
@@ -3164,13 +3164,15 @@ Note: Read the source settings and implementation, which import monthly game arc
 
 Re-audited 2026-11-19 against: <https://www.chess.com/news/view/published-data-api>
 
-- [ ] `Player profile (GET /pub/player/{username})` — joins the configured username to player_id, title, country, join date and status (high)
-- [ ] `Player tournaments (GET /pub/player/{username}/tournaments)` — tournament history with placement for each configured player (medium)
-- [ ] `Player team matches (GET /pub/player/{username}/matches)` — club match participation and results (low)
+- [x] `Player profile (GET /pub/player/{username})` — joins the configured username to player_id, title, country, join date and status (high)
+- [x] `Player tournaments (GET /pub/player/{username}/tournaments)` — tournament history with placement for each configured player (medium)
+- [x] `Player team matches (GET /pub/player/{username}/matches)` — club match participation and results (low)
 - [ ] `Player clubs (GET /pub/player/{username}/clubs)` — club memberships with join dates (low)
-- [ ] `Leaderboards (GET /pub/leaderboards)` — top players per game type, a daily snapshot (low)
+- [x] `Leaderboards (GET /pub/leaderboards)` — top players per game type, a daily snapshot (low)
 
 Note (2026-11-19): The docs page now loads with a browser-style user agent and lists every route as an example URL. Our source is per configured player, so only player-scoped routes are listed first. is-online and games/to-move are ephemeral and were left out. Country, club, titled-player, streamer and daily puzzle routes are global directories, not tied to the configured players.
+
+Note (2026-11-22): Built `players`, `tournaments`, `team_matches` and `leaderboards` (full refresh; the routes have no time filter). Like the other tables, they store opaque keys for players, tournaments, matches and clubs, and no username, name, link or `player_id`. Player clubs is still open.
 
 ## Churnkey — adequate
 
