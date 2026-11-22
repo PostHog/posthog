@@ -59,6 +59,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
             ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
+            ("value_after_a_no_break_space_in_an_unquoted_value", '<img alt=x\u00a0title="{{token}}">', "{{token}}"),
             ("value_in_a_script_opened_around_a_comment", "<{{!-- c --}}script>var a = {{x}};</script>", "{{x}}"),
             ("raw_value_in_an_attribute", '<a href="{{{token}}}">x</a>', "{{{token}}}"),
             (
@@ -116,6 +117,20 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert kept in converted.html
         assert kept in " ".join(converted.notes)
         assert (liquid_literal(kept) if kept.startswith("{{") else kept) in converted.html
+
+    @parameterized.expand(
+        [
+            ("if", "{{#if x}}a{ {{~/if}}"),
+            ("else", "{{#if x}}a{{else}}b{ {{~/if}}"),
+            ("each", "{{#each xs}}a{ {{~/each}}"),
+            ("with", "{{#with x}}a{ {{~/with}}"),
+            ("kept_block", "{{#or a b}}a{ {{~/or}}"),
+        ]
+    )
+    def test_a_brace_before_a_block_tag_never_joins_it(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html, "generate_plain_content": False})
+
+        assert "{{%" not in converted.html
 
     def test_the_rest_of_the_template_converts_around_a_tag_kept_as_written(self) -> None:
         converted = convert_version(
@@ -250,6 +265,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "a_condition_that_opens_inside_an_attribute",
                 '<p class="{{#if a}}x">A{{else}}y">B{{/if}}</p>',
                 '{% if variables.a != blank and variables.a != 0 %}A{% else %}y">B{% endif %}',
+            ),
+            (
+                "a_condition_inside_a_link",
+                '<p>{{#if allow}}<a href="{{token}}">Reset{{/if}}</a></p>',
+                "{% if variables.allow != blank and variables.allow != 0 %}Reset{% endif %}",
             ),
             (
                 "a_condition_that_closes_after_the_title",

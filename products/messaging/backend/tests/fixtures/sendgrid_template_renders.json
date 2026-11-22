@@ -449,5 +449,20 @@
     },
     "liquid": "<p>{% for item in variables.xs %}{% if true %}Y{% else %}N{% endif %}{% if false %}U{% endif %}{% endfor %}</p>",
     "expected": "<p>YY</p>"
+  },
+  {
+    "name": "a brace before a closing block tag",
+    "source": "{{#if x}}a{ {{~/if}}|{{#if y}}a{{else}}b{ {{~/if}}|{{#each xs}}c{ {{~/each}} {{v}}",
+    "data": {
+      "x": true,
+      "y": false,
+      "xs": [
+        1,
+        2
+      ],
+      "v": "V"
+    },
+    "liquid": "{% if variables.x != blank and variables.x != 0 %}a{{ \"{\" }}{% endif %}|{% if variables.y != blank and variables.y != 0 %}a{% else %}b{{ \"{\" }}{% endif %}|{% for item in variables.xs %}c{{ \"{\" }}{% endfor %} {{ variables.v | join: \",\" }}",
+    "expected": "a{|b{|c{c{ V"
   }
 ]

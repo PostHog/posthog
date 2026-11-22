@@ -264,8 +264,8 @@ def plain_text_from_html(html: str) -> str:
     )
 
     def link(match: re.Match[str]) -> str:
-        opening = match.string[match.start() : match.start(2)]
-        if any(_control_tags(opening, _Span(start=0, end=len(opening)), tags)):
+        # A condition inside the link can guard its URL. Expanding the link would print the URL outside that condition.
+        if any(_control_tags(match.string, _Span(start=match.start(), end=match.end()), tags)):
             return match.group(0)
         label = _without_html_tags(match.group(2), tags).strip()
         return match.group(1) if label == match.group(1) else f"{label} ({match.group(1)})"

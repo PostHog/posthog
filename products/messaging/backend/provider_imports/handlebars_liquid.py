@@ -207,7 +207,8 @@ class HandlebarsToLiquid:
         while current is not None:
             condition = self._condition(current, frames)
             body = current.body
-            parts.append(self._spend(f"{{% {keyword} {condition} %}}") + self._branch(start, ends, body, frames))
+            parts.append(self._spend(f"{{% {keyword} {condition} %}}"))
+            parts.append(self._branch(start, ends, body, frames))
             keyword = "elsif"
             inverse = current.inverse
             current = None
@@ -220,11 +221,12 @@ class HandlebarsToLiquid:
                 except (_Unsupported, _Unconvertible):
                     pass
             if inverse:
-                parts.append(self._spend("{% else %}") + self._branch(start, ends, inverse, frames))
+                parts.append(self._spend("{% else %}"))
+                parts.append(self._branch(start, ends, inverse, frames))
             else:
                 ends.append(start)
         self._merge(ends)
-        return "".join(parts) + self._spend("{% endif %}")
+        return _joined([*parts, self._spend("{% endif %}")])
 
     def _condition(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         params, hash_args = block.params, block.hash_args
@@ -265,11 +267,12 @@ class HandlebarsToLiquid:
             body = self._branch(start, ends, block.body, (*frames, frame))
         finally:
             self._loop_names.pop()
-        empty = ""
+        parts = [opening, body]
         if block.inverse:
-            empty = self._spend("{% else %}") + self._branch(start, ends, block.inverse, frames)
+            parts.append(self._spend("{% else %}"))
+            parts.append(self._branch(start, ends, block.inverse, frames))
         self._merge(ends)
-        return opening + body + empty + self._spend("{% endfor %}")
+        return _joined([*parts, self._spend("{% endfor %}")])
 
     def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         if not block.parsed or len(block.params) != 1 or block.hash_args or len(block.block_params) > 1:
@@ -288,13 +291,14 @@ class HandlebarsToLiquid:
         # Handlebars `with` skips its body only for an empty value, and 0 isn't one.
         opening = self._spend(f"{{% if {self._truthy(target, frames, include_zero=True)} %}}")
         body = self._branch(start, ends, block.body, (*frames, frame))
-        otherwise = ""
+        parts = [opening, body]
         if block.inverse:
-            otherwise = self._spend("{% else %}") + self._branch(start, ends, block.inverse, frames)
+            parts.append(self._spend("{% else %}"))
+            parts.append(self._branch(start, ends, block.inverse, frames))
         else:
             ends.append(start)
         self._merge(ends)
-        return opening + body + otherwise + self._spend("{% endif %}")
+        return _joined([*parts, self._spend("{% endif %}")])
 
     def _literal_block(self, block: _Block) -> str:
         """Keeps the whole block as written. A value or tag inside it converted on its own would print whatever the
@@ -310,7 +314,7 @@ class HandlebarsToLiquid:
                 parts.append(self._literal_nodes(block.inverse))
         if not block.chained:
             parts.append(self._literal(block.source_close, noted=False))
-        return "".join(parts)
+        return _joined(parts)
 
     def _literal_nodes(self, nodes: tuple[object, ...]) -> str:
         out: list[str] = []
@@ -476,6 +480,13 @@ def _literal_truthy(literal: _Literal, include_zero: bool) -> bool:
 def _literal_text(text: str) -> str:
     # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
     return text.replace("{%", '{{ "{%" }}')
+
+
+def _joined(chunks: list[str]) -> str:
+    out: list[str] = []
+    for chunk in chunks:
+        _append(out, chunk)
+    return "".join(out)
 
 
 def _append(out: list[str], chunk: str) -> None:
