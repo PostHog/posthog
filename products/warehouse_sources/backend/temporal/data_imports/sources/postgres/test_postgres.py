@@ -6193,11 +6193,51 @@ class TestValidateCredentialsErrorMapping:
         with (
             mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
             mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
-            mock.patch.object(source, "get_schemas", return_value=[]),
+            mock.patch.object(source, "get_schemas", return_value=[mock.MagicMock()]),
         ):
             valid, error = source.validate_credentials(config, team_id=1)
 
         assert (valid, error) == (True, None)
+
+    @pytest.mark.parametrize(
+        "schema, table_name, discovered, expected",
+        [
+            ("public", None, [], (False, "Your database has no tables in the schema you entered.")),
+            ("  analytics  ", None, [], (False, "Your database has no tables in the schema you entered.")),
+            ("", None, [], (False, "Your database has no tables to import.")),
+            ("   ", None, [], (False, "Your database has no tables to import.")),
+            (None, None, [], (False, "Your database has no tables to import.")),
+            ("public", None, [mock.sentinel.table], (True, None)),
+            # A table-scoped check must not start failing for a table that has since been dropped.
+            ("public", "orders", [], (True, None)),
+        ],
+    )
+    def test_empty_discovery_is_rejected_with_a_field_specific_message(
+        self, source, schema, table_name, discovered, expected
+    ):
+        job_inputs = {
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+        }
+        if schema is not None:
+            job_inputs["schema"] = schema
+        config = source.parse_config(job_inputs)
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", return_value=discovered),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1, schema_name=table_name)
+
+        expected_valid, expected_prefix = expected
+        assert valid is expected_valid
+        if expected_prefix is None:
+            assert error is None
+        else:
+            assert error is not None and error.startswith(expected_prefix)
 
 
 class TestPostgresSchemaDiscovery:
