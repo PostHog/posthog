@@ -158,7 +158,7 @@
       }
     },
     "engine": "handlebars",
-    "liquid": "{% if variables.plan == \"pro\" %}Pro{% else %}Free{% endif %} {% if variables.user != blank %}{{ variables.user.name | join: \",\" }}{% else %}nobody{% endif %}",
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}Pro{% else %}Free{% endif %} {% if variables.user != blank %}{{ variables.user.name | join: \",\" }}{% else %}nobody{% endif %}",
     "expected": "Pro Ana"
   },
   {
@@ -169,7 +169,7 @@
       "code": 5
     },
     "engine": "handlebars",
-    "liquid": "{% assign text1 = variables.count | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}",
+    "liquid": "{% assign text1 = variables.count | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | join: \",\" | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}",
     "expected": "AB"
   },
   {

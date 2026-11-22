@@ -51,6 +51,8 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("escaped_tag_opening_an_attribute", "\\{{<img src=x }}{{token}}", "{{token}}"),
             ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', '{{#if (lookup permissions "allow")}}'),
             ("value_under_a_lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', "{{token}}"),
+            ("value_under_a_comparison_of_two_values", "{{#notEquals a b}}{{token}}{{/notEquals}}", "{{token}}"),
+            ("value_under_a_comparison_with_empty_text", '{{#equals a ""}}{{token}}{{/equals}}', "{{token}}"),
             (
                 "value_under_a_lookup_with_include_zero",
                 '{{#if (lookup flags "enabled") includeZero=true}}{{token}}{{/if}}',
@@ -176,7 +178,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": html, "generate_plain_content": False})
 
         assert converted.html == (
-            '{% for item in variables.items %}{% assign text1 = item.code | append: "" %}'
+            '{% for item in variables.items %}{% assign text1 = item.code | join: "," | append: "" %}'
             '{% if text1 == "5" %}Y{% endif %}{% endfor %}'
         )
 

@@ -324,7 +324,11 @@ class HandlebarsToLiquid:
         comparisons = _COMPARISONS[self._dialect]
         if block.name in comparisons and len(params) == 2:
             operator = comparisons[block.name]
-            if operator in ("==", "!=") and not any(_is_word(param) for param in params):
+            if operator in ("==", "!="):
+                # A missing value prints as "undefined" and null as "null" when compared as text, and Liquid can't
+                # tell them apart or from "". Against a literal that is neither, all three compare unequal anyway.
+                if all(isinstance(param, _Path) for param in params):
+                    raise _Unsupported
                 left, right = self._as_text(params[0], frames, setup), self._as_text(params[1], frames, setup)
             else:
                 left, right = self._operand(params[0], frames, setup), self._operand(params[1], frames, setup)
@@ -524,13 +528,14 @@ class HandlebarsToLiquid:
     def _as_text(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         """Both providers compare `equals` as text, so 5 equals "5". Liquid compares by type."""
         if isinstance(param, _Literal):
-            if param.text is None:
+            if param.text is None or param.text in ("", "null", "undefined"):
                 raise _Unsupported
             literal = liquid_string(_number_text(param.text) if _is_number(param) else param.text)
             if literal is None:
                 raise _Unsupported
             return literal
-        return self._assign(f'{self._operand(param, frames, setup)} | append: ""', "text", setup)
+        # A list compares as its items joined by commas, as JavaScript turns it into text.
+        return self._assign(f'{self._operand(param, frames, setup)} | join: "," | append: ""', "text", setup)
 
     def _assign(self, expression: str, prefix: str, setup: list[str]) -> str:
         self._assigned += 1
@@ -636,16 +641,6 @@ def _include_zero(hash_args: dict[str, object]) -> bool:
     if set(hash_args) != {"includeZero"} or not isinstance(value, _Literal) or value.text not in ("true", "false"):
         raise _Unsupported
     return value.text == "true"
-
-
-def _is_word(param: object) -> bool:
-    """A string that no number or boolean prints as, so comparing it by type gives the same answer as by text."""
-    return (
-        isinstance(param, _Literal)
-        and param.text is not None
-        and param.liquid != param.text
-        and not re.fullmatch(r"-?\d+(?:\.\d+)?|true|false|null|undefined", param.text)
-    )
 
 
 def _is_number(literal: _Literal) -> bool:

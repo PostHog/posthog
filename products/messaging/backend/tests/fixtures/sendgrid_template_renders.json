@@ -347,19 +347,19 @@
       "total": 120,
       "zero": 0
     },
-    "liquid": "{% if variables.plan == \"pro\" %}P{% else %}F{% endif %}{% if variables.plan != \"pro\" %}N{% endif %}{% if variables.total > 100 %}G{% endif %}{% if variables.total < 100 %}L{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.total != blank and variables.total != 0 %}&{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.zero != blank and variables.zero != 0 %}0{% endif %}",
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}P{% else %}F{% endif %}{% assign text2 = variables.plan | join: \",\" | append: \"\" %}{% if text2 != \"pro\" %}N{% endif %}{% if variables.total > 100 %}G{% endif %}{% if variables.total < 100 %}L{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.total != blank and variables.total != 0 %}&{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.zero != blank and variables.zero != 0 %}0{% endif %}",
     "expected": "PG&"
   },
   {
     "name": "equals compares numbers and text as text",
-    "source": "{{#equals count 5}}A{{/equals}}{{#equals code \"5\"}}B{{/equals}}{{#notEquals count code}}C{{else}}same{{/notEquals}}{{#equals plan \"pro\"}}D{{/equals}}",
+    "source": "{{#equals count 5}}A{{/equals}}{{#equals code \"5\"}}B{{/equals}}{{#equals plan \"pro\"}}D{{/equals}}",
     "data": {
       "count": "5",
       "code": 5,
       "plan": "pro"
     },
-    "liquid": "{% assign text1 = variables.count | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}{% assign text3 = variables.count | append: \"\" %}{% assign text4 = variables.code | append: \"\" %}{% if text3 != text4 %}C{% else %}same{% endif %}{% if variables.plan == \"pro\" %}D{% endif %}",
-    "expected": "ABsameD"
+    "liquid": "{% assign text1 = variables.count | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | join: \",\" | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}{% assign text3 = variables.plan | join: \",\" | append: \"\" %}{% if text3 == \"pro\" %}D{% endif %}",
+    "expected": "ABD"
   },
   {
     "name": "length of a missing value or an object is 0",
@@ -369,7 +369,7 @@
         "a": 1
       }
     },
-    "liquid": "{% assign length1 = variables.missing | size %}{% assign text2 = length1 | append: \"\" %}{% if text2 == \"0\" %}none{% endif %}{% assign length3 = variables.obj | size %}{% if length3 > 0 %}some{% else %}zero{% endif %}",
+    "liquid": "{% assign length1 = variables.missing | size %}{% assign text2 = length1 | join: \",\" | append: \"\" %}{% if text2 == \"0\" %}none{% endif %}{% assign length3 = variables.obj | size %}{% if length3 > 0 %}some{% else %}zero{% endif %}",
     "expected": "nonezero"
   },
   {
@@ -536,8 +536,26 @@
     "data": {
       "price": 5
     },
-    "liquid": "<p>{% assign text1 = variables.price | append: \"\" %}{% if text1 == \"5\" %}Y{% else %}N{% endif %}</p>",
+    "liquid": "<p>{% assign text1 = variables.price | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}Y{% else %}N{% endif %}</p>",
     "expected": "<p>Y</p>"
+  },
+  {
+    "name": "comparisons read a list as its items joined by commas",
+    "source": "<p>{{#notEquals status \"banned\"}}A{{else}}B{{/notEquals}}{{#equals zip 12345}}C{{else}}D{{/equals}}</p>",
+    "data": {
+      "status": [
+        "banned"
+      ],
+      "zip": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "liquid": "<p>{% assign text1 = variables.status | join: \",\" | append: \"\" %}{% if text1 != \"banned\" %}A{% else %}B{% endif %}{% assign text2 = variables.zip | join: \",\" | append: \"\" %}{% if text2 == \"12345\" %}C{% else %}D{% endif %}</p>",
+    "expected": "<p>BD</p>"
   },
   {
     "name": "conditions read a string of spaces and an empty object as true",
