@@ -162,10 +162,28 @@ describe('statusOf', () => {
             {
                 timeline: [
                     {
+                        valve: 'role.freeze',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.freeze on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
+            'a valve that applied after the drive ended but was never observed',
+            {
+                timeline: [
+                    {
                         valve: 'role.kill',
                         target: EMAIL_WORKER,
                         requestedAt: at(51),
                         intentAt: at(52),
+                        appliedAt: at(52),
+                        releasedAt: at(52),
                         error: `${EMAIL_WORKER} is not running`,
                     },
                 ],
