@@ -91,7 +91,7 @@ describe('load', () => {
         throw new Error('the card loaded')
     }
 
-    it.each<[string, object | string, object | string | undefined, string]>([
+    it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
         [
@@ -440,7 +440,7 @@ describe('load', () => {
                 replicas: { 'cdp-cyclotron-worker-email': 6 },
                 load: emailLoad,
             },
-            'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 500 cannot grant one batch to each of the 6 email replicas at once; raise it to 600 or more',
+            'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 500 cannot hold one batch for every email replica (6) at once; raise it to 600 or more',
         ],
         [
             'a load block without an email claim target on a card that sends email',
@@ -452,8 +452,17 @@ describe('load', () => {
             },
             'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
         ],
+        [
+            'a load block without an email claim target and an SES limiter capacity under one batch',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },
+            [
+                'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+                'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 50 cannot hold one batch for every email replica (1) at once; raise it to 500 or more',
+            ],
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
-        expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+        expect(problemsOf(content, profileContent)).toEqual([problem].flat().map((one) => expect.stringContaining(one)))
     })
 
     const devCard = {
@@ -650,6 +659,24 @@ describe('load', () => {
                 ...profile,
                 settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '120' },
                 load: emailLoad,
+            },
+        ],
+        [
+            'an email load at exactly half of the refill',
+            {
+                ...emailRamp,
+                drive: {
+                    ...emailRamp.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 10, for: '15s' },
+                    ],
+                },
+            },
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '110' },
+                load: { targets: { claimsPerSecond: { email: 5 } }, tolerance: 0.1 },
             },
         ],
         [

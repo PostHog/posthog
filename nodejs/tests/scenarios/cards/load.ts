@@ -180,28 +180,38 @@ function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): stri
     if (profile.load === undefined || !sendsEmail) {
         return []
     }
-    const claims = profile.load.targets.claimsPerSecond.email
-    if (claims === undefined) {
-        return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
-    }
-    const topScale = topScaleOf(card)
-    const peak = claims * topScale * (1 + profile.load.tolerance)
-    const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
     const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
     const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
     const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
     return [
-        ...(peak <= ceiling
-            ? []
-            : [
-                  `profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to ${Math.ceil(peak)} jobs a second at the ${topScale}x step, over ${ceiling}, ${SES_SHARE * 100}% of the SES limiter refill; raise it to ${Math.ceil(peak / SES_SHARE)} or more`,
-              ]),
+        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
         ...(capacity >= burst
             ? []
             : [
-                  `profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: ${capacity} cannot grant one batch to each of the ${replicas} email replicas at once; raise it to ${burst} or more`,
+                  `profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: ${capacity} cannot hold one batch for every email replica (${replicas}) at once; raise it to ${burst} or more`,
               ]),
     ]
+}
+
+function checkSesRefill(
+    card: Card,
+    profile: Profile,
+    defaults: Settings,
+    claims: number | undefined,
+    tolerance: number
+): string[] {
+    if (claims === undefined) {
+        return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
+    }
+    const topScale = topScaleOf(card)
+    // Rounded so a peak exactly at the share passes: in floating point, 50 * 1.1 is just over 55.
+    const peak = Number((claims * topScale * (1 + tolerance)).toFixed(6))
+    const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
+    return peak <= ceiling
+        ? []
+        : [
+              `profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to ${Math.ceil(peak)} jobs a second at the ${topScale}x step, over ${ceiling}, ${SES_SHARE * 100}% of the SES limiter refill; raise it to ${Math.ceil(peak / SES_SHARE)} or more`,
+          ]
 }
 
 // Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
