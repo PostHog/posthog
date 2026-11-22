@@ -570,6 +570,23 @@ describe('SesWebhookHandler', () => {
         ])
     })
 
+    it.each([
+        ['has no To header', { subject: 'Hi' }],
+        ['names no address in its To header', { to: ['"Jane Doe"'] }],
+    ])('records email_delivered for a Delivery whose mail %s', async (_desc, commonHeaders) => {
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: { ...baseMail, commonHeaders },
+                delivery: { timestamp: '2025-10-03T12:03:00Z', recipients: ['to@example.com'] },
+            },
+        ]
+
+        const result = await handler.handleWebhook({ body, headers: {} })
+
+        expect(result.metrics?.filter((m) => m.metricName === 'email_delivered')).toHaveLength(1)
+    })
+
     describe('a send with cc and bcc set', () => {
         const ccMail = {
             ...baseMail,

@@ -129,16 +129,16 @@ const normalizeAddress = (address: string): string => unquoteMailbox(address).tr
 const mailboxAddresses = (entries: string[]): Set<string> =>
     new Set(
         entries.flatMap((entry) =>
-            addressparser(entry, { flatten: true }).map((parsed) => normalizeAddress(parsed.address))
+            addressparser(entry, { flatten: true })
+                .map((parsed) => normalizeAddress(parsed.address))
+                .filter((address) => address !== '')
         )
     )
 
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
 
-const reachesToRecipient = (rec: SesEventRecord, addresses: string[]): boolean => {
-    const to = toHeaderAddresses(rec)
-    return addresses.some((address) => to.has(normalizeAddress(address)))
-}
+const reachesToRecipient = (to: Set<string>, addresses: string[]): boolean =>
+    addresses.some((address) => to.has(normalizeAddress(address)))
 
 const sesDeliveriesNotToRecipientCounter = new Counter({
     name: 'email_tracking_deliveries_not_to_recipient_total',
@@ -148,7 +148,8 @@ const sesDeliveriesNotToRecipientCounter = new Counter({
 // SES reports one Delivery per receiving server, so a send with cc or bcc set gets several, while email_sent counts
 // the send once. Without a To header the copies can't be told apart, so the record counts.
 const countsAsDelivered = (rec: Extract<SesEventRecord, { eventType: 'Delivery' }>): boolean => {
-    if (toHeaderAddresses(rec).size === 0 || reachesToRecipient(rec, rec.delivery.recipients ?? [])) {
+    const to = toHeaderAddresses(rec)
+    if (to.size === 0 || reachesToRecipient(to, rec.delivery.recipients ?? [])) {
         return true
     }
     sesDeliveriesNotToRecipientCounter.inc()
@@ -182,14 +183,15 @@ export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEve
 const resolveEmailStatusUpdate = (
     rec: SesEventRecord
 ): Pick<SesEmailStatusUpdate, 'status' | 'reason' | 'timestamp'> | null => {
+    const to = toHeaderAddresses(rec)
     switch (rec.eventType) {
         case 'Delivery':
-            return reachesToRecipient(rec, rec.delivery.recipients ?? [])
+            return reachesToRecipient(to, rec.delivery.recipients ?? [])
                 ? { status: 'delivered', timestamp: rec.delivery.timestamp }
                 : null
         case 'Bounce':
             return reachesToRecipient(
-                rec,
+                to,
                 rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
             )
                 ? {
@@ -202,7 +204,7 @@ const resolveEmailStatusUpdate = (
             // A "not-spam" feedback type corrects an earlier spam report, so it is not a complaint.
             return rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam' &&
                 reachesToRecipient(
-                    rec,
+                    to,
                     rec.complaint.complainedRecipients.map((r) => r.emailAddress)
                 )
                 ? { status: 'complained', timestamp: rec.complaint.timestamp }
