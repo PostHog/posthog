@@ -34,12 +34,17 @@ export interface ImportFormValues {
 
 const isActive = (run: ProviderImportRunApi): boolean => ACTIVE_IMPORT_RUN_STATUSES.includes(run.status)
 
+type RunDetailsCache = { runDetails?: Record<string, ProviderImportRunApi> }
+
+const hasDetails = (run: ProviderImportRunApi, cache: RunDetailsCache): boolean =>
+    cache.runDetails?.[run.id]?.status === run.status
+
 // The list leaves out each step's items, so the window gets the latest run of each tool in full. A finished run no
 // longer changes, so it's fetched once.
 async function withLatestRunDetails(
     teamId: string,
     runs: ProviderImportRunApi[],
-    cache: { runDetails?: Record<string, ProviderImportRunApi> }
+    cache: RunDetailsCache
 ): Promise<ProviderImportRunApi[]> {
     cache.runDetails ??= {}
     const details = cache.runDetails
@@ -56,9 +61,8 @@ async function withLatestRunDetails(
             if (!latestIds.has(run.id)) {
                 return run
             }
-            const known = details[run.id]
-            if (known && known.status === run.status && !isActive(run)) {
-                return known
+            if (hasDetails(run, cache) && !isActive(run)) {
+                return details[run.id]
             }
             try {
                 const detail = await messagingProviderImportsRetrieve(teamId, run.id)
@@ -619,7 +623,11 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 }
             }
             actions.setTrackedImportRunIds(activeIds)
-            if (activeIds.length > 0) {
+            // A finished run whose details failed to load would otherwise show no items, so keep polling until they load.
+            const missingDetails = Object.values(values.latestImportRunByProvider).some(
+                (run) => !hasDetails(run, cache)
+            )
+            if (activeIds.length > 0 || missingDetails) {
                 cache.disposables.add(() => {
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)
