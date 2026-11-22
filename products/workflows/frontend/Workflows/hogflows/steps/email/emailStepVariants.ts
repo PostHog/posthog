@@ -30,6 +30,7 @@ export function needsSandboxSender(
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
+        !action.config.sensitive &&
         sandboxTakesStepId(action) &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
         ownOnlySettings(action).every(

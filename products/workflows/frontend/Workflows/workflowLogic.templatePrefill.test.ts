@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 // Registers the product trigger tiles, as StepTrigger does in the editor.
 import './hogflows/registry/triggers'
 
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
@@ -179,9 +183,16 @@ describe('workflowLogic pages opened from a link or a template', () => {
         expect(workflowLogic({ id: 'wf-a' }).values.workflow.name).toBe('Renamed a')
     })
 
-    it('opens an event workflow that sends the published email of a transactional template', async () => {
+    it('opens an event workflow that sends the published email of a transactional template from an environment', async () => {
+        const environmentId = MOCK_DEFAULT_TEAM.id + 1
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: environmentId })
         useMocks({
-            get: { '/api/projects/:team_id/messaging_templates/:id/': transactionalTemplate },
+            get: {
+                '/api/projects/:team_id/messaging_templates/:id/': (req: MockResolverInfo) =>
+                    req.params.team_id === String(environmentId)
+                        ? [200, transactionalTemplate]
+                        : [404, { detail: 'Not found.' }],
+            },
         })
         const logic = workflowLogic({
             id: 'new',

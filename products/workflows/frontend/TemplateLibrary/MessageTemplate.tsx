@@ -50,6 +50,7 @@ import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
+import { templateWorkflowDisabledReason } from './templateWorkflowDisabledReason'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
@@ -147,14 +148,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 : !template.name
                   ? 'Name is required'
                   : undefined)
-    // The workflow copies the published email, so unpublished edits would not reach it.
     const sendOnEventDisabledReason =
         editDisabledReason ??
-        (draftsEnabled && (hasDraft || hasUnsavedChanges)
-            ? 'Publish your changes first'
-            : !draftsEnabled && templateChanged
-              ? 'Save your changes first'
-              : undefined)
+        templateWorkflowDisabledReason({
+            draftsEnabled,
+            hasDraft,
+            hasUnsavedChanges,
+            templateChanged,
+            isSavingSensitive,
+        })
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 

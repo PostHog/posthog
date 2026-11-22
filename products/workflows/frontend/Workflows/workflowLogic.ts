@@ -237,15 +237,12 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
-async function loadEmailTemplate(
-    projectId: string,
-    templateId: string | undefined
-): Promise<MessageTemplateApi | null> {
+async function loadEmailTemplate(templateId: string | undefined): Promise<MessageTemplateApi | null> {
     if (!templateId) {
         return null
     }
     try {
-        const template = await messagingTemplatesRetrieve(projectId, templateId)
+        const template = await messagingTemplatesRetrieve(String(ApiConfig.getCurrentTeamId()), templateId)
         return template.content?.email ? template : null
     } catch {
         lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
@@ -3922,9 +3919,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
-                        const messageTemplate = triggerConfig
-                            ? await loadEmailTemplate(String(values.currentProjectId), props.messageTemplateId)
-                            : null
+                        const messageTemplate = triggerConfig ? await loadEmailTemplate(props.messageTemplateId) : null
                         if (triggerConfig && messageTemplate) {
                             return await withDefaultEmailSender(
                                 templatePrefilledWorkflow(NEW_WORKFLOW, triggerConfig, messageTemplate)
