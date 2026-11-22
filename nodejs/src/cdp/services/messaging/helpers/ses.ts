@@ -135,6 +135,18 @@ const mailboxAddresses = (entries: string[]): Set<string> =>
 
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
 
+const reachesToRecipient = (rec: SesEventRecord, addresses: string[]): boolean => {
+    const to = toHeaderAddresses(rec)
+    return addresses.some((address) => to.has(normalizeAddress(address)))
+}
+
+// SES reports one Delivery per receiving server, so a send with cc or bcc set gets several, while email_sent counts
+// the send once. A record without a To header or recipients can't be told apart from the others, so it counts.
+const countsAsDelivered = (rec: Extract<SesEventRecord, { eventType: 'Delivery' }>): boolean => {
+    const recipients = rec.delivery.recipients ?? []
+    return recipients.length === 0 || toHeaderAddresses(rec).size === 0 || reachesToRecipient(rec, recipients)
+}
+
 const sesRecipientsNotSentToCounter = new Counter({
     name: 'email_tracking_recipients_not_sent_to_total',
     help: 'Bounce and complaint recipients left out of suppression because the email was not sent to them',
@@ -162,8 +174,7 @@ export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEve
 const resolveEmailStatusUpdate = (
     rec: SesEventRecord
 ): Pick<SesEmailStatusUpdate, 'status' | 'reason' | 'timestamp'> | null => {
-    const to = toHeaderAddresses(rec)
-    const reachesTo = (addresses: string[]): boolean => addresses.some((address) => to.has(normalizeAddress(address)))
+    const reachesTo = (addresses: string[]): boolean => reachesToRecipient(rec, addresses)
     switch (rec.eventType) {
         case 'Delivery':
             return reachesTo(rec.delivery.recipients ?? [])
@@ -594,7 +605,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             // Test sends (from the editor's "Run test") are not production activity, so we skip
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
-            if (metricName && !isTest) {
+            if (metricName && !isTest && (rec.eventType !== 'Delivery' || countsAsDelivered(rec))) {
                 const isSensitive = isSensitiveMail(rec.mail)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
