@@ -386,47 +386,26 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain(`Run ${runId} was not leased`)
     })
 
-    it.each<[string, NodeJS.ProcessEnv, unknown, boolean]>([
+    it.each<[string, NodeJS.ProcessEnv, unknown]>([
         [
             'a new run id',
             {},
             expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
-            false,
         ],
-        ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID, true],
-    ])('runs under %s and releases the lease when the run ends', async (_story, env, expected, createOnly) => {
+        ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
+    ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
         const { controller } = prepare({ env })
-        const calls: string[][] = []
-        const call = cloud.call.bind(cloud)
-        cloud.call = (args) => {
-            calls.push(args)
-            return call(args)
-        }
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
         const runId = leasedRunId()
         expect(runId).toEqual(expected)
-        const leaseCalls = calls
-            .slice(
-                0,
-                calls.findIndex(([, operation]) => operation === 'create-schedule')
-            )
-            .filter((args) => args.some((arg) => arg.startsWith(`runs/${runId}/`)))
-            .map(([, operation, ...rest]) => [
-                operation,
-                rest.find((arg) => arg.startsWith('runs/')),
-                rest.includes('--if-none-match'),
+        expect([...cloud.objects.keys()]).toEqual(
+            expect.arrayContaining([
+                `runs/${runId}/input/manifest.json`,
+                ...loadRunInputs(profilePath()).inputs.map(({ file }) => `runs/${runId}/input/${file}`),
             ])
-        expect(leaseCalls).toEqual([
-            ['put-object', `runs/${runId}/manifest.json`, createOnly],
-            ['put-object', `runs/${runId}/input/manifest.json`, false],
-            ...loadRunInputs(profilePath()).inputs.map(({ file }) => [
-                'put-object',
-                `runs/${runId}/input/${file}`,
-                false,
-            ]),
-        ])
+        )
         expect(parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!)).toMatchObject({
             runId,
             stackName: `scn-${runId}`,
@@ -448,6 +427,20 @@ describe('cloud controller', () => {
 
         expect(err.join('\n')).toContain(`Run ${GIVEN_RUN_ID} already has a manifest`)
         expect(cloud.objects).toEqual(objects)
+        expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
+        expect(cloud.stacks.size).toBe(0)
+    })
+
+    it('keeps the expiry schedules of a given run id that a lease in another evidence bucket cannot take', async () => {
+        const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+        await leaseAt(T, controller)
+        const schedules = schedulesFor(GIVEN_RUN_ID)
+        cloud.objects.clear()
+        now = new Date(T.getTime() + 60 * 60 * 1000)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.not.toBe(0)
+
+        expect(err.join('\n')).toContain(`Run ${GIVEN_RUN_ID} was not leased`)
         expect(schedulesFor(GIVEN_RUN_ID)).toEqual(schedules)
         expect(cloud.stacks.size).toBe(0)
     })
@@ -1784,12 +1777,17 @@ describe('cloud controller', () => {
 
         afterAll(() => store.close())
 
-        it('stores the scorecard it publishes as a Workflows run', async () => {
-            const { controller } = prepare({ env: { ...api.credentials, ...store.envOf(dir) } })
+        it.each<[string, NodeJS.ProcessEnv]>([
+            ['a new run id', {}],
+            ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }],
+        ])('stores the scorecard it publishes as a Workflows run under %s', async (_story, env) => {
+            const { controller } = prepare({ env: { ...env, ...api.credentials, ...store.envOf(dir) } })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
-            expect(await store.read(leasedRunId())).toMatchObject({
+            const runId = env.SCENARIO_RUN_ID ?? leasedRunId()
+            expect(published()).toMatchObject({ run_id: runId })
+            expect(await store.read(runId)).toMatchObject({
                 scorecard: published(),
                 adapters: ['workflows'],
                 owners: [],

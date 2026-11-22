@@ -86,13 +86,18 @@ async function ignoringNotFound(request: Promise<unknown>): Promise<void> {
     }
 }
 
-async function deleteSchedules({ aws }: Controller, manifest: Manifest): Promise<void> {
-    for (const name of manifest.schedules) {
+async function deleteSchedules({ aws }: Controller, names: string[]): Promise<void> {
+    for (const name of names) {
         await ignoringNotFound(aws.call(['scheduler', 'delete-schedule', '--name', name]))
     }
 }
 
-async function register(controller: Controller, schedulerRole: string, manifest: Manifest): Promise<void> {
+async function register(
+    controller: Controller,
+    schedulerRole: string,
+    manifest: Manifest,
+    created: string[]
+): Promise<void> {
     const expiresAt = Date.parse(manifest.expiresAt)
     const schedules = manifest.schedules.map((name, i) => ({
         name,
@@ -116,6 +121,7 @@ async function register(controller: Controller, schedulerRole: string, manifest:
             '--target',
             JSON.stringify(target),
         ])
+        created.push(name)
     }
 }
 
@@ -150,6 +156,7 @@ export async function lease(
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
+    const created: string[] = []
     if (given !== undefined) {
         await bucket.put(keyOf(runId, 'manifest.json'), body, true).catch((error: unknown) => {
             throw error instanceof AwsError && error.code === 'PreconditionFailed'
@@ -165,12 +172,12 @@ export async function lease(
         for (const input of inputs) {
             await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
         }
-        await register(controller, profile.baseline.schedulerRole, manifest)
+        await register(controller, profile.baseline.schedulerRole, manifest, created)
         return manifest
     } catch (error) {
-        const left = await deleteSchedules(controller, manifest).then(
+        const left = await deleteSchedules(controller, created).then(
             () => [],
-            (deleteError: Error) => [`its schedules ${manifest.schedules.join(', ')}: ${deleteError.message}`]
+            (deleteError: Error) => [`its schedules ${created.join(', ')}: ${deleteError.message}`]
         )
         controller.warn(
             [
@@ -184,7 +191,7 @@ export async function lease(
 }
 
 export async function release(controller: Controller, manifest: Manifest): Promise<void> {
-    await deleteSchedules(controller, manifest)
+    await deleteSchedules(controller, manifest.schedules)
     controller.print(`Released run ${manifest.runId}.`)
 }
 
