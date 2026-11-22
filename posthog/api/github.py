@@ -18,6 +18,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.project_secret_api_key import retire_leaked_team_secret_token
 from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_ACCESS_TOKEN,
     CANONICAL_OAUTH_REFRESH_TOKEN,
@@ -278,7 +279,14 @@ class SecretAlert(APIView):
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
                         key_kind = CANONICAL_TEAM_SECRET_TOKEN
-                        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+                        retirement = retire_leaked_team_secret_token(team.id, token)
+                        send_feature_flags_secure_api_key_exposed(
+                            team.id,
+                            mask_key_value(token),
+                            more_info,
+                            signing_secret_replaced=retirement.replaced,
+                            grace_window_ended=retirement.grace_window_ended,
+                        )
 
                     except Team.DoesNotExist:
                         pass

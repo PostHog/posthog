@@ -284,11 +284,13 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: (input, { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = {}) =>
-            globalThis.fetch(
+        fetch: (input, options) => {
+            const { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = options ?? {}
+            return globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
-            ),
+            )
+        },
         now: () => Date.now(),
         sleep,
         homeDir: () => {

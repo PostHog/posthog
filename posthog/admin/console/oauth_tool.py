@@ -6,8 +6,8 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 
+from posthog.admin.console.oauth_application_panels import GROWTH
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.utils import pluralize
@@ -88,7 +88,7 @@ def revoke_sessions(request: HttpRequest, form: forms.Form | None) -> HttpRespon
 class OAuthSessionsTool(ConsoleTool):
     key = "oauth-sessions"
     title = "Revoke OAuth app sessions"
-    owner = DEV_EXPERIENCE
+    owner = GROWTH
     group = "Access"
     description = "Signs out every connection of an OAuth application, after a preview."
 

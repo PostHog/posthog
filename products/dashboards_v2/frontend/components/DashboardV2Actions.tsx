@@ -7,12 +7,12 @@ import { dashboardV2Logic } from '../dashboardV2Logic'
 import { AddTileMenu } from './AddTileMenu'
 
 export function DashboardV2Actions(): JSX.Element {
-    const { canUndo, canRedo, canEditLayout, activeTab } = useValues(dashboardV2Logic)
+    const { canUndo, canRedo, hasPermission, activeTab } = useValues(dashboardV2Logic)
     const { undo, redo } = useActions(dashboardV2Logic)
 
     return (
         <div className="flex flex-wrap items-center gap-1">
-            {canEditLayout && (
+            {hasPermission('addTile') && (
                 <>
                     <AddTileMenu gridId={activeTab.id} label="Add" />
                     <Button

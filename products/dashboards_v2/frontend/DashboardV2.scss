@@ -27,7 +27,9 @@
 }
 
 .DashboardV2__tile:hover > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__tile:hover > .DashboardV2__menu-trigger > .DashboardV2__card .DashboardV2__chrome,
 .DashboardV2__tile:focus-within > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__tile:focus-within > .DashboardV2__menu-trigger > .DashboardV2__card .DashboardV2__chrome,
 .DashboardV2__section-header:hover .DashboardV2__chrome,
 .DashboardV2__section-header:focus-within .DashboardV2__chrome {
     opacity: 1;
@@ -99,6 +101,7 @@
     }
 
     .react-grid-item.react-draggable-dragging > .DashboardV2__card,
+    .react-grid-item.react-draggable-dragging > .DashboardV2__menu-trigger > .DashboardV2__card,
     .react-grid-item.react-draggable-dragging > .DashboardV2__section {
         box-shadow: var(--shadow-elevation-3000);
         opacity: 0.92;
@@ -214,7 +217,7 @@
     .react-grid-item:has(> .react-resizable-handle:hover),
     .react-grid-item.resizing {
         > .DashboardV2__card,
-        > * > .DashboardV2__card {
+        > .DashboardV2__menu-trigger > .DashboardV2__card {
             outline: 2px solid var(--color-accent);
             outline-offset: -1px;
         }

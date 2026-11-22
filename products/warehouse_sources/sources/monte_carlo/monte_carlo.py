@@ -43,6 +43,8 @@ DBT_TEST_RESULTS_OVERLAP = timedelta(days=2)
 # getJobExecutions only filters by whole days back and a job's startTime stays fixed while it
 # runs, so one extra day catches status updates on jobs that finished after the last sync.
 JOB_EXECUTIONS_OVERLAP = timedelta(days=1)
+# Credits for a day keep growing until the day ends, so incremental syncs re-read the last two days.
+BILLING_MONITOR_USAGE_OVERLAP = timedelta(days=2)
 
 
 # (after, before) bounds of one time-range query.
@@ -465,6 +467,96 @@ def _get_job_execution_rows(
             yield [{**row, "monitorUuid": monitor_uuid} for row in rows]
 
 
+def _get_monitor_audit_log_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    start_offset = resume.offset if resume is not None and resume.offset else 0
+
+    for monitor_index, monitor_uuid in _iter_monitor_uuids(session, logger, None, start_offset):
+        # Earlier monitors are fully yielded. A resume re-reads this monitor, and merge dedupes it.
+        resumable_source_manager.save_state(MonteCarloResumeConfig(offset=monitor_index))
+        resumable_source_manager.safe_point()
+
+        for rows, _next_cursor in _relay_pages(session, config, logger, {"monitorUuid": monitor_uuid}, None):
+            yield [{**row, "monitorUuid": monitor_uuid} for row in rows]
+
+
+def _iter_authorization_group_names(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    start_offset: int,
+) -> Iterator[tuple[int, str]]:
+    """Yield (position, name) for each authorization group, starting at `start_offset` in the group list."""
+    position = 0
+    groups_config = MONTE_CARLO_ENDPOINTS["authorization_groups"]
+    for groups, _next_cursor in _relay_pages(session, groups_config, logger, {}, None):
+        for group in groups:
+            if position >= start_offset and group.get("name"):
+                yield position, group["name"]
+            position += 1
+
+
+def _get_authorization_group_member_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over authorization groups. A group's `users` field is deprecated in favor of
+    filtering getUsersInAccount by group name."""
+    start_offset = resume.offset if resume is not None and resume.offset else 0
+
+    for group_index, group_name in _iter_authorization_group_names(session, logger, start_offset):
+        # Earlier groups are fully yielded. A resume re-reads this group, and merge dedupes it.
+        resumable_source_manager.save_state(MonteCarloResumeConfig(offset=group_index))
+        resumable_source_manager.safe_point()
+
+        variables = {"authorizationGroups": [group_name]}
+        for rows, _next_cursor in _relay_pages(session, config, logger, variables, None):
+            yield [{**row, "authorizationGroupName": group_name} for row in rows]
+
+
+def _start_of_day(value: datetime) -> datetime:
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _get_billing_monitor_usage_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """getBillingMonitorUsage requires a date range and returns one row per day, so walk whole-day
+    windows oldest-first up to and including today."""
+    now = datetime.now(UTC)
+    start = _window_start(db_incremental_field_last_value, now, overlap=BILLING_MONITOR_USAGE_OVERLAP)
+    if resume is not None and resume.window_after is not None:
+        resumed_after = _parse_incremental_value(resume.window_after)
+        if resumed_after is not None:
+            start = resumed_after
+            logger.debug(f"Monte Carlo: resuming {config.name} from window_after={resume.window_after}")
+    end = _start_of_day(now) + timedelta(days=1)
+
+    for window_after, window_before in _alert_windows(_start_of_day(start), end):
+        start_on = format_datetime(window_after)
+        # Every earlier window is fully yielded, so this window is where a resume starts.
+        resumable_source_manager.save_state(MonteCarloResumeConfig(window_after=start_on))
+        resumable_source_manager.safe_point()
+
+        variables = {"startOn": start_on, "endBefore": format_datetime(window_before)}
+        data = _execute_query(session, config.query, variables, logger)
+        rows = [usage for usage in (data.get(config.data_path) or {}).get("usages") or [] if usage]
+        if rows:
+            yield rows
+
+
 def _get_job_schedule_rows(
     session: requests.Session,
     config: MonteCarloEndpointConfig,
@@ -535,6 +627,21 @@ def get_rows(
             resume,
             db_incremental_field_last_value if should_use_incremental_field else None,
         )
+    elif endpoint == "billing_monitor_usage":
+        yield from _get_billing_monitor_usage_rows(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    elif endpoint in ("authorization_group_members", "monitor_audit_logs"):
+        read_fan_out_rows = {
+            "authorization_group_members": _get_authorization_group_member_rows,
+            "monitor_audit_logs": _get_monitor_audit_log_rows,
+        }[endpoint]
+        yield from read_fan_out_rows(session, config, logger, resumable_source_manager, resume)
     elif endpoint == "job_schedules":
         yield from _get_job_schedule_rows(session, config, logger)
     elif config.pagination == "relay":

@@ -1,7 +1,9 @@
 import { BindLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -19,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointsEmptyState } from './emptyState/endpointsEmptyState'
 import { Endpoints } from './Endpoints'
-import { endpointsLogic } from './endpointsLogic'
+import { EndpointsTab, endpointsLogic } from './endpointsLogic'
 import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
@@ -99,7 +101,34 @@ export function EndpointsScene(): JSX.Element {
                             )
                         }
                     />
-                    <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    {todayRailNav ? (
+                        <div className="flex flex-col gap-4" data-quill>
+                            <Tabs
+                                value={activeTab}
+                                onValueChange={(tab: EndpointsTab) =>
+                                    router.actions.push(tab === 'usage' ? urls.endpointsUsage() : urls.endpoints())
+                                }
+                                data-attr="endpoints-tabs"
+                            >
+                                <div className="border-b border-border">
+                                    <TabsList variant="line" aria-label="Endpoints sections">
+                                        {tabs.map((tab) => (
+                                            <TabsTrigger
+                                                key={tab.key}
+                                                value={tab.key}
+                                                data-attr={`endpoints-tab-${tab.key}`}
+                                            >
+                                                {tab.label}
+                                            </TabsTrigger>
+                                        ))}
+                                    </TabsList>
+                                </div>
+                            </Tabs>
+                            {activeTab === 'usage' ? <EndpointsUsage /> : <Endpoints />}
+                        </div>
+                    ) : (
+                        <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    )}
                     <InsightPickerEndpointModal />
                 </SceneContent>
             </BindLogic>

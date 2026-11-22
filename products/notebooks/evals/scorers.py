@@ -30,7 +30,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.notebooks.backend.markdown_conversion import MARKDOWN_NOTEBOOK_NODE_TYPE
-from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun, NotebookWidgetInstance
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -44,6 +44,7 @@ __all__ = [
     "CellRunsCompleted",
     "ChurnCohortSurfaced",
     "NotebookApproachQuality",
+    "NotebookAppReady",
     "NotebookCreated",
     "NotebookRunCompleted",
 ]
@@ -161,6 +162,50 @@ class NotebookCreated(AsyncOnlyScorerMixin, Scorer):
             }
             for notebook in Notebook.objects.filter(team_id=team_id, deleted=False)
         ]
+
+
+class NotebookAppReady(AsyncOnlyScorerMixin, Scorer):
+    def _name(self) -> str:
+        return "notebook_app_ready"
+
+    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
+        spec = _spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No app requirements on case"})
+        team_id = _seeded_team_id(output)
+        if team_id is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No seed.team_id"})
+        apps = await asyncio.to_thread(self._read_apps, team_id)
+        ready = any(
+            set(spec.get("inputs", [])).issubset(app["inputs"])
+            and app["widget_statuses"]
+            and all(status == "ready" for status in app["widget_statuses"])
+            for app in apps
+        )
+        return Score(name=self._name(), score=float(ready), metadata={"apps": apps})
+
+    @staticmethod
+    def _read_apps(team_id: int) -> list[dict[str, Any]]:
+        from products.notebooks.backend.widgets import get_widget_status
+
+        apps = []
+        for notebook in Notebook.objects.filter(
+            team_id=team_id, deleted=False, app_draft__isnull=False, app_published__isnull=True
+        ):
+            blocks = notebook.app_draft.get("blocks", [])
+            cell_ids = [block["node_id"] for block in blocks if block["kind"] == "cell"]
+            widgets = NotebookWidgetInstance.objects.for_team(team_id).filter(notebook=notebook, node_id__in=cell_ids)
+            apps.append(
+                {
+                    "short_id": notebook.short_id,
+                    "inputs": [block["variable"] for block in blocks if block["kind"] == "input"],
+                    "widget_statuses": [
+                        get_widget_status(notebook=notebook, node_id=widget.node_id).lifecycle_status
+                        for widget in widgets
+                    ],
+                }
+            )
+        return apps
 
 
 class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):

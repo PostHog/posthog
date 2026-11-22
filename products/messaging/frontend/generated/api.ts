@@ -639,7 +639,8 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -659,7 +660,8 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -682,7 +684,8 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -703,7 +706,8 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
@@ -1056,7 +1060,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (

@@ -6,7 +6,7 @@ together with the step's progress, and resumes a retried step from the last save
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from typing import ClassVar, Literal
 
@@ -41,6 +41,10 @@ class ImportAccessLost(ImportStepError):
     """The person who started the run can't make its changes anymore. Another try finds the same result."""
 
 
+class ImportStepBlocked(ImportStepError):
+    """A step the run needs first didn't complete, so this one doesn't run. Another try finds the same result."""
+
+
 class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 
@@ -56,6 +60,28 @@ class ImportStepSpec:
     description: str
     # What the step counts in its summary, as (key, label) pairs in display order.
     count_labels: tuple[tuple[str, str], ...] = ()
+    # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
+    requires: tuple[str, ...] = ()
+    # Steps the run must include for this one to do anything, such as contacts for new people.
+    needs: tuple[str, ...] = ()
+
+
+@frozen
+class ImportSettingChoice:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingSpec:
+    """A choice the person makes before a run, beyond its steps and API key."""
+
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoice, ...]
+    # None means the person has to choose.
+    default: str | None = None
 
 
 @frozen
@@ -70,6 +96,12 @@ class ImportContext:
     integration_id: int | None
     # The key a provider with `retains_credentials = False` reads for this run only.
     api_key: str | None = field(default=None, repr=False)
+    # Every step the run imports, for a step whose work depends on another step being selected.
+    steps: tuple[str, ...] = ()
+    # Names what the run stores, so a retried page overwrites what it stored before.
+    run_id: str = ""
+    settings: Mapping[str, str] = field(default_factory=dict)
+    completed_steps: tuple[str, ...] = ()
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -87,6 +119,19 @@ class ImportItem:
 
 
 @frozen
+class PeopleImportPlan:
+    """A list of contacts a page stored, which the run's workflow sends part by part once the step completes."""
+
+    cohort_id: int
+    storage_prefix: str
+    chunks: int
+    # False for a list whose people another list of the same page sends, so it only sets its cohort.
+    send_events: bool
+    # Set by the runner. The workflow checks this person can still edit persons before each write.
+    created_by_id: int | None = None
+
+
+@frozen
 class SavedPage:
     # How many records the page added or changed in PostHog. Records that already match do not count.
     imported: int
@@ -95,6 +140,9 @@ class SavedPage:
     # Added to the step's totals, by the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
+    people_imports: tuple[PeopleImportPlan, ...] = ()
+    # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
+    error: str | None = None
 
 
 @frozen
@@ -126,14 +174,24 @@ class ImportProvider(ABC):
     not_imported: ClassVar[str] = ""
     # What the person does once the import has finished, in order.
     next_steps: ClassVar[tuple[str, ...]] = ()
+    settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
 
     @abstractmethod
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
-        """Choose the API key to import with and check it with the provider. Without `api_key`, use the stored key.
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
+        """Choose the API key to import with and check it can read the selected `steps`. Without `api_key`, use the
+        stored key.
 
         This runs before the import claims its run, so it must not store anything. Raises the ImportCredentials*
         errors, or ImportProviderUnavailable when the provider can't answer.
         """
+
+    def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
+        """Refuse a key that can't read the selected steps, before the import claims its run. Raises
+        ImportCredentialsInvalid, with a message naming what is missing. A provider whose keys all read the same does
+        nothing here."""
+        return None
 
     def store_credentials(self, team_id: int, credentials: ImportCredentials, created_by_id: int | None) -> int | None:
         """Store checked credentials on first use and return the integration id.

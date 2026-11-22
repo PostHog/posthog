@@ -44,6 +44,7 @@ from .materialized_column_slots import MaterializedColumnSlot, MaterializedColum
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
+from .organization_entitlement_applied_state import OrganizationEntitlementAppliedState
 from .organization_domain import OrganizationDomain
 from .organization_ip_restrictions import OrganizationIPRestrictions  # noqa: F401
 from .organization_notification_lock import OrganizationMemberNotificationLock
@@ -92,6 +93,7 @@ from .oauth import (
 from .oauth_provisioning_review import CIMDProvisioningReview
 
 __all__ = [
+    "OrganizationEntitlementAppliedState",
     "ActivityLog",
     "AsyncDeletion",
     "AsyncMigration",
