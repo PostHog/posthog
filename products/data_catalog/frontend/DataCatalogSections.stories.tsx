@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/react'
-import { combineUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -569,7 +568,7 @@ export const MetricsSuggested: Story = {
         ...usageScanParameters,
         // The scan window in the fixture ends in late October.
         mockDate: '2026-10-30',
-        pageUrl: combineUrl(urls.dataCatalog('metrics'), { filter: 'suggested' }).url,
+        pageUrl: urls.dataCatalog('metrics'),
     },
 }
 

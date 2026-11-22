@@ -10,15 +10,13 @@ import { urls } from 'scenes/urls'
 
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { certificationsLogic } from './certificationsLogic'
-import { SUGGESTED_METRICS_URL_FILTER } from './metrics/catalogMetricsLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
 
 const HEADING_ID = 'data-catalog-to-review-heading'
 
-interface ProposalLink {
+interface ReviewLink {
     key: string
-    count: number
     title: string
     href: string
 }
@@ -29,12 +27,43 @@ export interface CatalogToReviewListProps {
     suggestedMetricCount?: number
 }
 
-const SUGGESTED_METRICS_URL = combineUrl(urls.dataCatalog('metrics'), {
-    [TABLES_FILTER_PARAM]: SUGGESTED_METRICS_URL_FILTER,
-}).url
-
 function proposedUrl(tab: 'tables' | 'relationships' | 'metrics'): string {
     return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url
+}
+
+/** No link when there is nothing to review, so a row with no link does not show. */
+function reviewLinks(key: string, count: number, noun: string, href: string): ReviewLink[] {
+    return count > 0 ? [{ key, title: pluralize(count, noun), href }] : []
+}
+
+function ReviewRow({ label, links }: { label: string; links: ReviewLink[] }): JSX.Element | null {
+    if (links.length === 0) {
+        return null
+    }
+    return (
+        <Item variant="outline" size="sm" className="flex-wrap">
+            <ItemContent>
+                <Text size="sm" className="text-secondary">
+                    {label}
+                </Text>
+            </ItemContent>
+            <ItemActions className="flex-wrap">
+                {links.map(({ key, title, href }) => (
+                    <Button
+                        key={key}
+                        variant="outline"
+                        size="sm"
+                        render={<LinkPrimitive to={href} />}
+                        // pinned: autocapture reads the data-attr values, so each key keeps its spelling
+                        data-attr={`data-catalog-review-${key}`}
+                    >
+                        {title}
+                        <IconChevronRight />
+                    </Button>
+                ))}
+            </ItemActions>
+        </Item>
+    )
 }
 
 export function CatalogToReviewList({
@@ -45,28 +74,15 @@ export function CatalogToReviewList({
     const { proposedCount: proposedCertifications } = useValues(certificationsLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
 
-    const proposals: ProposalLink[] = [
-        {
-            key: 'certifications',
-            count: proposedCertifications,
-            title: pluralize(proposedCertifications, 'certification'),
-            href: proposedUrl('tables'),
-        },
-        {
-            key: 'relationships',
-            count: proposedJoins,
-            title: pluralize(proposedJoins, 'join'),
-            href: proposedUrl('relationships'),
-        },
-        {
-            key: 'metrics',
-            count: proposedMetrics,
-            title: pluralize(proposedMetrics, 'metric'),
-            href: proposedUrl('metrics'),
-        },
-    ].filter(({ count }) => count > 0)
+    const tableLinks = [
+        ...reviewLinks('certifications', proposedCertifications, 'certification', proposedUrl('tables')),
+        ...reviewLinks('relationships', proposedJoins, 'join', proposedUrl('relationships')),
+    ]
+    const metricLinks = reviewLinks('metrics', proposedMetrics, 'metric', proposedUrl('metrics'))
+    // The Metrics tab shows the suggestions first, so the link needs no filter.
+    const suggestedLinks = reviewLinks('suggested-metrics', suggestedMetricCount, 'metric', urls.dataCatalog('metrics'))
 
-    if (!suggestionsBanner && proposals.length === 0 && suggestedMetricCount === 0) {
+    if (!suggestionsBanner && tableLinks.length + metricLinks.length + suggestedLinks.length === 0) {
         return null
     }
 
@@ -77,49 +93,9 @@ export function CatalogToReviewList({
             </Heading>
             <ItemGroup combined role={undefined}>
                 {suggestionsBanner}
-                {proposals.length > 0 && (
-                    <Item variant="outline" size="sm" className="flex-wrap">
-                        <ItemContent>
-                            <Text size="sm" className="text-secondary">
-                                Waiting for approval
-                            </Text>
-                        </ItemContent>
-                        <ItemActions className="flex-wrap">
-                            {proposals.map(({ key, title, href }) => (
-                                <Button
-                                    key={key}
-                                    variant="outline"
-                                    size="sm"
-                                    render={<LinkPrimitive to={href} />}
-                                    data-attr={`data-catalog-review-${key}`}
-                                >
-                                    {title}
-                                    <IconChevronRight />
-                                </Button>
-                            ))}
-                        </ItemActions>
-                    </Item>
-                )}
-                {suggestedMetricCount > 0 && (
-                    <Item variant="outline" size="sm" className="flex-wrap">
-                        <ItemContent>
-                            <Text size="sm" className="text-secondary">
-                                Suggested from usage
-                            </Text>
-                        </ItemContent>
-                        <ItemActions>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                render={<LinkPrimitive to={SUGGESTED_METRICS_URL} />}
-                                data-attr="data-catalog-review-suggested-metrics"
-                            >
-                                {pluralize(suggestedMetricCount, 'metric')}
-                                <IconChevronRight />
-                            </Button>
-                        </ItemActions>
-                    </Item>
-                )}
+                <ReviewRow label="Waiting for approval" links={tableLinks} />
+                <ReviewRow label="Metrics to approve" links={metricLinks} />
+                <ReviewRow label="Suggested metrics (extracted by usage patterns)" links={suggestedLinks} />
             </ItemGroup>
         </section>
     )
