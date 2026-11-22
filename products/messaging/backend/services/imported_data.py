@@ -15,7 +15,11 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
+from products.messaging.backend.models.message_category import (
+    MessageCategory,
+    MessageCategoryImportKey,
+    MessageCategoryType,
+)
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -255,9 +259,35 @@ def _live_marketing_categories_by_name(team_id: int) -> dict[str, str]:
     return ids
 
 
+def _remembered_matches(team_id: int, keys: Iterable[str]) -> dict[str, str]:
+    """The live marketing category an earlier run matched each key to, whatever it is called now."""
+    rows = MessageCategoryImportKey.objects.filter(
+        team_id=team_id,
+        key__in=list(keys),
+        category__deleted=False,
+        category__category_type=MessageCategoryType.MARKETING,
+    ).values_list("key", "category_id")
+    return {key: str(category_id) for key, category_id in rows}
+
+
+def _remember_matches(team_id: int, matched: Mapping[str, str], remembered: Mapping[str, str]) -> None:
+    changed = {key: category_id for key, category_id in matched.items() if remembered.get(key) != category_id}
+    if changed:
+        MessageCategoryImportKey.objects.bulk_create(
+            [
+                MessageCategoryImportKey(team_id=team_id, key=key, category_id=category_id)
+                for key, category_id in changed.items()
+            ],
+            update_conflicts=True,
+            unique_fields=["team", "key"],
+            update_fields=["category"],
+        )
+
+
 def existing_category_ids(team_id: int, categories: Iterable[ImportedCategory]) -> dict[str, str]:
-    """The id each category maps to without creating anything: its own live category, else a live marketing category
-    with its name. A category someone deleted in PostHog maps to nothing."""
+    """The id each category maps to without creating anything: its own live category, else the live marketing category
+    an earlier run matched it to, else a live marketing category with its name. A category someone deleted in PostHog
+    maps to nothing."""
     by_key = {category.key: category for category in categories}
     rows = MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key)).values_list("key", "id", "deleted")
     ids: dict[str, str] = {}
@@ -265,7 +295,9 @@ def existing_category_ids(team_id: int, categories: Iterable[ImportedCategory]) 
         by_key.pop(key)
         if not deleted:
             ids[key] = str(category_id)
-    return ids | _matched_by_name(team_id, by_key)
+    remembered = _remembered_matches(team_id, by_key)
+    rest = {key: category for key, category in by_key.items() if key not in remembered}
+    return ids | remembered | _matched_by_name(team_id, rest)
 
 
 def _matched_by_name(team_id: int, missing: Mapping[str, ImportedCategory]) -> dict[str, str]:
@@ -285,13 +317,16 @@ def import_categories(
     """Create the marketing categories that don't exist yet. An existing one keeps any edit made to it.
 
     A category whose name matches a live marketing category is mapped to that one instead of being created, so
-    importing from several tools doesn't show recipients the same choice twice. Nothing stores the match, so it is made
-    again on every run: a reused category someone renamed or deleted since then is created again on the next run.
+    importing from several tools doesn't show recipients the same choice twice. The match is stored, so renaming the
+    category later keeps it. Deleting it doesn't: the next run creates the imported category again.
     """
     by_key = {category.key: category for category in categories}
     existing = set(MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key)).values_list("key", flat=True))
     missing = {key: category for key, category in by_key.items() if key not in existing}
-    matched = _matched_by_name(team_id, missing)
+    remembered = _remembered_matches(team_id, missing)
+    matched = remembered | _matched_by_name(
+        team_id, {key: category for key, category in missing.items() if key not in remembered}
+    )
     # Each key that follows a category this run proposes, by the key that proposes it.
     aliases: dict[str, str] = {}
     new_rows: list[MessageCategory] = []
@@ -307,10 +342,14 @@ def import_categories(
                 MessageCategory.objects.filter(team_id=team_id, key__in=list(missing)).values_list("key", flat=True)
             )
             by_name = _live_marketing_categories_by_name(team_id)
+            remembered = _remembered_matches(team_id, missing)
             proposers: dict[str, str] = {}
             matched = {}
             for key, category in sorted(missing.items()):
                 if key in taken:
+                    continue
+                if key in remembered:
+                    matched[key] = remembered[key]
                     continue
                 name_key = _name_match_key(category.name)
                 if name_key in by_name:
@@ -338,6 +377,7 @@ def import_categories(
     ids = {key: str(category_id) for key, category_id in live.values_list("key", "id")}
     # A proposed row loses to a row another writer inserted first, so an alias takes whatever id its key has now.
     matched |= {alias: ids[proposer] for alias, proposer in aliases.items() if proposer in ids}
+    _remember_matches(team_id, matched, remembered)
     created = sum(1 for row in new_rows if ids.get(row.key) == str(row.id))
     return CategoryImportResult(
         ids_by_key={**matched, **ids},

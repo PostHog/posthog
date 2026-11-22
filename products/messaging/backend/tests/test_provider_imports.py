@@ -392,7 +392,10 @@ class TestCategoryImport(BaseTest):
         theirs: list[MessageCategory] = []
 
         def insert_first(self_: Any, objs: list, **kwargs: Any) -> list:
-            theirs.append(MessageCategory.objects.create(team_id=self.team.id, key="tool_a_launch", name="Launches"))
+            if self_.model is MessageCategory:
+                theirs.append(
+                    MessageCategory.objects.create(team_id=self.team.id, key="tool_a_launch", name="Launches")
+                )
             return original(self_, objs, **kwargs)
 
         with patch.object(manager, "bulk_create", autospec=True, side_effect=insert_first):

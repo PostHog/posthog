@@ -236,11 +236,13 @@ class TestMailgunImport(BaseTest):
         MessageCategory.objects.create(team_id=self.team.id, key="own_digest", name="Digest")
 
         first = self._run(["unsubscribes", "mailing_lists"])
+        MessageCategory.objects.filter(id=own.id).update(name="Engineering")
+        MessageRecipientPreference.objects.filter(team_id=self.team.id).update(preferences={})
         categories = set(MessageCategory.objects.filter(team_id=self.team.id).values_list("name", flat=True))
         second = self._run(["unsubscribes", "mailing_lists"])
 
         assert self._preferences()["Left@example.com"] == {str(own.id): "OPTED_OUT"}
-        assert categories == {"developers ", "Digest", "Acme ñews", "Newsletter", "Promo 🎁"}
+        assert categories == {"Engineering", "Digest", "Acme ñews", "Newsletter", "Promo 🎁"}
         assert MessageCategory.objects.filter(team_id=self.team.id).count() == len(categories)
         for run in (first, second):
             assert run.progress["mailing_lists"]["counts"]["matched"] == 1

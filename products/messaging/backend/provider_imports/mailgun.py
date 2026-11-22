@@ -763,7 +763,7 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
                     "their custom variables stay in Mailgun too. To send to this audience, build a cohort from your "
                     "own data or send people's details to PostHog first.",
                     "Sending to the list address, who can post to it, and where replies go don't carry over.",
-                    *(("Uses your existing category with the same name.",) if result.matched else ()),
+                    *(("Uses a category you already had in PostHog.",) if result.matched else ()),
                 ),
             ),
         )

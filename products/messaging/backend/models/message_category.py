@@ -32,3 +32,17 @@ class MessageCategory(UUIDTModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class MessageCategoryImportKey(UUIDTModel):
+    """An imported category that was matched to an existing category by name, so a later rename doesn't split it."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    key = models.CharField(max_length=64)
+    category = models.ForeignKey(MessageCategory, on_delete=models.CASCADE, related_name="+")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="unique_message_category_import_key_per_team"),
+        ]
