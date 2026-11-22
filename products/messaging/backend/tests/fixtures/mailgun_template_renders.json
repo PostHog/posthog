@@ -145,7 +145,7 @@
       ]
     },
     "engine": "handlebars",
-    "liquid": "<ul>{% assign kind1 = variables.items | json | slice: 0 %}{% assign values1 = variables.items %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.items %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}<li>{{ forloop.index0 | join: \",\" }}. {{ item.title | join: \",\" }} ({{ variables.shop | join: \",\" }}){% if forloop.last %}!{% endif %}</li>{% else %}<li>none</li>{% endfor %}</ul>",
+    "liquid": "<ul>{% capture object1 %}{% if variables.items.size != variables.items.length %}1{% endif %}{% endcapture %}{% if variables.items.first != variables.items[0] and object1 == \"\" %}<li>none</li>{% else %}{% for raw1 in variables.items %}{% if object1 == \"1\" %}{% assign item = raw1[1] %}{% else %}{% assign item = raw1 %}{% endif %}<li>{{ forloop.index0 | join: \",\" }}. {{ item.title | join: \",\" }} ({{ variables.shop | join: \",\" }}){% if forloop.last %}!{% endif %}</li>{% else %}<li>none</li>{% endfor %}{% endif %}</ul>",
     "expected": "<ul><li>0. &lt;i&gt;Mug&lt;/i&gt; (Ünïcode 🦔)</li><li>1. Tee &amp; cap (Ünïcode 🦔)!</li></ul>"
   },
   {
@@ -216,7 +216,7 @@
         "price": 30
       }
     },
-    "liquid": "{% assign kind1 = variables.order | json | slice: 0 %}{% assign values1 = variables.order %}{% if kind1 == \"{\" %}{% assign values1 = \"\" | split: \",\" %}{% for pair1 in variables.order %}{% assign values1 = values1 | push: pair1[1] %}{% endfor %}{% elsif kind1 != \"[\" %}{% assign values1 = \"\" | split: \",\" %}{% endif %}{% for item in values1 %}{{ item | join: \",\" }} {% endfor %}",
+    "liquid": "{% capture object1 %}{% if variables.order.size != variables.order.length %}1{% endif %}{% endcapture %}{% if variables.order.first != variables.order[0] and object1 == \"\" %}{% else %}{% for raw1 in variables.order %}{% if object1 == \"1\" %}{% assign item = raw1[1] %}{% else %}{% assign item = raw1 %}{% endif %}{{ item | join: \",\" }} {% endfor %}{% endif %}",
     "expected": "12 30 "
   }
 ]

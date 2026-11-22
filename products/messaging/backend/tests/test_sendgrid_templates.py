@@ -183,8 +183,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": html, "generate_plain_content": False})
 
         assert converted.html.endswith(
-            '{% for item in values1 %}{% assign text1 = item.code | join: "," | append: "" %}'
-            '{% if text1 == "5" %}Y{% endif %}{% endfor %}'
+            '{% assign text1 = item.code | join: "," | append: "" %}{% if text1 == "5" %}Y{% endif %}{% endfor %}{% endif %}'
         )
 
     def test_the_rest_of_the_template_converts_around_a_tag_kept_as_written(self) -> None:
