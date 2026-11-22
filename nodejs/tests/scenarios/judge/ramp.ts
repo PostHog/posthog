@@ -57,7 +57,6 @@ export type Ramp = {
     rates?: StepRates[]
 }
 
-// A ramp records smaller losses per step and runs on, so it answers the scale question despite a few lost units.
 export const STEP_LOSS_LIMIT = 0.05
 
 const AT_LEAST_ONCE = 'at_least_once'
@@ -99,8 +98,10 @@ const rateOf = (count: number | null, of: number): number | null => (count === n
 export function stepRatesOf(
     steps: readonly Pick<DrivenStep, 'index' | 'scale'>[],
     evidence: DeliveryEvidence,
-    judged: { lost: boolean; duplicates: boolean }
+    judged: { lost: boolean; duplicates: boolean },
+    { unfinishedJobs }: Pick<Convergence, 'unfinishedJobs'>
 ): StepRates[] {
+    const lossSettled = judged.lost && unfinishedJobs === 0
     const stepOf = new Map(evidence.journal.map(({ unitId, step }) => [unitId, step]))
     const countBy = <T>(items: readonly T[], step: (item: T) => number | undefined, by: (item: T) => number) => {
         const counts = new Map<number | undefined, number>()
@@ -131,7 +132,7 @@ export function stepRatesOf(
     return steps.map(({ index, scale }) => {
         const due = expected.get(index) ?? 0
         const delivered = sent.get(index) ?? 0
-        const missed = judged.lost ? (lost.get(index) ?? 0) : null
+        const missed = lossSettled ? (lost.get(index) ?? 0) : null
         const extra = judged.duplicates ? (duplicates.get(index) ?? 0) : null
         return {
             index,

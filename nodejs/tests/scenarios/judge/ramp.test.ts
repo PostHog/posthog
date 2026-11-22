@@ -917,7 +917,7 @@ describe('ramp', () => {
     ]
     const STEP_JOURNAL = [unit(0, 1), unit(0, 2), unit(0, 3), unit(1, 1), unit(1, 2, false), unit(1, 3)]
 
-    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[]]>([
+    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[], number?]>([
         [
             'counts per step the deliveries its accepted units expected, lost and duplicated',
             { lost: true, duplicates: true },
@@ -944,6 +944,43 @@ describe('ramp', () => {
                     duplicateRate: null,
                 },
             ],
+        ],
+        [
+            'leaves the losses unrecorded while a job stays unfinished, since its deliveries may only be late',
+            { lost: true, duplicates: true },
+            [
+                {
+                    index: 0,
+                    scale: 1,
+                    expected: 3,
+                    lost: null,
+                    lossRate: null,
+                    sent: 2,
+                    duplicates: 1,
+                    duplicateRate: 0.5,
+                },
+                {
+                    index: 1,
+                    scale: 2,
+                    expected: 2,
+                    lost: null,
+                    lossRate: null,
+                    sent: 1,
+                    duplicates: 0,
+                    duplicateRate: 0,
+                },
+                {
+                    index: 2,
+                    scale: 5,
+                    expected: 0,
+                    lost: null,
+                    lossRate: null,
+                    sent: 0,
+                    duplicates: 0,
+                    duplicateRate: null,
+                },
+            ],
+            1,
         ],
         [
             'leaves the losses and duplicates of a card that judges neither unrecorded',
@@ -981,10 +1018,12 @@ describe('ramp', () => {
                 },
             ],
         ],
-    ])('%s', (_story, judged, expected) => {
-        expect(stepRatesOf(STEPS_DRIVEN, { journal: STEP_JOURNAL, truth: DELIVERED, fetchRetries: 3 }, judged)).toEqual(
-            expected
-        )
+    ])('%s', (_story, judged, expected, unfinishedJobs = 0) => {
+        expect(
+            stepRatesOf(STEPS_DRIVEN, { journal: STEP_JOURNAL, truth: DELIVERED, fetchRetries: 3 }, judged, {
+                unfinishedJobs,
+            })
+        ).toEqual(expected)
     })
 
     it.each<[string, Partial<BarEvidence>]>([

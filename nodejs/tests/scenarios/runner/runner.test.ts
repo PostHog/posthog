@@ -947,11 +947,13 @@ async function runToItsEnd(cdp: Cdp, invocation: CyclotronJobInvocation): Promis
     throw new Error(`Flow ${invocation.functionId} did not finish within ${MOST_LEGS_PER_RUN} legs`)
 }
 
+type UnitFate = 'delivered' | 'lost' | 'queued'
+
 async function startDeliveringRoles(
     cdp: Cdp,
     specs: RoleSpec[],
     leaveOneJobRunning: boolean,
-    loses: (unitId: string) => boolean
+    fateOf: (unitId: string) => UnitFate
 ): Promise<DeliveringRoles> {
     const worker = specs.find(({ role }) => role === 'cdp-cyclotron-worker-email')!.env
     const [
@@ -972,7 +974,8 @@ async function startDeliveringRoles(
     let work = Promise.resolve()
 
     const deliver = async (event: RawClickHouseEvent): Promise<void> => {
-        if (loses(event.distinct_id)) {
+        const fate = fateOf(event.distinct_id)
+        if (fate === 'lost') {
             return
         }
         const team = await cdp.hub.teamManager.getTeam(event.team_id)
@@ -993,6 +996,9 @@ async function startDeliveringRoles(
                     ),
                 cyclotronUrl
             )
+            if (fate === 'queued') {
+                continue
+            }
             await runToItsEnd(cdp, invocation)
             if (jobsToLeaveRunning > 0) {
                 jobsToLeaveRunning -= 1
@@ -1075,7 +1081,7 @@ describe('runner through seed, drive and judge', () => {
     const environmentOf = (
         delivering: 'none' | 'all' | 'all, leaving one job running',
         roleUrl = 'http://127.0.0.1:1',
-        loses: (unitId: string) => boolean = () => false
+        fateOf: (unitId: string) => UnitFate = () => 'delivered'
     ): Environment => ({
         up: () => Promise.resolve(),
         async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
@@ -1088,7 +1094,7 @@ describe('runner through seed, drive and judge', () => {
                           cdp,
                           roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), settings),
                           delivering !== 'all',
-                          loses
+                          fateOf
                       )
         },
         edgeUrl: () => edge.url,
@@ -2031,7 +2037,10 @@ describe('runner through seed, drive and judge', () => {
                     scale: null,
                     reason: 'the backlog did not drain within convergeWithin: 1 job stayed unfinished',
                 },
-                rates: [expect.objectContaining({ scale: 1, lost: 0 }), expect.objectContaining({ scale: 2, lost: 0 })],
+                rates: [
+                    expect.objectContaining({ scale: 1, lost: null }),
+                    expect.objectContaining({ scale: 2, lost: null }),
+                ],
             },
         })
     }, 30_000)
@@ -2040,10 +2049,10 @@ describe('runner through seed, drive and judge', () => {
     const ratesOf = ({ ramp }: RunResult): object[] =>
         (ramp?.rates ?? []).map(({ scale, expected, lost }) => ({ scale, expected, lost }))
 
-    it.each<[string, number[], object]>([
+    it.each<[string, { lost?: number[]; queued?: number[] }, object]>([
         [
             'runs a ramp that lost one delivery to its last step and records the step that lost it',
-            [30],
+            { lost: [30] },
             {
                 status: 'failed',
                 statusReason: 'the ramp ran to its last step, but lost 1 of 60 deliveries (1.67%): 1 in the 10x step',
@@ -2057,7 +2066,7 @@ describe('runner through seed, drive and judge', () => {
         ],
         [
             'names a step that lost more than 5% of its deliveries as the hard failure that ends the ramp',
-            [3, 6, 9],
+            { lost: [3, 6, 9] },
             {
                 status: 'failed',
                 statusReason: expect.stringMatching(
@@ -2079,14 +2088,42 @@ describe('runner through seed, drive and judge', () => {
                 ],
             },
         ],
+        [
+            'names the undrained backlog, not a step loss, when more than 5% of a step is still queued at the deadline',
+            { queued: [3, 6, 9] },
+            {
+                status: 'failed',
+                statusReason:
+                    'the ramp broke: the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                steps: [5, 10],
+                ramp: {
+                    end: 'broke',
+                    sustainedScale: null,
+                    stop: {
+                        failure: 'backlog_undrained',
+                        scale: null,
+                        reason: 'the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                    },
+                },
+                rates: [
+                    { scale: 5, expected: 20, lost: null },
+                    { scale: 10, expected: 40, lost: null },
+                ],
+            },
+        ],
     ])(
         '%s',
-        async (_story, lostUnits, expected) => {
-            const result = await createRunner(
-                environmentOf('all', undefined, (unitId) => lostUnits.includes(unitNumber(unitId))),
-                env,
-                { topologyWithinMs: 1000, topologyEveryMs: 10 }
-            ).run(
+        async (_story, { lost = [], queued = [] }, expected) => {
+            const fateOf = (unitId: string): UnitFate =>
+                lost.includes(unitNumber(unitId))
+                    ? 'lost'
+                    : queued.includes(unitNumber(unitId))
+                      ? 'queued'
+                      : 'delivered'
+            const result = await createRunner(environmentOf('all', undefined, fateOf), env, {
+                topologyWithinMs: 1000,
+                topologyEveryMs: 10,
+            }).run(
                 shortSmoke([], undefined, {
                     ramp: [
                         { scale: 5, for: '2s' },

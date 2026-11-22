@@ -374,24 +374,6 @@ describe('scorecard', () => {
                 ramp_stop: null,
                 ramp_stop_scale: null,
                 ramp_stop_reason: null,
-                ramp_steps: [
-                    expect.objectContaining({
-                        expected: null,
-                        lost: null,
-                        loss_rate: null,
-                        sent: null,
-                        duplicates: null,
-                        duplicate_rate: null,
-                    }),
-                    expect.objectContaining({
-                        expected: null,
-                        lost: null,
-                        loss_rate: null,
-                        sent: null,
-                        duplicates: null,
-                        duplicate_rate: null,
-                    }),
-                ],
             },
         ],
     ])('reports a ramp run with %s, and each step it drove at its real start and end', (_story, ramp, expected) => {

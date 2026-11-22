@@ -367,6 +367,16 @@ describe('statusOf', () => {
             'every invariant held',
         ],
         [
+            'a ramp that ran to its ceiling on a card that does not judge at_least_once, with units left unrecorded',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 2 units without a delivery record',
+        ],
+        [
             'a ramp that held up to its ceiling with a bar the stack has no source for',
             {
                 ramp: {

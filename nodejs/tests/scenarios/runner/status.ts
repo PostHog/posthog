@@ -226,12 +226,14 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
         lost: failed('at_least_once'),
         duplicates: failed('duplicate_sends'),
     })
+    const rampJudgesConvergence =
+        convergence.unfinishedJobs > 0 || invariants.some(({ name }) => name === 'at_least_once')
     const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
             invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
-            convergence: { ...convergence, converged: true },
+            convergence: rampJudgesConvergence ? { ...convergence, converged: true } : convergence,
         }),
         ramp
     )

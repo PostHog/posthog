@@ -678,10 +678,15 @@ export function createRunner(
                           journal: evidence.journal,
                           admissions,
                           convergence,
-                          rates: stepRatesOf(units.steps, evidence, {
-                              lost: card.invariants.some(({ name }) => name === 'at_least_once'),
-                              duplicates: card.invariants.some(({ name }) => name === 'duplicate_sends'),
-                          }),
+                          rates: stepRatesOf(
+                              units.steps,
+                              evidence,
+                              {
+                                  lost: card.invariants.some(({ name }) => name === 'at_least_once'),
+                                  duplicates: card.invariants.some(({ name }) => name === 'duplicate_sends'),
+                              },
+                              convergence
+                          ),
                       })
                     : undefined
                 const verdict = statusOf({
