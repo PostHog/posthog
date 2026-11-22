@@ -12,10 +12,6 @@ import type { HogFlowAction } from './hogflows/types'
 export type WorkflowTriggerConfig = Extract<HogFlowAction, { type: 'trigger' }>['config']
 
 export const TRIGGER_PREFILL_PARAM = 'trigger'
-// pinned: URL search param, the email template scene links to /workflows/new with it
-export const MESSAGE_TEMPLATE_PREFILL_PARAM = 'messageTemplate'
-// The person picks the event in the editor.
-export const EVENT_TRIGGER_WITH_NO_EVENT: WorkflowTriggerConfig = { type: 'event', filters: {} }
 
 export function urlForNewWorkflowWithTrigger(
     config: WorkflowTriggerConfig,
@@ -28,16 +24,6 @@ export function urlForNewWorkflowWithTrigger(
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
         ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
         ...(draftSource ? { [DRAFT_SOURCE_PARAM]: JSON.stringify(draftSource) } : {}),
-    }).url
-}
-
-/** A new workflow that sends a copy of an email template's published email when an event happens. */
-export function urlForEventWorkflowWithEmailTemplate(templateId: string): string {
-    return combineUrl(urls.workflowNew(), {
-        [TRIGGER_PREFILL_PARAM]: JSON.stringify(EVENT_TRIGGER_WITH_NO_EVENT),
-        [MESSAGE_TEMPLATE_PREFILL_PARAM]: templateId,
-        // pinned: analytics entry_source value
-        [SOURCE_PREFILL_PARAM]: 'email_template',
     }).url
 }
 

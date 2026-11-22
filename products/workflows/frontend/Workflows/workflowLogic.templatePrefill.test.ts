@@ -7,9 +7,10 @@ import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
+import { EVENT_TRIGGER_WITH_NO_EVENT } from './emailTemplateWorkflowPrefill'
 import { HogFlow } from './hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './workflowLogic'
-import { EVENT_TRIGGER_WITH_NO_EVENT, type WorkflowTriggerConfig } from './workflowTriggerPrefill'
+import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
 const template: HogFlow = {
     ...NEW_WORKFLOW,
