@@ -18,6 +18,7 @@ BIN = Path(__file__).resolve().parents[1]
 DRIVER = f"""
 import os
 import sys
+import atexit
 import signal
 
 sys.path.insert(0, {str(BIN)!r})
@@ -50,12 +51,34 @@ def ignores_sigterm():
         signal.pause()
 
 
+def returns_on_sigterm():
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    report("returns_on_sigterm")
+    signal.pause()
+
+
+def block_in_a_forked_child():
+    if os.getpid() != IMPORTED_BY:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {{signal.SIGTERM}})
+        while True:
+            signal.pause()
+
+
+atexit.register(block_in_a_forked_child)
+
+
 def fails():
     report("fails")
     sys.exit(3)
 
 
-ROLES = {{"stays": stays, "exits_once": exits_once, "fails": fails, "ignores_sigterm": ignores_sigterm}}
+ROLES = {{
+    "stays": stays,
+    "exits_once": exits_once,
+    "fails": fails,
+    "ignores_sigterm": ignores_sigterm,
+    "returns_on_sigterm": returns_on_sigterm,
+}}
 names, min_uptime_seconds, stop_grace_seconds = sys.argv[1].split(","), float(sys.argv[2]), float(sys.argv[3])
 sys.exit(
     shared_python_parent.supervise(
@@ -134,6 +157,15 @@ class TestSharedPythonParent(unittest.TestCase):
             launcher = self.start(tmp, "ignores_sigterm,stays", min_uptime_seconds=0, stop_grace_seconds=1)
             for _ in range(2):
                 self.read_report(launcher)
+
+            launcher.terminate()
+
+            self.assertEqual(launcher.wait(timeout=30), 0)
+
+    def test_a_role_does_not_run_the_exit_handlers_that_the_parent_registered(self) -> None:
+        with TemporaryDirectory() as tmp:
+            launcher = self.start(tmp, "returns_on_sigterm", min_uptime_seconds=0)
+            self.read_report(launcher)
 
             launcher.terminate()
 

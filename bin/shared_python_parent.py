@@ -27,10 +27,10 @@ import grp
 import pwd
 import sys
 import time
-import atexit
 import signal
 import tempfile
 import importlib
+import traceback
 import subprocess
 from collections.abc import Callable
 
@@ -78,9 +78,11 @@ def run_web(prometheus_dir: str | None) -> None:
         os.environ["PROMETHEUS_MULTIPROC_DIR"] = prometheus_dir
     drop_privileges()
     metrics_server = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "granian_metrics.py")])
-    atexit.register(metrics_server.terminate)
-    sys.argv = ["granian", APP_TARGET]
-    granian_preload.main()
+    try:
+        sys.argv = ["granian", APP_TARGET]
+        granian_preload.main()
+    finally:
+        metrics_server.terminate()
 
 
 def run_celery() -> None:
@@ -137,6 +139,26 @@ def import_the_app() -> None:
     gc.freeze()
 
 
+def run_role(role: Callable[[], None]) -> int:
+    code = 0
+    try:
+        role()
+    except SystemExit as exit_request:
+        if isinstance(exit_request.code, int):
+            code = exit_request.code
+        elif exit_request.code is not None:
+            code = 1
+    except BaseException:
+        traceback.print_exc()
+        code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # The caller ends the process with os._exit, as multiprocessing does for the children that
+    # granian and Celery fork. A normal exit runs the exit handlers that the parent's imports
+    # registered. Those handlers wait on threads that exist only in the parent, so the role never exits.
+    return code
+
+
 def supervise(
     roles: dict[str, Callable[[], None]],
     min_uptime_seconds: float = MIN_UPTIME_SECONDS,
@@ -161,9 +183,7 @@ def supervise(
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 signal.signal(signal.SIGINT, signal.default_int_handler)
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-                # The role exits the way it does as its own process, so its exit handlers run.
-                roles[name]()
-                sys.exit(0)
+                os._exit(run_role(roles[name]))
             children[pid] = (name, time.monotonic())
             log(f"started {name} as pid {pid}")
         finally:
