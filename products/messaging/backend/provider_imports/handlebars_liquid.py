@@ -1,7 +1,8 @@
 """Turns a parsed Handlebars template into PostHog's Liquid one tag at a time.
 
 A tag with a Liquid form that prints what Handlebars prints converts. Any other tag stays as written, and its source
-lands in `unsupported` so the import can name it. The rest of the template converts around it.
+lands in `unsupported` so the import can name it. A block that stays as written keeps everything inside it as written
+too. The rest of the template converts around it.
 
 Conditions follow Handlebars, where "", 0 and an empty list are false. In Liquid only nil and false are, so a
 condition reads `x != blank and x != 0`. Two cases still differ: Liquid also treats a string of spaces and an empty
@@ -166,6 +167,8 @@ class HandlebarsToLiquid:
         raise _Unsupported
 
     def _print(self, value: str, raw: bool) -> str:
+        # Handlebars prints a list with commas between its items, and Liquid runs them together.
+        value = f'{value} | join: ","'
         if not self.is_html:
             return f"{{{{ {value} }}}}"
         if raw:
@@ -192,7 +195,7 @@ class HandlebarsToLiquid:
                 return self._with(block, frames)
             self._condition(block, frames)
         except (_Unsupported, _Unconvertible):
-            return self._literal_block(block, frames)
+            return self._literal_block(block)
         return self._if_chain(block, frames)
 
     def _if_chain(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
@@ -204,7 +207,7 @@ class HandlebarsToLiquid:
         while current is not None:
             condition = self._condition(current, frames)
             body = current.body
-            parts.append(f"{{% {keyword} {condition} %}}{self._branch(start, ends, body, frames)}")
+            parts.append(self._spend(f"{{% {keyword} {condition} %}}") + self._branch(start, ends, body, frames))
             keyword = "elsif"
             inverse = current.inverse
             current = None
@@ -217,11 +220,11 @@ class HandlebarsToLiquid:
                 except (_Unsupported, _Unconvertible):
                     pass
             if inverse:
-                parts.append(f"{{% else %}}{self._branch(start, ends, inverse, frames)}")
+                parts.append(self._spend("{% else %}") + self._branch(start, ends, inverse, frames))
             else:
                 ends.append(start)
         self._merge(ends)
-        return "".join(parts) + "{% endif %}"
+        return "".join(parts) + self._spend("{% endif %}")
 
     def _condition(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         params, hash_args = block.params, block.hash_args
@@ -256,6 +259,7 @@ class HandlebarsToLiquid:
         start = self._snapshot()
         # A loop body that runs zero times or many times has to leave the HTML where it found it.
         ends: list[Place | None] = [start]
+        opening = self._spend(f"{{% for {loop_name} in {source} %}}")
         self._loop_names.append(loop_name)
         try:
             body = self._branch(start, ends, block.body, (*frames, frame))
@@ -263,9 +267,9 @@ class HandlebarsToLiquid:
             self._loop_names.pop()
         empty = ""
         if block.inverse:
-            empty = f"{{% else %}}{self._branch(start, ends, block.inverse, frames)}"
+            empty = self._spend("{% else %}") + self._branch(start, ends, block.inverse, frames)
         self._merge(ends)
-        return f"{{% for {loop_name} in {source} %}}{body}{empty}{{% endfor %}}"
+        return opening + body + empty + self._spend("{% endfor %}")
 
     def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
         if not block.parsed or len(block.params) != 1 or block.hash_args or len(block.block_params) > 1:
@@ -274,44 +278,64 @@ class HandlebarsToLiquid:
         if not isinstance(target, _Path):
             raise _Unsupported
         this = self._path(target.source, frames)
+        # Handlebars adds no level for a context that is already the current one, so `../` inside would point
+        # one level further up than the frames say.
+        if this == frames[-1].this:
+            raise _Unsupported
         frame = _Frame(this=this, item_name=block.block_params[0] if block.block_params else None)
         start = self._snapshot()
         ends: list[Place | None] = []
         # Handlebars `with` skips its body only for an empty value, and 0 isn't one.
-        condition = self._truthy(target, frames, include_zero=True)
+        opening = self._spend(f"{{% if {self._truthy(target, frames, include_zero=True)} %}}")
         body = self._branch(start, ends, block.body, (*frames, frame))
         otherwise = ""
         if block.inverse:
-            otherwise = f"{{% else %}}{self._branch(start, ends, block.inverse, frames)}"
+            otherwise = self._spend("{% else %}") + self._branch(start, ends, block.inverse, frames)
         else:
             ends.append(start)
         self._merge(ends)
-        return f"{{% if {condition} %}}{body}{otherwise}{{% endif %}}"
+        return opening + body + otherwise + self._spend("{% endif %}")
 
-    def _literal_block(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
-        """Keeps the block's own tags as written. Everything between them converts in the same context, except under
-        an `each` or `with`, whose context isn't known, so values there stay as written too."""
-        body_frames = (*frames, _Frame(this="")) if block.name in ("each", "with") else frames
-        parts = [self._literal(block.source_open), self._nodes(block.body, body_frames)]
+    def _literal_block(self, block: _Block) -> str:
+        """Keeps the whole block as written. A value or tag inside it converted on its own would print whatever the
+        block's condition was there to hide."""
+        parts = [self._literal(block.source_open), self._literal_nodes(block.body)]
         if block.inverse:
             chained = block.inverse[0] if len(block.inverse) == 1 and isinstance(block.inverse[0], _Block) else None
             if chained is not None and chained.chained:
                 # The rest of the chain stays as written, so each `{{else if}}` prints where it was.
-                parts.append(self._literal_block(chained, frames))
+                parts.append(self._literal_block(chained))
             else:
                 parts.append(self._literal(block.source_else, noted=False))
-                parts.append(self._nodes(block.inverse, frames))
+                parts.append(self._literal_nodes(block.inverse))
         if not block.chained:
             parts.append(self._literal(block.source_close, noted=False))
         return "".join(parts)
+
+    def _literal_nodes(self, nodes: tuple[object, ...]) -> str:
+        out: list[str] = []
+        for node in nodes:
+            if isinstance(node, _Text):
+                for piece in self._split_text(node.text) if self._split_text else (node.text,):
+                    if not isinstance(piece, str):
+                        self.unsupported.append(piece.source)
+                        piece = piece.source
+                    self._feed(piece)
+                    _append(out, self._spend(_literal_text(piece)))
+            elif isinstance(node, _Liquid):
+                self._feed(node.liquid.removeprefix("{% raw %}").removesuffix("{% endraw %}"))
+                _append(out, self._spend(node.liquid))
+            elif isinstance(node, _Output):
+                _append(out, self._spend(self._literal(node.source)))
+            elif isinstance(node, _Block):
+                _append(out, self._literal_block(node))
+        return "".join(out)
 
     # Expressions ------------------------------------------------------------------------------------------------------
 
     def _path(self, source: str, frames: tuple[_Frame, ...]) -> str:
         if source in _LOOP_DATA:
-            # The innermost loop or kept-as-written block decides, so a kept `each` doesn't borrow an outer index.
-            innermost = next((frame for frame in reversed(frames) if frame.loop or not frame.this), None)
-            if innermost is None or not innermost.loop:
+            if not any(frame.loop for frame in frames):
                 raise _Unsupported
             return _LOOP_DATA[source]
         if source.startswith("@root."):
@@ -326,8 +350,6 @@ class HandlebarsToLiquid:
             raise _Unsupported
         frames = frames[: depth + 1]
         base = frames[-1].this
-        if not base:
-            raise _Unsupported
         if source in ("this", "."):
             parts: list[str] = []
         elif source.startswith(("this.", "./")):
@@ -362,7 +384,7 @@ class HandlebarsToLiquid:
             return "true" if _literal_truthy(param, include_zero) else "false"
         path = self._value_path(param, frames)
         if path == "forloop.index0":
-            return f"{path} != 0"
+            return "true" if include_zero else f"{path} != 0"
         if path.startswith("forloop."):
             return path
         return f"{path} != blank" if include_zero else f"{path} != blank and {path} != 0"
@@ -372,7 +394,7 @@ class HandlebarsToLiquid:
             return "false" if _literal_truthy(param, include_zero) else "true"
         path = self._value_path(param, frames)
         if path == "forloop.index0":
-            return f"{path} == 0"
+            return "false" if include_zero else f"{path} == 0"
         if path.startswith("forloop."):
             return f"{path} == false"
         return f"{path} == blank" if include_zero else f"{path} == blank or {path} == 0"

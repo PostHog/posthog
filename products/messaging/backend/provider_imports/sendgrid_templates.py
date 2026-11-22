@@ -231,6 +231,14 @@ def _control_tags(text: str, span: _Span, tags: list[str]) -> Iterator[str]:
             yield slot.group(0)
 
 
+def _without_html_tags(text: str, tags: list[str]) -> str:
+    """Removes HTML tags but keeps the control tags inside them, in order, so a condition that opens inside an
+    attribute still has its opening when it closes in the text."""
+    return _HTML_TAG.sub(
+        lambda match: "".join(_control_tags(text, _Span(start=match.start(), end=match.end()), tags)), text
+    )
+
+
 def plain_text_from_html(html: str) -> str:
     """The plain text part SendGrid would have built from the HTML when it sent the email. PostHog only sends a plain
     text part it's given, so this happens at import."""
@@ -255,16 +263,16 @@ def plain_text_from_html(html: str) -> str:
         )
     )
 
-    text = _HTML_LINK.sub(
-        lambda match: (
-            match.group(1)
-            if _HTML_TAG.sub("", match.group(2)).strip() == match.group(1)
-            else f"{_HTML_TAG.sub('', match.group(2)).strip()} ({match.group(1)})"
-        ),
-        text,
-    )
+    def link(match: re.Match[str]) -> str:
+        opening = match.string[match.start() : match.start(2)]
+        if any(_control_tags(opening, _Span(start=0, end=len(opening)), tags)):
+            return match.group(0)
+        label = _without_html_tags(match.group(2), tags).strip()
+        return match.group(1) if label == match.group(1) else f"{label} ({match.group(1)})"
+
+    text = _HTML_LINK.sub(link, text)
     text = _HTML_LINE_BREAK.sub("\n", text)
-    text = html_lib.unescape(_HTML_TAG.sub("", text))
+    text = html_lib.unescape(_without_html_tags(text, tags))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.

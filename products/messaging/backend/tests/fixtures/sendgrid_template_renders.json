@@ -5,7 +5,7 @@
     "data": {
       "firstName": "Ben"
     },
-    "liquid": "<p>Hello {{ variables.firstName }}</p>",
+    "liquid": "<p>Hello {{ variables.firstName | join: \",\" }}</p>",
     "expected": "<p>Hello Ben</p>"
   },
   {
@@ -18,7 +18,7 @@
         }
       }
     },
-    "liquid": "<p>{{ variables.user.profile.firstName }}</p>",
+    "liquid": "<p>{{ variables.user.profile.firstName | join: \",\" }}</p>",
     "expected": "<p>Ben</p>"
   },
   {
@@ -27,7 +27,7 @@
     "data": {
       "user": {}
     },
-    "liquid": "[{{ variables.user.profile.firstName }}]",
+    "liquid": "[{{ variables.user.profile.firstName | join: \",\" }}]",
     "expected": "[]"
   },
   {
@@ -36,7 +36,7 @@
     "data": {
       "markup": "<b>Tom & Ann</b>"
     },
-    "liquid": "{{ variables.markup }}",
+    "liquid": "{{ variables.markup | join: \",\" }}",
     "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
   },
   {
@@ -45,7 +45,7 @@
     "data": {
       "name": "Björk 日本語 🎉"
     },
-    "liquid": "<p>Grüße {{ variables.name }} 🦔</p>",
+    "liquid": "<p>Grüße {{ variables.name | join: \",\" }} 🦔</p>",
     "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
   },
   {
@@ -54,7 +54,7 @@
     "data": {
       "count": 0
     },
-    "liquid": "{{ variables.count }}",
+    "liquid": "{{ variables.count | join: \",\" }}",
     "expected": "0"
   },
   {
@@ -63,7 +63,7 @@
     "data": {
       "a": null
     },
-    "liquid": "[{{ variables.a }}]",
+    "liquid": "[{{ variables.a | join: \",\" }}]",
     "expected": "[]"
   },
   {
@@ -72,7 +72,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n }}",
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | join: \",\" }}",
     "expected": "{% if x %} 100% y"
   },
   {
@@ -81,7 +81,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n }}",
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | join: \",\" }}",
     "expected": "{{n}} y"
   },
   {
@@ -90,7 +90,7 @@
     "data": {
       "pre": "Your order 🎉"
     },
-    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre }}</p></td></tr></table><p>Body</p>",
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | join: \",\" }}</p></td></tr></table><p>Body</p>",
     "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
   },
   {
@@ -99,7 +99,7 @@
     "data": {
       "n": "N"
     },
-    "liquid": "<p>\\{{ variables.n }} and {% raw %}{{n}}{% endraw %}</p>",
+    "liquid": "<p>\\{{ variables.n | join: \",\" }} and {% raw %}{{n}}{% endraw %}</p>",
     "expected": "<p>\\N and {{n}}</p>"
   },
   {
@@ -109,8 +109,8 @@
       "n": "Tom & <Ann> \"q\"",
       "vip": true
     },
-    "liquid": "Hi {{ variables.n }}, {% if variables.vip != blank and variables.vip != 0 %}VIP{% endif %}",
     "text": true,
+    "liquid": "Hi {{ variables.n | join: \",\" }}, {% if variables.vip != blank and variables.vip != 0 %}VIP{% endif %}",
     "expected": "Hi Tom & <Ann> \"q\", VIP"
   },
   {
@@ -258,7 +258,7 @@
         }
       ]
     },
-    "liquid": "<ul>{% for item in variables.items %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 }} {{ item.name }} x{{ item.qty }} {{ variables.currency }}{% if forloop.last %}.{% endif %}</li>{% endfor %}</ul>",
+    "liquid": "<ul>{% for item in variables.items %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 | join: \",\" }} {{ item.name | join: \",\" }} x{{ item.qty | join: \",\" }} {{ variables.currency | join: \",\" }}{% if forloop.last %}.{% endif %}</li>{% endfor %}</ul>",
     "expected": "<ul><li class=\"first\">0 Hedgehog mug ☕ x2 EUR</li><li class=\"\">1 Sticker &lt;b&gt; x0 EUR.</li></ul>"
   },
   {
@@ -271,7 +271,7 @@
         "🦔"
       ]
     },
-    "liquid": "{% for item in variables.tags %}[{{ item }}]{% endfor %}",
+    "liquid": "{% for item in variables.tags %}[{{ item | join: \",\" }}]{% endfor %}",
     "expected": "[a][ünï][🦔]"
   },
   {
@@ -306,7 +306,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.orders %}{{ item.id }}:{% for item2 in item.lines %}{{ item2.sku }}@{{ item.id }}/{{ variables.shop }};{% endfor %}|{% endfor %}",
+    "liquid": "{% for item in variables.orders %}{{ item.id | join: \",\" }}:{% for item2 in item.lines %}{{ item2.sku | join: \",\" }}@{{ item.id | join: \",\" }}/{{ variables.shop | join: \",\" }};{% endfor %}|{% endfor %}",
     "expected": "1:a@1/S;b@1/S;|2:|"
   },
   {
@@ -322,7 +322,7 @@
         }
       ]
     },
-    "liquid": "{% for order in variables.orders %}{{ forloop.index0 }}={{ order.id }} {% endfor %}",
+    "liquid": "{% for order in variables.orders %}{{ forloop.index0 | join: \",\" }}={{ order.id | join: \",\" }} {% endfor %}",
     "expected": "0=A 1=B "
   },
   {
@@ -336,7 +336,7 @@
         }
       }
     },
-    "liquid": "{% if variables.user != blank %}{{ variables.user.name }} in {{ variables.user.address.city }}{% else %}nobody{% endif %}|{% if variables.missing != blank %}x{% else %}nobody{% endif %}",
+    "liquid": "{% if variables.user != blank %}{{ variables.user.name | join: \",\" }} in {{ variables.user.address.city | join: \",\" }}{% else %}nobody{% endif %}|{% if variables.missing != blank %}x{% else %}nobody{% endif %}",
     "expected": "Ana in Zürich|nobody"
   },
   {
@@ -346,7 +346,7 @@
       "q": "\"><script>alert('x')</script>&amp; ü 🦔",
       "safe": "<b>bold</b>"
     },
-    "liquid": "<p>{{ variables.q }}</p><a href=\"https://example.com/?q={{ variables.q }}\" title='{{ variables.q }}'>{{ variables.safe | raw }}</a>",
+    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: \",\" }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
     "expected": "<p>&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔</p><a href=\"https://example.com/?q=&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔\" title='&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔'><b>bold</b></a>"
   },
   {
@@ -356,7 +356,7 @@
       "prefix": "<a href",
       "x": "=https://example.com"
     },
-    "liquid": "{{ variables.prefix | raw }}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
+    "liquid": "{{ variables.prefix | join: \",\" | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
     "expected": "<a href&#x3D;https://example.com>"
   },
   {
@@ -369,7 +369,7 @@
         "c"
       ]
     },
-    "liquid": "{% for item in variables.tags %}{% if forloop.index0 != 0 %}, {% endif %}{{ item }}{% endfor %}|{% for item in variables.tags %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item }}{% endfor %}",
+    "liquid": "{% for item in variables.tags %}{% if forloop.index0 != 0 %}, {% endif %}{{ item | join: \",\" }}{% endfor %}|{% for item in variables.tags %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item | join: \",\" }}{% endfor %}",
     "expected": "a, b, c|first:abc"
   },
   {
@@ -387,7 +387,7 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.items %}<p>{{ item.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | raw }}{% endfor %}",
+    "liquid": "{% for item in variables.items %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}",
     "expected": "<p>a&#x3D;b</p><i>x</i><p>c&#x60;d</p><b>y</b>"
   },
   {
@@ -397,7 +397,7 @@
       "user-name": "Zoë",
       "naïve": "日本"
     },
-    "liquid": "{{ variables.user-name }} {{ variables.naïve }}",
+    "liquid": "{{ variables.user-name | join: \",\" }} {{ variables.naïve | join: \",\" }}",
     "expected": "Zoë 日本"
   },
   {
@@ -410,7 +410,7 @@
         }
       }
     },
-    "liquid": "{% if variables.user.address.city != blank and variables.user.address.city != 0 %}{{ variables.user.address.city }}{% else %}no city{% endif %}",
+    "liquid": "{% if variables.user.address.city != blank and variables.user.address.city != 0 %}{{ variables.user.address.city | join: \",\" }}{% else %}no city{% endif %}",
     "expected": "東京"
   },
   {
@@ -423,7 +423,31 @@
       ],
       "a": true
     },
-    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item }}</li>\n{% endfor %}</ul>\n{% if variables.a != blank and variables.a != 0 %}A{% endif %}",
+    "liquid": "<ul>\n{% for item in variables.xs %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}</ul>\n{% if variables.a != blank and variables.a != 0 %}A{% endif %}",
     "expected": "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\nA"
+  },
+  {
+    "name": "a list prints with commas",
+    "source": "<p>{{tags}}</p>",
+    "data": {
+      "tags": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "<p>{{ variables.tags | join: \",\" }}</p>",
+    "expected": "<p>red,blue</p>"
+  },
+  {
+    "name": "loop index with includeZero",
+    "source": "<p>{{#each xs}}{{#if @index includeZero=true}}Y{{else}}N{{/if}}{{#unless @index includeZero=true}}U{{/unless}}{{/each}}</p>",
+    "data": {
+      "xs": [
+        1,
+        2
+      ]
+    },
+    "liquid": "<p>{% for item in variables.xs %}{% if true %}Y{% else %}N{% endif %}{% if false %}U{% endif %}{% endfor %}</p>",
+    "expected": "<p>YY</p>"
   }
 ]

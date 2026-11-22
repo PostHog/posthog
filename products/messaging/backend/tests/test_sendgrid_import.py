@@ -218,7 +218,7 @@ class TestSendGridImport(BaseTest):
         email = receipt.content["email"]
         assert receipt.transactional_hog_flow_id is None
         assert receipt.content["templating"] == "liquid"
-        assert email["subject"] == "Your order {{ variables.order.id }}"
+        assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
         assert "Old" not in email["html"]
         assert "{% for item in variables.items %}" in email["html"]
         assert '{% raw %}{{formatDate order.placed_at "MMMM DD, YYYY"}}{% endraw %}' in email["html"]

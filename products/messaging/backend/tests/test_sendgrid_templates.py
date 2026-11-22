@@ -1,5 +1,6 @@
 import json
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("helper", "{{helper a b}}", "{{helper a b}}"),
             ("section", "{{#section}}x{{/section}}", "{{#section}}"),
             ("or", "{{#or a b}}x{{else}}y{{/or}}", "{{#or a b}}"),
+            ("value_under_an_or", "{{#or a b}}{{token}}{{/or}}", "{{token}}"),
             ("inverted_section", "{{^items}}none{{/items}}", "{{^items}}"),
             ("loop_index_under_a_kept_each", "{{#each a}}{{#each b key=1}}{{@index}}{{/each}}{{/each}}", "{{@index}}"),
             (
@@ -48,12 +50,16 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ),
             ("escaped_tag_opening_an_attribute", "\\{{<img src=x }}{{token}}", "{{token}}"),
             ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', '{{#if (lookup permissions "allow")}}'),
+            ("value_under_a_lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', "{{token}}"),
+            ("parent_path_under_with_this", "{{#each xs}}{{#with this}}{{../name}}{{/with}}{{/each}}", "{{../name}}"),
             ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}", "{{@key}}"),
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
             ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
             ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
+            ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
+            ("value_in_a_script_opened_around_a_comment", "<{{!-- c --}}script>var a = {{x}};</script>", "{{x}}"),
             ("raw_value_in_an_attribute", '<a href="{{{token}}}">x</a>', "{{{token}}}"),
             (
                 "event_handler_hidden_by_an_angle_bracket",
@@ -116,15 +122,22 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             {"html_content": "<p>Hi {{first_name}}</p><p>{{helper a}}</p>", "generate_plain_content": False}
         )
 
-        assert converted.html == "<p>Hi {{ variables.first_name }}</p><p>{% raw %}{{helper a}}{% endraw %}</p>"
+        assert (
+            converted.html == '<p>Hi {{ variables.first_name | join: "," }}</p><p>{% raw %}{{helper a}}{% endraw %}</p>'
+        )
 
-    def test_paths_that_grow_with_nesting_stop_before_the_output_gets_too_large(self) -> None:
-        html = "".join(f"{{{{#with {'a' * 1900}}}}}" for _ in range(40)) + "{{this}}" * 20_000 + "{{/with}}" * 40
+    @parameterized.expand([("values", "{{this}}" * 20_000), ("conditions", "{{#if this}}{{/if}}" * 200)])
+    def test_paths_that_grow_with_nesting_stop_before_the_output_gets_too_large(self, _name: str, body: str) -> None:
+        html = "".join(f"{{{{#with {'a' * 1200}}}}}" for _ in range(40)) + body + "{{/with}}" * 40
 
-        started = time.monotonic()
-        converted = convert_version({"html_content": html, "generate_plain_content": False})
+        tracemalloc.start()
+        try:
+            converted = convert_version({"html_content": html, "generate_plain_content": False})
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
 
-        assert time.monotonic() - started < 5
+        assert peak_bytes < 30_000_000
         assert "too large" in " ".join(converted.notes)
         assert "variables." not in converted.html
 
@@ -137,7 +150,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("value", "<p>Hi {{ name }}</p>", "{{ variables.name }}"),
+            ("value", "<p>Hi {{ name }}</p>", '{{ variables.name | join: "," }}'),
             ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
             ("unescaped_unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', '<a href="{{ unsubscribe_url }}">'),
             (
@@ -148,7 +161,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "value_after_a_loop_that_closes_its_own_tags",
                 '<h1>x</h1>{{#each xs}}<p>{{this}}</p>{{/each}}<a href="{{after}}">y</a>',
-                '<a href="{{ variables.after }}">',
+                '<a href="{{ variables.after | join: "," }}">',
             ),
             (
                 "global_unsubscribe_tag",
@@ -186,7 +199,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": "<p>{<b>{{name}}</b></p>"})
 
         assert "{{{" not in converted.text
-        assert converted.text.endswith("{{ variables.name }}")
+        assert converted.text.endswith('{{ variables.name | join: "," }}')
 
     @parameterized.expand(
         [
@@ -226,12 +239,17 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "a_value_after_raw_html",
                 "<p>{{{intro}}}</p><p>Hi {{name}}</p>",
-                "{{ variables.intro | strip_html }}\nHi {{ variables.name }}",
+                '{{ variables.intro | join: "," | strip_html }}\nHi {{ variables.name | join: "," }}',
             ),
             (
                 "values_in_the_title_and_an_outlook_comment",
                 "<head><title>Order {{id}}</title></head><body><!--[if mso]>{{first_name}}<![endif]--><p>Hi</p></body>",
                 "Hi",
+            ),
+            (
+                "a_condition_that_opens_inside_an_attribute",
+                '<p class="{{#if a}}x">A{{else}}y">B{{/if}}</p>',
+                '{% if variables.a != blank and variables.a != 0 %}A{% else %}y">B{% endif %}',
             ),
             (
                 "a_condition_that_closes_after_the_title",
@@ -246,7 +264,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_plain_text_prints_values_without_html_escaping(self) -> None:
         converted = convert_version({"html_content": '<p>{{name}} <a href="<%asm_preferences_raw_url%>">Go</a></p>'})
 
-        assert converted.text == "{{ variables.name }} Go ({{ unsubscribe_url }})"
+        assert converted.text == '{{ variables.name | join: "," }} Go ({{ unsubscribe_url }})'
 
     def test_an_unsubscribe_tag_kept_as_text_stays_whole_in_the_plain_part(self) -> None:
         converted = convert_version(
