@@ -340,6 +340,71 @@
     "expected": "Ana in Zürich|nobody"
   },
   {
+    "name": "comparison helpers",
+    "source": "{{#equals plan \"pro\"}}P{{else}}F{{/equals}}{{#notEquals plan \"pro\"}}N{{/notEquals}}{{#greaterThan total 100}}G{{/greaterThan}}{{#lessThan total 100}}L{{/lessThan}}{{#and plan total}}&{{/and}}{{#and plan zero}}0{{/and}}",
+    "data": {
+      "plan": "pro",
+      "total": 120,
+      "zero": 0
+    },
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}P{% else %}F{% endif %}{% assign text2 = variables.plan | join: \",\" | append: \"\" %}{% if text2 != \"pro\" %}N{% endif %}{% if variables.total > 100 %}G{% endif %}{% if variables.total < 100 %}L{% endif %}{% assign truthy3 = false %}{% if variables.plan != nil and variables.plan != false and variables.plan != 0 and variables.plan.length != 0 or variables.plan != empty %}{% assign truthy3 = true %}{% endif %}{% assign truthy4 = false %}{% if variables.total != nil and variables.total != false and variables.total != 0 and variables.total.length != 0 or variables.total != empty %}{% assign truthy4 = true %}{% endif %}{% if truthy3 == true and truthy4 == true %}&{% endif %}{% assign truthy5 = false %}{% if variables.plan != nil and variables.plan != false and variables.plan != 0 and variables.plan.length != 0 or variables.plan != empty %}{% assign truthy5 = true %}{% endif %}{% assign truthy6 = false %}{% if variables.zero != nil and variables.zero != false and variables.zero != 0 and variables.zero.length != 0 or variables.zero != empty %}{% assign truthy6 = true %}{% endif %}{% if truthy5 == true and truthy6 == true %}0{% endif %}",
+    "expected": "PG&"
+  },
+  {
+    "name": "equals compares numbers and text as text",
+    "source": "{{#equals count 5}}A{{/equals}}{{#equals code \"5\"}}B{{/equals}}{{#equals plan \"pro\"}}D{{/equals}}",
+    "data": {
+      "count": "5",
+      "code": 5,
+      "plan": "pro"
+    },
+    "liquid": "{% assign text1 = variables.count | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | join: \",\" | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}{% assign text3 = variables.plan | join: \",\" | append: \"\" %}{% if text3 == \"pro\" %}D{% endif %}",
+    "expected": "ABD"
+  },
+  {
+    "name": "length of a missing value or an object is 0",
+    "source": "{{#equals (length missing) 0}}none{{/equals}}{{#greaterThan (length obj) 0}}some{{else}}zero{{/greaterThan}}",
+    "data": {
+      "obj": {
+        "a": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.missing | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.missing == probe1 %}{% assign length1 = variables.missing | size %}{% endif %}{% assign text2 = length1 | join: \",\" | append: \"\" %}{% if text2 == \"0\" %}none{% endif %}{% assign probe3 = variables.obj | slice: 0, 16 %}{% assign length3 = 0 %}{% if probe3 != \"[object Object]\" or variables.obj == probe3 %}{% assign length3 = variables.obj | size %}{% endif %}{% if length3 > 0 %}some{% else %}zero{% endif %}",
+    "expected": "nonezero"
+  },
+  {
+    "name": "length helper",
+    "source": "{{length items}} {{#greaterThan (length items) 1}}many{{else}}few{{/greaterThan}}",
+    "data": {
+      "items": [
+        1,
+        2,
+        3
+      ]
+    },
+    "liquid": "{% assign probe1 = variables.items | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.items == probe1 %}{% assign length1 = variables.items | size %}{% endif %}{{ length1 }} {% assign probe2 = variables.items | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.items == probe2 %}{% assign length2 = variables.items | size %}{% endif %}{% if length2 > 1 %}many{% else %}few{% endif %}",
+    "expected": "3 many"
+  },
+  {
+    "name": "format date",
+    "source": "{{formatDate when \"MMMM D, YYYY h:mm A\"}} | {{formatDate when \"DD/MM/YY HH:mm:ss\"}} | {{formatDate when \"ddd, MMM D\"}} | {{formatDate when \"dddd a\"}}",
+    "data": {
+      "when": "2026-03-08T19:05:09Z"
+    },
+    "liquid": "{{ variables.when | date: \"%B %-d, %Y %-I:%M %p\", \"UTC\" }} | {{ variables.when | date: \"%d/%m/%y %H:%M:%S\", \"UTC\" }} | {{ variables.when | date: \"%a, %b %-d\", \"UTC\" }} | {{ variables.when | date: \"%A %P\", \"UTC\" }}",
+    "expected": "March 8, 2026 7:05 PM | 08/03/26 19:05:09 | Sun, Mar 8 | Sunday pm"
+  },
+  {
+    "name": "insert with a default",
+    "source": "{{insert name \"default=friend\"}}/{{insert missing \"default=friend\"}}/{{insert empty \"default=friend\"}}",
+    "data": {
+      "name": "Zoë",
+      "empty": ""
+    },
+    "liquid": "{{ variables.name | default: \"friend\" | join: \",\" }}/{{ variables.missing | default: \"friend\" | join: \",\" }}/{{ variables.empty | default: \"friend\" | join: \",\" }}",
+    "expected": "Zoë/friend/friend"
+  },
+  {
     "name": "values that look like markup stay escaped",
     "source": "<p>{{q}}</p><a href=\"https://example.com/?q={{q}}\" title='{{q}}'>{{{safe}}}</a>",
     "data": {
@@ -466,6 +531,33 @@
     "expected": "a{|b{|c{c{ V"
   },
   {
+    "name": "equals reads a decimal literal as a number",
+    "source": "<p>{{#equals price 5.0}}Y{{else}}N{{/equals}}</p>",
+    "data": {
+      "price": 5
+    },
+    "liquid": "<p>{% assign text1 = variables.price | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}Y{% else %}N{% endif %}</p>",
+    "expected": "<p>Y</p>"
+  },
+  {
+    "name": "comparisons read a list as its items joined by commas",
+    "source": "<p>{{#notEquals status \"banned\"}}A{{else}}B{{/notEquals}}{{#equals zip 12345}}C{{else}}D{{/equals}}</p>",
+    "data": {
+      "status": [
+        "banned"
+      ],
+      "zip": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "liquid": "<p>{% assign text1 = variables.status | join: \",\" | append: \"\" %}{% if text1 != \"banned\" %}A{% else %}B{% endif %}{% assign text2 = variables.zip | join: \",\" | append: \"\" %}{% if text2 == \"12345\" %}C{% else %}D{% endif %}</p>",
+    "expected": "<p>BD</p>"
+  },
+  {
     "name": "conditions read a string of spaces and an empty object as true",
     "source": "{{#unless s}}A{{/unless}}{{#if o}}B{{else}}C{{/if}}{{#with o}}D{{else}}E{{/with}}{{#unless e}}F{{/unless}}{{#if l}}G{{else}}H{{/if}}{{#if k}}I{{else}}J{{/if}}",
     "data": {
@@ -488,6 +580,17 @@
     },
     "liquid": "<a title=\"{{ \"{{\" }}a&quot; &lt;b}} {{ variables.name | join: \",\" }}\">x</a>",
     "expected": "<a title=\"{{a&quot; &lt;b}} Ann\">x</a>"
+  },
+  {
+    "name": "and keeps each test whole",
+    "source": "{{#and a b}}Y{{else}}N{{/and}}|{{#and a c}}Y{{else}}N{{/and}}",
+    "data": {
+      "a": " ",
+      "b": "x",
+      "c": 0
+    },
+    "liquid": "{% assign truthy1 = false %}{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}{% assign truthy1 = true %}{% endif %}{% assign truthy2 = false %}{% if variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}{% assign truthy2 = true %}{% endif %}{% if truthy1 == true and truthy2 == true %}Y{% else %}N{% endif %}|{% assign truthy3 = false %}{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}{% assign truthy3 = true %}{% endif %}{% assign truthy4 = false %}{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}{% assign truthy4 = true %}{% endif %}{% if truthy3 == true and truthy4 == true %}Y{% else %}N{% endif %}",
+    "expected": "Y|N"
   },
   {
     "name": "loops follow handlebars over objects and strings",
@@ -549,6 +652,29 @@
     "expected": "[x][y][2]"
   },
   {
+    "name": "length counts only a list or a string",
+    "source": "{{length a}}|{{length b}}|{{length c}}|{{#if (length d)}}D{{else}}none{{/if}}|{{#greaterThan (length e) 0}}E{{else}}empty{{/greaterThan}}",
+    "data": {
+      "a": [
+        1,
+        2
+      ],
+      "b": "abc",
+      "c": {
+        "length": 3
+      },
+      "d": {
+        "length": 3
+      },
+      "e": {
+        "0": "x",
+        "length": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.a | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.a == probe1 %}{% assign length1 = variables.a | size %}{% endif %}{{ length1 }}|{% assign probe2 = variables.b | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.b == probe2 %}{% assign length2 = variables.b | size %}{% endif %}{{ length2 }}|{% assign probe3 = variables.c | slice: 0, 16 %}{% assign length3 = 0 %}{% if probe3 != \"[object Object]\" or variables.c == probe3 %}{% assign length3 = variables.c | size %}{% endif %}{{ length3 }}|{% assign probe4 = variables.d | slice: 0, 16 %}{% assign length4 = 0 %}{% if probe4 != \"[object Object]\" or variables.d == probe4 %}{% assign length4 = variables.d | size %}{% endif %}{% if length4 > 0 %}D{% else %}none{% endif %}|{% assign probe5 = variables.e | slice: 0, 16 %}{% assign length5 = 0 %}{% if probe5 != \"[object Object]\" or variables.e == probe5 %}{% assign length5 = variables.e | size %}{% endif %}{% if length5 > 0 %}E{% else %}empty{% endif %}",
+    "expected": "2|3|0|none|empty"
+  },
+  {
     "name": "a loop reads the text [object Object] as text",
     "source": "{{#each a}}[{{this}}]{{else}}none{{/each}}|{{#each b}}[{{this}}]{{else}}none{{/each}}",
     "data": {
@@ -559,5 +685,17 @@
     },
     "liquid": "{% assign values1 = variables.a | slice: 0, 0 %}{% assign string1 = variables.a | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.a != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}none{% else %}{% for raw1 in variables.a %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}|{% assign values2 = variables.b | slice: 0, 0 %}{% assign string2 = variables.b | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.b != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}none{% else %}{% for raw2 in variables.b %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}",
     "expected": "none|[v]"
+  },
+  {
+    "name": "length counts the text [object Object]",
+    "source": "{{length a}}|{{#if (length b)}}B{{else}}none{{/if}}",
+    "data": {
+      "a": "[object Object]",
+      "b": {
+        "k": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.a | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.a == probe1 %}{% assign length1 = variables.a | size %}{% endif %}{{ length1 }}|{% assign probe2 = variables.b | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.b == probe2 %}{% assign length2 = variables.b | size %}{% endif %}{% if length2 > 0 %}B{% else %}none{% endif %}",
+    "expected": "15|none"
   }
 ]

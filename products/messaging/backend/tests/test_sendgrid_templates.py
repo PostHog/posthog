@@ -51,10 +51,35 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("escaped_tag_opening_an_attribute", "\\{{<img src=x }}{{token}}", "{{token}}"),
             ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', '{{#if (lookup permissions "allow")}}'),
             ("value_under_a_lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', "{{token}}"),
+            ("value_under_a_comparison_of_two_values", "{{#notEquals a b}}{{token}}{{/notEquals}}", "{{token}}"),
+            ("value_under_a_comparison_with_empty_text", '{{#equals a ""}}{{token}}{{/equals}}', "{{token}}"),
+            (
+                "value_under_a_comparison_with_null",
+                "{{#greaterThan a null}}x{{else}}{{token}}{{/greaterThan}}",
+                "{{token}}",
+            ),
+            ("insert_default_with_an_entity", '{{insert x "default=&lt;b&gt;"}}', '{{insert x "default=&lt;b&gt;"}}'),
+            ("value_under_a_comparison_with_an_entity", '{{#equals a "&lt;b&gt;"}}{{token}}{{/equals}}', "{{token}}"),
+            (
+                "value_under_an_else_if_that_stays_as_written",
+                '{{#equals plan "gold"}}A{{else if (greaterThan spend 500)}}{{token}}{{/equals}}',
+                "{{token}}",
+            ),
+            (
+                "value_under_a_comparison_with_a_number_too_large_to_hold",
+                "{{#notEquals a " + "9" * 400 + "}}{{token}}{{/notEquals}}",
+                "{{token}}",
+            ),
+            (
+                "value_under_a_lookup_with_include_zero",
+                '{{#if (lookup flags "enabled") includeZero=true}}{{token}}{{/if}}',
+                "{{token}}",
+            ),
             ("parent_path_under_with_this", "{{#each xs}}{{#with this}}{{../name}}{{/with}}{{/each}}", "{{../name}}"),
             ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}", "{{@key}}"),
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
             ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
+            ("format_date_day_of_the_year", '{{formatDate t "DDD"}}', '{{formatDate t "DDD"}}'),
             ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
@@ -163,6 +188,15 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": html, "generate_plain_content": False})
 
         assert "{{%" not in converted.html
+
+    def test_a_loop_variable_never_hides_a_value_assigned_for_a_comparison(self) -> None:
+        html = "{{#each items as |text1|}}{{#equals text1.code 5}}Y{{/equals}}{{/each}}"
+
+        converted = convert_version({"html_content": html, "generate_plain_content": False})
+
+        assert converted.html.endswith(
+            '{% assign text1 = item.code | join: "," | append: "" %}{% if text1 == "5" %}Y{% endif %}{% endfor %}{% endif %}'
+        )
 
     def test_the_rest_of_the_template_converts_around_a_tag_kept_as_written(self) -> None:
         converted = convert_version(
@@ -312,6 +346,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     )
     def test_plain_text_built_from_converted_html(self, _name: str, html: str, text: str) -> None:
         assert convert_version({"html_content": html}).text == text
+
+    def test_plain_text_keeps_each_test_of_an_and_whole(self) -> None:
+        html = '<a title="{{#and a b}}">{{token}}<a title="{{/and}}">x</a>'
+
+        converted = convert_version({"html_content": html})
+
+        assert "{% assign truthy1 = true %}" in converted.text
 
     def test_plain_text_keeps_how_a_loop_reads_its_value(self) -> None:
         html = '<a title="{{#each items}}">{{#unless restricted}}{{../token}}{{/unless}}<a title="{{/each}}">x</a>'
