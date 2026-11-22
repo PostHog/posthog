@@ -166,12 +166,10 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-// Every email worker takes a token from one shared SES bucket for each job it dequeues, so a card that brings the email
-// queue near the refill would measure the bucket, not the queue. The check trusts the profile's email claim target,
-// which admission measures at the opening step, and so applies only to a profile with a load block. Each email replica
-// claims tokens for every row it sees, so on a shallow queue one job can cost up to one token per replica. The share
-// leaves that worst case out, because no run measures it.
+// docs/internal/workflows-scenario-runner.md explains the share and why the check needs a load block.
 const SES_SHARE = 0.5
+
+const toMillionths = (value: number): number => Number(value.toFixed(6))
 
 function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
     const sendsEmail = card.drive.traffic.some(({ name }) =>
@@ -204,8 +202,7 @@ function checkSesRefill(
         return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
     }
     const topScale = topScaleOf(card)
-    // Rounded so a peak exactly at the share passes: in floating point, 50 * 1.1 is just over 55.
-    const peak = Number((claims * topScale * (1 + tolerance)).toFixed(6))
+    const peak = toMillionths(claims * topScale * (1 + tolerance))
     const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
     return peak <= ceiling
         ? []
