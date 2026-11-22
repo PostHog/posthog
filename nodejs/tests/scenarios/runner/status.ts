@@ -4,7 +4,7 @@ import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
-import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
+import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import type { Ramp } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
@@ -159,7 +159,8 @@ function interruptionWithoutValve(
     drive: DriveWindow,
     timeline: ValveTimelineEntry[]
 ): string | undefined {
-    const firstIntent = phasesOf(drive, timeline).baseline.to
+    const intents = timeline.flatMap(({ intentAt }) => (intentAt === undefined ? [] : [Date.parse(intentAt)]))
+    const firstIntent = intents.length === 0 ? drive.endedAt : Math.max(Math.min(...intents), drive.startedAt)
     const lastRelease = Math.max(
         drive.endedAt,
         ...timeline.flatMap(({ releasedAt }) => (releasedAt === undefined ? [] : [Date.parse(releasedAt)]))
@@ -273,7 +274,13 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
+        ...timeline.flatMap((entry) =>
+            entry.observedAt === undefined
+                ? [unobservedReasonOf(entry)]
+                : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+                  ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
+                  : []
+        ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),

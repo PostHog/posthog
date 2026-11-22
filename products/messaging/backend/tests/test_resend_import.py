@@ -197,6 +197,28 @@ class TestResendImport(BaseTest):
         }
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" not in self.resend.calls
 
+    @parameterized.expand(
+        [
+            ("with_topic_preferences", ["topics", "topic_opt_outs"], "Your Resend contacts keep their choice"),
+            ("topics_only", ["topics"], "import Topic preferences too"),
+        ]
+    )
+    def test_topic_notes_name_every_topic_once(self, _name: str, steps: list[str], follow_up: str) -> None:
+        self.resend.data["topics"] = [
+            *FIXTURES["topics"],
+            {"id": "t-4", "name": "Weekly digest", "default_subscription": "opt_out", "visibility": "public"},
+            {"id": "t-5", "name": "Événements", "default_subscription": "opt_out", "visibility": "public"},
+            {"id": "t-6", "name": "Sales outreach", "default_subscription": "opt_in", "visibility": "private"},
+        ]
+
+        warnings = self._run(steps).progress["topics"]["warnings"]
+
+        private_name = FIXTURES["topics"][2]["name"]
+        assert len(warnings) == 2
+        assert warnings[0].startswith("Resend sends these only to people who opted in: Weekly digest, Événements. ")
+        assert follow_up in warnings[0]
+        assert warnings[1].startswith(f"Private in Resend, so not imported: {private_name}, Sales outreach. ")
+
     @parameterized.expand([("completed", True), ("failed_step", False)])
     def test_key_is_gone_when_the_run_ends(self, _name: str, completes: bool) -> None:
         run = runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
@@ -260,7 +282,7 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
-    def test_contact_properties_run_last_so_a_long_scan_holds_up_no_other_step(self) -> None:
+    def test_quick_steps_run_before_the_steps_that_read_contacts_one_at_a_time(self) -> None:
         run = runs.start_run(
             self.team.id,
             "resend",
@@ -269,7 +291,15 @@ class TestResendImport(BaseTest):
             self.user.id,
         )
 
-        assert run.steps == [*OPT_OUT_STEPS, "contacts", "templates", "domains", "contact_properties"]
+        assert run.steps == [
+            "suppressions",
+            "opt_outs",
+            "templates",
+            "domains",
+            "topic_opt_outs",
+            "contacts",
+            "contact_properties",
+        ]
 
     def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
         self.resend.failures["/contacts"] = [(500, {})] * 10
@@ -863,13 +893,12 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert "segments" in run.progress["contacts"]["last_error"]
         assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
-    @parameterized.expand([("contacts_completed", False, True), ("contacts_blocked", True, False)])
-    def test_an_automation_says_its_segment_was_filled_only_when_contacts_completed(
-        self, _name: str, opt_outs_fail: bool, filled: bool
+    @parameterized.expand([("with_contacts", True), ("without_contacts", False)])
+    def test_an_automation_says_its_segment_is_filled_only_when_the_run_imports_contacts(
+        self, _name: str, filled: bool
     ) -> None:
-        if opt_outs_fail:
-            self.resend.failures["/contacts"] = [(500, {})] * 10
-        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "automations"], API_KEY, self.user.id)
+        steps = [*OPT_OUT_STEPS, "contacts", "automations"] if filled else ["automations"]
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
 
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
@@ -881,7 +910,8 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
 
         notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
         expected = (
-            "This import also added the segment's contacts to it."
+            "This import's Contacts step adds the segment's contacts to it once it finishes. If it doesn't finish, "
+            "import Contacts again."
             if filled
             else "Import Contacts too to add the people already in the segment."
         )
