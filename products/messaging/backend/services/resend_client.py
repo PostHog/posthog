@@ -225,7 +225,11 @@ def _int_header(response: requests.Response, name: str) -> int | None:
 
 def _policy_window_seconds(response: requests.Response) -> float | None:
     match = re.search(r"w=(\d+)", str(response.headers.get("ratelimit-policy", "")))
-    return float(match.group(1)) if match and int(match.group(1)) > 0 else None
+    try:
+        seconds = int(match.group(1)) if match else 0
+    except ValueError:
+        return None
+    return float(min(seconds, MAX_RETRY_AFTER_SECONDS)) if seconds > 0 else None
 
 
 def _retry_after_seconds(response: requests.Response) -> float:

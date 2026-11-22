@@ -1066,6 +1066,21 @@ class TestResendClientPace(SimpleTestCase):
                 [0.5, 7.5, 7.5],
             ),
             (
+                "huge_window",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 400})],
+                [0.5, 7.5, 7.5],
+            ),
+            (
+                "window_too_long_to_read",
+                [
+                    (
+                        200,
+                        {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 5000},
+                    )
+                ],
+                [0.5, 0.5, 0.5],
+            ),
+            (
                 "live_sending_got_a_429",
                 [
                     (429, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1", "retry-after": "1"}),
