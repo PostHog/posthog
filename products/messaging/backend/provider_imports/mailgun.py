@@ -694,8 +694,10 @@ def _fetch_mailing_lists(
                 after = page.next_after
     empty: list[_Target] = []
     if context.settings.get(LISTS_SETTING, LISTS_WITH_MEMBERS) == LISTS_WITH_MEMBERS:
-        empty = [target for target in targets if not int(target.details.get("members_count") or 0)]
-        targets = [target for target in targets if target not in empty]
+        with_members: list[_Target] = []
+        for target in targets:
+            (with_members if int(target.details.get("members_count") or 0) else empty).append(target)
+        targets = with_members
     if empty and not checkpoint:
         first = min(targets, key=lambda target: target.position, default=None)
         yield ImportPage(

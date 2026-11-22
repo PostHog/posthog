@@ -368,8 +368,11 @@ class TestCategoryImport(BaseTest):
         ]
 
         first = imported_data.import_categories(self.team.id, imported, created_by_id=None)
-        second = imported_data.import_categories(self.team.id, imported, created_by_id=None)
+        with CaptureQueriesContext(connection) as queries:
+            second = imported_data.import_categories(self.team.id, imported, created_by_id=None)
 
+        # A run reads one page at a time, so a page that creates nothing must not wait on the team's import lock.
+        assert not any("pg_advisory_xact_lock" in query["sql"] for query in queries.captured_queries)
         live = MessageCategory.objects.filter(team_id=self.team.id, deleted=False, category_type="marketing")
         assert first.ids_by_key == second.ids_by_key
         assert live.count() == 1

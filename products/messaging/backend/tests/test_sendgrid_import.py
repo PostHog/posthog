@@ -299,6 +299,15 @@ class TestSendGridImport(BaseTest):
         assert any("A/B test" in note for note in items["From a design"]["notes"])
         assert any("example.com/leave" in note for note in items["From a design"]["notes"])
 
+    @parameterized.expand([("with_groups_step", ["suppression_groups", "single_sends"]), ("alone", ["single_sends"])])
+    def test_a_single_send_takes_the_category_its_group_reuses(self, _name: str, steps: list[str]) -> None:
+        existing = MessageCategory.objects.create(team_id=self.team.id, key="own_updates", name="product  Updates")
+
+        self._run(steps)
+
+        scheduled = MessageTemplate.objects.get(team_id=self.team.id, name="November news")
+        assert str(scheduled.message_category_id) == str(existing.id)
+
     def test_a_single_send_takes_its_own_sender_not_the_first_one_listed(self) -> None:
         self.state.account["single_sends"][0]["email_config"]["sender_id"] = 8
 

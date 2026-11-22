@@ -49,6 +49,7 @@ from products.messaging.backend.services.imported_data import (
     ImportedSuppression,
     carry_opt_outs,
     code_email_keys,
+    existing_category_ids,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -761,6 +762,7 @@ def _fetch_single_sends(
     client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
 ) -> Iterator[ImportPage]:
     senders: dict[int, dict[str, Any]] | None = None
+    groups: dict[Any, ImportedCategory] | None = None
     for page in client.token_pages("/v3/marketing/singlesends", _page_token(resume), 100):
         details = []
         for summary in page.data:
@@ -776,12 +778,23 @@ def _fetch_single_sends(
             )
             if senders is None and isinstance(config.get("sender_id"), int):
                 senders = _all_verified_senders(client)
+            if groups is None and config.get("suppression_group_id") is not None:
+                groups = _group_categories(client)
             details.append((single_send, design))
         yield ImportPage(
             processed=len(page.data),
-            save=partial(_save_single_sends, context, details, dict(senders or {})),
+            save=partial(_save_single_sends, context, details, dict(senders or {}), dict(groups or {})),
             checkpoint=_token_checkpoint(fingerprint, page.next_position),
         )
+
+
+def _group_categories(client: SendGridClient) -> dict[Any, ImportedCategory]:
+    # A group's category may be one that already had its name, which only the group's name can find.
+    try:
+        groups = _read_groups(client)
+    except SendGridScopeMissing:
+        return {}
+    return {group["id"]: category for group in groups if (category := _to_category(group))}
 
 
 def _all_verified_senders(client: SendGridClient) -> dict[int, dict[str, Any]]:
@@ -807,10 +820,13 @@ def _save_single_sends(
     context: ImportContext,
     details: list[tuple[dict[str, Any], dict[str, Any] | None]],
     senders: Mapping[int, dict[str, Any] | None],
+    groups: Mapping[Any, ImportedCategory],
 ) -> SavedPage:
     keys = {str(single_send["id"]): f"sendgrid-singlesend-{single_send['id']}"[:400] for single_send, _ in details}
     taken = _taken_keys(context.team_id, list(keys.values()))
     posthog_senders = _senders(context.team_id)
+    resolved = existing_category_ids(context.team_id, groups.values())
+    category_by_group = {group_id: resolved.get(category.key) for group_id, category in groups.items()}
     counts: Counter[str] = Counter()
     items: list[ImportItem] = []
     for single_send, design in details:
@@ -832,7 +848,7 @@ def _save_single_sends(
         version = {**config, **{k: v for k, v in (design or {}).items() if v not in (None, "")}}
         converted = convert_version(version, contact_fields=True)
         sender, sender_notes = _single_send_sender(config, senders, posthog_senders)
-        category_id, group_notes = _single_send_category(context.team_id, config)
+        category_id, group_notes = _single_send_category(context.team_id, config, category_by_group)
         notes = (
             *_single_send_notes(single_send),
             *converted.notes,
@@ -902,7 +918,9 @@ def _single_send_reply_to(config: dict[str, Any], senders: Mapping[int, dict[str
     return literal_liquid(str((sender or {}).get("reply_to") or ""))
 
 
-def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
+def _single_send_category(
+    team_id: int, config: dict[str, Any], category_by_group: Mapping[Any, str | None]
+) -> tuple[str | None, tuple[str, ...]]:
     group_id = config.get("suppression_group_id")
     custom_url = config.get("custom_unsubscribe_url")
     notes = (
@@ -912,10 +930,14 @@ def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | N
     )
     if group_id is None:
         return None, notes
-    row = MessageCategory.objects.filter(team_id=team_id, key=_group_key(group_id), deleted=False).first()
-    if row is None:
+    if group_id in category_by_group:
+        category_id = category_by_group[group_id]
+    else:
+        row = MessageCategory.objects.filter(team_id=team_id, key=_group_key(group_id), deleted=False).first()
+        category_id = str(row.id) if row else None
+    if category_id is None:
         return None, (*notes, "Import unsubscribe groups, then choose this email's category on the template.")
-    return str(row.id), notes
+    return category_id, notes
 
 
 def _senders(team_id: int) -> dict[str, IntegrationRecord]:

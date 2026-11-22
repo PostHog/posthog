@@ -255,6 +255,30 @@ def _live_marketing_categories_by_name(team_id: int) -> dict[str, str]:
     return ids
 
 
+def existing_category_ids(team_id: int, categories: Iterable[ImportedCategory]) -> dict[str, str]:
+    """The id each category maps to without creating anything: its own live category, else a live marketing category
+    with its name. A category someone deleted in PostHog maps to nothing."""
+    by_key = {category.key: category for category in categories}
+    rows = MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key)).values_list("key", "id", "deleted")
+    ids: dict[str, str] = {}
+    for key, category_id, deleted in rows:
+        by_key.pop(key)
+        if not deleted:
+            ids[key] = str(category_id)
+    return ids | _matched_by_name(team_id, by_key)
+
+
+def _matched_by_name(team_id: int, missing: Mapping[str, ImportedCategory]) -> dict[str, str]:
+    if not missing:
+        return {}
+    by_name = _live_marketing_categories_by_name(team_id)
+    return {
+        key: by_name[name_key]
+        for key, category in missing.items()
+        if (name_key := _name_match_key(category.name)) in by_name
+    }
+
+
 def import_categories(
     team_id: int, categories: Iterable[ImportedCategory], created_by_id: int | None
 ) -> CategoryImportResult:
@@ -265,11 +289,11 @@ def import_categories(
     again on every run: a reused category someone renamed or deleted since then is created again on the next run.
     """
     by_key = {category.key: category for category in categories}
-    existing = {row.key: row for row in MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key))}
+    existing = set(MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key)).values_list("key", flat=True))
     missing = {key: category for key, category in by_key.items() if key not in existing}
-    matched: dict[str, str] = {}
+    matched = _matched_by_name(team_id, missing)
     created = 0
-    if missing:
+    if len(matched) < len(missing):
         with transaction.atomic():
             # Two tools importing at once would each create a category the other is about to create.
             with connection.cursor() as cursor:
@@ -277,6 +301,7 @@ def import_categories(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"message-category-import:{team_id}"]
                 )
             by_name = _live_marketing_categories_by_name(team_id)
+            matched = {}
             new_rows: list[MessageCategory] = []
             for key, category in sorted(missing.items()):
                 name_key = _name_match_key(category.name)
