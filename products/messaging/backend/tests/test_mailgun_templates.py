@@ -59,6 +59,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("event_handler", "handlebars", '<a onclick="{{x}}">'),
             ("style_attribute", "handlebars", '<p style="color: {{x}}">'),
             ("raw_in_an_attribute", "handlebars", '<a title="{{{x}}}">'),
+            ("tag_name", "handlebars", "<{{x}}>"),
             ("go_link", "go", '<a href="{{.x}}">'),
             ("go_data_attribute", "go", '<a data-href="{{.x}}">'),
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),

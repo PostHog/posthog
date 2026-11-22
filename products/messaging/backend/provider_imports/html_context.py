@@ -24,6 +24,8 @@ class HtmlContext:
         self.raw_element = ""
         # A script's end can hide inside a comment or a string in it, so nothing after one opens is trusted.
         self.untrusted = False
+        # A `<` at the end of what was fed, with what follows it so far. The next text decides whether it opens a tag.
+        self.partial = ""
 
     def feed(self, chunk: str) -> None:
         if self.position > _SEARCH_OVERLAP:
@@ -33,6 +35,8 @@ class HtmlContext:
         self._advance(len(self.text))
 
     def where(self) -> str:
+        if self.partial:
+            return "tag"
         return {"dq": "value", "sq": "value", "text": "text", "raw": "raw", "comment": "comment"}.get(self.state, "tag")
 
     def plain_attribute(self) -> bool:
@@ -44,12 +48,14 @@ class HtmlContext:
             i = self.position
             state = self.state
             if state == "text":
+                if self.partial:
+                    self._open(self.partial[1:], i)
+                    continue
                 opening = text.find("<", i, target)
                 if opening < 0:
                     self.position = target
                     break
-                self.position = opening + 1
-                self._open(opening)
+                self._open("", opening + 1)
             elif state == "raw":
                 found = _find_end_tag(text, self.raw_element, i)
                 if found < 0:
@@ -76,16 +82,22 @@ class HtmlContext:
                 self._tag_character(text[i])
                 self.position = i + 1
 
-    def _open(self, opening: int) -> None:
-        rest = self.text[opening + 1 : opening + 4]
+    def _open(self, before: str, at: int) -> None:
+        """Reads what follows a `<`: `before` is the part already fed, and the rest starts at `at`."""
+        rest = (before + self.text[at : at + 3])[:3]
+        self.partial = ""
+        self.position = at
         if rest.startswith("!--"):
-            self.position = opening + 4
+            self.position = at + 3 - len(before)
             self.state = "comment"
         elif rest[:1].isalpha():
             self.state, self.tag_name, self.closing = "tag_name", "", False
         elif rest[:1] == "/" and rest[1:2].isalpha():
-            self.position = opening + 2
+            self.position = at + 1 - len(before)
             self.state, self.tag_name, self.closing = "tag_name", "", True
+        elif "!--".startswith(rest) or rest == "/":
+            self.partial = "<" + rest
+            self.position = len(self.text)
         elif rest[:1] in ("!", "?", "/"):
             self.state = "bogus"
 
