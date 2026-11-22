@@ -1320,6 +1320,11 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
+            const marksUnavailable = async (): Promise<number> =>
+                (
+                    await register.getSingleMetric('email_tracking_ses_recorded_marks_unavailable_total')!.get()
+                ).values.reduce((sum, { value }) => sum + value, 0)
+
             it.each<[string, () => Promise<[Error | null, unknown][] | null>]>([
                 ['fails', () => Promise.reject(new Error('pool exhausted'))],
                 ['answers nothing', () => Promise.resolve(null)],
@@ -1328,11 +1333,7 @@ describe('EmailTrackingService', () => {
                 'records a redelivered notification again, and counts Redis unavailable, when Redis %s',
                 async (_, answer) => {
                     jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(answer)
-                    const unavailable = async (): Promise<number> =>
-                        (
-                            await register.getSingleMetric('email_tracking_ses_recorded_marks_unavailable_total')!.get()
-                        ).values.reduce((sum, { value }) => sum + value, 0)
-                    const unavailableBefore = await unavailable()
+                    const unavailableBefore = await marksUnavailable()
                     await postBounce({ functionId: hogFunction.id })
                     const batch = queuedSesNotifications()
 
@@ -1340,7 +1341,7 @@ describe('EmailTrackingService', () => {
                     await consumer.processBatch(batch)
 
                     expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
-                    expect(await unavailable()).toBe(unavailableBefore + 4)
+                    expect(await marksUnavailable()).toBe(unavailableBefore + 4)
                 }
             )
 
@@ -1362,9 +1363,11 @@ describe('EmailTrackingService', () => {
                     },
                     poolMinSize: 0,
                     poolMaxSize: 1,
+                    acquireTimeoutMillis: 30_000,
                 })
                 valkey.stopAnswering()
                 jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(silentRedis.usePipeline)
+                const unavailableBefore = await marksUnavailable()
                 await postBounce({ functionId: hogFunction.id })
                 const batch = queuedSesNotifications()
 
@@ -1376,6 +1379,7 @@ describe('EmailTrackingService', () => {
                 }
 
                 expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                expect(await marksUnavailable()).toBe(unavailableBefore + 4)
             })
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
