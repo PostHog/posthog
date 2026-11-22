@@ -287,7 +287,7 @@ function ImportForm({
 
             {provider.not_imported && <div className="text-xs text-secondary">{provider.not_imported}</div>}
 
-            <div className={clsx('space-y-3', pinActions && PINNED_BAR_CLASSES)}>
+            <div className={clsx(pinActions ? ['space-y-3', PINNED_BAR_CLASSES] : 'space-y-4')}>
                 {storedKeyField ?? (
                     <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
                         <LemonField name="api_key" label={provider.api_key_label}>
