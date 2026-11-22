@@ -292,7 +292,9 @@ def import_categories(
     existing = set(MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key)).values_list("key", flat=True))
     missing = {key: category for key, category in by_key.items() if key not in existing}
     matched = _matched_by_name(team_id, missing)
-    created = 0
+    # Each key that follows a category this run proposes, by the key that proposes it.
+    aliases: dict[str, str] = {}
+    new_rows: list[MessageCategory] = []
     if len(matched) < len(missing):
         with transaction.atomic():
             # Two tools importing at once would each create a category the other is about to create.
@@ -300,33 +302,45 @@ def import_categories(
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"message-category-import:{team_id}"]
                 )
+            # A writer that doesn't take the lock can add one of these keys after the read above.
+            taken = set(
+                MessageCategory.objects.filter(team_id=team_id, key__in=list(missing)).values_list("key", flat=True)
+            )
             by_name = _live_marketing_categories_by_name(team_id)
+            proposers: dict[str, str] = {}
             matched = {}
-            new_rows: list[MessageCategory] = []
             for key, category in sorted(missing.items()):
+                if key in taken:
+                    continue
                 name_key = _name_match_key(category.name)
                 if name_key in by_name:
                     matched[key] = by_name[name_key]
                     continue
-                row = MessageCategory(
-                    team_id=team_id,
-                    key=key,
-                    name=category.name,
-                    description=category.description,
-                    public_description=category.description
-                    if category.public_description is None
-                    else category.public_description,
-                    category_type=MessageCategoryType.MARKETING,
-                    created_by_id=created_by_id,
+                if name_key in proposers:
+                    aliases[key] = proposers[name_key]
+                    continue
+                proposers[name_key] = key
+                new_rows.append(
+                    MessageCategory(
+                        team_id=team_id,
+                        key=key,
+                        name=category.name,
+                        description=category.description,
+                        public_description=category.description
+                        if category.public_description is None
+                        else category.public_description,
+                        category_type=MessageCategoryType.MARKETING,
+                        created_by_id=created_by_id,
+                    )
                 )
-                new_rows.append(row)
-                # A second category with this name in the same batch maps to this one.
-                by_name[name_key] = str(row.id)
             MessageCategory.objects.bulk_create(new_rows, ignore_conflicts=True)
-            created = len(new_rows)
     live = MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key), deleted=False)
+    ids = {key: str(category_id) for key, category_id in live.values_list("key", "id")}
+    # A proposed row loses to a row another writer inserted first, so an alias takes whatever id its key has now.
+    matched |= {alias: ids[proposer] for alias, proposer in aliases.items() if proposer in ids}
+    created = sum(1 for row in new_rows if ids.get(row.key) == str(row.id))
     return CategoryImportResult(
-        ids_by_key={**matched, **{key: str(category_id) for key, category_id in live.values_list("key", "id")}},
+        ids_by_key={**matched, **ids},
         created=created,
         matched=len(matched),
         already_present=len(by_key) - created - len(matched),

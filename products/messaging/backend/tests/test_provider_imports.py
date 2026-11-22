@@ -381,6 +381,25 @@ class TestCategoryImport(BaseTest):
         assert (first.created, first.matched) == ((0, 2) if outcome == "reused" else (1, 1))
         assert (second.created, second.matched) == (0, 2 if outcome == "reused" else 1)
 
+    def test_a_category_another_writer_inserts_first_leaves_no_id_pointing_at_nothing(self) -> None:
+        imported = [
+            ImportedCategory(key="tool_a_launch", name="Launch news"),
+            ImportedCategory(key="tool_b_launch", name="launch news"),
+        ]
+        manager = type(MessageCategory.objects)
+        original = manager.bulk_create
+        theirs: list[MessageCategory] = []
+
+        def insert_first(self_: object, objs: list, **kwargs: object) -> list:
+            theirs.append(MessageCategory.objects.create(team_id=self.team.id, key="tool_a_launch", name="Launches"))
+            return original(self_, objs, **kwargs)
+
+        with patch.object(manager, "bulk_create", autospec=True, side_effect=insert_first):
+            result = imported_data.import_categories(self.team.id, imported, created_by_id=None)
+
+        assert result.ids_by_key == {"tool_a_launch": str(theirs[0].id), "tool_b_launch": str(theirs[0].id)}
+        assert result.created == 0
+
 
 REGION = ImportSettingSpec(
     key="region",
