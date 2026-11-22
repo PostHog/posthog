@@ -123,11 +123,7 @@ describe('ReportStatusSection', () => {
 
     it.each([
         { flag: false, pullRequests: [], labels: ['Report status', 'Priority'] },
-        {
-            flag: true,
-            pullRequests: [],
-            labels: ['Report status', 'Priority', 'Repository', 'Actionability', 'Already addressed'],
-        },
+        { flag: true, pullRequests: [], labels: ['Report status', 'Priority'] },
         { flag: true, pullRequests: [pullRequest(42)], labels: ['Report status', 'Priority', 'Pull requests'] },
     ])(
         'orders the rows when editable decisions is $flag with $pullRequests.length pull requests',

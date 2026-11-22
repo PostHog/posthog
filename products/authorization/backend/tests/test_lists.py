@@ -264,17 +264,21 @@ class TestListsMatchCurrentRules(BaseTest):
 
     @parameterized.expand(
         [
-            ("member", False, False),
-            ("private_project", True, False),
-            ("org_admin", True, True),
-            ("effective_org_admin", True, False, True),
+            ("member", False, False, False, False),
+            ("private_project", True, False, False, False),
+            ("org_admin", True, True, False, False),
+            ("member_of_another_organization", True, False, True, False),
+            ("effective_org_admin", True, False, False, True),
         ]
     )
     def test_project_list_matches_visible_teams(
-        self, _name: str, private: bool, admin: bool, effective_admin: bool = False
+        self, _name: str, private: bool, admin: bool, member_elsewhere: bool, effective_admin: bool
     ) -> None:
         private_team = Team.objects.create(organization=self.organization, name="Private")
-        Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Foreign")
+        elsewhere = Organization.objects.create(name="Elsewhere")
+        Team.objects.create(organization=elsewhere, name="Foreign")
+        if member_elsewhere:
+            self.user.join(organization=elsewhere)
         if private:
             self._rule("project", "none", str(private_team.id), team=private_team)
         if admin:

@@ -131,7 +131,7 @@ export type FakeCloudOptions = {
     shortValuesOf?: 'Maximum' | 'Average'
     unknownTimestampOf?: 'Maximum' | 'Average'
     omitsCapacityStatus?: boolean
-    liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
+    liveReaderAcu?: { maxima: (number | null)[]; averages?: number[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
 
@@ -626,12 +626,12 @@ export class FakeCloud implements Aws {
     }
 
     private liveCapacity(Stat: string): { at: number; value: number | undefined }[] {
-        const { maxima, lagMinutes = 0 } = this.options.liveReaderAcu!
+        const { maxima, averages, lagMinutes = 0 } = this.options.liveReaderAcu!
         const now = this.options.now().getTime()
         const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
-            value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],
+            value: max === null ? undefined : { Maximum: max, Average: averages?.[i] ?? max, SampleCount: 60 }[Stat],
         }))
     }
 

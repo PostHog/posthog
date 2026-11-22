@@ -7,6 +7,7 @@ import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/compone
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,6 +21,7 @@ import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/fronte
 
 import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
+import { QuillTestAccountFiltersConfig } from './QuillTestAccountFiltersConfig'
 
 function createTestAccountFilterWarningLabels(
     currentTeam: TeamPublicType | TeamType | null,
@@ -74,10 +76,44 @@ function TestAccountFiltersConfig(): JSX.Element {
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
         updateCurrentTeam({ test_account_filters: filters })
         reportTestAccountFiltersUpdated(filters)
+    }
+
+    const handleDefaultCheckedChange = (checked: boolean): void => {
+        updateCurrentTeam({ test_account_filters_default_checked: checked })
+        setTeamDefault(checked)
+    }
+
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+    ]
+
+    if (todayRailNav) {
+        return (
+            <QuillTestAccountFiltersConfig
+                filters={currentTeam?.test_account_filters}
+                showFilters={!!currentTeam}
+                warningLabels={testAccountFilterWarningLabels}
+                frequentMistakes={testAccountFilterFrequentMistakes}
+                taxonomicGroupTypes={taxonomicGroupTypes}
+                restrictedReason={restrictedReason}
+                loading={currentTeamLoading}
+                defaultChecked={!!currentTeam?.test_account_filters_default_checked}
+                filterRevenueAnalytics={filterTestAccounts}
+                onFiltersChange={handleChange}
+                onDefaultCheckedChange={handleDefaultCheckedChange}
+                onFilterRevenueAnalyticsChange={updateFilterTestAccounts}
+            />
+        )
     }
 
     return (
@@ -125,23 +161,13 @@ function TestAccountFiltersConfig(): JSX.Element {
                         pageKey="testaccountfilters"
                         propertyFilters={currentTeam?.test_account_filters}
                         onChange={handleChange}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                        ]}
+                        taxonomicGroupTypes={taxonomicGroupTypes}
                         disabledReason={restrictedReason ?? undefined}
                     />
                 )}
             </div>
             <LemonSwitch
-                onChange={(checked) => {
-                    updateCurrentTeam({ test_account_filters_default_checked: checked })
-                    setTeamDefault(checked)
-                }}
+                onChange={handleDefaultCheckedChange}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}
                 disabledReason={restrictedReason}

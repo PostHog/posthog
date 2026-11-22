@@ -38,12 +38,19 @@ FRILL_ENDPOINTS: dict[str, FrillEndpointConfig] = {
     ),
     "followers": FrillEndpointConfig(path="/followers", params={"include_attributes": "true"}),
     "ideas": FrillEndpointConfig(path="/ideas"),
+    # GET /integration-links requires `idea_idx` or `type`, so this endpoint pages once per
+    # documented integration type (INTEGRATION_LINK_TYPES) instead of fanning out over ideas.
+    "integration_links": FrillEndpointConfig(path="/integration-links"),
     "statuses": FrillEndpointConfig(path="/statuses", partition_key=None),
     "topics": FrillEndpointConfig(path="/topics", partition_key=None),
     "votes": FrillEndpointConfig(path="/votes"),
 }
 
 ENDPOINTS = tuple(FRILL_ENDPOINTS.keys())
+
+# The integration types Frill documents for integration links. Frill does not validate `type` on
+# write, so links of any other type are not reachable through the type filter.
+INTEGRATION_LINK_TYPES: tuple[str, ...] = ("zendesk", "intercom")
 
 # No endpoint exposes a server-side updated-since filter, so no stream is incremental.
 # Kept for parity with other sources and for the (empty) per-endpoint advertised options.

@@ -1,9 +1,7 @@
 """One-way copy of logs alert configurations into the skeleton shared tables.
 
 The control plane stays with the logs product: this reads, never writes back. Each check reads the
-logs alert's current settings, so an edit counts without a rerun. A check can only see a copy that
-is enabled, so the logs API copies an alert created or turned back on in a team that already runs
-logs on the platform.
+logs alert's current settings, so an edit counts without a rerun.
 
 `legacy_configuration_id` carries the row each copy came from, so a second run updates
 rather than duplicates, and a later comparison can line the two stacks up per alert.
@@ -24,7 +22,6 @@ from products.alerts_platform.backend.facade.api import (
     match_first_enabled_at,
     team_ids_with_copies,
     upsert_configuration,
-    upsert_if_running,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
@@ -230,12 +227,3 @@ def disable_platform_alert_configurations(
     disabled = disable_configurations(SourceKind.LOGS, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
-
-
-def follow_logs_alert(alert: LogsAlertConfiguration) -> None:
-    """Copies a logs alert that was just created or turned back on, if its team runs logs on the platform.
-
-    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill.
-    """
-    upsert_if_running(platform_upsert_of(alert), revive=True)

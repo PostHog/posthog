@@ -133,6 +133,32 @@ class TestOwnerrezSourceTransport:
             },
         ]
 
+    def test_listings_requests_detail_collections_and_drops_wifi_password(self) -> None:
+        result = _driver().run(
+            "Listings",
+            [
+                _page(
+                    [{"property_id": 7, "bedroom_count": 3, "wifi_network": "beach-house", "wifi_password": "hunter2"}],
+                    next_page_url="https://api.ownerrez.com/v2/listings?cursor=abc",
+                ),
+                _page([{"property_id": 5, "bedroom_count": 1}]),
+            ],
+        )
+
+        assert result.raised is None
+        first = result.requests[0]
+        assert first.path == "/v2/listings"
+        assert (first.param("includeAmenities"), first.param("includeRooms"), first.param("includeBathrooms")) == (
+            "true",
+            "true",
+            "true",
+        )
+        assert result.urls[1] == "https://api.ownerrez.com/v2/listings?cursor=abc"
+        assert result.rows == [
+            {"property_id": 7, "bedroom_count": 3, "wifi_network": "beach-house"},
+            {"property_id": 5, "bedroom_count": 1},
+        ]
+
     def test_resumes_from_saved_next_url(self) -> None:
         result = _driver().run(
             "Properties",

@@ -3,6 +3,7 @@
 import re
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from datetime import date
 from typing import Any, Literal
 from urllib.parse import quote, urlencode, urlparse
@@ -11,7 +12,7 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.egress.gitlab.transport import gitlab_request
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.integrations.enums import IntegrationAuthType
 from posthog.security.url_validation import is_url_allowed
 
@@ -25,6 +26,22 @@ class GitLabIntegrationError(Exception):
         super().__init__(message)
         # A 429 or 5xx from GitLab, which a retry can get past.
         self.transient = transient
+
+
+class GitLabOverwriteNotAllowed(Exception):
+    """The team already has this project connected, and the caller may not replace it."""
+
+
+def _normalized_base_url(url: object) -> str:
+    # GitLab can run under a path prefix, and paths are case-sensitive, so only the scheme and host fold case.
+    parsed = urlparse(str(url or "").strip())
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
+
+
+def _same_project(stored: Mapping[str, Any], new: Mapping[str, Any]) -> bool:
+    return _normalized_base_url(stored.get("hostname")) == _normalized_base_url(new.get("hostname")) and str(
+        stored.get("project_id")
+    ) == str(new.get("project_id"))
 
 
 # Caps one listing at 1,000 projects so that a token with access to a whole instance stays cheap.
@@ -186,7 +203,13 @@ class GitLabIntegration:
         )
 
     @classmethod
-    def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> IntegrationRecord:
+    def create_integration(
+        cls, hostname, project_id, project_access_token, team_id, user, *, can_overwrite: bool = False
+    ) -> IntegrationRecord:
+        """Connect a project, or replace the token of the team's connection to it when `can_overwrite`.
+
+        Raises `GitLabOverwriteNotAllowed` when the project is connected and `can_overwrite` is False.
+        """
         try:
             response = cls._request(
                 "GET",
@@ -217,14 +240,34 @@ class GitLabIntegration:
             config["token_scopes"] = list(token_info.scopes)
             config["token_expires_at"] = token_info.expires_at.isoformat() if token_info.expires_at else None
 
-        integration = row_writes.creator_accessor(model.Integration.IntegrationKind.GITLAB.value).create(
-            team_id,
-            external_id=project.get("name_with_namespace"),
-            config=config,
-            sensitive_config={"access_token": project_access_token},
-            created_by_id=user.id if user else None,
-        )
+        name = project.get("name_with_namespace")
+        sensitive_config = {"access_token": project_access_token}
+        accessor = row_writes.creator_accessor(model.Integration.IntegrationKind.GITLAB.value)
+        # The create is the authorization. The probes above can wait on a host the caller controls, so
+        # a check made before them can miss a row that another request commits in the meantime. Only
+        # the unique key on the write sees that row, and only a caller allowed to overwrite goes on.
+        try:
+            return accessor.create(
+                team_id,
+                external_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by_id=user.id if user else None,
+            )
+        except IntegrationConflict:
+            if not can_overwrite:
+                raise GitLabOverwriteNotAllowed()
 
+        # The key is the display name, which two GitLab hosts can share. A reconnect must name the
+        # same project, because destinations that use this integration send their requests to it.
+        existing = accessor.find(team_id, external_id=name)
+        if existing is not None and not _same_project(existing.config, config):
+            raise GitLabIntegrationError(
+                f'Another GitLab project named "{name}" is already connected. '
+                "Disconnect it before you connect this project."
+            )
+        # No created_by_id, so the row keeps the user who first connected it.
+        integration, _ = accessor.upsert(team_id, name, config=config, sensitive_config=sensitive_config)
         return integration
 
     def __init__(self, integration: IntegrationRecord) -> None:
