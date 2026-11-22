@@ -166,10 +166,9 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-// docs/internal/workflows-scenario-runner.md explains the share and why the check needs a load block.
 const SES_SHARE = 0.5
 
-const toMillionths = (value: number): number => Number(value.toFixed(6))
+const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
 
 function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
     const sendsEmail = card.drive.traffic.some(({ name }) =>
@@ -202,7 +201,7 @@ function checkSesRefill(
         return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
     }
     const topScale = topScaleOf(card)
-    const peak = toMillionths(claims * topScale * (1 + tolerance))
+    const peak = withoutFloatNoise(claims * topScale * (1 + tolerance))
     const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
     return peak <= ceiling
         ? []
