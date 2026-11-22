@@ -23,7 +23,7 @@ import type {
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { transactionalTemplatesLogic } from '../Transactional/transactionalTemplatesLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
-import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
+import { ImportEntryPoint, sortProvidersByName } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
@@ -226,10 +226,7 @@ export interface providerImportLogicMeta {
             chosenProviderKey: string | null,
             showsAutomationImport: boolean
         ) => ImportProviderOptionApi | null
-        orderedImportProviders: (
-            importProviders: ImportProviderOptionApi[] | null,
-            entryPoint: ImportEntryPoint
-        ) => ImportProviderOptionApi[]
+        orderedImportProviders: (importProviders: ImportProviderOptionApi[] | null) => ImportProviderOptionApi[]
         importButtonLabel: (importProviders: ImportProviderOptionApi[] | null) => string
         hasSeveralProviders: (importProviders: ImportProviderOptionApi[] | null) => boolean
         latestImportRunByProvider: (importRuns: ProviderImportRunApi[] | null) => Record<string, ProviderImportRunApi>
@@ -448,11 +445,9 @@ export const providerImportLogic = kea<providerImportLogicType>([
             },
         ],
         orderedImportProviders: [
-            (s) => [s.importProviders, s.entryPoint],
-            (
-                importProviders: ImportProviderOptionApi[] | null,
-                entryPoint: ImportEntryPoint
-            ): ImportProviderOptionApi[] => orderProvidersForEntryPoint(importProviders ?? [], entryPoint),
+            (s) => [s.importProviders],
+            (importProviders: ImportProviderOptionApi[] | null): ImportProviderOptionApi[] =>
+                sortProvidersByName(importProviders ?? []),
         ],
         // Until the tools load, the generic label avoids a flash of one tool's name for teams with several.
         importButtonLabel: [

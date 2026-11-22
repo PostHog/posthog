@@ -50,13 +50,14 @@ const importProviders = [
 
 function mockSyncConfig(
     config: OptOutSyncConfigResponse,
-    importRuns: ProviderImportRunApi[] = []
+    importRuns: ProviderImportRunApi[] = [],
+    providers: typeof importProviders = importProviders
 ): Record<string, any> {
     return {
         get: {
             [syncConfigEndpoint]: config,
             [importRunsEndpoint]: importRuns,
-            [importProvidersEndpoint]: importProviders,
+            [importProvidersEndpoint]: providers,
         },
     }
 }
@@ -126,10 +127,11 @@ export default meta
 type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
     importRuns?: ProviderImportRunApi[]
+    providers?: typeof importProviders
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
-    useStorybookMocks(mockSyncConfig(syncConfig, importRuns))
+const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns, providers }) => {
+    useStorybookMocks(mockSyncConfig(syncConfig, importRuns, providers))
     const { openImportModal } = useActions(providerImportLogic)
 
     useEffect(() => {
@@ -137,6 +139,35 @@ const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
     }, [openImportModal])
 
     return <ProviderImportModal />
+}
+
+const otherTool = (key: string, label: string, stepLabels: string[]): (typeof importProviders)[number] => ({
+    ...importProviders[0],
+    key,
+    label,
+    retains_credentials: false,
+    steps: stepLabels.map((stepLabel, index) => ({ key: `step_${index}`, label: stepLabel, description: '' })),
+})
+
+export const ProviderPicker: StoryFn<StoryProps> = Template.bind({})
+ProviderPicker.args = {
+    syncConfig: emptySyncConfig,
+    providers: [
+        otherTool('sendgrid', 'SendGrid', [
+            'Unsubscribe groups',
+            'Bounces',
+            'Global unsubscribes',
+            'Templates',
+            'Lists',
+        ]),
+        ...importProviders,
+        otherTool('resend', 'Resend', ['Topics', 'Suppression list', 'Contacts', 'Templates', 'Automations']),
+        otherTool('mailgun', 'Mailgun', ['Bounces', 'Unsubscribes']),
+        otherTool('postmark', 'Postmark', ['Suppressions', 'Templates', 'Webhooks']),
+    ],
+}
+ProviderPicker.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-resend"]', snapshotBrowsers: [] },
 }
 
 export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})

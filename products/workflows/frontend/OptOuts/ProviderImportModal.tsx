@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconArrowLeft, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -14,59 +15,84 @@ import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportSteps } from './CustomerIOImportSteps'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportPanel } from './ProviderImportPanel'
+import { ProviderLogo } from './ProviderLogo'
 
 const CUSTOMERIO_PROVIDER = 'customerio'
+const SUMMARY_STEP_COUNT = 3
+
+function summarizeSteps(provider: ImportProviderOptionApi): string {
+    const labels = provider.steps.map((step) => step.label)
+    if (labels.length <= SUMMARY_STEP_COUNT + 1) {
+        return labels.join(', ')
+    }
+    return `${labels.slice(0, SUMMARY_STEP_COUNT).join(', ')} and ${labels.length - SUMMARY_STEP_COUNT} more`
+}
+
+function ProviderOption({
+    providerKey,
+    label,
+    summary,
+    importing = false,
+    onClick,
+    dataAttr,
+}: {
+    providerKey: string
+    label: string
+    summary: string
+    importing?: boolean
+    onClick: () => void
+    dataAttr: string
+}): JSX.Element {
+    return (
+        <LemonButton type="secondary" fullWidth sideIcon={<IconChevronRight />} onClick={onClick} data-attr={dataAttr}>
+            <div className="flex min-w-0 items-center gap-3 py-1 font-normal">
+                <ProviderLogo providerKey={providerKey} />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex items-center gap-2 font-semibold">
+                        {label}
+                        {importing && <LemonTag type="highlight">Importing</LemonTag>}
+                    </span>
+                    <span className="truncate text-xs text-secondary" title={summary}>
+                        {summary}
+                    </span>
+                </div>
+            </div>
+        </LemonButton>
+    )
+}
 
 function ProviderPicker(): JSX.Element {
-    const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport, entryPoint } =
-        useValues(providerImportLogic)
+    const { orderedImportProviders, latestImportRunByProvider, showsAutomationImport } = useValues(providerImportLogic)
     const { selectProvider, closeImportModal } = useActions(providerImportLogic)
     const { openImportModal: openAutomationImport } = useActions(customerioImportLogic)
 
-    const automationImport = showsAutomationImport ? (
-        <LemonButton
-            type="secondary"
-            fullWidth
-            sideIcon={<IconChevronRight />}
-            onClick={() => {
-                closeImportModal()
-                openAutomationImport()
-            }}
-            data-attr="import-provider-customerio-automations"
-        >
-            <div className="flex flex-col gap-0.5 py-1 font-normal">
-                <span className="font-semibold">Customer.io automations</span>
-                <span className="text-xs text-secondary">Automations, as draft workflows</span>
-            </div>
-        </LemonButton>
-    ) : null
-
     return (
         <div className="flex flex-col gap-2">
-            {entryPoint === 'workflows' && automationImport}
             {orderedImportProviders.map((provider) => (
-                <LemonButton
-                    key={provider.key}
-                    type="secondary"
-                    fullWidth
-                    sideIcon={<IconChevronRight />}
-                    onClick={() => selectProvider(provider.key)}
-                    data-attr={`import-provider-${provider.key}`}
-                >
-                    <div className="flex flex-col gap-0.5 py-1 font-normal">
-                        <span className="flex items-center gap-2 font-semibold">
-                            {provider.label}
-                            {['queued', 'running'].includes(latestImportRunByProvider[provider.key]?.status) && (
-                                <LemonTag type="highlight">Importing</LemonTag>
-                            )}
-                        </span>
-                        <span className="text-xs text-secondary">
-                            {provider.steps.map((step) => step.label).join(', ')}
-                        </span>
-                    </div>
-                </LemonButton>
+                <Fragment key={provider.key}>
+                    <ProviderOption
+                        providerKey={provider.key}
+                        label={provider.label}
+                        summary={summarizeSteps(provider)}
+                        importing={['queued', 'running'].includes(latestImportRunByProvider[provider.key]?.status)}
+                        onClick={() => selectProvider(provider.key)}
+                        dataAttr={`import-provider-${provider.key}`}
+                    />
+                    {/* "Customer.io automations" sorts straight after "Customer.io". */}
+                    {provider.key === CUSTOMERIO_PROVIDER && showsAutomationImport && (
+                        <ProviderOption
+                            providerKey={CUSTOMERIO_PROVIDER}
+                            label="Customer.io automations"
+                            summary="Automations, as draft workflows"
+                            onClick={() => {
+                                closeImportModal()
+                                openAutomationImport()
+                            }}
+                            dataAttr="import-provider-customerio-automations"
+                        />
+                    )}
+                </Fragment>
             ))}
-            {entryPoint !== 'workflows' && automationImport}
         </div>
     )
 }

@@ -390,27 +390,27 @@ describe('providerImportLogic', () => {
         expect(logic.values.selectedProvider?.key).toBe('customerio')
     })
 
-    it.each([
-        ['opt-outs', ['customerio', 'postmark', 'sendgrid', 'resend']],
-        ['workflows', ['resend', 'customerio', 'postmark', 'sendgrid']],
-        ['templates', ['postmark', 'resend', 'customerio', 'sendgrid']],
-        ['transactional', ['postmark', 'resend', 'customerio', 'sendgrid']],
-        ['broadcasts', ['sendgrid', 'resend', 'customerio', 'postmark']],
-    ] as const)('lists the tools that bring what the %s page is about first', async (entryPoint, expectedOrder) => {
-        const tool = (key: string, steps: string[]): typeof PROVIDER_OPTION => ({
-            ...PROVIDER_OPTION,
-            key,
-            steps: steps.map((step) => ({ key: step, label: step, description: '' })),
-        })
-        logic.actions.loadImportProvidersSuccess([
-            PROVIDER_OPTION,
-            tool('postmark', ['streams', 'templates']),
-            tool('sendgrid', ['lists', 'suppressions']),
-            tool('resend', ['contacts', 'templates', 'automations']),
-        ] as any)
+    it.each(['workflows', 'broadcasts'] as const)(
+        'lists the tools by name from the %s page, whatever order the API sends',
+        (entryPoint) => {
+            const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
+            logic.actions.loadImportProvidersSuccess([
+                tool('sendgrid', 'SendGrid'),
+                PROVIDER_OPTION,
+                tool('resend', 'Resend'),
+                tool('mailgun', 'Mailgun'),
+                tool('postmark', 'Postmark'),
+            ] as any)
 
-        logic.actions.openImportModal(null, entryPoint)
+            logic.actions.openImportModal(null, entryPoint)
 
-        expect(logic.values.orderedImportProviders.map((provider) => provider.key)).toEqual(expectedOrder)
-    })
+            expect(logic.values.orderedImportProviders.map((provider) => provider.label)).toEqual([
+                'Customer.io',
+                'Mailgun',
+                'Postmark',
+                'Resend',
+                'SendGrid',
+            ])
+        }
+    )
 })
