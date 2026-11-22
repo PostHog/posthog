@@ -46704,6 +46704,7 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "transactional_email_impact_turn_on_replay",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",

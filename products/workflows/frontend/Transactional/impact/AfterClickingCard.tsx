@@ -3,7 +3,10 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { emailImpactLogic } from './emailImpactLogic'
 
@@ -34,6 +37,13 @@ export function AfterClickingCard(): JSX.Element {
                             type="secondary"
                             size="small"
                             to={urls.settings('project-replay', 'replay')}
+                            onClick={() =>
+                                void addProductIntentForCrossSell({
+                                    from: ProductKey.WORKFLOWS,
+                                    to: ProductKey.SESSION_REPLAY,
+                                    intent_context: ProductIntentContext.TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY,
+                                })
+                            }
                             data-attr="email-impact-turn-on-replay"
                         >
                             Turn on session replay

@@ -2808,6 +2808,7 @@ class ProductIntentContext(StrEnum):
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
+    TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY = "transactional_email_impact_turn_on_replay"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
     BATCH_EXPORT_UPDATED = "batch_export_updated"
