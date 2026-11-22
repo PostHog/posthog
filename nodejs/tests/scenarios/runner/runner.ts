@@ -62,6 +62,7 @@ import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
 
+const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -748,7 +749,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
-            const host = os.hostname()
+            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
