@@ -31,6 +31,9 @@ _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
+# Liquid reads these as properties of any list or object, such as how many variables the send has, where Mailgun
+# finds nothing.
+_LIQUID_PROPERTIES = frozenset({"size", "first", "last"})
 _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailing_list_unsubscribe_url"})
 _MAILGUN_VARIABLE = re.compile(f"{_FIXED_VARIABLE.pattern}|{_RECIPIENT_VARIABLE.pattern}")
 _FIXED_UNSUBSCRIBE = re.compile(r"%(?:unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url)%")
@@ -100,6 +103,8 @@ def _split_mailgun_variables(text: str) -> Iterator[str | TextValue]:
             yield match.group(0)
         elif name in _UNSUBSCRIBE_URLS:
             yield TextValue(source=match.group(0), in_attribute=True, liquid="{{ unsubscribe_url }}")
+        elif match[2] in _LIQUID_PROPERTIES:
+            yield TextValue(source=match.group(0), in_attribute=True)
         else:
             yield TextValue(source=match.group(0), in_attribute=True, value_path=f"variables.{name or match[2]}")
     yield text[position:]
@@ -261,7 +266,7 @@ class _GoConverter:
         while (opening := self.text.find("{{", position)) >= 0:
             tag = _TAG.match(self.text, opening)
             go = _GO_VALUE.fullmatch(tag.group(0)) if tag else None
-            if tag is None or go is None:
+            if tag is None or go is None or _LIQUID_PROPERTIES.intersection(go[1].split(".")):
                 shown = tag.group(0) if tag else self.text[opening : opening + 60].split("\n", 1)[0]
                 raise _Unsupported(shown)
             values.append(
@@ -273,6 +278,8 @@ class _GoConverter:
                 _Value(start=match.start(), end=match.end(), source=match.group(0), liquid=self._fixed_variable(match))
             )
         for match in _RECIPIENT_VARIABLE.finditer(self.text):
+            if match[1] in _LIQUID_PROPERTIES:
+                raise _Unsupported(match.group(0))
             self.recipient_variables.append(match.group(0))
             values.append(
                 _Value(

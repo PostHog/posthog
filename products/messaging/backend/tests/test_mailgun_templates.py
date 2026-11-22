@@ -53,6 +53,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("style_attribute", '<p style="color: {{x}}">', "{{x}}"),
             ("raw_in_an_attribute", '<a title="{{{x}}}">', "{{{x}}}"),
             ("tag_name", "<{{x}}>", "{{x}}"),
+            ("recipient_variable_named_size", "%recipient.size%", "%recipient.size%"),
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
             ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
@@ -84,6 +85,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("go_data_attribute", "go", '<a data-href="{{.x}}">'),
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),
             ("go_plain_attribute", "go", '<a title="{{.x}}">'),
+            ("go_size_property", "go", "<p>{{.Order.size}}</p>"),
             ("go_after_any_script", "go", "<script>x</script><p>{{.x}}</p>"),
         ]
     )
