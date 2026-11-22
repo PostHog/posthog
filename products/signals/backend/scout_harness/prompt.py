@@ -197,8 +197,9 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
-# The memory upkeep scout and the scratchpad keys it writes. It does not exist yet and its key shapes
-# may change, so the prompt section and the runner's check both read them from here.
+# The memory upkeep scout and the scratchpad keys it writes. The prompt section, the runner's check and
+# the scout's own skill body must all agree on them, so they are defined once here and
+# `TestShippedMemoryUpkeepScout` fails when the skill drifts from them.
 MEMORY_UPKEEP_SCOUT = "signals-scout-dreaming"
 LEARNED_KEY_PREFIX = "learned:"
 LEARNED_KEY_KINDS = ("person", "area", "shape")

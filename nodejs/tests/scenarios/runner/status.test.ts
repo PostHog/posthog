@@ -620,4 +620,10 @@ describe('statusOf', () => {
     ])('%s', (_story, profile, baseline, admissions) => {
         expect(admissionsOf(profile, { ...BASELINE, ...baseline })).toEqual(admissions)
     })
+
+    it('admits a ramp that opens at 10x against targets measured at 1x', () => {
+        expect(
+            admissionsOf({ load: LOAD }, { ...BASELINE, claimsPerSecond: { email: 38 }, newJobsPerSecond: 55 }, 10)
+        ).toEqual([{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }])
+    })
 })

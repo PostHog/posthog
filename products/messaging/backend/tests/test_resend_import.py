@@ -1,6 +1,7 @@
 import re
 import copy
 import json
+import threading
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from typing import Any, cast
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -48,6 +50,8 @@ from products.messaging.backend.temporal import (
     workflow as temporal_workflow,
 )
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
+from products.workflows.backend.facade.contracts import ContactsCaptureFailed
+from products.workflows.backend.facade.people_import import import_contact_chunk
 from products.workflows.backend.facade.workflows import get_workflow
 
 # A contacts run must import who opted out or bounced in Resend too.
@@ -322,6 +326,14 @@ class TestResendImport(BaseTest):
         run = self._run(["topic_opt_outs"])
 
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
+        assert run.status == "completed"
+
+    def test_topic_choices_are_not_read_when_every_topic_is_private(self) -> None:
+        self.resend.data["topics"] = [topic for topic in FIXTURES["topics"] if topic.get("visibility") == "private"]
+
+        run = self._run(["topic_opt_outs"])
+
+        assert "/contacts" not in self.resend.calls
         assert run.status == "completed"
 
     @parameterized.expand([("same_key", API_KEY, 2), ("another_key", "re_another_account_key", 3)])
@@ -911,18 +923,53 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
                 [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
                 # The people import only takes addresses Django validates, which leaves out Björk's.
-                {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
+                {
+                    "people_to_send": 3,
+                    "people": 3,
+                    "new_people": 2,
+                    "not_sent": 0,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                False,
             ),
             (
                 "matching_people_only",
                 [*OPT_OUT_STEPS, "contacts", "automations"],
                 [("user-hal", True)],
-                {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
+                {
+                    "people_to_send": 1,
+                    "people": 1,
+                    "new_people": 0,
+                    "not_sent": 0,
+                    "skipped_new_people": 2,
+                    "dropped": 1,
+                },
+                False,
+            ),
+            (
+                "capture_refuses",
+                [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
+                {
+                    "people_to_send": 3,
+                    "people": 0,
+                    "new_people": 0,
+                    "not_sent": 3,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                True,
             ),
         ]
     )
     def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
-        self, _name: str, steps: list[str], staged: list[tuple[str, bool]], counts: dict[str, int]
+        self,
+        _name: str,
+        steps: list[str],
+        staged: list[tuple[str, bool]],
+        counts: dict[str, int],
+        capture_refuses: bool,
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
@@ -937,8 +984,29 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         plan, segment_plan = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
         segment_people = self.people.people(segment_plan)
+        assert "people" not in run.progress["contacts"]["counts"]
+        # Sends the list the way the workflow does, and records what capture took.
+        self.people.capture_refuses = capture_refuses
+        try:
+            sent = import_contact_chunk(
+                self.team.id,
+                plan["storage_prefix"],
+                0,
+                send_events=True,
+                created_by_id=self.user.id,
+                wait_for_people=False,
+            )
+            outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
+        except ContactsCaptureFailed:
+            outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
+        assert run.progress["contacts"]["last_error"] == (
+            "3 contacts didn't reach PostHog, so their people weren't created or updated. Import again to retry."
+            if capture_refuses
+            else None
+        )
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
@@ -1018,6 +1086,148 @@ class TestResendTemplateConversion(SimpleTestCase):
         assert "FIRST_NAME" in joined
         assert "ORDER" in joined
         assert "isn't published" in joined
+
+
+class TestResendClientPace(SimpleTestCase):
+    LIMIT = {"ratelimit-limit": "10", "ratelimit-policy": "10;w=1"}
+
+    @parameterized.expand(
+        [
+            ("no_limit_headers", [(200, {})], [0.5, 0.5, 0.5]),
+            ("limit_headers", [(200, {**LIMIT, "ratelimit-remaining": "6"})], [0.5, 0.125, 0.125]),
+            (
+                "window_used_up",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"})],
+                [1.0, 1.0, 1.0],
+            ),
+            (
+                "live_sending_filled_the_window",
+                [
+                    (200, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1"}),
+                    (200, {**LIMIT, "ratelimit-remaining": "6"}),
+                ],
+                [1.0, 0.25, 0.25],
+            ),
+            ("garbage_limit", [(200, {"ratelimit-limit": "-3", "ratelimit-policy": "x"})], [0.5, 0.5, 0.5]),
+            ("limit_without_a_window", [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6"})], [0.5, 0.5, 0.5]),
+            (
+                "per_minute_limit_without_a_window",
+                [
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "50", "ratelimit-reset": "59"}),
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "40", "ratelimit-reset": "1"}),
+                ],
+                [0.5, 1.23, 1.23],
+            ),
+            (
+                "huge_reset_without_a_window",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-reset": "9" * 400})],
+                [0.5, 7.5, 7.5],
+            ),
+            (
+                "huge_window",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 400})],
+                [0.5, 7.5, 7.5],
+            ),
+            (
+                "window_too_long_to_read",
+                [
+                    (
+                        200,
+                        {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 5000},
+                    )
+                ],
+                [0.5, 0.5, 0.5],
+            ),
+            (
+                "live_sending_got_a_429",
+                [
+                    (429, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1", "retry-after": "1"}),
+                    (200, {**LIMIT, "ratelimit-remaining": "6"}),
+                ],
+                [1.0, 0.25, 0.25, 0.25],
+            ),
+        ]
+    )
+    def test_requests_follow_the_rate_limit_resend_reports(
+        self, _name: str, responses: list[tuple[int, dict[str, str]]], gaps: list[float]
+    ) -> None:
+        clock = [0.0]
+        sent_at: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        def get(*_: Any, **__: Any) -> MagicMock:
+            status, headers = responses[min(len(sent_at), len(responses) - 1)]
+            sent_at.append(clock[0])
+            return FakeResend._response(status, {}, headers)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.time.sleep", side_effect=sleep),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            for _ in range(4):
+                client.get("/domains")
+
+        assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == pytest.approx(gaps, abs=0.01)
+
+    def test_a_request_waiting_for_its_time_also_waits_out_a_full_window(self) -> None:
+        clock = [0.0]
+        sent_at: list[float] = []
+        full_window = {**self.LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "2"}
+        open_window = {**self.LIMIT, "ratelimit-remaining": "6"}
+
+        def get(*_: Any, **__: Any) -> MagicMock:
+            sent_at.append(clock[0])
+            return FakeResend._response(200, {}, full_window if len(sent_at) == 2 else open_window)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+
+            other_request = [True]
+
+            def sleep(seconds: float) -> None:
+                if other_request:
+                    other_request.pop()
+                    client.get("/domains")
+                clock[0] += seconds
+
+            client.get("/domains")
+            with patch(f"{client_module}.time.sleep", side_effect=sleep):
+                client.get("/domains")
+
+        assert sent_at[2] >= sent_at[1] + 2
+
+    def test_a_rejected_read_stops_the_rest_of_the_page(self) -> None:
+        reads: list[str] = []
+        rejected = threading.Event()
+
+        def get(url: str, **_: Any) -> MagicMock:
+            reads.append(url)
+            if url.endswith("/contacts/c3"):
+                rejected.set()
+                return FakeResend._response(401, {"name": "invalid_api_key", "message": "API key is invalid"})
+            rejected.wait(timeout=5)
+            return FakeResend._response(200, {})
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            with self.assertRaises(resend_client.ResendKeyRejected):
+                client.each(lambda contact_id: client.get(f"/contacts/{contact_id}"), [f"c{i}" for i in range(100)])
+
+        assert len(reads) < 10
 
 
 class TestResendImportBudget(SimpleTestCase):
