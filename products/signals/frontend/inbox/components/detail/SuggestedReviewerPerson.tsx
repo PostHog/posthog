@@ -44,20 +44,14 @@ export function getReviewerExplanation(reviewer: EnrichedReviewer): string | nul
 function ReviewerSourceTag({ reviewer, reason }: { reviewer: EnrichedReviewer; reason?: string }): JSX.Element {
     const sourceLabel = getReviewerSourceLabel(reviewer)
     if (isScoutReviewer(reviewer)) {
-        return <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} reason={reason} />
+        return <SuggestedReviewerScoutTag scoutName={sourceLabel} reason={reason} />
     }
     // A manual addition's reason already names the teammate, so it replaces the generic label.
-    if (reason && sourceLabel === 'Added by teammate' && reason.startsWith('Added by ')) {
+    const reasonIsLabel = !!reason && sourceLabel === 'Added by teammate' && reason.startsWith('Added by ')
+    if (!reason || reasonIsLabel) {
         return (
             <LemonTag type="muted" size="small" wrap className="max-w-32">
-                {reason}
-            </LemonTag>
-        )
-    }
-    if (!reason) {
-        return (
-            <LemonTag type="muted" size="small" wrap className="max-w-32">
-                {sourceLabel}
+                {reasonIsLabel ? reason : sourceLabel}
             </LemonTag>
         )
     }
