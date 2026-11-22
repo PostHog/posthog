@@ -380,10 +380,13 @@ def _resolve_sort_mode(config: FeaturebaseEndpointConfig, should_use_incremental
 
     Full-refresh runs sort ascending on the stable creation field. Incremental runs on
     "desc_cutoff" endpoints sweep newest-first, so the pipeline must only persist the
-    watermark at successful job end. "server_filter" (changelogs) stays ascending.
+    watermark at successful job end. "server_filter" runs follow the endpoint's order:
+    ascending for changelogs, newest-first for audit logs.
     """
     if should_use_incremental_field and config.incremental_mode == "desc_cutoff":
         return "desc"
+    if should_use_incremental_field and config.incremental_mode == "server_filter":
+        return config.server_filter_order
     return "asc"
 
 
