@@ -30,8 +30,7 @@ export function needsSandboxSender(
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
-        !action.config.sensitive &&
-        sandboxTakesStepId(action) &&
+        sandboxCanTake(action) &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
         ownOnlySettings(action).every(
             (setting) =>
@@ -42,8 +41,9 @@ export function needsSandboxSender(
     )
 }
 
-export function sandboxTakesStepId(action: Pick<HogFlowAction, 'id'>): boolean {
-    return SANDBOX_STEP_ID.test(action.id)
+/** A sensitive step stays on an own sender: the sandbox step has no `sensitive` setting, so its email would be stored. */
+export function sandboxCanTake(action: HogFlowAction): boolean {
+    return SANDBOX_STEP_ID.test(action.id) && !(action.type === 'function_email' && action.config.sensitive)
 }
 
 export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {

@@ -148,6 +148,13 @@ describe('emailSenderControlLogic', () => {
         ['a sandbox step when adoption is off', SANDBOX_STEP, { ...STATUS, adoption_enabled: false }, true, {}],
         ['an own step in a workflow another product owns', ownStep(), STATUS, false, { origin_product: 'broadcasts' }],
         ['an own step whose id the sandbox sender rejects', { ...ownStep(), id: 'welcome.email' }, STATUS, false, {}],
+        [
+            'a sensitive own step, which the sandbox sender would make not sensitive',
+            { ...ownStep(), config: { ...ownStep().config, sensitive: true } } as HogFlowAction,
+            STATUS,
+            false,
+            {},
+        ],
     ])('offers the sandbox sender for %s', async (_, step, status, expected, workflowInfo) => {
         const capture = jest.spyOn(posthog, 'capture')
 
