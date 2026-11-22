@@ -73,6 +73,16 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "{{token}}",
             ),
             (
+                "value_after_branches_that_end_a_comment_differently",
+                "<!--{{#if c}}-{{else}}x{{/if}}->{{token}}",
+                "{{token}}",
+            ),
+            (
+                "value_after_branches_that_end_a_style_differently",
+                "<style>{{#if c}}</sty{{else}}x{{/if}}le><p>{{token}}</p>",
+                "{{token}}",
+            ),
+            (
                 "value_in_a_style_after_a_loop_kept_as_written",
                 "{{#each items}}<style>a<b alt={{/each}}<style>{{token}}",
                 "{{token}}",
