@@ -54,8 +54,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        const recordedEarlier = await this.recordedEarlier(messages)
-        const marks: BatchMarks = { skip: new Set(recordedEarlier), recorded: [] }
+        const marks: BatchMarks = { skip: await this.recordedEarlier(messages), recorded: [] }
         let next = 0
         const errors: unknown[] = []
         const recordNext = async (): Promise<void> => {
