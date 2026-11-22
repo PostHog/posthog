@@ -22,7 +22,7 @@ from products.wizard.backend.observability.config import (
     WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT,
     WIZARD_POSTHOG_ALTERNATIVE_REMOVED_EVENT,
 )
-from products.wizard.backend.tool_catalog.catalog import classify_tool
+from products.wizard.backend.tool_catalog.catalog import classify_tool, kinds_alternative_to
 
 
 @frozen
@@ -236,11 +236,12 @@ def _report_posthog_alternative_changes(scan: WizardScan, changes: _ScanChanges)
 
 
 def _set_organization_email_providers(organization_id: str) -> None:
-    # Removed tools count too, so a later scan that finds fewer providers keeps the ones found before.
+    # Removed tools count too, so a later scan that finds fewer providers keeps the ones found before. Matched by
+    # kind rather than the stored `alternative_to`, which is empty on rows written before a provider was tagged.
     providers = sorted(
         set(
             WizardDetectedTool.objects.unscoped()
-            .filter(team__organization_id=organization_id, alternative_to__contains=[ProductKey.WORKFLOWS])
+            .filter(team__organization_id=organization_id, kind__in=kinds_alternative_to(ProductKey.WORKFLOWS))
             .values_list("kind", flat=True)
         )
     )

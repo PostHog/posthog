@@ -199,14 +199,23 @@ def test_posthog_alternative_events_belong_to_the_scanned_projects_organization(
     "scans, expected",
     [
         ([("s1", 0, ["Stripe"])], []),
-        ([("s1", 0, ["SendGrid", "Resend", "Amplitude"])], [["Resend", "SendGrid"]]),
-        ([("s1", 0, ["Resend"]), ("s2", 1, ["Mailgun"])], [["Resend"], ["Mailgun", "Resend"]]),
+        ([("s1", 0, ["SendGrid", "Resend", "Amplitude"])], [["Postmark", "Resend", "SendGrid"]]),
+        ([("s1", 0, ["Resend"]), ("s2", 1, ["Mailgun"])], [["Postmark", "Resend"], ["Mailgun", "Postmark", "Resend"]]),
     ],
     ids=["no_email_provider", "two_providers", "later_scan_merges"],
 )
 def test_sets_the_email_providers_found_in_the_organization(
     team: Team, django_capture_on_commit_callbacks, scans: list[tuple[str, int, list[str]]], expected: list[list[str]]
 ) -> None:
+    # Saved before the provider was tagged, so the row carries no `alternative_to`.
+    other_project = Team.objects.create_with_data(initiating_user=None, organization=team.organization)
+    _scan(other_project, "older", 0, ["Postmark"])
+    WizardDetectedTool.objects.for_team(other_project.id).update(alternative_to=[])
+    other_organization_team = Team.objects.create_with_data(
+        initiating_user=None, organization=Organization.objects.create(name="Other organization")
+    )
+    _scan(other_organization_team, "elsewhere", 0, ["Loops"])
+
     with patch("posthoganalytics.capture"), patch("posthoganalytics.group_identify") as group_identify:
         for session_id, hours, kinds in scans:
             with django_capture_on_commit_callbacks(execute=True):
