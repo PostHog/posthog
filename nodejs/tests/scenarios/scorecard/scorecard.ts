@@ -108,6 +108,7 @@ export function scorecardOf(
         duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,
         units_target: result.units?.targetUnits ?? null,
         units_offered: result.units?.offeredUnits ?? null,
+        send_retries: result.units?.sendRetries ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
         janitor_resets: result.janitorResets ?? null,

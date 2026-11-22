@@ -154,6 +154,13 @@ JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
         rsql_incremental_field="updated",
         incremental_fields=[_datetime_incremental_field("updated")],
     ),
+    # One plan per device. The RSQL filter offers no plan timestamp, so this is full refresh only.
+    "managed_software_update_plans": JamfProEndpointConfig(
+        name="managed_software_update_plans",
+        path="/api/v1/managed-software-updates/plans",
+        primary_keys=["planUuid"],
+        sort="planUuid:asc",
+    ),
     "patch_software_title_configurations": JamfProEndpointConfig(
         name="patch_software_title_configurations",
         path="/api/v3/patch-software-title-configurations",
@@ -250,6 +257,14 @@ JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
     "device_enrollments": JamfProEndpointConfig(
         name="device_enrollments",
         path="/api/v1/device-enrollments",
+    ),
+    "computer_prestages": JamfProEndpointConfig(
+        name="computer_prestages",
+        path="/api/v3/computer-prestages",
+    ),
+    "mobile_device_prestages": JamfProEndpointConfig(
+        name="mobile_device_prestages",
+        path="/api/v3/mobile-device-prestages",
     ),
     # The device roster takes no paging parameters and returns every device of the instance at once.
     "device_enrollment_devices": JamfProEndpointConfig(
