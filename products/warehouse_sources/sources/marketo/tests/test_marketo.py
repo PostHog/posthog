@@ -738,7 +738,6 @@ class TestMarketo:
             "/rest/asset/v1/segmentation/1001/segments.json",
             "/rest/asset/v1/segmentation/1002/segments.json",
         ]
-        # The segmentation browse endpoint has no paging parameters.
         assert result.queries[1] == {}
         assert result.params("offset")[2:] == ["0", "200", "0"]
         assert len(result.rows) == 201

@@ -64,12 +64,9 @@ class MarketoEndpointConfig:
     # parent id on each child row.
     parent: Optional[str] = None
     parent_key: Optional[str] = None
-    # Asset only: False when the browse endpoint takes no offset/maxReturn and returns everything.
     paginated: bool = True
-    # Asset only: the query parameter that filters on ``incremental_field``.
     incremental_param: Optional[str] = None
-    # Asset timestamps ("2016-02-25T18:36:58Z+0000") to rewrite as datetimes, so the cursor and
-    # the partition key can parse them.
+    # Asset timestamps ("2016-02-25T18:36:58Z+0000") do not parse as a cursor or a partition key.
     datetime_columns: tuple[str, ...] = ()
 
     @property
