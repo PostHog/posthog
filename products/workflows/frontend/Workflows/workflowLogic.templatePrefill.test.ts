@@ -78,7 +78,7 @@ const transactionalTemplate = {
     content: {
         templating: 'liquid',
         email: {
-            from: { integrationId: 42, email: 'orders@example.com', name: 'Shop' },
+            from: { integrationId: 42, email: 'orders@example.com', name: '{{ variables.store_name }}' },
             replyTo: 'help@example.com',
             subject: 'Your order {{ variables.order_id }}',
             preheader: 'Thanks for your order',
@@ -223,7 +223,11 @@ describe('workflowLogic pages opened from a link or a template', () => {
                     email: {
                         templating: 'liquid',
                         value: {
-                            from: transactionalTemplate.content.email.from,
+                            from: {
+                                integrationId: 42,
+                                email: 'orders@example.com',
+                                name: '{{ event.properties.store_name }}',
+                            },
                             replyTo: 'help@example.com',
                             subject: 'Your order {{ event.properties.order_id }}',
                             preheader: 'Thanks for your order',
