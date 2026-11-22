@@ -1,0 +1,30 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "com.posthog/mcp",
+    "title": "PostHog",
+    "description": "Query analytics, manage feature flags and experiments, and investigate errors in PostHog.",
+    "version": "1.0.0",
+    "websiteUrl": "https://posthog.com/docs/model-context-protocol",
+    "repository": {
+        "url": "https://github.com/PostHog/posthog",
+        "source": "github",
+        "subfolder": "services/mcp"
+    },
+    "icons": [
+        {
+            "src": "https://posthog.com/brand/posthog-logomark.svg",
+            "mimeType": "image/svg+xml",
+            "sizes": ["any"]
+        }
+    ],
+    "remotes": [
+        {
+            "type": "streamable-http",
+            "url": "https://mcp.posthog.com/mcp"
+        },
+        {
+            "type": "streamable-http",
+            "url": "https://mcp-eu.posthog.com/mcp"
+        }
+    ]
+}
