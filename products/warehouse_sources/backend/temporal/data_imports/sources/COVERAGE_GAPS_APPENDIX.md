@@ -3202,13 +3202,13 @@ Today (21): `brands`, `carriers`, `chart_of_accounts`, `customers`, `locations`,
 
 Diffed against: <https://jsapi.apiary.io/apis/dearinventory.apib>
 
-- [ ] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
-- [ ] `Journals (GET /journal)` — manual and system journal list with status (medium)
-- [ ] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
+- [x] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
+- [x] `Journals (GET /journal)` — manual and system journal list with status (medium)
+- [x] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
 - [ ] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
 - [ ] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
 - [ ] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
-- [ ] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
+- [x] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
 - [ ] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
 - [ ] `Product discounts (GET /reference/discount)` — discount definitions applied to sales (low)
 - [ ] `Bank accounts (GET /ref/account/bank)` — bank account lookup for payments (low)
