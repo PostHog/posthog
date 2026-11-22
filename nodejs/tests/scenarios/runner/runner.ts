@@ -46,7 +46,7 @@ import {
     measure,
     startSampler,
 } from '../judge/measurements'
-import { Ramp, rampOf, watchRamp } from '../judge/ramp'
+import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
 import { edgeTruth } from '../judge/truth'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
@@ -677,7 +677,16 @@ export function createRunner(
                           gates: card.gates,
                           journal: evidence.journal,
                           admissions,
-                          converged: convergence.converged,
+                          convergence,
+                          rates: stepRatesOf(
+                              units.steps,
+                              evidence,
+                              {
+                                  lost: card.invariants.some(({ name }) => name === 'at_least_once'),
+                                  duplicates: card.invariants.some(({ name }) => name === 'duplicate_sends'),
+                              },
+                              convergence
+                          ),
                       })
                     : undefined
                 const verdict = statusOf({
