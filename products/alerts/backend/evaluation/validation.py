@@ -16,6 +16,7 @@ from posthog.schema import (
     IntervalType,
     MetricsAlertConfig,
     MetricsQuery,
+    MetricsQueryLanguage,
     NodeKind,
     TrendsAlertConfig,
     TrendsQuery,
@@ -192,6 +193,11 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
         metrics_query = MetricsQuery.model_validate(ctx.query)
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid MetricsQuery: {e}")
+    # PromQL and SQL queries carry no clauses; the builder runner raises on an empty list.
+    if (metrics_query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.BUILDER and not (
+        metrics_query.clauses
+    ):
+        raise ValueError("The alert's metrics query has no metrics. Add a metric to the insight.")
     # Derived series read spans and logs, and stored alert results skip the tracing and logs access checks.
     # Keep in sync with DERIVED_METRIC_PREFIX in products/metrics/backend/facade/contracts.py.
     if any(clause.metricName.startswith("posthog.derived.") for clause in metrics_query.clauses):
