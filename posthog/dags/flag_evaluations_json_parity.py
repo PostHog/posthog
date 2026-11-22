@@ -12,9 +12,10 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.query_tagging import Feature
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags
-from posthog.dags.flag_evaluations_backfill import shard_workload, tagged
+from posthog.dags.flag_evaluations_backfill import GIB, shard_workload, tagged
 from posthog.dataclasses import frozen
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
@@ -44,13 +45,26 @@ class FlagEvaluationsJsonParityConfig(dagster.Config):
     max_listed_mismatches: int = pydantic.Field(
         default=50, description="How many mismatched days, flag keys and duplicate days the failure message lists."
     )
+    ingestion_margin_minutes: int = pydantic.Field(
+        default=60,
+        description=(
+            "Skip rows whose Kafka _timestamp is less than this many minutes before the job started. Each table "
+            "has its own Kafka consumer, so a recent row can be in one table and not yet in the other."
+        ),
+    )
+    max_execution_time_seconds: int = pydantic.Field(
+        default=60 * 60, description="ClickHouse max_execution_time for each comparison query, which covers one day."
+    )
+    max_memory_usage_bytes: int = pydantic.Field(
+        default=32 * GIB, description="ClickHouse max_memory_usage for each comparison query, which covers one day."
+    )
 
 
 def _day_query(table: str) -> str:
     return f"""
 SELECT toDate(timestamp) AS day, uniqExact(uuid)
 FROM {table}
-WHERE timestamp >= %(start)s AND timestamp < %(end)s
+WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day
 """
 
@@ -59,7 +73,7 @@ def _flag_query(table: str) -> str:
     return f"""
 SELECT toDate(timestamp) AS day, flag_key, response, uniqExact(uuid)
 FROM {table}
-WHERE timestamp >= %(start)s AND timestamp < %(end)s
+WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day, flag_key, response
 """
 
@@ -70,7 +84,7 @@ def _duplicate_query(table: str) -> str:
     return f"""
 SELECT toDate(timestamp) AS day, count() - uniqExact(uuid)
 FROM {table} FINAL
-WHERE timestamp >= %(start)s AND timestamp < %(end)s
+WHERE timestamp >= %(start)s AND timestamp < %(end)s AND _timestamp < %(ingested_before)s
 GROUP BY day
 HAVING count() > uniqExact(uuid)
 """
@@ -92,8 +106,8 @@ def compare_counts(legacy: Mapping[tuple, int], new: Mapping[tuple, int]) -> lis
     ]
 
 
-def _read_counts(query: str, params: dict[str, str], client: Client) -> dict[tuple, int]:
-    return {tuple(row[:-1]): row[-1] for row in sync_execute(query, params, sync_client=client)}
+def _read_counts(query: str, params: dict[str, str], settings: dict[str, int], client: Client) -> dict[tuple, int]:
+    return {tuple(row[:-1]): row[-1] for row in sync_execute(query, params, settings=settings, sync_client=client)}
 
 
 @frozen
@@ -146,15 +160,32 @@ def compare_flag_evaluations_json_parity(
     flags = flags_cluster(cluster)
     host = flags.cluster.any_host_in_shard_by_roles(min(flags.cluster.shards), [flags.node_role], flags.workload)
     query_tags = dagster_tags(context)
-    params = {"start": f"{start:%Y-%m-%d} 00:00:00", "end": f"{end:%Y-%m-%d} 00:00:00"}
+    ingested_before = datetime.now(UTC) - timedelta(minutes=config.ingestion_margin_minutes)
+    query_settings = {
+        "max_execution_time": config.max_execution_time_seconds,
+        "max_memory_usage": config.max_memory_usage_bytes,
+    }
 
-    def counts(query: str) -> dict[tuple, int]:
-        return flags.cluster.on_host(host, tagged(query_tags, partial(_read_counts, query, params))).result()
+    def counts(query: str, params: dict[str, str]) -> dict[tuple, int]:
+        read = partial(_read_counts, query, params, query_settings)
+        return flags.cluster.on_host(host, tagged(query_tags, read, feature=Feature.DATA_QUALITY_CHECK)).result()
 
     legacy, new = FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_JSON_DATA_TABLE
-    day_diffs = compare_counts(counts(_day_query(legacy)), counts(_day_query(new)))
-    flag_diffs = compare_counts(counts(_flag_query(legacy)), counts(_flag_query(new)))
-    duplicates = sorted(counts(_duplicate_query(new)).items())
+    day_diffs: list[CountDiff] = []
+    flag_diffs: list[CountDiff] = []
+    duplicates: list[tuple[tuple, int]] = []
+    # ClickHouse keeps every day's uuid set until a query ends, so each query reads one day.
+    for offset in range((end - start).days):
+        day = start + timedelta(days=offset)
+        params = {
+            "start": f"{day:%Y-%m-%d} 00:00:00",
+            "end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
+            "ingested_before": f"{ingested_before:%Y-%m-%d %H:%M:%S}",
+        }
+        day_diffs += compare_counts(counts(_day_query(legacy), params), counts(_day_query(new), params))
+        flag_diffs += compare_counts(counts(_flag_query(legacy), params), counts(_flag_query(new), params))
+        duplicates += sorted(counts(_duplicate_query(new), params).items())
+        context.log.info(f"Compared {day}")
     context.add_output_metadata(
         {
             "start": dagster.MetadataValue.text(str(start)),

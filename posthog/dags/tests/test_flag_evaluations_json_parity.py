@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
@@ -16,6 +16,11 @@ WINDOW_DAYS = 3
 @pytest.fixture
 def now() -> datetime:
     return datetime.now(UTC)
+
+
+@pytest.fixture
+def when(now: datetime) -> datetime:
+    return datetime.combine(now.date() - timedelta(days=1), time(12), tzinfo=UTC)
 
 
 def call_uuid(label: str) -> UUID:
@@ -60,6 +65,7 @@ def seed_json(
     *,
     flag_key: str = "flag-a",
     response: str = "control",
+    ingested_at: datetime | None = None,
 ) -> None:
     # The flag_key, response and request_id defaults read JSON columns that this insert leaves out, so each is
     # set here. The writable table has no flag_key column to insert into, so the insert goes to the shard.
@@ -72,7 +78,7 @@ def seed_json(
         flag_key,
         response,
         "",
-        when,
+        ingested_at or when,
     )
 
     def insert(client: Client) -> None:
@@ -81,6 +87,7 @@ def seed_json(
             (team_id, distinct_id, person_id, uuid, timestamp, flag_key, response, request_id, _timestamp)
             VALUES""",
             [row],
+            settings={"insert_deduplicate": 0},
         )
 
     cluster.any_host(insert).result()
@@ -114,8 +121,9 @@ def test_compare_counts_lists_each_key_whose_count_differs() -> None:
 
 
 @pytest.mark.django_db
-def test_parity_passes_when_both_tables_hold_the_same_calls(cluster: ClickhouseCluster, now: datetime) -> None:
-    when = now - timedelta(days=1, hours=6)
+def test_parity_passes_when_both_tables_hold_the_same_calls(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
     for label in ("one", "two"):
         seed_legacy(cluster, label, when)
         seed_json(cluster, label, when)
@@ -125,11 +133,10 @@ def test_parity_passes_when_both_tables_hold_the_same_calls(cluster: ClickhouseC
 
 @pytest.mark.django_db
 def test_parity_passes_when_a_copied_row_is_inserted_twice_and_not_merged(
-    cluster: ClickhouseCluster, now: datetime
+    cluster: ClickhouseCluster, now: datetime, when: datetime
 ) -> None:
     # A Partforge copy and the dual-written Kafka row can both hold the call. Identical rows collapse in a merge,
     # so until then the check must not count them as duplicates.
-    when = now - timedelta(days=1, hours=6)
     seed_legacy(cluster, "one", when)
     seed_json(cluster, "one", when)
     seed_json(cluster, "one", when)
@@ -138,10 +145,20 @@ def test_parity_passes_when_a_copied_row_is_inserted_twice_and_not_merged(
 
 
 @pytest.mark.django_db
-def test_parity_fails_and_names_the_day_when_the_new_table_lacks_a_call(
-    cluster: ClickhouseCluster, now: datetime
+def test_parity_skips_a_call_that_reached_one_table_after_the_ingestion_cutoff(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
 ) -> None:
-    when = now - timedelta(days=1, hours=6)
+    seed_legacy(cluster, "one", when)
+    seed_json(cluster, "one", when)
+    seed_json(cluster, "late", when, ingested_at=now)
+
+    assert run_parity(cluster, now).success
+
+
+@pytest.mark.django_db
+def test_parity_fails_and_names_the_day_when_the_new_table_lacks_a_call(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
     seed_legacy(cluster, "one", when)
 
     message = failure_message(run_parity(cluster, now))
@@ -152,9 +169,8 @@ def test_parity_fails_and_names_the_day_when_the_new_table_lacks_a_call(
 
 @pytest.mark.django_db
 def test_parity_fails_when_a_call_has_another_response_in_the_new_table(
-    cluster: ClickhouseCluster, now: datetime
+    cluster: ClickhouseCluster, now: datetime, when: datetime
 ) -> None:
-    when = now - timedelta(days=1, hours=6)
     seed_legacy(cluster, "one", when, response="control")
     seed_json(cluster, "one", when, response="test")
 
@@ -165,16 +181,17 @@ def test_parity_fails_when_a_call_has_another_response_in_the_new_table(
 
 
 @pytest.mark.django_db
-def test_parity_reports_duplicate_rows_that_the_distinct_counts_hide(cluster: ClickhouseCluster, now: datetime) -> None:
+def test_parity_reports_duplicate_rows_that_the_distinct_counts_hide(
+    cluster: ClickhouseCluster, now: datetime, when: datetime
+) -> None:
     # The same call at two timestamps has two sort keys, so no merge collapses it. Every distinct count still
     # matches the legacy table.
-    when = now - timedelta(days=1, hours=6)
     seed_legacy(cluster, "one", when)
     seed_json(cluster, "one", when)
     seed_json(cluster, "one", when + timedelta(minutes=5))
 
     message = failure_message(run_parity(cluster, now))
 
-    assert "duplicate" in message
+    assert "more than once" in message
     assert str(when.date()) in message
     assert "differ" not in message
