@@ -4245,10 +4245,10 @@ Today (12): `AffiliateInvites`, `Affiliates`, `CreditAccounts`, `Customers`, `Di
 
 Diffed against: <https://docs.creem.io/api-reference/openapi.json>
 
-- [ ] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
-- [ ] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
-- [ ] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
-- [ ] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
+- [x] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
+- [x] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
+- [x] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
+- [x] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
 - [ ] `Customer orders (GET /v1/customers/{id}/orders)` — Per-customer orders, may overlap Transactions (low)
 
 Note: Parsed the OpenAPI file and compared every GET path with the synced tables. Affiliate commissions, credit entries and product prices need a request per parent. Excluded webhooks, single-record GETs, stats/summary (aggregate), and consumed-units lookups.
