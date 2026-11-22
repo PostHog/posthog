@@ -354,18 +354,30 @@ class TestGetRows:
         assert requests_made[0].param("sort_by") is None
         assert requests_made[0].param("fields") is None
 
-    def test_discovered_custom_module_reads_through_get_records(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "module_api_name"),
+        [
+            ("Custom_Projects", "Projects"),
+            ("Appointments", "Appointments__s"),
+            ("Services", "Services__s"),
+        ],
+    )
+    def test_modules_named_apart_from_their_table_read_through_get_records(
+        self, endpoint: str, module_api_name: str
+    ) -> None:
         result = _run(
-            "Custom_Projects",
+            endpoint,
             [_fields_response(1), _records_response([{"id": "p1"}])],
             incremental_field="Modified_Time",
             db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
         )
 
-        records_request = _crm_requests(result)[1]
+        fields_request, records_request = _crm_requests(result)
         assert result.items == [[{"id": "p1"}]]
-        assert records_request.path == "/crm/v8/Projects"
+        assert fields_request.param("module") == module_api_name
+        assert records_request.path == f"/crm/v8/{module_api_name}"
         assert records_request.headers["if-modified-since"] == "2024-06-01T00:00:00+00:00"
+        assert records_request.param("sort_by") == "Modified_Time"
 
     def test_empty_records_body_stops_pagination_without_crashing(self) -> None:
         result = _run(
@@ -527,6 +539,43 @@ class TestDealTimeline:
 
         assert result.saved_states[0] == ZohoCRMResumeConfig(page=1, parent_id="D1", child_page_token="tl-2")
         assert result.saved_states[1] == ZohoCRMResumeConfig(page=1, parent_id="D1")
+
+
+def _contact_roles_response(ids: list[str]) -> ScriptedResponse:
+    rows = [{"id": contact_id, "Contact_Role": {"id": f"role-{contact_id}", "name": "Evaluator"}} for contact_id in ids]
+    return _records_response(rows)
+
+
+class TestDealContactRoles:
+    def test_reads_the_contact_roles_of_every_deal(self) -> None:
+        result = _run(
+            "Deal_Contact_Roles",
+            [
+                _deals_response(["D1", "D2"], more_records=True, next_page_token="deals-2"),
+                _contact_roles_response(["C1", "C2"]),
+                _no_content_response(204),
+                _deals_response(["D3"]),
+                _contact_roles_response(["C1"]),
+            ],
+        )
+
+        requests_made = _crm_requests(result)
+        assert result.raised is None
+        assert [(row["deal_id"], row["id"]) for row in result.rows] == [("D1", "C1"), ("D1", "C2"), ("D3", "C1")]
+        assert [request.path for request in requests_made] == [
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D1/Contact_Roles",
+            "/crm/v8/Deals/D2/Contact_Roles",
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D3/Contact_Roles",
+        ]
+        # Zoho rejects a contact roles request that names no fields.
+        role_requests = [request for request in requests_made if request.path.endswith("/Contact_Roles")]
+        assert [request.param("fields") for request in role_requests] == ["Full_Name,Email"] * 3
+        assert "if-modified-since" not in requests_made[0].headers
+        assert result.final_state is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["deal_id", "id"]
 
 
 class TestValidateCredentials:

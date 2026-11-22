@@ -176,31 +176,6 @@ class ResendImportProvider(ImportProvider):
             ),
         ),
         ImportStepSpec(
-            key="topic_opt_outs",
-            label="Topic preferences",
-            description=(
-                "Opts contacts out of each topic they left in Resend. Resend only shares this one contact at a "
-                "time, so PostHog reads up to about 25,000 contacts an hour."
-            ),
-            count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
-        ),
-        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
-        # they left in Resend.
-        ImportStepSpec(
-            key="contacts",
-            label="Contacts",
-            description=(
-                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. Each "
-                "person updated counts as one event. Needs Suppression list, Unsubscribed contacts and Topic "
-                "preferences selected too, so no one who left in Resend gets marketing email."
-            ),
-            count_labels=CONTACT_COUNT_LABELS,
-            requires=("suppressions", "opt_outs", "topic_opt_outs"),
-            needs=("suppressions", "opt_outs", "topic_opt_outs"),
-        ),
-        new_people_step("Resend"),
-        ImportStepSpec(
             key="templates",
             label="Templates",
             description=(
@@ -235,6 +210,32 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("ready", "Ready to send from PostHog"), ("needs_setup", "Need new DNS records")),
         ),
+        ImportStepSpec(
+            key="topic_opt_outs",
+            label="Topic preferences",
+            description=(
+                "Opts contacts out of each topic they left in Resend. Resend only shares this one contact at a "
+                "time, so PostHog reads up to about 25,000 contacts an hour."
+            ),
+            count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
+        ),
+        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
+        # they left in Resend.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
+                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. "
+                "Needs Suppression list, Unsubscribed contacts and Topic "
+                "preferences selected too, so no one who left in Resend gets marketing email."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=("suppressions", "opt_outs", "topic_opt_outs"),
+            needs=("suppressions", "opt_outs", "topic_opt_outs"),
+            counts_as_events=True,
+        ),
+        new_people_step("Resend"),
         # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
         ImportStepSpec(
             key="contact_properties",
@@ -242,11 +243,12 @@ class ResendImportProvider(ImportProvider):
             description=(
                 "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
                 "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads up to about 25,000 contacts an hour. Each person updated counts as one event."
+                "PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
             requires=("contacts",),
             needs=("contacts",),
+            counts_as_events=True,
         ),
     )
 
@@ -352,20 +354,33 @@ def _save_topics(context: ImportContext, topics: list[dict[str, Any]]) -> SavedP
     return SavedPage(
         imported=result.created,
         counts={"created": result.created, "already_present": result.already_present, "private": len(private)},
-        warnings=(
-            *(
-                f"{topic.get('name') or topic.get('id')}: Resend only sends this topic to people who opted in. "
-                "PostHog sends a category to everyone who hasn't opted out, so check who you send it to."
-                for topic in public
-                if topic.get("default_subscription") == "opt_out"
-            ),
-            *(
-                f"{topic.get('name') or topic.get('id')}: private in Resend, so it wasn't imported. PostHog shows "
-                "every category on the preferences page. Create it yourself if your recipients may see it."
-                for topic in private
-            ),
+        warnings=tuple(
+            warning
+            for warning in (
+                _named(
+                    "Resend sends these only to people who opted in",
+                    [topic for topic in public if topic.get("default_subscription") == "opt_out"],
+                    "Your Resend contacts keep their choice once Topic preferences finishes. Until then, and for people "
+                    "you add later, PostHog sends these to everyone who hasn't opted out."
+                    if "topic_opt_outs" in context.steps
+                    else "PostHog sends them to everyone who hasn't opted out, so import Topic preferences too to keep "
+                    "your contacts' choices.",
+                ),
+                _named(
+                    "Private in Resend, so not imported",
+                    private,
+                    "PostHog shows every category on the preferences page, so create one yourself if your recipients "
+                    "may see it.",
+                ),
+            )
+            if warning
         ),
     )
+
+
+def _named(lead: str, topics: list[dict[str, Any]], follow_up: str) -> str | None:
+    names = [str(topic.get("name") or topic.get("id")) for topic in topics]
+    return f"{lead}: {', '.join(names)}. {follow_up}" if names else None
 
 
 def _fetch_suppressions(
@@ -883,8 +898,8 @@ def _save_automations(
                 emails,
                 step_emails=_step_emails(automation, senders),
                 segments={segment_id: segments[segment_id] for segment_id in _segment_references(automation)},
-                # Only a contacts step that completed filled the segment cohorts.
-                segment_members_imported="contacts" in context.completed_steps,
+                # Automations run before the slow contact steps, so the contacts step fills the cohorts afterwards.
+                segment_members_imported="contacts" in context.steps,
             )
             counts["already_present" if result.status == "skipped" else result.status] += 1
             items.append(
