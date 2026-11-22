@@ -65,12 +65,13 @@ const stepsOfRamp = (
 
 function ranToEnd({ units }: RunVerdict, { card }: Pick<LoadedCard, 'card'>): boolean | null {
     const planned = stepsOf(card.drive)
-    const last = units?.steps.at(-1)
+    const steps = units?.steps ?? []
+    const last = steps.at(-1)
     if (last === undefined) {
         return null
     }
     const { fromMs, toMs } = planned[planned.length - 1]
-    return units!.steps.length === planned.length && last.endedAt - last.startedAt >= toMs - fromMs
+    return steps.length === planned.length && last.endedAt - last.startedAt >= toMs - fromMs
 }
 
 function rampProperties(result: RunVerdict, loaded: Pick<LoadedCard, 'card'>): Record<string, Property> {

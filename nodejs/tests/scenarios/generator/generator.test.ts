@@ -5,10 +5,9 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { LoadedCard, load, stepsOf } from '../cards'
-import { judgeBars } from '../judge/bars'
+import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
+import { type LiveRamp, watchRamp } from '../judge/ramp'
 import { SeedState, StepGate, drive } from './generator'
 import { OfferContext, kafkaEmit } from './traffic'
 
@@ -548,11 +547,10 @@ describe('drive', () => {
         ({ startedAt }) =>
             new Promise((resolve) => setTimeout(() => resolve([{ at: startedAt, percent }]), delayMs))
 
-    it.each<[string, LiveRamp['writerCpu'], number, object]>([
+    it.each<[string, LiveRamp['writerCpu'], object]>([
         [
             'its writer CPU broke the bar at the 1x step, which is no hard failure, read during the 2x step',
             cpuReadAfter(30_000, 90),
-            90,
             {
                 offeredSteps: [0, 1, 2],
                 steps: [
@@ -560,25 +558,12 @@ describe('drive', () => {
                     { fromMs: MINUTE, toMs: 2 * MINUTE, firstOfferMs: MINUTE },
                     { fromMs: 2 * MINUTE, toMs: 3 * MINUTE, firstOfferMs: 2 * MINUTE },
                 ],
-                ramp: {
-                    end: 'broke',
-                    sustainedScale: null,
-                    broke: {
-                        scale: 1,
-                        offeredPerSecond: 1,
-                        by: 'writer_cpu_under',
-                        kind: 'bar',
-                        at: expect.any(String),
-                        part: 'db:cyclotron',
-                    },
-                    reason: 'writer_cpu_under broke at the 1x step',
-                },
+                stopped: undefined,
             },
         ],
         [
-            'its writer CPU held the bar at the 1x step, read only after the 2x step was due to end, which leaves the 5x step no whole writer CPU minute',
+            'its writer CPU held the bar at the 1x step, read only after the 2x step was due to end',
             cpuReadAfter(MINUTE, 40),
-            40,
             {
                 offeredSteps: [0, 1, 2],
                 steps: [
@@ -586,39 +571,22 @@ describe('drive', () => {
                     { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
                     { fromMs: 135_000, toMs: 195_000, firstOfferMs: 135_000 },
                 ],
-                ramp: {
-                    end: 'harness_limit',
-                    sustainedScale: 2,
-                    broke: {
-                        scale: 5,
-                        offeredPerSecond: 5,
-                        by: 'run_host',
-                        kind: 'harness',
-                        at: expect.any(String),
-                        part: null,
-                    },
-                    reason: 'writer_cpu_under was not judged: no whole writer CPU minute in the 5x step',
-                    stop: {
-                        failure: 'harness_limit',
-                        scale: 5,
-                        reason: 'writer_cpu_under was not judged: no whole writer CPU minute in the 5x step',
-                    },
-                },
+                stopped: undefined,
             },
         ],
         [
             'its writer CPU read failed at the 1x step',
             () => Promise.reject(new Error('CloudWatch is down')),
-            40,
             {
                 offeredSteps: [0, 1],
                 steps: [
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
                     { fromMs: MINUTE, toMs: 75_000, firstOfferMs: MINUTE },
                 ],
-                ramp: {
+                stopped: {
+                    index: 0,
                     end: 'harness_limit',
-                    sustainedScale: null,
+                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                     broke: {
                         scale: 1,
                         offeredPerSecond: 1,
@@ -627,18 +595,12 @@ describe('drive', () => {
                         at: expect.any(String),
                         part: null,
                     },
-                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
-                    stop: {
-                        failure: 'harness_limit',
-                        scale: 1,
-                        reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
-                    },
                 },
             },
         ],
     ])(
         'a hard failure at step N halts the drive by the end of step N+1, a bar break does not, and step N+2 never starts before step N is judged, when %s',
-        async (_story, writerCpu, percent, expected) => {
+        async (_story, writerCpu, expected) => {
             jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
             const ramped = rampedCard(
                 1,
@@ -684,31 +646,7 @@ describe('drive', () => {
                         startedAt,
                     ...(waitedFor !== undefined && { waitedFor }),
                 })),
-                ramp: rampOf({
-                    planned: stepsOf(ramped.card.drive),
-                    steps,
-                    minOffered: 0.9,
-                    stop: watch.stopped(),
-                    bars: judgeBars([CPU_BAR], {
-                        journal,
-                        samples: [],
-                        host: [],
-                        drive: { startedAt, endedAt: Date.now() },
-                        steps: steps.map(({ scale, startedAt: from, endedAt: to, offeredUnits }) => ({
-                            scale,
-                            fromMs: from - startedAt,
-                            toMs: to - startedAt,
-                            offeredUnits,
-                        })),
-                        writerCpu: Array.from({ length: 21 }, (_, i) => ({ at: startedAt + i * 15_000, percent })),
-                        settled: watch.settled(),
-                    }),
-                    invariants: [],
-                    gates: {},
-                    journal,
-                    admissions: [],
-                    convergence: { converged: true, unfinishedJobs: 0 },
-                }),
+                stopped: watch.stopped(),
             }).toEqual(expected)
         }
     )

@@ -147,8 +147,8 @@ export function stepRatesOf(
     })
 }
 
-const lossOf = ({ lost, expected, scale }: StepRates): string =>
-    `${lost} of ${expected} deliveries were lost in the ${scale}x step (${percentOf(lost! / expected)}), over the ${percentOf(STEP_LOSS_LIMIT)} hard limit`
+const lossOf = (lost: number, { expected, scale }: StepRates): string =>
+    `${lost} of ${expected} deliveries were lost in the ${scale}x step (${percentOf(lost / expected)}), over the ${percentOf(STEP_LOSS_LIMIT)} hard limit`
 
 const recordedOf = (
     rates: readonly StepRates[],
@@ -471,7 +471,7 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
     const judgesLoss = invariants.some(({ name }) => name === AT_LEAST_ONCE)
     for (const rated of rates ?? []) {
         const step = steps[rated.index]
-        if (judgesLoss && step && rated.lossRate !== null && rated.lossRate > STEP_LOSS_LIMIT) {
+        if (judgesLoss && step && rated.lost !== null && rated.lossRate !== null && rated.lossRate > STEP_LOSS_LIMIT) {
             add(
                 step.index,
                 {
@@ -482,7 +482,7 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
                     at: iso(step.startedAt),
                     part: null,
                 },
-                lossOf(rated),
+                lossOf(rated.lost, rated),
                 'step_loss'
             )
         }
