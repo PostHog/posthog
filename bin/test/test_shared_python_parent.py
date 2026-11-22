@@ -87,8 +87,9 @@ class TestSharedPythonParent(unittest.TestCase):
         self.reports[launcher.pid] = lines
 
         def collect_reports(stdout: IO[str]) -> None:
-            for line in stdout:
-                lines.put(line)
+            with stdout:
+                for line in stdout:
+                    lines.put(line)
 
         threading.Thread(target=collect_reports, args=(launcher.stdout,), daemon=True).start()
         return launcher
