@@ -39,7 +39,7 @@ export function AfterClickingCard(): JSX.Element {
                             to={urls.settings('project-replay', 'replay')}
                             {...crossSellLinkProps(
                                 ProductKey.SESSION_REPLAY,
-                                ProductIntentContext.TRANSACTIONAL_EMAIL_IMPACT_TURN_ON_REPLAY
+                                ProductIntentContext.WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY
                             )}
                             data-attr="email-impact-turn-on-replay"
                         >

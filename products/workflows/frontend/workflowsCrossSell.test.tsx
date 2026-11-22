@@ -49,7 +49,7 @@ const SURFACES = [
         },
         link: 'Turn on session replay',
         product: 'session_replay',
-        context: 'transactional_email_impact_turn_on_replay',
+        context: 'workflow_email_impact_turn_on_replay',
     },
     {
         surface: 'the survey trigger with no surveys',
@@ -71,7 +71,7 @@ const SURFACES = [
             renderTrigger('data-warehouse-table', { type: 'data-warehouse-table' } as TriggerAction['config']),
         link: 'Set up a source',
         product: 'data_warehouse',
-        context: 'workflow_warehouse_trigger_set_up_source',
+        context: 'workflow_warehouse_table_trigger_set_up_source',
     },
 ]
 
@@ -107,7 +107,7 @@ describe('cross-sell from workflows', () => {
                 '/api/projects/:team_id/surveys/': () => [200, { results: [], count: 0 }],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [], tables: {}, joins: [] }],
+                '/api/projects/:team_id/query/': () => [200, { results: [], tables: {}, joins: [] }],
             },
             patch: {
                 '/api/projects/:team_id/add_product_intent/': async ({ request }) => {

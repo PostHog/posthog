@@ -105,7 +105,7 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
                                 className="font-semibold"
                                 {...crossSellLinkProps(
                                     ProductKey.DATA_WAREHOUSE,
-                                    ProductIntentContext.WORKFLOW_WAREHOUSE_TRIGGER_SET_UP_SOURCE
+                                    ProductIntentContext.WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE
                                 )}
                             >
                                 Set up a source
