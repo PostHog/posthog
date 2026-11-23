@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { Duration } from '../duration'
+import { Duration, durationMs } from '../duration'
 
 export const CdpRole = z.enum([
     'cdp-processed-events',
@@ -34,6 +34,9 @@ export const ValveEntry = z
     .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
 export type ValveEntry = z.infer<typeof ValveEntry>
 
+export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
+export type RampStep = z.infer<typeof RampStep>
+
 export const Card = z
     .object({
         id: z.string(),
@@ -47,16 +50,65 @@ export const Card = z
                 for: Duration,
                 traffic: z.array(Named).min(1),
                 minOffered: z.number().min(0).max(1).default(0.9),
+                ramp: z.array(RampStep).min(1).optional(),
+                stopOnBreak: z.literal(true).optional(),
             })
-            .strict(),
+            .strict()
+            .refine(
+                ({ for: lasts, ramp }) =>
+                    ramp === undefined ||
+                    ramp.reduce((sum, step) => sum + durationMs(step.for), 0) === durationMs(lasts),
+                { message: 'the ramp steps must add up to drive.for', path: ['ramp'] }
+            )
+            .refine(
+                ({ ramp }) => ramp === undefined || ramp.every((step, i) => i === 0 || step.scale > ramp[i - 1].scale),
+                {
+                    message: 'each ramp step must scale higher than the one before',
+                    path: ['ramp'],
+                }
+            )
+            .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp ?? []).every((step) => durationMs(step.for) > 0), {
+                message: 'every step of a ramp that stops on a break must last longer than 0ms',
+                path: ['ramp'],
+            })
+            .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp?.length ?? 0) >= 2, {
+                message: 'stopOnBreak needs a ramp of at least two steps',
+                path: ['stopOnBreak'],
+            }),
         valves: z.array(ValveEntry).default([]),
         convergeWithin: Duration,
         invariants: z.array(Named).min(1),
         measure: z.array(Named).default([]),
+        bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
     })
     .strict()
+    .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
+        message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
+        path: ['valves'],
+    })
+    .superRefine(({ drive, bars }, context) => {
+        const twice = bars.find(({ name }, i) => bars.findIndex((bar) => bar.name === name) < i)
+        if (drive.stopOnBreak && twice) {
+            context.addIssue({
+                code: 'custom',
+                message: `declare each bar once on a stopOnBreak card; ${twice.name} is declared twice`,
+                path: ['bars'],
+            })
+        }
+    })
 export type Card = z.infer<typeof Card>
+
+export type Step = { scale: number; fromMs: number; toMs: number }
+
+export function stepsOf(drive: Card['drive']): Step[] {
+    let fromMs = 0
+    return (drive.ramp ?? [{ scale: 1, for: drive.for }]).map(({ scale, for: lasts }) => {
+        const step = { scale, fromMs, toMs: fromMs + durationMs(lasts) }
+        fromMs = step.toMs
+        return step
+    })
+}
 
 export const BacklogQueue = z.enum(['hogflow', 'email'])
 

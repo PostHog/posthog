@@ -32,6 +32,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { impactTab } from '../Transactional/impact/impactTab'
+import { openEmailMetricSends } from '../Transactional/log/emailMetricSends'
+import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
@@ -96,6 +99,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -173,33 +178,52 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const tabs = (
         <LemonTabs
-            activeKey={transactionalTab}
+            activeKey={
+                !sendLinks && transactionalTab === 'sends'
+                    ? 'runs'
+                    : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
+                      ? 'design'
+                      : transactionalTab
+            }
             onChange={setTransactionalTab}
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
-                transactionalHogFlowId
-                    ? {
-                          key: 'metrics',
-                          label: 'Metrics',
-                          content: <WorkflowMetrics id={transactionalHogFlowId} />,
-                      }
-                    : null,
-                transactionalHogFlowId
-                    ? {
-                          key: 'sends',
-                          label: 'Sends',
-                          content: <WorkflowInvocations id={transactionalHogFlowId} />,
-                      }
-                    : null,
-                transactionalHogFlowId
-                    ? {
-                          key: 'versions',
-                          label: 'Versions',
-                          content: <WorkflowRevisions id={transactionalHogFlowId} />,
-                      }
-                    : null,
+                impact && !!transactionalHogFlowId && impactTab(transactionalHogFlowId),
+                ...(transactionalHogFlowId
+                    ? [
+                          {
+                              key: 'metrics' as const,
+                              label: 'Metrics',
+                              content: (
+                                  <WorkflowMetrics
+                                      id={transactionalHogFlowId}
+                                      onEmailMetricClick={sendLinks ? openEmailMetricSends : undefined}
+                                  />
+                              ),
+                          },
+                          ...(sendLinks
+                              ? [
+                                    {
+                                        key: 'sends' as const,
+                                        label: 'Sends',
+                                        content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
+                                    },
+                                ]
+                              : []),
+                          {
+                              key: 'runs' as const,
+                              label: sendLinks ? 'Run logs' : 'Sends',
+                              content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                          },
+                          {
+                              key: 'versions' as const,
+                              label: 'Versions',
+                              content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                          },
+                      ]
+                    : []),
                 {
                     key: 'api',
                     label: 'API',

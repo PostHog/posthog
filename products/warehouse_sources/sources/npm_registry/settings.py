@@ -54,6 +54,13 @@ NPM_REGISTRY_ENDPOINTS: dict[str, NpmRegistryEndpointConfig] = {
         description="Downloads per published version over the last 7 days, per configured package, from the "
         "npm downloads-counts API.",
     ),
+    "Packages": NpmRegistryEndpointConfig(
+        name="Packages",
+        primary_keys=["package"],
+        # Search has no "changed since" filter and returns a current snapshot, so this is full refresh.
+        description="Current package summary per configured package (latest version, maintainers, dependents, "
+        "weekly and monthly downloads, search scores), from the npm registry search API.",
+    ),
 }
 
 ENDPOINTS = tuple(NPM_REGISTRY_ENDPOINTS.keys())
@@ -75,6 +82,10 @@ MAX_DOWNLOADS_WINDOW_DAYS = 540
 # Downloads backfill), and the registry document for a popular package can run several MB. Cap the
 # config so a large list can't tie up the worker indefinitely.
 MAX_PACKAGES = 100
+
+# Search ranks the exact name first, but a short name can share its rank with near matches, so ask for
+# the documented default page and pick the exact name from it.
+SEARCH_RESULT_SIZE = 20
 
 # Rows for a single package's Versions stream are yielded in bounded chunks so a package with a huge
 # version history (some popular packages have thousands of versions) never forces one oversized

@@ -3,7 +3,7 @@ import base64
 import pytest
 
 from products.warehouse_sources.sources.ownerrez._config import OwnerrezSourceConfig
-from products.warehouse_sources.sources.ownerrez.source import OwnerrezSource
+from products.warehouse_sources.sources.ownerrez.source import LISTINGS_NOT_ENABLED_MESSAGE, OwnerrezSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, always, scripted_network
 
 
@@ -41,3 +41,27 @@ class TestOwnerrezSource:
         assert network.requests_log[0].path == "/v2/properties"
         encoded = base64.b64encode(b"host@example.com:pt_key").decode()
         assert network.requests_log[0].headers["authorization"] == f"Basic {encoded}"
+
+    @pytest.mark.parametrize(
+        "status_code, expected_reason",
+        [
+            (402, LISTINGS_NOT_ENABLED_MESSAGE),
+            (200, None),
+            # Only a missing premium is a denial; a throttle or outage must not hide the table.
+            (429, None),
+            (500, None),
+        ],
+    )
+    def test_endpoint_permissions_reports_listings_premium(self, status_code: int, expected_reason: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["Bookings", "Listings"])
+
+        assert permissions == {"Bookings": None, "Listings": expected_reason}
+        assert {request.path for request in network.requests_log} == {"/v2/listings"}
+
+    def test_endpoint_permissions_skips_probe_without_listings(self) -> None:
+        with scripted_network([]) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["Bookings"])
+
+        assert permissions == {"Bookings": None}
+        assert network.requests_log == []

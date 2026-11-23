@@ -2,14 +2,17 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { AvailableFeature } from '~/types'
 
 import { isIpAllowed, isValidIpAddress } from './ipRestrictionsUtils'
 import { organizationIPRestrictionsLogic } from './organizationIPRestrictionsLogic'
+import { QuillOrganizationIPRestrictions } from './QuillOrganizationIPRestrictions'
 
 export function OrganizationIPRestrictions(): JSX.Element {
     const {
@@ -26,13 +29,55 @@ export function OrganizationIPRestrictions(): JSX.Element {
     const { setDraftEntries, save, setEnabled } = useActions(organizationIPRestrictionsLogic)
     const [testIp, setTestIp] = useState('')
     const [testResult, setTestResult] = useState<boolean | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         setTestResult(null)
     }, [currentOrganization])
 
     if (!currentOrganization) {
-        return <LemonSkeleton className="h-20" />
+        return todayRailNav ? <Skeleton className="h-20" /> : <LemonSkeleton className="h-20" />
+    }
+
+    const handleEntriesChange = (nextEntries: string[]): void => {
+        setDraftEntries(nextEntries, currentOrganization.id)
+        setTestResult(null)
+    }
+
+    const handleTestIpChange = (value: string): void => {
+        setTestIp(value)
+        setTestResult(null)
+    }
+
+    const runTest = (): void => setTestResult(isIpAllowed(testIp, cleaned))
+
+    const testDisabledReason = validationError || (!isValidIpAddress(testIp) ? 'Enter a valid IP address' : null)
+
+    const testResultMessage =
+        cleaned.length === 0
+            ? 'No rules are configured, so every IP address is allowed.'
+            : testResult
+              ? `${testIp} is allowed by this list.`
+              : `${testIp} would be blocked by this list.`
+
+    if (todayRailNav) {
+        return (
+            <PayGateMini
+                feature={AvailableFeature.IP_RESTRICTIONS}
+                featureDetail="organization-ip-restrictions"
+                overrideShouldShowGate={enabled}
+            >
+                <QuillOrganizationIPRestrictions
+                    testIp={testIp}
+                    testResult={testResult}
+                    testResultMessage={testResultMessage}
+                    testDisabledReason={testDisabledReason}
+                    onEntriesChange={handleEntriesChange}
+                    onTestIpChange={handleTestIpChange}
+                    onTest={runTest}
+                />
+            </PayGateMini>
+        )
     }
 
     return (
@@ -57,10 +102,7 @@ export function OrganizationIPRestrictions(): JSX.Element {
                     mode="multiple"
                     allowCustomValues
                     value={values}
-                    onChange={(nextEntries) => {
-                        setDraftEntries(nextEntries, currentOrganization.id)
-                        setTestResult(null)
-                    }}
+                    onChange={handleEntriesChange}
                     placeholder="203.0.113.4 or 10.0.0.0/8"
                     loading={saving}
                     disabled={saving}
@@ -93,31 +135,20 @@ export function OrganizationIPRestrictions(): JSX.Element {
                             className="min-w-72"
                             placeholder="203.0.113.4"
                             value={testIp}
-                            onChange={(value) => {
-                                setTestIp(value)
-                                setTestResult(null)
-                            }}
+                            onChange={handleTestIpChange}
                             data-attr="ip-restrictions-test-input"
                         />
                         <LemonButton
                             type="secondary"
-                            onClick={() => setTestResult(isIpAllowed(testIp, cleaned))}
-                            disabledReason={
-                                validationError || (!isValidIpAddress(testIp) ? 'Enter a valid IP address' : null)
-                            }
+                            onClick={runTest}
+                            disabledReason={testDisabledReason}
                             data-attr="ip-restrictions-test"
                         >
                             Test
                         </LemonButton>
                     </div>
                     {testResult !== null && (
-                        <p className={testResult ? 'text-success m-0' : 'text-danger m-0'}>
-                            {cleaned.length === 0
-                                ? 'No rules are configured, so every IP address is allowed.'
-                                : testResult
-                                  ? `${testIp} is allowed by this list.`
-                                  : `${testIp} would be blocked by this list.`}
-                        </p>
+                        <p className={testResult ? 'text-success m-0' : 'text-danger m-0'}>{testResultMessage}</p>
                     )}
                 </div>
             </div>

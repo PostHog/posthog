@@ -208,6 +208,19 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1.5×",
     costSummary: "Input $3 · Output $15 per 1M tokens",
+    retired: true,
+  },
+  {
+    id: "moonshotai/kimi-k3.1-pro",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "Kimi K3.1 Pro",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+    },
+    costMultiplier: "1×",
+    costSummary: "Input $2 · Output $10 per 1M tokens",
   },
   {
     id: "deepseek-ai/deepseek-v4-flash-0731",
@@ -492,6 +505,30 @@ export const MODELS: readonly CatalogModel[] = [
       "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above",
   },
   {
+    id: "gpt-6.2-sol",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6.2 Sol",
+    cost: {
+      inputPerMtok: 2,
+      outputPerMtok: 10,
+    },
+    costMultiplier: "1×",
+    costSummary: "Input $2 · Output $10 per 1M tokens",
+  },
+  {
+    id: "gpt-6.2-astra",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6.2 Astra",
+    cost: {
+      inputPerMtok: 8,
+      outputPerMtok: 40,
+    },
+    costMultiplier: "4×",
+    costSummary: "Input $8 · Output $40 per 1M tokens",
+  },
+  {
     id: "gpt-6.1-terra",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
@@ -527,7 +564,7 @@ export const MODELS: readonly CatalogModel[] = [
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
   claude: "claude-sonnet-5-5",
-  codex: "gpt-6.1-sol",
+  codex: "gpt-6.2-sol",
 };
 
 export interface CapabilityNotch {
@@ -615,6 +652,16 @@ export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
   {
     runtimeAdapter: "codex",
     prefix: "gpt-6.1-sol",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    runtimeAdapter: "codex",
+    prefix: "gpt-6.2-sol",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    runtimeAdapter: "codex",
+    prefix: "gpt-6.2-astra",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
   },
   {

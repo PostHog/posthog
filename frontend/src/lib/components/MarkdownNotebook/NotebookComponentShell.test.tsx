@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useContext, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { useComponentPanelState } from './componentPanelContext'
+import { ComponentPanelContext, useComponentPanelState } from './componentPanelContext'
 import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
 import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
@@ -207,6 +207,55 @@ describe('NotebookComponentShell', () => {
         )
 
         expect(screen.getByTestId('panel-state').textContent).toBe('edit-open view-open')
+    })
+
+    it('renders only the output in an app without mounting notebook authoring controls', () => {
+        const toolbar = jest.fn(() => <button>Run</button>)
+        const editor = jest.fn(() => <div>Edit panel</div>)
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: PanelStateProbe,
+                EditComponent: editor,
+                ToolbarComponent: toolbar,
+            },
+        ])
+
+        render(
+            <ComponentPanelContext.Provider
+                value={{
+                    componentPanels: { filters: false, results: true },
+                    showEditPanel: false,
+                    showViewPanel: true,
+                    outputOnly: true,
+                }}
+            >
+                <NotebookComponentShell
+                    node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                    mode="view"
+                    componentPanels={{ filters: true, results: true }}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={registry}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            </ComponentPanelContext.Provider>
+        )
+
+        expect(screen.getByTestId('panel-state').textContent).toBe('edit-closed view-open')
+        expect(toolbar).not.toHaveBeenCalled()
+        expect(editor).not.toHaveBeenCalled()
+        expect(screen.queryByRole('button')).toBeNull()
     })
 
     it('prevents toolbar mouse down from changing notebook selection before toggling panels', () => {

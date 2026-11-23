@@ -34,6 +34,6 @@ EVENTS_EXPORT_WINDOW = timedelta(days=1)
 EVENTS_EXPORT_END_LAG = timedelta(hours=1)
 EXPORT_POLL_INTERVAL_SECONDS = 15
 # Caps each poll loop so a stuck job fails as a retryable error instead of hanging the activity.
-EXPORT_POLL_MAX_ATTEMPTS = 120
+EXPORT_POLL_BUDGET_SECONDS = 30 * 60
 EXPORT_BATCH_SIZE = 5000
 REQUEST_TIMEOUT_SECONDS = 120

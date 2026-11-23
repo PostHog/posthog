@@ -6,12 +6,17 @@ from datetime import timedelta
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.models import Team
+
+from products.signals.backend.models import SignalGroupingRecord
 from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
 from products.signals.backend.temporal.grouping import (
     GenerateEmbeddingInput,
@@ -22,6 +27,7 @@ from products.signals.backend.temporal.grouping_v2 import (
     MAX_BATCH_ATTEMPTS,
     CollectedBatch,
     TeamSignalGroupingV2Workflow,
+    assigned_signal_ids_activity,
 )
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
@@ -33,10 +39,10 @@ from products.signals.backend.temporal.types import (
 TASK_QUEUE = "test-grouping-v2-queue"
 
 
-def _signal(source_id: str) -> EmitSignalInputs:
+def _signal(source_id: str, team_id: int = 1) -> EmitSignalInputs:
     # A source match skips the type-example and query-generation steps, so the embedding is the first batch activity.
     return EmitSignalInputs(
-        team_id=1,
+        team_id=team_id,
         signal_id=str(uuid.uuid5(uuid.NAMESPACE_URL, source_id)),
         source_product="error_tracking",
         source_type="issue_created",
@@ -199,3 +205,24 @@ async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_ret
     assert retry_keys == ["batch-a"]
     complete.assert_awaited_once_with([BATCHES["batch-b"][0]], {})
     assert workflow._failed_rounds_by_batch_key == {"batch-a": MAX_BATCH_ATTEMPTS}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("child_environment", [False, True])
+async def test_assigned_signal_ids_activity_returns_only_recorded_signals(ateam: Team, child_environment: bool) -> None:
+    team = (
+        await Team.objects.acreate(
+            organization_id=ateam.organization_id, project_id=ateam.project_id, parent_team=ateam
+        )
+        if child_environment
+        else ateam
+    )
+    assigned = _signal("assigned", team_id=team.id)
+    assert assigned.signal_id is not None
+    await SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).acreate(
+        team_id=ateam.id, signal_id=assigned.signal_id, report_id=uuid.uuid4(), emitted_at=timezone.now()
+    )
+    signals = [assigned, _signal("unassigned", team_id=team.id), _signal("other-team", team_id=team.id + 1)]
+
+    assert await assigned_signal_ids_activity(signals) == [assigned.signal_id]

@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     ClientConfig,
     Endpoint,
+    EndpointResource,
     IncrementalConfig,
     JSONResponsePaginator,
     OffsetPaginator,
@@ -52,8 +53,9 @@ class WorkableOffsetPaginator(OffsetPaginator):
     `PAGE_SIZE` would make the stock paginator skip rows or stop after the first short page.
     """
 
-    def __init__(self, limit: int) -> None:
-        super().__init__(limit=limit, total_path="totalCount")
+    def __init__(self, limit: int, total_key: str = "totalCount") -> None:
+        super().__init__(limit=limit, total_path=total_key)
+        self._total_key = total_key
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         if not data:
@@ -62,7 +64,7 @@ class WorkableOffsetPaginator(OffsetPaginator):
 
         self.offset += len(data)
         body = response.json()
-        total = body.get("totalCount") if isinstance(body, dict) else None
+        total = body.get(self._total_key) if isinstance(body, dict) else None
         self._has_next_page = not isinstance(total, int) or self.offset < total
 
 
@@ -121,7 +123,7 @@ def _incremental_config(field_name: str) -> IncrementalConfig:
 
 def _paginator(config: WorkableEndpointConfig) -> BasePaginator:
     if config.pagination == "offset":
-        return WorkableOffsetPaginator(limit=config.page_size)
+        return WorkableOffsetPaginator(limit=config.page_size, total_key=config.total_key)
     if config.pagination == "none":
         return SinglePagePaginator()
     # `paging.next` is a full URL carrying the cursor params; the paginator follows it verbatim
@@ -134,9 +136,20 @@ def _endpoint_extra(config: WorkableEndpointConfig) -> Endpoint:
     # Rows are nested under the endpoint's data key (e.g. `{"jobs": [...]}`). A missing key
     # yields an empty page (matching the original `.get(data_key, [])`), so no fail-loud here.
     # Without a data key the body is the row array itself.
-    if config.data_key is not None:
+    if config.data_key is not None and not config.data_key_optional:
         extra["data_selector"] = config.data_key
     return extra
+
+
+def _unwrap_data_key(data_key: str) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    # Without a selector, a wrapped body arrives as one item; explode it into its rows.
+    def unwrap(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        rows = item.get(data_key)
+        if isinstance(rows, list):
+            return rows
+        return item
+
+    return unwrap
 
 
 def _client_config(subdomain: str, api_token: str) -> ClientConfig:
@@ -237,15 +250,14 @@ def workable_source(
     if incremental is not None:
         endpoint_config["incremental"] = incremental
 
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    if config.data_key is not None and config.data_key_optional:
+        resource_config["data_map"] = _unwrap_data_key(config.data_key)
+
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": endpoint_config,
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -292,11 +304,11 @@ def _source_response(
     )
 
 
-def validate_credentials(subdomain: str, api_token: str, path: str = "/jobs") -> tuple[int, bool]:
+def validate_credentials(subdomain: str, api_token: str, path: str = "/jobs", limit: int = 1) -> tuple[int, bool]:
     """Probe a Workable endpoint. Returns ``(status_code, ok)``; ``status_code`` is ``0`` on a transport error."""
     # Building the URL validates the subdomain and raises ValueError for an invalid one, before any
     # request — the caller surfaces that as a non-transport failure.
-    url = f"{_base_url(subdomain)}{path}?{urlencode({'limit': 1})}"
+    url = f"{_base_url(subdomain)}{path}?{urlencode({'limit': limit})}"
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_token,)),
         url,

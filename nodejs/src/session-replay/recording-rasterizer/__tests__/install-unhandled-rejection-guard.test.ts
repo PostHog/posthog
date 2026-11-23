@@ -77,7 +77,7 @@ describe('installUnhandledRejectionGuard', () => {
 
     beforeAll(async () => {
         dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rasterizer-guard-'))
-        const tsc = require.resolve('typescript/bin/tsc')
+        const tsc = path.join(path.dirname(require.resolve('typescript-native/package.json')), 'bin', 'tsc')
         // The guard module has no ~ imports so plain tsc compiles it without the workspace config.
         const compilation = await exec('node', [
             tsc,

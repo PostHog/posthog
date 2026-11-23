@@ -1,9 +1,11 @@
 import hashlib
 import datetime as dt
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 
     from posthog.schema import RecordingsQuery
 
-# Lives here, not in queries/scanner_candidate_query (which imports SamplingMode from this
+# Lives here, not in queries/scanner_candidate_query (which imports SETTLE_INTERVAL from this
 # module), so `initial_watermark`'s default callable never needs to import back up into the
 # query layer — models must stay a dependency leaf for the query layer, never the reverse.
 # 30-min inactivity timeout + 5-min merge-lag buffer.
@@ -49,11 +51,22 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
 
 
 def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
-    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None."""
+    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None.
+
+    Carries `balance_variants` and `start_on_launch` across under their scope names, so a scanner
+    that samples proportionally keeps doing so once the sampler reads the scope instead of the
+    config. Both are omitted at their default, because the mirror decides whether it owns a row's
+    scope by comparing the stored blob against a fresh derivation of it.
+    """
     config = scanner_config if isinstance(scanner_config, dict) else {}
     if config.get("experiment_id") is None:
         return None
-    return {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
+    scope: dict = {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
+    if config.get("balance_variants") is False:
+        scope["balance"] = False
+    if config.get("start_on_launch") is True:
+        scope["start_on_launch"] = True
+    return scope
 
 
 class ScannerType(models.TextChoices):
@@ -62,12 +75,6 @@ class ScannerType(models.TextChoices):
     SCORER = "scorer", "Scorer"
     SUMMARIZER = "summarizer", "Summarizer"
     EXPERIMENT = "experiment", "Experiment"
-
-
-class SamplingMode(models.TextChoices):
-    FOCUSED = "focused", "Focused"
-    BALANCED = "balanced", "Balanced"
-    COMPREHENSIVE = "comprehensive", "Comprehensive"
 
 
 class ScannerProvider(models.TextChoices):
@@ -199,12 +206,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
     )
-    sampling_mode = models.CharField(
-        max_length=20,
-        choices=SamplingMode.choices,
-        default=SamplingMode.COMPREHENSIVE,
-        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
-    )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
     model = models.CharField(max_length=64, choices=scanner_model_choices)
@@ -327,6 +328,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="The experiment this scanner's targeting watches, if any.",
+    )
+
+    # Nullable only until a backfill gives every row an explicit kind; after that a null scope is never a valid
+    # stored state, because "every session" is itself a kind and must be stated.
+    scope = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Which sessions the scanner watches and the label it gives each one, as `{"kind": ...}`.',
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(
@@ -483,6 +492,15 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                 name="rl_inline_created_idx",
                 condition=models.Q(origin=ScannerOrigin.INLINE),
             ),
+            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver.
+            # Partial on `scope` alone, never on a kind: callers filter on the id, and an equality on the id
+            # implies `scope IS NOT NULL`, so the planner still uses it. Most scanners have no scope, which
+            # makes this index a fraction of the full one's size for the same plan.
+            models.Index(
+                KeyTransform("experiment_id", "scope"),
+                name="rl_scope_experiment_idx",
+                condition=models.Q(scope__isnull=False),
+            ),
         ]
 
     _VERSION_TRACKED_FIELDS = (
@@ -490,14 +508,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "scanner_config",
         "query",
         "experiment_targeting",
+        "scope",
         "sampling_rate",
-        "sampling_mode",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate", "sampling_mode"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "scope", "sampling_rate"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
@@ -526,9 +544,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         # Any save can be the edit that unblocks a paused sweep, such as a raised credit limit or a fixed
         # filter, so it resumes the sweep. The reconciler then recreates the schedule and it fires at once.
         self.sweep_paused_until = None
+        # Mirrored here rather than in the serializer, because the scout writer and the MaxTool
+        # layer both save scanners without one. Must run before the version comparison below, so
+        # a scope that moves with its source store bumps `scanner_version`.
         update_fields = kwargs.get("update_fields")
+        mirrored = self._mirror_scope_from_legacy_stores(update_fields)
         if update_fields is not None:
-            update_fields = [*update_fields, "sweep_paused_until"]
+            update_fields = [*update_fields, "sweep_paused_until", *(["scope"] if mirrored else [])]
             kwargs["update_fields"] = update_fields
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
             track_enabled = "enabled" in update_fields
@@ -557,11 +579,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
                     estimate_stale = bool(changed & self._ESTIMATE_FIELDS)
-                    if (
-                        not estimate_stale
-                        and "scanner_config" in changed
-                        and self.scanner_type == ScannerType.EXPERIMENT
-                    ):
+                    if not estimate_stale and "scanner_config" in changed:
                         # The experiment type keeps its targeting in scanner_config, so a scope
                         # change there moves the estimate the way an experiment_targeting change
                         # does; a prompt-only config edit does not.
@@ -622,20 +640,79 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`; the
         other types use the legacy `experiment_targeting` column. Both stores are access-checked on
         write and redacted on read, so this is the one place code may read a scanner's experiment.
+
+        Still reads the older stores directly, not `scope`: callers here consume the legacy shape,
+        including the singular `variant` that the scope shape folds into `variants`. `scope_for` is
+        the reader for new code.
         """
         if self.scanner_type == ScannerType.EXPERIMENT:
             return config_experiment_scope(self.scanner_config)
         return self.experiment_targeting
 
-    def targeted_recordings_query(self) -> "RecordingsQuery":
-        """The query every scan and estimate must run: the persisted filter plus the exposure
-        filter derived from `experiment_scope()`.
+    _SCOPE_SOURCE_FIELDS = frozenset({"scanner_type", "scanner_config", "experiment_targeting"})
 
-        Derived here rather than persisted into `query` so the experiment can only ever enter
-        through the access-checked scope stores (see `experiment_scope`). The serializer rejects
-        `experiment_exposure` inside `query` for the same reason.
+    def _mirror_scope_from_legacy_stores(self, update_fields: "Iterable[str] | None" = None) -> bool:
+        """Track the `scope` column to whichever older store holds this scanner's experiment.
+
+        The mirror follows its source store in every direction, so a retarget moves the scope and a
+        cleared targeting clears it. A stale scope would outlive the edit, and the readout and
+        access checks that move onto `scope` would then gate on an experiment the scanner no longer
+        watches.
+
+        A scope that matches no older store is left alone: it was set directly, which is how the
+        API writes one once it accepts a scope as input.
+
+        A partial save that persists none of the source fields leaves `scope` alone and returns
+        False. Such a save keeps whatever the row already holds, and this instance can be older
+        than the row: a sweep that loaded the scanner before a retarget would otherwise write the
+        experiment it still holds in memory over the one the row now targets.
         """
-        return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+        from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
+
+        if update_fields is not None and not (self._SCOPE_SOURCE_FIELDS & set(update_fields)):
+            return False
+        derived = derive_scope(self)
+        if derived is None and not self._scope_came_from_a_legacy_store():
+            return False
+        self.scope = derived
+        return True
+
+    def _scope_came_from_a_legacy_store(self) -> bool:
+        """Whether the stored `scope` is this row's own mirror of an older store.
+
+        Distinguishes a scope the mirror wrote, which must follow its source, from one set
+        directly, which the mirror must not clear.
+        """
+        from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
+
+        if not isinstance(self.scope, dict):
+            return False
+        if self._state.adding:
+            return False
+        old = (
+            type(self)
+            .all_origins.filter(pk=self.pk)
+            .only("scanner_type", "scanner_config", "experiment_targeting")
+            .first()
+        )
+        return old is not None and derive_scope(old) == self.scope
+
+    def targeted_recordings_query(self) -> "RecordingsQuery":
+        """The query every scan and estimate must run: the persisted filter narrowed by the scope.
+
+        Narrowed here rather than persisted into `query` so the experiment can only ever enter
+        through the access-checked scope stores. The serializer rejects `experiment_exposure`
+        inside `query` for the same reason.
+
+        Reads through `scope_for`, so a scanner narrowed only by the `scope` column is filtered
+        the same as one still carrying a legacy store. Reading `experiment_scope()` here instead
+        would return None for that scanner and sweep every session its filters match.
+        """
+        from products.replay_vision.backend.scope.load import scope_for  # noqa: PLC0415
+
+        scope = scope_for(self)
+        query = self.recordings_query()
+        return scope.recordings_filter(query) if scope is not None else apply_experiment_targeting(query, None)
 
     @property
     def has_spend_ceiling(self) -> bool:

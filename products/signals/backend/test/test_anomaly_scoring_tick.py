@@ -105,6 +105,7 @@ from products.signals.backend.anomaly_scores.spend import (
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run, save_state
 from products.signals.backend.anomaly_scores.tick import (
+    ANOMALY_SCOUT_SKILL,
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
     AnomalyScoringTickResult,
@@ -121,6 +122,7 @@ from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
     AnomalyScoringState,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
 )
@@ -1328,6 +1330,41 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         ]
         assert due_list.oldest_due_seconds == 10 * 24 * 3600
 
+    @parameterized.expand([("per_project_cap", 10, [1, 2], [0, 1]), ("fleet_cap", 2, [2], [0])])
+    @time_machine.travel(NOW, tick=False)
+    def test_one_project_backlog_cannot_fill_the_never_scored_read(
+        self, _name: str, fleet_cap: int, large_read: list[int], small_read: list[int]
+    ) -> None:
+        small_team = Team.objects.create(organization=self.organization, name="Small")
+
+        def rows(team: Team, due: datetime, viewers: list[int]) -> list[int]:
+            ids = []
+            for index, count in enumerate(viewers):
+                insight = Insight.objects.create(team=team, name=f"{team.name}_{index}", query=_trends(interval="day"))
+                AnomalyScoringDueInsight.all_teams.create(
+                    team_id=team.id,
+                    insight_id=insight.id,
+                    interval="day",
+                    next_due_at=due,
+                    refreshed_at=NOW,
+                    viewers=count,
+                )
+                ids.append(insight.id)
+            return ids
+
+        large = rows(self.team, NOW - timedelta(days=10), [0, 5, 9, 1])
+        small = rows(small_team, NOW - timedelta(days=1), [0, 0])
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", fleet_cap),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM", 2),
+        ):
+            due_list = load_due_list([self.team.id, small_team.id], (IntervalType.DAY,), NOW, first_train_lane=False)
+
+        read = [*(large[index] for index in large_read), *(small[index] for index in small_read)]
+        assert [insight.insight_id for insight in due_list.insights] == read
+        assert (due_list.never_scored_due, due_list.due_unread) == (6, 6 - len(read))
+
     @parameterized.expand([("lane_on", 1, True), ("lane_off", 0, False)])
     @time_machine.travel(NOW, tick=False)
     def test_a_new_project_trains_before_the_never_scored_backlog_of_an_older_project(
@@ -1360,7 +1397,7 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         with (
             patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
-            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 2),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 1),
         ):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
 
@@ -1377,6 +1414,8 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         cache.delete_many([_cooldown_key(insight.id), _first_train_key(self.team.id)])
         self.addCleanup(cache.delete, _first_train_key(self.team.id))
         source_enabled_at = SignalSourceConfig.objects.get(team=self.team).created_at
+        # The first pre-check found no scores yet and skipped, and the coordinator stamped the anchor.
+        scout = SignalScoutConfig.all_teams.create(team=self.team, skill_name=ANOMALY_SCOUT_SKILL, last_run_at=NOW)
         tick = "products.signals.backend.anomaly_scores.tick"
         capture = MagicMock()
         pick = InsightPick(
@@ -1398,13 +1437,22 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         ]
         assert {
             key: event["properties"][key]
-            for key in ("team_id", "insight_id", "seconds_since_source_enabled", "seconds_since_listed")
+            for key in (
+                "team_id",
+                "insight_id",
+                "seconds_since_source_enabled",
+                "seconds_since_listed",
+                "scout_made_due",
+            )
         } == {
             "team_id": self.team.id,
             "insight_id": insight.id,
             "seconds_since_source_enabled": round((NOW - source_enabled_at).total_seconds()),
             "seconds_since_listed": 0,
+            "scout_made_due": True,
         }
+        scout.refresh_from_db()
+        assert scout.last_run_at is not None and scout.last_run_at < NOW
 
     @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
     @time_machine.travel(NOW, tick=False)

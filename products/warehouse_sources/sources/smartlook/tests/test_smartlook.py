@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
 from typing import Literal
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 from products.warehouse_sources.sources.smartlook._config import SmartlookSourceConfig
@@ -94,5 +96,99 @@ def test_visitor_events_keep_parent_identity_and_resume_child_pages() -> None:
 def test_missing_rows_fail_instead_of_replacing_table_with_empty_data() -> None:
     driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region="eu"))
     result = driver.run("visitors", [ScriptedResponse(json={"unexpected": []})])
+    assert result.raised is not None
+    assert not result.rows
+
+
+@time_machine.travel(datetime(2026, 3, 31, 23, 30, tzinfo=UTC), tick=False)
+def test_event_visitors_send_the_required_window_and_keep_the_event_id() -> None:
+    driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region="eu"))
+    script = [
+        ScriptedResponse(json={"events": [{"id": "event-1"}, {"id": "event-2"}], "_links": {}}),
+        ScriptedResponse(json={"visitors": [{"id": "visitor-1", "eventMatchedCount": 3, "firstSeen": None}]}),
+        ScriptedResponse(json={}),
+    ]
+    result = driver.run("event_visitors", script)
+    assert result.raised is None
+    assert [(row["event_id"], row["id"], row["eventMatchedCount"]) for row in result.rows] == [
+        ("event-1", "visitor-1", 3)
+    ]
+    assert result.paths == ["/api/v1/events", "/api/v1/events/event-1/visitors", "/api/v1/events/event-2/visitors"]
+    assert result.params("limit") == ["100", None, None]
+    assert result.params("dateFrom") == [None, "2026-03-01", "2026-03-01"]
+    assert result.params("dateTo") == [None, "2026-03-31", "2026-03-31"]
+
+
+def _funnels_page(funnels: list[dict], next_page: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"funnels": funnels, "_links": {"nextPage": next_page}})
+
+
+def _step_visitors(visitors: list[str]) -> ScriptedResponse:
+    return ScriptedResponse(json={"totalVisitorsCount": len(visitors), "visitors": visitors})
+
+
+@time_machine.travel(datetime(2026, 3, 31, 12, tzinfo=UTC), tick=False)
+def test_funnel_step_visitors_walk_every_step_of_every_funnel_page() -> None:
+    driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region="us"))
+    script = [
+        _funnels_page(
+            [
+                {"id": "funnel-1", "events": [{"id": "event-a"}, {"id": "event-b"}]},
+                {"id": "funnel-empty", "events": []},
+            ],
+            next_page="/api/v1/funnels?after=next-token&limit=100",
+        ),
+        _step_visitors(["visitor-1", "visitor-2"]),
+        _step_visitors([]),
+        _funnels_page([{"id": "funnel-2", "events": [{"id": "event-c"}]}]),
+        ScriptedResponse(json={"totalVisitorsCount": 0}),
+    ]
+    result = driver.run("funnel_step_visitors", script)
+    assert result.raised is None
+    assert result.rows == [
+        {"funnel_id": "funnel-1", "step": 0, "event_id": "event-a", "visitor_id": "visitor-1"},
+        {"funnel_id": "funnel-1", "step": 0, "event_id": "event-a", "visitor_id": "visitor-2"},
+    ]
+    assert result.paths == [
+        "/api/v1/funnels",
+        "/api/v1/funnels/funnel-1/visitors/drop-off",
+        "/api/v1/funnels/funnel-1/visitors/drop-off",
+        "/api/v1/funnels",
+        "/api/v1/funnels/funnel-2/visitors/drop-off",
+    ]
+    assert result.params("step") == [None, "0", "1", None, "0"]
+    assert result.params("success") == [None, "true", "true", None, "true"]
+    assert result.params("dateFrom") == [None, "2026-03-01", "2026-03-01", None, "2026-03-01"]
+    assert result.params("dateTo") == [None, "2026-03-31", "2026-03-31", None, "2026-03-31"]
+    assert result.saved_states[-1] == SmartlookResumeConfig(
+        paginator_state={"completed_funnels": ["funnel-1", "funnel-empty", "funnel-2"]}
+    )
+
+
+def test_funnel_step_visitors_resume_after_the_last_staged_step() -> None:
+    driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region="eu"))
+    funnels = _funnels_page(
+        [
+            {"id": "funnel-done", "events": [{"id": "event-a"}]},
+            {"id": "funnel-1", "events": [{"id": "event-a"}, {"id": "event-b"}, {"id": "event-c"}]},
+        ]
+    )
+    result = driver.run(
+        "funnel_step_visitors",
+        [funnels, _step_visitors(["visitor-3"])],
+        resume_state=SmartlookResumeConfig(
+            paginator_state={"completed_funnels": ["funnel-done"], "funnel_id": "funnel-1", "next_step": 2}
+        ),
+    )
+    assert result.raised is None
+    assert result.params("step") == [None, "2"]
+    assert result.rows == [{"funnel_id": "funnel-1", "step": 2, "event_id": "event-c", "visitor_id": "visitor-3"}]
+
+
+@pytest.mark.parametrize("body", [{"visitors": ["visitor-1"]}, [], {"error": "invalid step"}])
+def test_funnel_step_visitors_fail_on_unexpected_step_response(body: object) -> None:
+    driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region="eu"))
+    script = [_funnels_page([{"id": "funnel-1", "events": [{"id": "event-a"}]}]), ScriptedResponse(json=body)]
+    result = driver.run("funnel_step_visitors", script)
     assert result.raised is not None
     assert not result.rows

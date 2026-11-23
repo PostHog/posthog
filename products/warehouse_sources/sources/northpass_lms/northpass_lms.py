@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
@@ -93,12 +94,8 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
 
     The per-item ``links`` block is dropped (it's only self/action hyperlinks).
     """
-    row = dict(item)
-    attributes = row.pop("attributes", None)
-    row.pop("links", None)
-    if isinstance(attributes, dict):
-        row.update(attributes)
-    return row
+    without_links = {key: value for key, value in item.items() if key != "links"}
+    return flatten_jsonapi(without_links, relationships_as_ids=False, on_clash="nested")
 
 
 def _make_relationship_flattener(relationship_id_fields: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:

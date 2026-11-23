@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='tombstone_persons_by_ids_tombstone_persons' */\n        UPDATE posthog_person\n        SET is_deleted = true,\n            version = COALESCE(version, 0) + 1,\n            properties = '{}'::jsonb\n        WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false\n        RETURNING id as \"id!\", uuid as \"uuid!\", version as \"version!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "451d4d1fc6665adc8810136f6e08a8297e894ec69c304cb9b5baeec5af892abe"
+}

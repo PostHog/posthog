@@ -100,4 +100,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "keywords": "Keywords attached to the article.",
         },
     },
+    "knowledge_base_writers": {
+        "description": "Teammates who can be set as the author of knowledge base articles. Join on knowledge_base_articles.written_by.",
+        "docs_url": "https://customerly.readme.io/reference/get_officialcustomerly_apipublic_v2_knowledgebase_articles_listwriters",
+        "columns": {
+            "account_id": "Account ID of the teammate, as referenced by knowledge_base_articles.written_by.",
+            "name": "Name of the teammate.",
+            "email": "Email address of the teammate.",
+        },
+    },
 }

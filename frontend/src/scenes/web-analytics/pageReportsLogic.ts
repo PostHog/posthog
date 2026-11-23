@@ -440,8 +440,8 @@ export interface pageReportsLogicValues {
     shouldFilterTestAccounts: boolean // webAnalyticsLogic
     webAnalyticsFilters: WebAnalyticsPropertyFilters // webAnalyticsLogic
     webAnalyticsTiles: WebAnalyticsTile[] // webAnalyticsLogic
-    combinedMetricsQuery: (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
-    createInsightProps: (tileId: TileId, tabId?: string | undefined) => InsightLogicProps<QuerySchema>
+    combinedMetricsQuery: (dateFilter: typeof webAnalyticsLogic.values.dateFilter) => InsightVizNode<TrendsQuery>
+    createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps
     hasPageUrl: boolean
     isDirectoryEnabled: boolean
     isInitialLoad: boolean
@@ -694,7 +694,7 @@ export interface pageReportsLogicMeta {
             selectedHost: string | null,
             isPathCleaningEnabled: boolean,
             isDirectoryEnabled: boolean
-        ) => (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
+        ) => (dateFilter: typeof webAnalyticsLogic.values.dateFilter) => InsightVizNode<TrendsQuery>
         tiles: (
             queries:
                 | {
@@ -763,8 +763,10 @@ export interface pageReportsLogicMeta {
                       utmTermQuery: undefined
                   },
             pageUrl: string | null,
-            createInsightProps: (tileId: TileId, tabId?: string | undefined) => InsightLogicProps<QuerySchema>,
-            combinedMetricsQuery: (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>,
+            createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps,
+            combinedMetricsQuery: (
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter
+            ) => InsightVizNode<TrendsQuery>,
             dateFilter: DateFilterState,
             featureFlags: FeatureFlagsSet
         ) => SectionTile[]
