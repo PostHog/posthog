@@ -287,7 +287,8 @@ fn a_bounded_regex_cache_refuses_the_repetitions_that_re2_refuses() {
         }
         sync_execute(&context, false).map_err(|failure| failure.error)
     };
-    for pattern in ["a{1001}", "a{2,1001}", "(a{40}){40}"] {
+    let long = format!("a{{1001}}{}", "(?:)".repeat(260));
+    for pattern in ["a{1001}", "a{2,1001}", "(a{40}){40}", long.as_str()] {
         assert!(
             matches!(run(pattern, true), Err(hogvm::VmError::InvalidRegex(..))),
             "{pattern}"

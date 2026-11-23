@@ -92,16 +92,16 @@ impl RegexCache {
         };
         let invalid = |e: regex::Error| VmError::InvalidRegex(pattern.to_string(), e.to_string());
 
-        if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
-            return compile(None).map_err(invalid);
-        }
-        let key = (pattern.to_owned(), case_insensitive);
         if self.compiled_limit.is_some() && repeats_more_than_re2_allows(pattern) {
             return Err(VmError::InvalidRegex(
                 pattern.to_string(),
                 "bad repetition operator".to_string(),
             ));
         }
+        if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
+            return compile(None).map_err(invalid);
+        }
+        let key = (pattern.to_owned(), case_insensitive);
         let Some(limit) = self.compiled_limit else {
             // `get_or_insert_with` computes at most once per key under concurrent first access, and a failed compile isn't cached.
             return self
