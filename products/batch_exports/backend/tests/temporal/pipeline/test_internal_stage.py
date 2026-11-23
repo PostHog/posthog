@@ -19,6 +19,8 @@ from aioresponses import aioresponses
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import EVENTS_TABLE_ROLLOUT_FLAG
 from posthog.models.utils import uuid7
@@ -70,6 +72,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 if t.TYPE_CHECKING:
     from pytest_django.fixtures import Settings
@@ -231,9 +234,13 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     expected_table: str,
     reads_native_table: bool,
 ):
-    schema = await database_sync_to_async(build_events_query_schema)(
-        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
-    )
+    with patch(
+        "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+        return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+    ):
+        schema = await database_sync_to_async(build_events_query_schema)(
+            ateam.pk, None, "SELECT properties.$browser AS browser, properties.secret AS secret FROM events"
+        )
     model = BatchExportEventsCustomModel(
         schema=schema,
         filters=[{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}],
@@ -262,6 +269,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     query = mock_clickhouse_client.calls[0].query
     browser_field = re.search(r"SELECT\s+(.*?) AS browser,", query, re.DOTALL)
     assert browser_field is not None, query
+    assert re.search(r"\bNULL AS secret,", query), query
     if reads_native_table:
         assert "events.properties.`$browser`" in browser_field.group(1)
         assert "events.properties.`$feature_flags`" in query
@@ -283,7 +291,7 @@ async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema
     data_interval_end,
     ateam,
 ):
-    """A schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
+    """An older schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
     schema = await database_sync_to_async(build_events_query_schema)(
         ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
     )

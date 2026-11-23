@@ -178,15 +178,6 @@ def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPer
     return team.heatmaps_screenshot_secret
 
 
-def hide_secret_api_tokens(representation: dict[str, Any]) -> None:
-    """The legacy token stays a live credential through its PSAK mirror row, so reads never carry
-    the plaintext. The one exception is the rotate_secret_token response, which writes the token it
-    just minted back over this null, once. The fields stay in the schema until #66179 drops them."""
-    for field in ("secret_api_token", "secret_api_token_backup"):
-        if field in representation:
-            representation[field] = None
-
-
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
     if serializer.instance is not None:
         team = (

@@ -45,9 +45,11 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
             label="Chess.com",
             releaseStatus=ReleaseStatus.GA,
             caption=(
-                "Sync the games and ratings of a list of Chess.com players.\n\n"
+                "Sync the games, ratings, profiles, tournaments and team matches of a list of Chess.com players, "
+                "and the Chess.com leaderboards.\n\n"
                 "Chess.com publishes this data without a key. "
-                "The tables identify each player by an opaque key. They hold no username or game link. "
+                "The tables identify each player, game, tournament, match and club by an opaque key. "
+                "They hold no username, name or link. "
                 "Each game's PGN keeps the moves and replaces the player names with ?.\n\n"
                 "After you add a username, resync the `games` table to load that player's earlier games."
             ),

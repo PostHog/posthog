@@ -20,6 +20,7 @@ import {
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
@@ -171,6 +172,27 @@ describe('ReportCard', () => {
         jest.advanceTimersByTime(SELECTION_HOLD_MS)
 
         expect(logic.values.selectedReportIds).toEqual([])
+
+        act(() => {
+            jest.runOnlyPendingTimers()
+        })
+    })
+
+    it('toggles the Tags filter from a tag chip without opening the report or starting a hold', () => {
+        cleanup()
+        const { container } = render(
+            <ReportCard report={makeReport('r-1', { tags: ['billing', 'payments'] })} selectable showTags />
+        )
+        const chip = container.querySelector('[data-attr="inbox-report-tag"]') as HTMLElement
+        jest.useFakeTimers()
+        fireEvent(chip, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+
+        // The chip sits inside the card's link, so a click it lets through would open the report.
+        expect(fireEvent.click(chip)).toBe(false)
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual([])
+        expect(inboxFiltersLogic.values.tagFilter).toEqual(['billing'])
 
         act(() => {
             jest.runOnlyPendingTimers()

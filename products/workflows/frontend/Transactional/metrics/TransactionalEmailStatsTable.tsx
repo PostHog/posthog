@@ -20,7 +20,7 @@ const RATE_BASE: Record<Rate, 'sent' | 'delivered'> = {
 const RATE_TITLE: Record<Rate, string> = {
     delivered: 'Delivered',
     bounced: 'Bounced',
-    complained: 'Marked as spam',
+    complained: 'Spam complaints',
     opened: 'Opened',
     clicked: 'Clicked',
 }

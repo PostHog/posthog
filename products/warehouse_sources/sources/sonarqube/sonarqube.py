@@ -559,7 +559,7 @@ def _fanout_page(config: SonarqubeEndpointConfig, project_key: str, data: dict[s
     if kind == "hotspots":
         rows = items
     elif kind == "project_rows":
-        rows = [{"project": project_key, **item} for item in items]
+        rows = [{config.fanout.parent_column: project_key, **item} for item in items]
     elif kind == "component_measures":
         # The base component (the project itself) repeats on every page; take it from the first.
         base = data.get("baseComponent")
@@ -593,18 +593,19 @@ def _iter_project_fanout(
     config: SonarqubeEndpointConfig,
     history_from: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Run an endpoint once per project, and once per metric chunk for the measures endpoints.
+    """Run an endpoint once per parent item (a project or a user group), and once per metric chunk for
+    the measures endpoints.
 
     Each page is yielded as it arrives, with the position of the next page staged before it, so a
     resumed run starts at the page after the last one written.
     """
     fanout = config.fanout
     assert fanout is not None
-    projects = SONARQUBE_ENDPOINTS["projects"]
+    parent = SONARQUBE_ENDPOINTS[fanout.parent]
     project_keys = [
-        item["key"]
-        for item in _iter_list(session, base_url, headers, logger, resumable_source_manager, projects)
-        if item.get("key")
+        item[fanout.parent_key]
+        for item in _iter_list(session, base_url, headers, logger, resumable_source_manager, parent)
+        if item.get(fanout.parent_key)
     ]
     metric_chunks: list[list[str]] = [[]]
     if fanout.kind in ("component_measures", "measures_history"):
@@ -661,8 +662,8 @@ def _iter_project_fanout(
                     # This edition of SonarQube does not serve the endpoint, for any project.
                     logger.warning(f"SonarQube: this server does not serve {config.path}; {config.name} stays empty")
                     return
-                # The project was deleted after we listed it.
-                logger.info(f"SonarQube: project {project_key} not found for {config.name}; skipping it")
+                # The project or group was deleted after we listed it.
+                logger.info(f"SonarQube: {fanout.parent} item {project_key} not found for {config.name}; skipping it")
                 fanout_page = _FanoutPage(rows=[], has_more=False)
                 index = (project_index + 1) * len(metric_chunks) - 1
             else:
