@@ -395,7 +395,7 @@ SETTINGS
 )
 
 
-def build_event_count_by_interval_query(table: str, *, includes_feature_flag_called: bool = True) -> str:
+def build_event_count_by_interval_query(table: str, *, includes_feature_flag_called: bool) -> str:
     """Count the events a 5-minute export of `table` reads, per interval, for monitoring."""
     feature_flag_called_filter = "" if includes_feature_flag_called else "AND event != '$feature_flag_called'"
     return """
@@ -425,7 +425,7 @@ SETTINGS
 """.format(table=table, feature_flag_called_filter=feature_flag_called_filter)
 
 
-EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query("events_recent")
+EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query("events_recent", includes_feature_flag_called=True)
 
 
 def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str, str]:
@@ -441,15 +441,6 @@ def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str
     }
 
 
-# The native table exports `properties` and `person_properties` in their stored shape, built member by member the
-# way a HogQL read of the whole document builds them. Unlike the legacy tables:
-# - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
-# - temporary properties, such as `$set`, follow the other members of `properties`, as `events_json_recent` stores
-#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted.
-# - the legacy `set` and `set_once` fields are read from the temporary properties, which hold `$set` and `$set_once`.
-#   `unset` and `group_set` are always empty.
-# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
-# why the native query's SETTINGS carry it.
 def _build_properties_document_sql(properties: str, temporary_properties: str) -> str:
     """The `properties` column as document text in its stored shape, with the temporary properties after the others."""
     pairs = (
@@ -463,6 +454,15 @@ def _build_properties_document_sql(properties: str, temporary_properties: str) -
     return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
 
 
+# The native table exports `properties` and `person_properties` in their stored shape, built member by member the
+# way a HogQL read of the whole document builds them. Unlike the legacy tables:
+# - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
+# - temporary properties, such as `$set`, follow the other members of `properties`, as `events_json_recent` stores
+#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted.
+# - the legacy `set` and `set_once` fields are read from the temporary properties, which hold `$set` and `$set_once`.
+#   `unset` and `group_set` are always empty.
+# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
+# why the native query's SETTINGS carry it.
 # `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
 # here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
@@ -534,7 +534,7 @@ def native_recent_events_export_query(
     columns, so an export that has any reads them through `typed_events_json_recent` instead.
     """
     if needs_typed_columns(fields, filters, plain_expressions=_NATIVE_EVENTS_FIELD_EXPRESSIONS.keys()):
-        source = build_typed_events_json_recent_source(EVENTS_JSON_RECENT_TABLE)
+        source = build_typed_events_json_recent_source()
         replacements = STORED_DOCUMENT_FIELD_EXPRESSIONS | _build_temporary_property_fields(
             f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}"
         )

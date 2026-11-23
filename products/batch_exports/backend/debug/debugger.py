@@ -24,6 +24,7 @@ from products.batch_exports.backend.events_table import batch_exports_read_new_e
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
+    BackfillDetails,
     BaseBatchExportInputs,
     BatchExportField,
     DatabricksBatchExportInputs,
@@ -430,6 +431,15 @@ class BatchExportsDebugger:
         filters = batch_export_run.parent.filters
 
         is_backfill = batch_export_run.backfill is not None
+        backfill_details = (
+            BackfillDetails(
+                backfill_id=str(batch_export_run.backfill.id),
+                start_at=batch_export_run.backfill.start_at.isoformat() if batch_export_run.backfill.start_at else None,
+                end_at=batch_export_run.backfill.end_at.isoformat() if batch_export_run.backfill.end_at else None,
+            )
+            if batch_export_run.backfill is not None
+            else None
+        )
 
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
@@ -456,7 +466,7 @@ class BatchExportsDebugger:
                     )
 
                 if use_distributed_events_recent_table(
-                    is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
                 ):
                     query = native_recent_events_export_query(
                         fields,
@@ -477,7 +487,7 @@ class BatchExportsDebugger:
                 # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
                 # which is a distributed table that sits in front of the `events_recent` table
                 elif use_distributed_events_recent_table(
-                    is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
                 ):
                     query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
                 elif is_backfill:

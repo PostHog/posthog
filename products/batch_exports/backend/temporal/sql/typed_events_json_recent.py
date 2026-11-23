@@ -13,6 +13,7 @@ from collections.abc import Collection, Sequence
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.events_json import (
+    EVENTS_JSON_RECENT_TABLE,
     PERMANENT_SDK_DEBUG_PROPERTIES,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
@@ -83,7 +84,7 @@ _EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE = (
 )
 
 
-def build_typed_events_json_recent_source(table: str) -> str:
+def build_typed_events_json_recent_source() -> str:
     """`events_json_recent` with its document columns converted to the column types of `events_json`.
 
     The stored documents leave out the declared defaults that `events_json` reads back, and a declared path converts
@@ -100,11 +101,11 @@ def build_typed_events_json_recent_source(table: str) -> str:
             CAST(person_properties, '{PERSON_PROPERTIES_JSON_TYPE()}') AS person_properties,
             CAST(temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties
         ),
-        {table}.properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["properties"]},
-        {table}.person_properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["person_properties"]},
-        {table}.temporary_properties AS {STORED_TEMPORARY_PROPERTIES_COLUMN},
+        {EVENTS_JSON_RECENT_TABLE}.properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["properties"]},
+        {EVENTS_JSON_RECENT_TABLE}.person_properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["person_properties"]},
+        {EVENTS_JSON_RECENT_TABLE}.temporary_properties AS {STORED_TEMPORARY_PROPERTIES_COLUMN},
         {elements_chain_columns}
-    FROM {table}
+    FROM {EVENTS_JSON_RECENT_TABLE}
     WHERE team_id = %(team_id)s::Int64
         AND inserted_at >= %(interval_start)s::DateTime64
         AND inserted_at < %(interval_end)s::DateTime64
