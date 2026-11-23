@@ -12,6 +12,10 @@ export interface WarehouseStatTileProps {
     meter?: Omit<WarehouseMeterProps, 'label'>
     /** Sits beside the label, such as a status badge. */
     badge?: React.ReactNode
+    /** `danger` colors the value, for a figure that is a problem by itself. */
+    tone?: 'default' | 'danger'
+    /** Extra content under the detail line, such as a tiny bar strip. */
+    children?: React.ReactNode
     'data-attr'?: string
 }
 
@@ -23,6 +27,8 @@ export function WarehouseStatTile({
     note,
     meter,
     badge,
+    tone = 'default',
+    children,
     'data-attr': dataAttr,
 }: WarehouseStatTileProps): JSX.Element {
     return (
@@ -34,7 +40,16 @@ export function WarehouseStatTile({
                     </Text>
                     {badge}
                 </div>
-                <Text size="lg" weight="semibold" className="truncate tabular-nums" render={<div />}>
+                <Text
+                    size="lg"
+                    weight="semibold"
+                    className={
+                        tone === 'danger'
+                            ? 'truncate tabular-nums text-destructive-foreground'
+                            : 'truncate tabular-nums'
+                    }
+                    render={<div />}
+                >
                     {value}
                 </Text>
                 {meter ? <WarehouseMeter {...meter} label={label} /> : null}
@@ -43,6 +58,7 @@ export function WarehouseStatTile({
                         {detail}
                     </Text>
                 ) : null}
+                {children}
                 {note ? (
                     <Text size="xs" variant="muted" render={<div />}>
                         {note}

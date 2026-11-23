@@ -15,7 +15,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { WarehouseGettingStarted } from './WarehouseGettingStarted'
 import { WarehouseHealth } from './WarehouseHealth'
 import { WarehouseHomeSummary } from './WarehouseHomeSummary'
-import { WarehouseHomeUsage } from './WarehouseHomeUsage'
+import { WarehousePipelineStats } from './WarehousePipelineStats'
+import { WarehousePipelinesWindow } from './WarehousePipelinesWindow'
 import { WarehouseRecentRuns } from './WarehouseRecentRuns'
 
 export const scene: SceneExport = {
@@ -44,15 +45,18 @@ export function WarehouseHomeScene(): JSX.Element {
                 <WarehouseGettingStarted />
                 <WarehouseHomeSummary />
                 <section aria-labelledby="warehouse-overview" className="flex flex-col gap-2">
-                    <Heading render={<h2 id="warehouse-overview" />} size="base" className="m-0">
-                        {consoleOn ? 'Pipelines' : 'Overview'}
-                    </Heading>
-                    <div className="grid gap-4 @3xl/warehouse-home:grid-cols-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Heading render={<h2 id="warehouse-overview" />} size="base" className="m-0">
+                            {consoleOn ? 'Pipelines' : 'Overview'}
+                        </Heading>
+                        <WarehousePipelinesWindow />
+                    </div>
+                    <WarehousePipelineStats />
+                    <div className="grid gap-3 @7xl/warehouse-home:grid-cols-2">
                         <WarehouseHealth />
                         <WarehouseRecentRuns />
                     </div>
                 </section>
-                <WarehouseHomeUsage />
             </div>
         </SceneContent>
     )

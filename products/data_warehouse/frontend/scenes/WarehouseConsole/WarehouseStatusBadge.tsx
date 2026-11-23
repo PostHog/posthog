@@ -9,6 +9,12 @@ const STATUS_STYLE: Record<string, { variant: BadgeVariant; label: string }> = {
     failed: { variant: 'destructive', label: 'Failed' },
     disabled: { variant: 'default', label: 'Disabled' },
     active: { variant: 'success', label: 'Active' },
+    // Run and health states of pipelines
+    completed: { variant: 'success', label: 'Completed' },
+    billinglimitreached: { variant: 'warning', label: 'Billing limit reached' },
+    billinglimittoolow: { variant: 'warning', label: 'Billing limit too low' },
+    billing_limit: { variant: 'warning', label: 'Billing limit' },
+    degraded: { variant: 'warning', label: 'Degraded' },
     // Readiness states of warehouse data
     not_configured: { variant: 'default', label: 'Not configured' },
     waiting: { variant: 'warning', label: 'Waiting' },

@@ -1,3 +1,5 @@
+import { Heading } from '@posthog/quill'
+
 import { WarehouseConsoleReady } from '../WarehouseConsole/WarehouseConsoleReady'
 import { WarehouseUsageStrip } from './WarehouseUsageStrip'
 
@@ -5,7 +7,10 @@ import { WarehouseUsageStrip } from './WarehouseUsageStrip'
 export function WarehouseHomeSummary(): JSX.Element {
     return (
         <WarehouseConsoleReady>
-            <section aria-label="Warehouse summary">
+            <section aria-labelledby="warehouse-summary" className="flex flex-col gap-2">
+                <Heading render={<h2 id="warehouse-summary" />} size="base" className="m-0">
+                    Warehouse
+                </Heading>
                 <WarehouseUsageStrip />
             </section>
         </WarehouseConsoleReady>

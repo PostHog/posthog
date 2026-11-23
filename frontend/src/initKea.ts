@@ -54,6 +54,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadWarehouseHomeHealthIssues', // Warehouse home renders its own retry state
     'loadWarehouseHomeRecentRuns', // Warehouse home renders its own retry state
+    'loadWarehouseHomeJobStats', // Warehouse home renders its own retry state
     'loadFunnels', // Special error handling on insights
     'authenticate', // Special error handling on login
     'signup', // Special error handling on login
