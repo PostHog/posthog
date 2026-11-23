@@ -16,6 +16,7 @@ export const NOTIFICATION_TYPE_OPTIONS: { label: string; value: WarehouseAlertDe
     { label: 'Discord', value: WarehouseAlertDestinationTypeEnumApi.Discord },
     { label: 'PagerDuty', value: WarehouseAlertDestinationTypeEnumApi.Pagerduty },
     { label: 'Webhook', value: WarehouseAlertDestinationTypeEnumApi.Webhook },
+    { label: 'Email', value: WarehouseAlertDestinationTypeEnumApi.Email },
 ]
 
 const TYPE_LABELS = Object.fromEntries(NOTIFICATION_TYPE_OPTIONS.map(({ label, value }) => [value, label])) as Record<
@@ -26,13 +27,19 @@ const TYPE_LABELS = Object.fromEntries(NOTIFICATION_TYPE_OPTIONS.map(({ label, v
 /**
  * How a destination reads in the list. A saved destination comes back redacted, with the webhook
  * reduced to its host and the PagerDuty key to its last four characters, so both shapes read the same.
+ * `memberNames` maps a user ID to the name an email destination shows for that member.
  */
-export function describeNotification(destination: WarehouseAlertCreateDestinationApi | WarehouseAlertDestinationApi): {
+export function describeNotification(
+    destination: WarehouseAlertCreateDestinationApi | WarehouseAlertDestinationApi,
+    memberNames: Record<number, string> = {}
+): {
     title: string
     detail?: string
 } {
     const title = TYPE_LABELS[destination.type] ?? destination.type
     switch (destination.type) {
+        case WarehouseAlertDestinationTypeEnumApi.Email:
+            return { title, detail: describeMembers(destination.email_user_ids ?? [], memberNames) }
         case WarehouseAlertDestinationTypeEnumApi.Slack:
             return { title, detail: `#${destination.slack_channel_name || destination.slack_channel_id || 'channel'}` }
         case WarehouseAlertDestinationTypeEnumApi.Pagerduty: {
@@ -52,6 +59,16 @@ export function describeNotification(destination: WarehouseAlertCreateDestinatio
         default:
             return { title, detail: webhookHost(destination.webhook_url) }
     }
+}
+
+function describeMembers(userIds: number[], memberNames: Record<number, string>): string {
+    const names = userIds.map((userId) => memberNames[userId]).filter((name): name is string => Boolean(name))
+    // A member who left the organization, or one not loaded yet, has no name to show.
+    const unnamed = userIds.length - names.length
+    if (unnamed > 0) {
+        names.push(names.length > 0 ? `${unnamed} more` : `${unnamed} project member${unnamed === 1 ? '' : 's'}`)
+    }
+    return names.join(', ')
 }
 
 function webhookHost(url: string | null | undefined): string | undefined {

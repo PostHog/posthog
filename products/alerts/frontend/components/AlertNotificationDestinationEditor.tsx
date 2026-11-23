@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { HogFunctionType, IntegrationType } from '~/types'
@@ -119,6 +120,12 @@ export interface AlertNotificationPagerDutyInput {
     onRegionChange: (value: AlertPagerDutyRegion) => void
 }
 
+export interface AlertNotificationMembersInput {
+    /** User IDs of the chosen organization members. */
+    value: number[]
+    onChange: (userIds: number[]) => void
+}
+
 export interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
     description?: ReactNode
     destinations: {
@@ -152,6 +159,7 @@ export interface AlertNotificationDestinationEditorProps<NotificationType extend
         onChange: (value: string) => void
     }
     pagerduty?: AlertNotificationPagerDutyInput
+    members?: AlertNotificationMembersInput
     add: {
         onClick: () => void
         disabledReason?: string
@@ -326,6 +334,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     slack,
     url,
     pagerduty,
+    members,
     add,
 }: AlertNotificationDestinationEditorProps<NotificationType>): JSX.Element {
     const addDestinationButton = (
@@ -340,7 +349,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
         </LemonButton>
     )
     const addDestinationButtonIsInline =
-        notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty)
+        notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty) || Boolean(members)
     const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => addDestinationOnEnter(event, add)
 
     let slackDestinationInput: JSX.Element | null = null
@@ -497,6 +506,22 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                             </fieldset>
                         </div>
                     </div>
+                ) : null}
+
+                {members ? (
+                    <fieldset className="space-y-1">
+                        <legend className="text-sm font-medium">Project members</legend>
+                        <div className="flex flex-col sm:flex-row items-start gap-2">
+                            <div className="flex-1 min-w-0 w-full">
+                                <MemberSelectMultiple
+                                    idKey="id"
+                                    value={members.value}
+                                    onChange={(users) => members.onChange(users.map((user) => user.id))}
+                                />
+                            </div>
+                            {addDestinationButton}
+                        </div>
+                    </fieldset>
                 ) : null}
 
                 {!addDestinationButtonIsInline ? addDestinationButton : null}

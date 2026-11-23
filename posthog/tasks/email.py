@@ -143,7 +143,11 @@ def get_members_to_notify(
 
 
 def get_members_to_notify_for_pipeline_error(
-    team: Team, failure_rate: float = 1.0, pipeline_id: Optional[str] = None
+    team: Team,
+    failure_rate: float = 1.0,
+    pipeline_id: Optional[str] = None,
+    *,
+    user_ids: Collection[int] | None = None,
 ) -> list[OrganizationMembership]:
     """
     Get members to notify for a data pipeline error, respecting threshold and per-pipeline opt-out.
@@ -152,11 +156,12 @@ def get_members_to_notify_for_pipeline_error(
         team: The team that owns the pipeline
         failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
         pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). Used for per-pipeline opt-out.
+        user_ids: Optional user IDs. Limits the check to those people.
 
     Returns:
         List of organization memberships to notify
     """
-    members_to_notify = get_members_to_notify(team, "plugin_disabled")
+    members_to_notify = get_members_to_notify(team, "plugin_disabled", user_ids=user_ids)
     locks_by_user = notification_locks_for_users(
         [member.user_id for member in members_to_notify], organization_id=team.organization_id
     )

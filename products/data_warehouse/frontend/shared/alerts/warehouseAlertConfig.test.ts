@@ -98,13 +98,17 @@ describe('warehouseAlertConfig', () => {
         })
     })
 
-    it('reads the default alert back into the form unchanged', () => {
+    // The form has no project members setting, so an edit must keep the stored one, such as the default alert's.
+    test.each([
+        ['leaves the settings alone', {}, ['source_id']],
+        ['changes another setting', { groupBy: 'schema' as const, targetIds: ['source-a'] }, ['schema_id']],
+    ])('keeps emailing project members when an edit %s', (_, changes, keys) => {
         const alert = makeAlert()
 
-        expect(buildEditBody(alert, formValuesFromAlert(alert))).toMatchObject({
+        expect(buildEditBody(alert, { ...formValuesFromAlert(alert), ...changes })).toMatchObject({
             name: alert.name,
-            source_config: { source_ids: [], group_by: 'source', email_project_members: true },
-            grouping: { keys: ['source_id'] },
+            source_config: { email_project_members: true },
+            grouping: { keys },
         })
     })
 
@@ -118,8 +122,11 @@ describe('warehouseAlertConfig', () => {
         expect(body.source_config).toBe(storedConfig)
     })
 
-    it('starts a new alert on the target it was opened from', () => {
-        expect(newWarehouseAlertForm('warehouse_destination', ['destination-a']).targetIds).toEqual(['destination-a'])
+    it('starts a new alert on the target it was opened from, emailing no project members', () => {
+        expect(newWarehouseAlertForm('warehouse_destination', ['destination-a'])).toMatchObject({
+            targetIds: ['destination-a'],
+            emailProjectMembers: false,
+        })
     })
 
     test.each([

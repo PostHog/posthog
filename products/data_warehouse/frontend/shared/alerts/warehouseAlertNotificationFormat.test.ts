@@ -12,4 +12,17 @@ describe('describeNotification', () => {
             describeNotification({ type: WarehouseAlertDestinationTypeEnumApi.Webhook, webhook_url: webhookUrl })
         ).toEqual({ title: 'Webhook', detail: expected })
     })
+
+    it.each([
+        ['the names of the members it emails', [1, 2], 'Ada Lovelace, grace@example.com'],
+        ['a count for members without a known name', [1, 7, 8], 'Ada Lovelace, 2 more'],
+        ['only a count when no member has a known name', [7], '1 project member'],
+    ])('shows %s', (_, userIds, expected) => {
+        expect(
+            describeNotification(
+                { type: WarehouseAlertDestinationTypeEnumApi.Email, email_user_ids: userIds },
+                { 1: 'Ada Lovelace', 2: 'grace@example.com' }
+            )
+        ).toEqual({ title: 'Email', detail: expected })
+    })
 })

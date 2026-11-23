@@ -1626,15 +1626,16 @@ export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
 
 export const warehouseAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
 export const warehouseAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+export const warehouseAlertsDestinationsCreateBodyEmailUserIdsMax = 100
 
 export const WarehouseAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty', 'email'])
         .describe(
-            '\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+            '\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty\n\* `email` - email'
         )
         .describe(
-            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty\n\* `email` - email'
         ),
     event_kinds: zod
         .array(zod.enum(['firing', 'resolved']).describe('\* `firing` - firing\n\* `resolved` - resolved'))
@@ -1666,6 +1667,14 @@ export const WarehouseAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object(
         .describe('\* `us` - us\n\* `eu` - eu')
         .default(warehouseAlertsDestinationsCreateBodyPagerdutyRegionDefault)
         .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
+    email_user_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(warehouseAlertsDestinationsCreateBodyEmailUserIdsMax)
+        .optional()
+        .describe(
+            'IDs of the project members to email. Required when type=email. Each send skips a member who lost access to the project or to warehouse sources, or who turned off data pipeline error emails.'
+        ),
 })
 
 /**

@@ -129262,6 +129262,7 @@ export namespace Schemas {
      * * `teams` - teams
      * * `discord` - discord
      * * `pagerduty` - pagerduty
+     * * `email` - email
      */
     export type WarehouseAlertDestinationTypeEnum = typeof WarehouseAlertDestinationTypeEnum[keyof typeof WarehouseAlertDestinationTypeEnum];
 
@@ -129272,6 +129273,7 @@ export namespace Schemas {
       Teams: 'teams',
       Discord: 'discord',
       Pagerduty: 'pagerduty',
+      Email: 'email',
     } as const;
 
     /**
@@ -129293,7 +129295,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `teams` - teams
        * * `discord` - discord
-       * * `pagerduty` - pagerduty */
+       * * `pagerduty` - pagerduty
+       * * `email` - email */
       type: WarehouseAlertDestinationTypeEnum;
       /**
          * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
@@ -129322,6 +129325,12 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * IDs of the project members to email. Required when type=email. Each send skips a member who lost access to the project or to warehouse sources, or who turned off data pipeline error emails.
+         * @minItems 1
+         * @maxItems 100
+         */
+      email_user_ids?: number[];
     }
 
     export interface WarehouseAlertDeleteDestination {
@@ -129342,7 +129351,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `teams` - teams
        * * `discord` - discord
-       * * `pagerduty` - pagerduty */
+       * * `pagerduty` - pagerduty
+       * * `email` - email */
       type: WarehouseAlertDestinationTypeEnum;
       /** Whether the destination is sent to. */
       enabled: boolean;
@@ -129370,6 +129380,8 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /** IDs of the project members to email. Set when type=email. */
+      email_user_ids?: number[];
     }
 
     export interface WarehouseConnection {

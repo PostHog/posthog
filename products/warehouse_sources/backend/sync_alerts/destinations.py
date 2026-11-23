@@ -23,6 +23,7 @@ WAREHOUSE_ALERT_DESTINATION_TYPES: Final = (
     DestinationType.TEAMS,
     DestinationType.DISCORD,
     DestinationType.PAGERDUTY,
+    DestinationType.EMAIL,
 )
 
 # What a destination may ask to hear about. An incident manager hears every incident edge whatever it asks for.

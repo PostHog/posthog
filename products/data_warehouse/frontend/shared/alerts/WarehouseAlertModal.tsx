@@ -25,7 +25,7 @@ import { WarehouseAlertsLogicProps, warehouseAlertsLogic } from './warehouseAler
 
 export function WarehouseAlertModal(props: WarehouseAlertsLogicProps): JSX.Element {
     const logic = warehouseAlertModalLogic(props)
-    const { isOpen, editing, isAlertFormSubmitting } = useValues(logic)
+    const { isOpen, editing, isAlertFormSubmitting, alertForm } = useValues(logic)
     const { closeModal, submitAlertForm } = useActions(logic)
     const { targetOptions } = useValues(warehouseAlertsLogic(props))
     const { deleteAlert } = useActions(warehouseAlertsLogic(props))
@@ -141,17 +141,6 @@ export function WarehouseAlertModal(props: WarehouseAlertsLogicProps): JSX.Eleme
                     </>
                 ) : null}
 
-                <LemonField name="emailProjectMembers">
-                    {({ value, onChange }) => (
-                        <LemonCheckbox
-                            checked={value}
-                            onChange={onChange}
-                            label="Email the project members who get data pipeline error emails"
-                            data-attr="warehouse-alert-email-members"
-                        />
-                    )}
-                </LemonField>
-
                 {editing ? (
                     <LemonField name="enabled">
                         {({ value, onChange }) => (
@@ -168,7 +157,13 @@ export function WarehouseAlertModal(props: WarehouseAlertsLogicProps): JSX.Eleme
             </Form>
 
             <LemonDivider className="my-4" />
-            <h4 className="mb-2">Other notification destinations</h4>
+            <h4 className="mb-2">Notification destinations</h4>
+            {/* The form does not set this. The default alert sets it, and an edit keeps the stored value. */}
+            {alertForm.emailProjectMembers ? (
+                <p className="text-xs text-muted-alt mb-2" data-attr="warehouse-alert-emails-project-members">
+                    This alert also emails the project members who get data pipeline error emails.
+                </p>
+            ) : null}
             {/* Mounted only while open, so a closed modal drops destinations a new alert never saved. */}
             {isOpen ? <WarehouseAlertNotifications alertId={editing?.id} /> : null}
         </LemonModal>

@@ -22,6 +22,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
@@ -35,6 +36,7 @@ from products.alerts_platform.backend.facade.api import (
     delete_alert_destinations,
     get_configuration,
     list_alert_destinations,
+    validate_destination_data as validate_platform_destination_data,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -82,6 +84,8 @@ _EVENT_KINDS_HELP = (
 
 
 _WEBHOOK_FIELDS: Final = ("webhook_url",)
+# Only stops a malformed request becoming a huge access query.
+_MAX_EMAIL_USERS: Final = 100
 # The settings each type keeps. The serializer accepts every type's fields and fills the PagerDuty
 # defaults for all of them, and a field of another type can hold a credential that its redaction misses.
 _FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
@@ -90,6 +94,8 @@ _FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: _WEBHOOK_FIELDS,
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+    # Users only. A typed address would skip the access check delivery runs on each user.
+    DestinationType.EMAIL: ("email_user_ids",),
 }
 
 
@@ -97,6 +103,8 @@ def _split(attrs: dict[str, Any]) -> tuple[AlertDestinationData, tuple[AlertEven
     """A create request's destination settings, apart from the kinds it asks to hear about."""
     destination_type = DestinationType(attrs["type"])
     data: dict[str, Any] = {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs}
+    if "email_user_ids" in data:
+        data["email_user_ids"] = sorted(set(data["email_user_ids"]))
     data["type"] = destination_type
     return cast(AlertDestinationData, data), tuple(AlertEventKind(kind) for kind in attrs["event_kinds"])
 
@@ -133,6 +141,11 @@ class WarehouseAlertDestinationSerializer(serializers.Serializer):
         choices=PagerDutyRegionChoices.choices,
         required=False,
         help_text="PagerDuty service region the events go to.",
+    )
+    email_user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="IDs of the project members to email. Set when type=email.",
     )
 
 
@@ -174,14 +187,41 @@ class WarehouseAlertCreateDestinationSerializer(serializers.Serializer):
         default=PagerDutyRegion.US.value,
         help_text="PagerDuty service region of the account. Used when type=pagerduty.",
     )
+    email_user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        min_length=1,
+        max_length=_MAX_EMAIL_USERS,
+        help_text=(
+            "IDs of the project members to email. Required when type=email. Each send skips a member who "
+            "lost access to the project or to warehouse sources, or who turned off data pipeline error emails."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "email_addresses" in self.initial_data:
+            raise ValidationError(
+                {"email_addresses": "Warehouse alerts email project members only. Send email_user_ids instead."}
+            )
         data, _ = _split(attrs)
         try:
-            validate_destination_data(data, allowed_destination_types=WAREHOUSE_ALERT_DESTINATION_TYPES)
+            if data["type"] == DestinationType.EMAIL:
+                if not data.get("email_user_ids"):
+                    raise ValidationError({"email_user_ids": "Choose at least one project member to email."})
+                validate_platform_destination_data(data)
+                self._refuse_users_without_project_access(data["email_user_ids"])
+            else:
+                validate_destination_data(data, allowed_destination_types=WAREHOUSE_ALERT_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
         return attrs
+
+    def _refuse_users_without_project_access(self, user_ids: list[int]) -> None:
+        team: Team = self.context["team"]
+        uuids = [str(uuid) for uuid in User.objects.filter(id__in=user_ids).values_list("uuid", flat=True)]
+        allowed = set(team.all_users_with_access(user_uuids=uuids).values_list("id", flat=True))
+        if set(user_ids) - allowed:
+            raise ValidationError({"email_user_ids": "Choose people who can access this project."})
 
 
 class WarehouseAlertDeleteDestinationSerializer(serializers.Serializer):
@@ -194,12 +234,18 @@ class WarehouseAlertDeleteDestinationSerializer(serializers.Serializer):
 
 
 def _serialized(destination: StoredAlertDestination) -> dict[str, Any]:
+    # Email is not a HogFunction destination, so the insight alert redaction has no spec for it. It holds no credential.
+    data = (
+        destination.data
+        if destination.data["type"] == DestinationType.EMAIL
+        else redact_destination_data(destination.data)
+    )
     return WarehouseAlertDestinationSerializer(
         {
             "id": destination.id,
             "enabled": destination.enabled,
             "event_kinds": [kind.value for kind in destination.event_kinds],
-            **redact_destination_data(destination.data),
+            **data,
         }
     ).data
 
@@ -256,7 +302,7 @@ class WarehouseAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     @destinations.mapping.post
     def create_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
         alert = self._alert(pk)
-        serializer = WarehouseAlertCreateDestinationSerializer(data=request.data)
+        serializer = WarehouseAlertCreateDestinationSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data, event_kinds = _split(serializer.validated_data)
         try:

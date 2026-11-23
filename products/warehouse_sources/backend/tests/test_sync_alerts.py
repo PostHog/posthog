@@ -51,7 +51,10 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.presentation.views import warehouse_alert_destinations as destinations_view
 from products.warehouse_sources.backend.sync_alerts.default_alert import DEFAULT_FAILURE_ALERT_FLAG
 from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND, WAREHOUSE_ALERTS_FLAG
-from products.warehouse_sources.backend.sync_alerts.email_recipients import project_member_emails
+from products.warehouse_sources.backend.sync_alerts.email_recipients import (
+    project_member_emails,
+    subscribers_with_warehouse_access,
+)
 from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_warehouse_alert_batch
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
@@ -679,6 +682,9 @@ class TestWarehouseAlerts(APIBaseTest):
         if who == "opted_out":
             person.partial_notification_settings = {"plugin_disabled": False}
             person.save()
+        if who == "deactivated":
+            person.is_active = False
+            person.save(update_fields=["is_active"])
         if who in ("no_project_access", "no_warehouse_access"):
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -724,6 +730,109 @@ class TestWarehouseAlerts(APIBaseTest):
         assert project_member_emails(team_id=self.team.id, configuration_id=configuration_id) == (
             expected if email_project_members else []
         )
+
+    @parameterized.expand(
+        [
+            ("a_member", "member", True),
+            ("not_a_member_who_turned_off_pipeline_emails", "opted_out", False),
+            ("not_a_member_without_project_access", "no_project_access", False),
+            ("not_a_member_without_warehouse_access", "no_warehouse_access", False),
+            ("not_a_user_of_another_organization", "another_organization", False),
+            ("not_a_deactivated_member", "deactivated", False),
+        ]
+    )
+    def test_an_email_destination_reaches_only_the_named_users_with_warehouse_access(
+        self, _name: str, who: str, reached: bool
+    ) -> None:
+        person = self._person(who)
+        configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+
+        assert subscribers_with_warehouse_access(
+            team_id=self.team.id, configuration_id=configuration_id, user_ids=[self.user.id, person.id]
+        ) == sorted([self.user.id, person.id] if reached else [self.user.id])
+
+    @parameterized.expand([(SourceKind.WAREHOUSE_SOURCE,), (SourceKind.WAREHOUSE_DESTINATION,)])
+    def test_a_failure_emails_the_users_an_email_destination_names(self, kind: SourceKind) -> None:
+        member = self._person("member")
+        self._person("bystander")
+        if kind == SourceKind.WAREHOUSE_SOURCE:
+            self._schema(self._source(), "charges", Status.FAILED)
+            configuration_id = self._alert(kind, {"group_by": "source"}, "source_id")
+        else:
+            self._destination("Snowflake prod", DestinationStatus.FAILING, latest_error="Wrong password")
+            configuration_id = self._alert(kind, {}, "destination_id")
+        added = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/",
+            {"type": "email", "email_user_ids": [member.id]},
+            format="json",
+        )
+        assert added.status_code == status.HTTP_201_CREATED, added.json()
+        evaluation = self._evaluate(kind)
+        with team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
+        (delivery,) = evaluation.deliveries
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(EMAIL_ENABLED=True):
+            platform_testing.deliver(delivery)
+
+        assert [address for message in mail.outbox for address in message.to] == [member.email]
+
+    @parameterized.expand(
+        [
+            ("project_members", SourceKind.WAREHOUSE_SOURCE, {"email_user_ids": ["member", "me", "member"]}, None),
+            (
+                "typed_addresses",
+                SourceKind.WAREHOUSE_SOURCE,
+                {"email_addresses": ["someone@example.com"]},
+                "email_addresses",
+            ),
+            (
+                "typed_addresses_beside_members",
+                SourceKind.WAREHOUSE_DESTINATION,
+                {"email_user_ids": ["member"], "email_addresses": ["someone@example.com"]},
+                "email_addresses",
+            ),
+            ("nobody", SourceKind.WAREHOUSE_SOURCE, {"email_user_ids": []}, "email_user_ids"),
+            ("no_user_ids", SourceKind.WAREHOUSE_SOURCE, {}, "email_user_ids"),
+            (
+                "a_user_of_another_organization",
+                SourceKind.WAREHOUSE_SOURCE,
+                {"email_user_ids": ["me", "another_organization"]},
+                "email_user_ids",
+            ),
+            ("an_unknown_user", SourceKind.WAREHOUSE_SOURCE, {"email_user_ids": [987654321]}, "email_user_ids"),
+        ]
+    )
+    def test_an_email_destination_names_project_members_only(
+        self, _name: str, kind: SourceKind, fields: dict[str, Any], refused_attr: str | None
+    ) -> None:
+        people = {
+            "me": self.user,
+            "member": self._person("member"),
+            "another_organization": self._person("another_organization"),
+        }
+        if "email_user_ids" in fields:
+            fields = {
+                **fields,
+                "email_user_ids": [people[who].id if isinstance(who, str) else who for who in fields["email_user_ids"]],
+            }
+        grouping_key = "source_id" if kind == SourceKind.WAREHOUSE_SOURCE else "destination_id"
+        configuration_id = self._alert(kind, {}, grouping_key)
+        destinations_url = f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/"
+
+        response = self.client.post(destinations_url, {"type": "email", **fields}, format="json")
+
+        if refused_attr is not None:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == refused_attr
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration_id) == ()
+            return
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert listed == response.json()
+        assert (listed["type"], listed["email_user_ids"]) == ("email", sorted([self.user.id, people["member"].id]))
+        assert "email_addresses" not in listed
 
     def test_a_failing_table_emails_the_project_members_of_an_alert_that_emails_them(self) -> None:
         self._person("member")
