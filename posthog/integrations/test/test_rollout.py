@@ -56,6 +56,7 @@ class TestDualWriteRollout(BaseTest):
     ) -> MagicMock:
         mock = MagicMock(return_value=result, side_effect=side_effect)
         for name, value in (
+            ("setup", MagicMock(return_value=MagicMock(disabled=False))),
             ("get_feature_flag_result", mock),
             ("feature_flag_definitions", MagicMock(return_value=definitions)),
         ):
@@ -140,6 +141,16 @@ class TestDualWriteRollout(BaseTest):
             assert dual_write_kinds(self.team.id) == frozenset()
             assert dual_write_kinds(self.team.id) == frozenset()
         assert evaluate.call_count == 1
+        assert _flag_errors() == errors_before
+
+    def test_disabled_sdk_reads_off_and_is_cached(self) -> None:
+        assert rollout.posthoganalytics.setup().disabled
+        errors_before = _flag_errors()
+
+        with self.assertNoLogs(level="WARNING"):
+            assert dual_write_kinds(self.team.id) == frozenset()
+        with self.assertNumQueries(0):
+            assert dual_write_kinds(self.team.id) == frozenset()
         assert _flag_errors() == errors_before
 
     @parameterized.expand(

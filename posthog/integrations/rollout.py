@@ -157,6 +157,11 @@ def _load_teams(team_ids: list[int]) -> dict[int, _TeamIdentity]:
 
 def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
     try:
+        # A disabled SDK (tests, opted-out installs, self-capture) never evaluates flags. That is off,
+        # not a failure, so it is cached and not counted.
+        if posthoganalytics.setup().disabled:
+            _cache.put(team.id, NO_KINDS)
+            return NO_KINDS
         result = posthoganalytics.get_feature_flag_result(
             DUAL_WRITE_FLAG,
             str(team.uuid),
