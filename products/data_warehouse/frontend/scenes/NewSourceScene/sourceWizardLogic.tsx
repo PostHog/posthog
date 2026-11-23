@@ -18,6 +18,7 @@ import { delay } from 'lib/utils/async'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -34,10 +35,12 @@ import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
     externalDataSourcesIncrementalFieldRecommendationsCreate,
+    externalDataSourcesList,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import {
     ExternalDataSourceBulkUpdateSchemaApi,
+    ExternalDataSourceSerializersApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -334,61 +337,71 @@ export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sour
 }
 
 // The create request can commit the source and then lose its response to a dropped connection or a
-// proxy that stopped waiting. A retry then fails with "You already have a source of this type", and
-// that message's advice to add a prefix makes a second copy. The API allows one source per type and
-// prefix, so a match that was not in the list before the request is the source that request created.
-function findSourceCreatedBeforeResponseLost(
-    sources: ExternalDataSource[],
-    sourceType: string,
-    prefix: string | null | undefined,
+// gateway that stopped waiting. A retry then fails with "You already have a source of this type", and
+// that message's advice to add a prefix makes a second copy. 502 and 504 come from the gateway, so the
+// create may still have run behind them.
+function createResponseWasLost(error: unknown): boolean {
+    if (error instanceof NetworkError || error instanceof ResponseBodyReadError) {
+        return true
+    }
+    const status = (error as { status?: unknown } | null)?.status
+    return status === 502 || status === 504
+}
+
+interface LostCreateLookup {
+    teamId: string
+    sourceType: string
+    prefix: string
+    createdBy: string
+    expectedSchemaCount: number
     knownSourceIds: ReadonlySet<string>
-): ExternalDataSource | undefined {
-    const wantedPrefix = prefix?.trim() ?? ''
-    return sources.find(
-        (source) =>
-            source.source_type === sourceType &&
-            (source.prefix?.trim() ?? '') === wantedPrefix &&
-            !knownSourceIds.has(source.id)
-    )
+}
+
+// The API allows one source per type and prefix. A match that this user created and that was not in the
+// list before the request is the source that request created.
+async function findSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
+    let page: { results: readonly ExternalDataSourceSerializersApi[]; next?: string | null } =
+        await externalDataSourcesList(lookup.teamId, { include_schemas: false })
+    for (;;) {
+        const created = page.results.find(
+            (source) =>
+                source.source_type === lookup.sourceType &&
+                (source.prefix?.trim() ?? '') === lookup.prefix &&
+                source.created_by === lookup.createdBy &&
+                !lookup.knownSourceIds.has(source.id)
+        )
+        if (created) {
+            return created.id
+        }
+        if (!page.next) {
+            return null
+        }
+        // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
+        page = await api.get<PaginatedResponse<ExternalDataSourceSerializersApi>>(page.next)
+    }
+}
+
+// The create can still delete the source while it sets up its tables. Without change data capture,
+// every check that can do that runs before the last table exists, so a source with all its tables stays.
+async function hasFinishedSetup(lookup: LostCreateLookup, sourceId: string): Promise<boolean> {
+    const source = await externalDataSourcesRetrieve(lookup.teamId, sourceId, { compact: true })
+    return source.schemas.length >= lookup.expectedSchemaCount
 }
 
 // The server can still be inside the create request when the connection drops, so look again for a
 // few seconds before giving up.
 const LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS = [0, 2000, 4000]
 
-async function listAllSources(): Promise<ExternalDataSource[]> {
-    const firstPage = await api.externalDataSources.list()
-    const results = [...firstPage.results]
-    let next = firstPage.next
-    while (next) {
-        // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
-        const page = await api.get<PaginatedResponse<ExternalDataSource>>(next)
-        results.push(...page.results)
-        next = page.next
-    }
-    return results
-}
-
-async function recoverSourceCreatedBeforeResponseLost(
-    error: unknown,
-    sourceType: string,
-    prefix: string | null | undefined,
-    knownSourceIds: ReadonlySet<string>
-): Promise<string | null> {
-    if (!(error instanceof NetworkError || error instanceof ResponseBodyReadError)) {
-        return null
-    }
+async function recoverSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
     for (const delayMs of LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS) {
         await delay(delayMs)
-        let sources: ExternalDataSource[]
         try {
-            sources = await listAllSources()
+            const sourceId = await findSourceCreatedBeforeResponseLost(lookup)
+            if (sourceId && (await hasFinishedSetup(lookup, sourceId))) {
+                return sourceId
+            }
         } catch {
-            return null
-        }
-        const created = findSourceCreatedBeforeResponseLost(sources, sourceType, prefix, knownSourceIds)
-        if (created) {
-            return created.id
+            // The connection that lost the response can still be down. Use the next attempt.
         }
     }
     return null
@@ -1356,6 +1369,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentTeamId'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             sourceManagementLogic,
@@ -2553,7 +2568,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     : null
 
             const sourceType = values.selectedConnector.name
-            const knownSourceIds = new Set(values.dataWarehouseSources?.results.map((source) => source.id) ?? [])
+            // Without a loaded list or a signed-in user, an older source can't be told from the new one.
+            // Change data capture can still delete the source after its last table, so it never recovers.
+            const lostCreateLookup: LostCreateLookup | null =
+                values.dataWarehouseSources &&
+                values.user?.email &&
+                values.currentTeamId &&
+                !values.source.payload?.cdc_enabled
+                    ? {
+                          teamId: String(values.currentTeamId),
+                          sourceType,
+                          prefix: values.source.prefix?.trim() ?? '',
+                          createdBy: values.user.email,
+                          expectedSchemaCount: values.source.payload?.schemas?.length ?? 0,
+                          knownSourceIds: new Set(values.dataWarehouseSources.results.map((source) => source.id)),
+                      }
+                    : null
 
             try {
                 let id: string
@@ -2572,12 +2602,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : {}),
                     }))
                 } catch (createError) {
-                    const recoveredId = await recoverSourceCreatedBeforeResponseLost(
-                        createError,
-                        sourceType,
-                        values.source.prefix,
-                        knownSourceIds
-                    )
+                    const recoveredId =
+                        lostCreateLookup &&
+                        lostCreateLookup.expectedSchemaCount > 0 &&
+                        createResponseWasLost(createError)
+                            ? await recoverSourceCreatedBeforeResponseLost(lostCreateLookup)
+                            : null
                     if (!recoveredId) {
                         throw createError
                     }
