@@ -241,9 +241,8 @@ tools:
             lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default (`compact:
             true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated
             latest_error; pass `compact: false` for the full sync configuration, including `incremental_sync_blocked`
-            and `webhook_issue`.
-            `live_query_enabled` marks a table that is queryable live without syncing; synced tables are queryable live
-            too, unless `live_query_unavailable_reason` on the full row says otherwise.
+            and `webhook_issue`. `live_query_enabled` marks a table that is queryable live without syncing; synced
+            tables are queryable live too, unless `live_query_unavailable_reason` on the full row says otherwise.
         param_overrides:
             compact:
                 description: >
@@ -351,9 +350,8 @@ tools:
             metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the
             last run could not merge on the primary key, and its description lists the resolutions. For a webhook-sync
             table that reads Completed but gets no new rows, read `webhook_issue`: it names why the webhook drops the
-            table's events. For live queries,
-            read `live_query_enabled`, `live_query_unavailable_reason`, and `source.direct_query_enabled`, which is true
-            when the source serves live queries.
+            table's events. For live queries, read `live_query_enabled`, `live_query_unavailable_reason`, and
+            `source.direct_query_enabled`, which is true when the source serves live queries.
         param_overrides:
             id:
                 aliases:
