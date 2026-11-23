@@ -98,8 +98,8 @@ The two calls return different sets of events.
 plus its `$ai_metric` and `$ai_feedback` events, so a trace can come back with few events or none.
 Either call can also drop trailing events to fit the response size limit.
 A `_truncated` object then reports `omittedEvents` and `totalEvents`. For the list, `totalEvents` counts only the events it fetched.
-The list can also drop whole traces and end with a `_truncated` entry that reports `omittedTraces`.
-To fetch the rest, add the number of traces you got back to `offset` and re-run; this does not work with `randomOrder`.
+The list can also drop whole traces and end with a `_truncated` entry that reports `omittedTraces` and `totalTraces`.
+To fetch the rest, add `totalTraces - omittedTraces` to `offset` and re-run; this does not work with `randomOrder`.
 Treat a short or empty `events` array from the list, or any `_truncated` marker, as incomplete, not as evidence the trace is clean.
 For the complete tree, call `query-llm-trace` for that trace, and open `_posthogUrl` if that response is truncated too.
 
