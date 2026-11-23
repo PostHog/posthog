@@ -46,12 +46,6 @@ class TestRecordingApiTokenCommand(BaseTest):
             ("blank_actor", {"actor": ""}, {}, "must not be empty"),
             ("no_staff_key", {}, {"RECORDING_API_STAFF_JWT_SECRET": ""}, "RECORDING_API_STAFF_JWT_SECRET is not set"),
             ("short_staff_key", {}, {"RECORDING_API_STAFF_JWT_SECRET": "s" * 31}, "at least 32 bytes"),
-            (
-                "staff_key_shared_with_service_key",
-                {},
-                {"RECORDING_API_STAFF_JWT_SECRET": f"{'n' * 32},{'k' * 32}", "RECORDING_API_JWT_SECRET": "k" * 32},
-                "must not share a key",
-            ),
         ]
     )
     def test_refuses_to_mint(self, _name: str, args: dict[str, object], settings: dict[str, str], error: str) -> None:

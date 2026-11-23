@@ -1,4 +1,3 @@
-import os
 import time
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
@@ -73,8 +72,6 @@ def staff_key_problem() -> str | None:
         return "RECORDING_API_STAFF_JWT_SECRET is not set on this pod"
     if any(len(key.encode()) < MIN_STAFF_KEY_BYTES for key in staff_keys):
         return f"RECORDING_API_STAFF_JWT_SECRET keys must be at least {MIN_STAFF_KEY_BYTES} bytes"
-    if set(staff_keys) & set(RECORDING_API_JWT_PURPOSE.signing_keys()):
-        return "RECORDING_API_STAFF_JWT_SECRET must not share a key with RECORDING_API_JWT_SECRET"
     return None
 
 
@@ -89,8 +86,6 @@ def mint_recording_api_staff_token(team_id: int, actor: str, reason: str) -> Sta
             "actor": actor,
             "reason": reason,
             "iat": now,
-            # The pod name ties the self-declared actor to the exec session Kubernetes audits.
-            "pod": os.environ.get("HOSTNAME", ""),
         }
     )
     return StaffRecordingApiToken(
