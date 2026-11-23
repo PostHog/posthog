@@ -17,6 +17,8 @@ from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
 from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFinder, lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
+
 _T_AST = TypeVar("_T_AST", bound=ast.AST | None)
 
 _MAX_NUMBERS_ROWS = 10_000
@@ -619,6 +621,12 @@ class TrinoDuplicateOutputNameLowerer(CloningVisitor):
         return lowered
 
 
+@frozen
+class _AggregatedUnnest:
+    query: ast.SelectQuery
+    pending_unnests: list[tuple[str, str, ast.Expr]]
+
+
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
@@ -633,7 +641,8 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         pending = self.pending_unnests
         self.pending_unnests = outer_pending
         if any(_reads_an_aggregate(array_expr) for _, _, array_expr in pending):
-            lowered, pending = self._aggregate_before_unnest(lowered, pending)
+            aggregated = self._aggregate_before_unnest(lowered, pending)
+            lowered, pending = aggregated.query, aggregated.pending_unnests
         for table_name, output_name, array_expr in pending:
             join = ast.JoinExpr(
                 join_type="CROSS JOIN" if lowered.select_from is not None else None,
@@ -653,7 +662,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
 
     def _aggregate_before_unnest(
         self, query: ast.SelectQuery, pending: list[tuple[str, str, ast.Expr]]
-    ) -> tuple[ast.SelectQuery, list[tuple[str, str, ast.Expr]]]:
+    ) -> _AggregatedUnnest:
         output_names = _aggregated_unnest_output_names(query, pending)
         assert isinstance(query.type, ast.SelectQueryType)
         unnested_positions = _positions_reading_names(
@@ -710,7 +719,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         query.select = inner_select
         query.type = dataclasses.replace(query.type, columns=inner_columns)
         _clear_outer_clauses(query)
-        return outer, unnest_pending
+        return _AggregatedUnnest(query=outer, pending_unnests=unnest_pending)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         if node.name.lower() != "arrayjoin":
