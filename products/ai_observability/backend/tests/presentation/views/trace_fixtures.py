@@ -1,15 +1,25 @@
 import base64
-from datetime import UTC, datetime
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.ai_observability.backend.facade import api
+from products.ai_observability.backend.presentation.views import trace_resource
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
@@ -78,6 +88,51 @@ def create_node_trace(
     bulk_create_ai_events(events)
 
 
+class TraceEvents:
+    """Events written to both `ai_events` and the shared `events` table, each with its own uuid, so that a list
+    selects its traces on one table and reads their rows from the other."""
+
+    def __init__(self, team: Team, *, start: datetime = T0) -> None:
+        self.team = team
+        self.start = start
+        self._events: list[dict[str, object]] = []
+        self._trace_ids: list[str] = []
+
+    def add(
+        self,
+        trace_id: str,
+        *,
+        event: str = "$ai_generation",
+        minutes: int = 0,
+        properties: dict[str, object] | None = None,
+        person_id: str | None = None,
+        distinct_id: str = "user-1",
+    ) -> None:
+        self._events.append(
+            {
+                "event": event,
+                "event_uuid": f"00000000-0000-4000-8000-{len(self._events):012d}",
+                "distinct_id": distinct_id,
+                "team": self.team,
+                "timestamp": self.start + timedelta(minutes=minutes),
+                "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, **(properties or {})},
+                **({"person_id": person_id} if person_id is not None else {}),
+            }
+        )
+        self._trace_ids.append(trace_id)
+
+    def seed(self, *, aged_out: Collection[str] = ()) -> None:
+        bulk_create_events(self._events)
+        bulk_create_ai_events(
+            [event for event, trace_id in zip(self._events, self._trace_ids) if trace_id not in aged_out]
+        )
+
+    def seed_traces(self, *trace_ids: str) -> None:
+        for minutes, trace_id in enumerate(trace_ids):
+            self.add(trace_id, minutes=minutes)
+        self.seed()
+
+
 def restrict_property(test: APIBaseTest, name: str) -> None:
     test.organization.available_product_features = [
         {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -96,3 +151,53 @@ def restrict_property(test: APIBaseTest, name: str) -> None:
 
 def encode_segment(trace_id: str) -> str:
     return base64.urlsafe_b64encode(trace_id.encode()).decode().rstrip("=")
+
+
+PAGE_BOUNDS = {"earliest_created_at": T0.isoformat(), "latest_created_at": T0.isoformat()}
+
+
+def post_page_read(
+    test: APIBaseTest, read: str, body: Mapping[str, object], *, scopes: list[str] | None = None
+) -> "_MonkeyPatchedResponse":
+    headers = {}
+    if scopes is not None:
+        test.client.logout()
+        headers["authorization"] = f"Bearer {test.create_personal_api_key_with_scopes(scopes)}"
+    return test.client.post(
+        f"/api/projects/{test.team.id}/ai_observability/traces/{read}/", body, format="json", headers=headers
+    )
+
+
+class QuerySlotRecorder:
+    def __init__(self) -> None:
+        self.holding = False
+        self.loaded_while_holding: list[bool] = []
+        self.built_while_holding: list[bool] = []
+
+    @contextmanager
+    def slot(self, _team: Team) -> Iterator[None]:
+        self.holding = True
+        try:
+            yield
+        finally:
+            self.holding = False
+
+    @contextmanager
+    def recording(self, load_name: str) -> Iterator["QuerySlotRecorder"]:
+        load = getattr(api, load_name)
+
+        def loading(*args: Any, **kwargs: Any) -> Callable[[], object]:
+            self.loaded_while_holding.append(self.holding)
+            build = load(*args, **kwargs)
+
+            def recording_build() -> object:
+                self.built_while_holding.append(self.holding)
+                return build()
+
+            return recording_build
+
+        with (
+            patch.object(trace_resource, "query_concurrency_slots", self.slot),
+            patch.object(api, load_name, side_effect=loading),
+        ):
+            yield self

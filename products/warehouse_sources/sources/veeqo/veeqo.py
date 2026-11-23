@@ -171,6 +171,32 @@ def _product_stock_entries(product: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _product_properties(product: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {**specific, "sellable_id": sellable.get("id"), "product_id": product.get("id")}
+        for sellable in product.get("sellables") or []
+        if isinstance(sellable, dict)
+        for specific in sellable.get("variant_option_specifics") or []
+        if isinstance(specific, dict)
+    ]
+
+
+def _without_activation_code(user: Any) -> Any:
+    if not isinstance(user, dict):
+        return user
+    return {key: value for key, value in user.items() if key != "activation_code"}
+
+
+def _company(company: dict[str, Any]) -> dict[str, Any]:
+    # The embedded user records carry each user's account activation code, which is a credential.
+    row = dict(company)
+    if "owner" in row:
+        row["owner"] = _without_activation_code(row["owner"])
+    if isinstance(row.get("employees"), list):
+        row["employees"] = [_without_activation_code(user) for user in row["employees"]]
+    return row
+
+
 def _order_shipments(order: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[Any] = set()
@@ -196,6 +222,12 @@ def _product_kits(product: dict[str, Any]) -> list[dict[str, Any]]:
 _NESTED_ROW_MAPS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
     "returns": _order_returns,
     "stock_entries": _product_stock_entries,
+    "product_properties": _product_properties,
+}
+
+# Reshapes each record of a table that is not `nested`, one row per record.
+_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "company": _company,
 }
 
 # Derives the ids a fan-out child requests from each parent record.
@@ -332,6 +364,17 @@ def veeqo_source(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        # Veeqo list responses are bare JSON arrays (no wrapper key) —
+        # fail loud if the response shape ever changes.
+        "data_selector_required": True,
+        "paginator": SinglePagePaginator() if config.single_page else VeeqoPaginator(page_size=config.page_size),
+    }
+    if config.data_selector is not None:
+        endpoint_config["data_selector"] = config.data_selector
+
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {
@@ -346,16 +389,7 @@ def veeqo_source(
             {
                 "name": endpoint,
                 "table_name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # Veeqo list responses are bare JSON arrays (no wrapper key) —
-                    # fail loud if the response shape ever changes.
-                    "data_selector_required": True,
-                    "paginator": SinglePagePaginator()
-                    if config.single_page
-                    else VeeqoPaginator(page_size=config.page_size),
-                },
+                "endpoint": endpoint_config,
                 "table_format": "delta",
             }
         ],
@@ -383,5 +417,7 @@ def veeqo_source(
 
     if config.nested:
         resource.add_map(_NESTED_ROW_MAPS[endpoint])
+    elif endpoint in _ROW_MAPS:
+        resource.add_map(_ROW_MAPS[endpoint])
 
     return _source_response(endpoint, config, lambda: resource, column_hints=resource.column_hints)

@@ -110,6 +110,28 @@ class TestMercuryTopLevelEndpoints:
                 [{"requestId": "r1"}, {"requestId": "r2"}],
             ),
             (
+                "TransferApprovalRequests",
+                [
+                    {"requests": [{"requestId": "tr-1"}], "page": {"nextPage": "tr-1"}},
+                    {"requests": [{"requestId": "tr-2"}], "page": {"nextPage": None}},
+                ],
+                "/request-transfer",
+                "asc",
+                [None, "tr-1"],
+                [{"requestId": "tr-1"}, {"requestId": "tr-2"}],
+            ),
+            (
+                "Reimbursements",
+                [
+                    {"reimbursements": [{"id": "re-1"}], "page": {"nextPage": "re-1"}},
+                    {"reimbursements": [], "page": {}},
+                ],
+                "/spend/reimbursements",
+                "asc",
+                [None, "re-1"],
+                [{"id": "re-1"}],
+            ),
+            (
                 "RecipientInvites",
                 [
                     {"invites": [{"id": "inv-1"}], "page": {"nextPage": "inv-1"}},
@@ -167,6 +189,7 @@ class TestMercuryFanoutEndpoints:
             "expected_paths",
             "cursor_param",
             "expected_cursors",
+            "expected_child_page_params",
             "expected_rows",
         ),
         [
@@ -181,6 +204,7 @@ class TestMercuryFanoutEndpoints:
                 ["/account/acc-1/statements", "/account/acc-1/statements", "/account/acc-2/statements"],
                 "start_after",
                 [None, "s1", None],
+                ("500", "asc"),
                 [
                     {"id": "s1", "accountId": "acc-1"},
                     {"id": "s2", "accountId": "acc-1"},
@@ -198,10 +222,50 @@ class TestMercuryFanoutEndpoints:
                 ["/treasury/tr-1/transactions", "/treasury/tr-1/transactions", "/treasury/tr-2/transactions"],
                 "cursor",
                 [None, "7", None],
+                ("500", "asc"),
                 [
                     {"id": "t1", "accountId": "tr-1"},
                     {"id": "t2", "accountId": "tr-1"},
                     {"id": "t3", "accountId": "tr-2"},
+                ],
+            ),
+            (
+                "BudgetExpenditures",
+                {"budgets": [{"id": "b-1"}, {"id": "b-2"}], "page": {"nextPage": None}},
+                [
+                    {"expenditures": [{"id": "e1", "transactionId": "txn-1"}], "page": {"nextPage": "e1"}},
+                    {"expenditures": [{"id": "e2", "expenseId": "exp-1"}], "page": {}},
+                    {"expenditures": [], "page": {"nextPage": None}},
+                ],
+                [
+                    "/spend/budgets/b-1/expenditures",
+                    "/spend/budgets/b-1/expenditures",
+                    "/spend/budgets/b-2/expenditures",
+                ],
+                "start_after",
+                [None, "e1", None],
+                ("500", "asc"),
+                [
+                    {"id": "e1", "transactionId": "txn-1", "budgetId": "b-1"},
+                    {"id": "e2", "expenseId": "exp-1", "budgetId": "b-1"},
+                ],
+            ),
+            (
+                # The payments endpoint returns one unpaginated page per invoice and documents no
+                # limit or order params, so none are sent to it.
+                "InvoicePayments",
+                {"invoices": [{"id": "inv-1"}, {"id": "inv-2"}], "page": {"nextPage": None}},
+                [
+                    {"payments": [{"id": "p1", "type": "transaction"}, {"id": "p2", "type": "manual"}]},
+                    {"payments": []},
+                ],
+                ["/ar/invoices/inv-1/payments", "/ar/invoices/inv-2/payments"],
+                "start_after",
+                [None, None],
+                (None, None),
+                [
+                    {"id": "p1", "type": "transaction", "invoiceId": "inv-1"},
+                    {"id": "p2", "type": "manual", "invoiceId": "inv-1"},
                 ],
             ),
         ],
@@ -214,6 +278,7 @@ class TestMercuryFanoutEndpoints:
         expected_paths: list[str],
         cursor_param: str,
         expected_cursors: list[str | None],
+        expected_child_page_params: tuple[str | None, str | None],
         expected_rows: list[dict[str, Any]],
     ) -> None:
         result = SourceDriver(MercurySource(), MercurySourceConfig(api_key="test-token")).run(
@@ -224,6 +289,9 @@ class TestMercuryFanoutEndpoints:
         child_requests = result.requests[1:]
         assert [request.path.split("/api/v1", 1)[-1] for request in child_requests] == expected_paths
         assert [request.param(cursor_param) for request in child_requests] == expected_cursors
-        assert all(request.param("order") == "asc" for request in child_requests)
+        assert result.requests[0].param("limit") == "500"
+        assert all(
+            (request.param("limit"), request.param("order")) == expected_child_page_params for request in child_requests
+        )
         assert result.rows == expected_rows
         assert result.saved_states == []

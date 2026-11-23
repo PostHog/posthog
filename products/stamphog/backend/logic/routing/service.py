@@ -1,8 +1,10 @@
 """One reviewer routing run: owners of the changed code, the cut step, the review requests and the comment.
 
 The repo's `routing_mode` decides when a run happens. ALWAYS routes when a pull request opens or
-becomes ready. FALLBACK waits for stamphog's verdict on the head when stamphog will review it: an
-approval requests only the pinned owners, any other outcome routes in full. Routing runs for bot
+becomes ready. When every changed file falls under a pinned policy attestation, ALWAYS first waits
+for that check: a verified proof on a pull request that keeps a reviewer requests only the pinned
+owners, anything else routes in full. FALLBACK waits for stamphog's verdict on the head when stamphog will review it:
+an approval requests only the pinned owners, any other outcome routes in full. Routing runs for bot
 and fork pull requests too, like the CI assigner it replaces. Ownership is read from the default
 branch, never from the pull request head, so a pull request cannot name its own reviewers.
 
@@ -37,10 +39,12 @@ from products.stamphog.backend.facade.enums import (
     RoutingScope,
     RoutingStatus,
 )
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
+    files_truncated,
     find_candidates,
     paths_to_resolve,
 )
@@ -50,7 +54,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_approved_routing_comment,
     render_routing_comment,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, attested_decision, decide_cuts
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
@@ -75,8 +79,15 @@ TRIGGER_SAFETY_NET = "safety_net"
 TRIGGER_EXTERNAL_REVIEW = "external_review"
 # A push or a base retarget that no review follows retracted the approval that held the full routing back.
 TRIGGER_APPROVAL_RETRACTED = "approval_retracted"
+TRIGGER_ATTESTATION = "attestation"
+# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long, and ALWAYS mode when the
+# attestation checks of a waiting head did not end the wait.
+ROUTING_SAFETY_NET_SECONDS = 30 * 60
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
+SCOPE_ATTESTED = RoutingScope.ATTESTED.value
+
+ATTESTATION_CHECKS = "attestation_checks"
 
 # PR-level marks, carried over every later record of the pull request. FALLBACK routes in full at
 # most once per pull request. `pinned_routed_head` is the latest approved head that got its pinned
@@ -228,14 +239,30 @@ def save_waiting(
     expected: Mapping[str, Any] | None,
     previous: Mapping[str, Any] | None,
     head_sha: str,
+    mode: RoutingMode,
     trigger: str,
+    attestation_checks: Sequence[PendingCheck],
 ) -> bool:
-    """Make the head wait for the verdict. ``previous`` is the record whose marks carry over."""
-    record = _base_record(
-        previous, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=trigger, status=STATUS_WAITING
-    )
+    """Make the head wait for the verdict, or for the ``attestation_checks`` when there are any.
+
+    ``previous`` is the record whose marks carry over.
+    """
+    record = _base_record(previous, head_sha=head_sha, mode=mode, trigger=trigger, status=STATUS_WAITING)
     record["waiting_since"] = datetime.now(UTC).isoformat()
+    if attestation_checks:
+        record[ATTESTATION_CHECKS] = [check.to_entry() for check in attestation_checks]
     return _replace_routing(pr_obj, expected=expected, record=record)
+
+
+def waiting_attestation_checks(record: Mapping[str, Any] | None) -> list[PendingCheck]:
+    """The checks a record waits for, or nothing when it does not wait on an attestation.
+
+    Only `save_waiting` writes them, so a record that stopped waiting carries none.
+    """
+    if record is None:
+        return []
+    checks = [PendingCheck.from_entry(entry) for entry in record.get(ATTESTATION_CHECKS) or []]
+    return [check for check in checks if check is not None]
 
 
 def claim_routing(
@@ -477,23 +504,27 @@ def _plan(
     started = time.monotonic()
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
-    pinned_only = claim["scope"] == SCOPE_PINNED
+    scope = claim["scope"]
+    pinned_only = scope == SCOPE_PINNED
     # Planned here so the model call can carry it, which links the run log row to its LLM trace.
     run_id = str(uuid7())
     fork = is_fork(pr, repository)
     files = [ChangedFile.from_github(entry) for entry in client.get_pr_files(repository, pr_obj.pr_number)]
-    changed_files = pr.get("changed_files")
-    # GitHub's file list stops at a page cap, and a pull request reports its own file count.
-    files_truncated = isinstance(changed_files, int) and len(files) < changed_files
-    if files_truncated:
+    truncated = files_truncated(pr, len(files))
+    if truncated:
         logger.warning(
             "stamphog_reviewer_routing_files_truncated",
             repo=repository,
             pr_number=pr_obj.pr_number,
             listed=len(files),
-            changed_files=changed_files,
+            changed_files=pr.get("changed_files"),
         )
     ownership = _resolve_owners(client, repository, files)
+    if scope == SCOPE_ATTESTED and (truncated or not ownership.additions_resolved):
+        # Partial data can miss a pin, and nothing routes an attested head again to request it, so the head routes
+        # in full instead.
+        scope = SCOPE_FULL
+    attested = scope == SCOPE_ATTESTED
     candidates = find_candidates(files, ownership.resolutions)
 
     model = GatewayCutModel(
@@ -508,18 +539,22 @@ def _plan(
             "stamphog_routing_run_id": run_id,
         },
     )
-    # A pinned routing asks the model too, so the run log shows which owners full routing would have asked.
-    decision = decide_cuts(
-        candidates=candidates,
-        title=str(pr.get("title") or ""),
-        description=str(pr.get("body") or ""),
-        is_fork=fork,
-        call_model=model,
-        files_truncated=files_truncated,
-    )
+    # A pinned routing asks the model only for the run log. An attested one keeps pinned owners, which no cut touches.
+    if attested:
+        decision = attested_decision(candidates)
+    else:
+        decision = decide_cuts(
+            candidates=candidates,
+            title=str(pr.get("title") or ""),
+            description=str(pr.get("body") or ""),
+            is_fork=fork,
+            call_model=model,
+            files_truncated=truncated,
+        )
     has_pins = any(candidate.is_pinned for candidate in candidates)
-    # Owners that full routing would ask and an approval does not.
-    held_back = {candidate.owner for candidate in candidates if pinned_only and not candidate.is_pinned}
+    pinned_owners_only = attested or pinned_only
+    # Owners that full routing would ask and an approval or an attestation does not.
+    held_back = {candidate.owner for candidate in candidates if pinned_owners_only and not candidate.is_pinned}
     if pinned_only:
         already = set(claim.get(REQUESTED_OWNERS) or [])
         # An approval of a later head requests only the pinned owners that no routing requested yet.
@@ -531,6 +566,7 @@ def _plan(
     planned_at = now.isoformat()
     return {
         **claim,
+        "scope": scope,
         "fork": fork,
         "candidates": [
             _candidate_record(
@@ -549,7 +585,7 @@ def _plan(
         "model": CUT_MODEL if model.sent_request else None,
         "additions_resolved": ownership.additions_resolved,
         "owners_sha": ownership.owners_sha,
-        "files_truncated": files_truncated,
+        "files_truncated": truncated,
         "request_owners": [candidate.owner for candidate in to_request],
         "requested_teams": requests.teams,
         "requested_users": requests.users,
@@ -597,7 +633,7 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
         # A pinned routing from partial data must not stop the safety net, which routes this head in full.
         if not pinned_on_partial_data(plan):
             requested.update({PINNED_ROUTED_HEAD: plan["head_sha"], "pinned_routed_at": plan["routed_at"]})
-    else:
+    elif plan["scope"] == SCOPE_FULL:
         requested.update({FULL_ROUTED_HEAD: plan["head_sha"], "full_routed_at": plan["routed_at"]})
     if not _save_claimed(pr_obj, requested):
         return
@@ -626,7 +662,8 @@ def route_claimed(
 
     The claim's `scope` decides the run: `full` requests the owners the cut step keeps, `pinned`
     requests only the owners of sensitive and new paths. Both ask the cut step, so the run log of a
-    pinned run shows which owners a full run would have asked.
+    pinned run shows which owners a full run would have asked. `attested` requests the pinned owners
+    too, without the cut step.
     """
     plan = _plan(client, pr_obj, pr, claim=claim)
     if not _save_claimed(pr_obj, plan):

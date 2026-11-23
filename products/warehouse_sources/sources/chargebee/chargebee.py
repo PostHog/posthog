@@ -39,6 +39,42 @@ def get_resource(
     # rows, so the first unfiltered sync still advances it.
     apply_incremental_filter = should_use_incremental_field and db_incremental_field_last_value is not None
     resources: dict[str, EndpointResource] = {
+        # A coupon's `updated_at` does not change when its `redemptions` count changes, so an
+        # incremental sync would keep stale redemption counts.
+        "Coupons": {
+            "name": "Coupons",
+            "table_name": "coupons",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "list[*].coupon",
+                "path": "/v2/coupons",
+                "params": {
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
+        "CreditNotes": {
+            "name": "CreditNotes",
+            "table_name": "credit_notes",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].credit_note",
+                "path": "/v2/credit_notes",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
         # Credit units and meters have no server-side timestamp filter, so they only support full refresh.
         "CreditUnits": {
             "name": "CreditUnits",
@@ -247,6 +283,27 @@ def get_resource(
             },
             "table_format": "delta",
         },
+        "PaymentSources": {
+            "name": "PaymentSources",
+            "table_name": "payment_sources",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].payment_source",
+                "path": "/v2/payment_sources",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
         "Subscriptions": {
             "name": "Subscriptions",
             "table_name": "subscriptions",
@@ -287,6 +344,25 @@ def get_resource(
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
+        "Usages": {
+            "name": "Usages",
+            "table_name": "usages",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].usage",
+                "path": "/v2/usages",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
                 },
             },
             "table_format": "delta",

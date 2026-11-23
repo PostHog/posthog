@@ -198,7 +198,7 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Refresh candidate incremental fields for a schema
@@ -444,7 +444,7 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Check Postgres CDC prerequisites

@@ -2025,6 +2025,11 @@ class TestPrinter(BaseTest):
             self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
+        self.assertEqual(
+            self._expr("groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(timestamp)), uuid), 1)"),
+            "groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(toTimeZone(events.timestamp, %(hogql_val_0)s))), events.uuid), 1)",
+        )
+        self.assertEqual(self._expr("groupArraySorted(2)(event)"), "groupArraySorted(2)(events.event)")
 
     @parameterized.expand(
         [

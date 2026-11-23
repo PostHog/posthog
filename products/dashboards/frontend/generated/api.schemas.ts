@@ -1581,188 +1581,6 @@ export type _InsightResultWarningsApi = (
     | BreakdownNotAppliedWarningApi
 )[]
 
-/**
- * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
- * @nullable
- */
-export type CachedTileInsightResultApiResolvedDateRange = {
-    readonly date_from?: string
-    readonly date_to?: string
-} | null
-
-/**
- * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
- * @nullable
- */
-export type CachedTileInsightResultApiResolvedCompareDateRange = {
-    readonly date_from?: string
-    readonly date_to?: string
-} | null
-
-/**
- * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
- * @nullable
- */
-export type CachedTileInsightResultApiActionNames = { [key: string]: string } | null
-
-/**
- * The result fields of an insight tile, without the insight's own metadata.
- *
- * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
- * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
- */
-export interface CachedTileInsightResultApi {
-    readonly id: number
-    readonly result: unknown
-    /** @nullable */
-    readonly hasMore: boolean | null
-    /** @nullable */
-    readonly columns: readonly string[] | null
-    /** @nullable */
-    readonly types: readonly unknown[] | null
-    /**
-     * The timezone this chart is displayed in.
-     * @nullable
-     */
-    readonly timezone: string | null
-    /**
-     *
-     *     The datetime this insight's results were generated.
-     *     If added to one or more dashboards the insight can be refreshed separately on each.
-     *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
-     *     (see from_dashboard query parameter).
-     *
-     * @nullable
-     */
-    readonly last_refresh: string | null
-    /**
-     * The target age of the cached results for this insight.
-     * @nullable
-     */
-    readonly cache_target_age: string | null
-    /**
-     *
-     *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-     *     by querying the database.
-     *
-     * @nullable
-     */
-    readonly next_allowed_client_refresh: string | null
-    readonly is_cached: boolean
-    readonly query_status: unknown
-    /**
-     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
-     * @nullable
-     */
-    readonly resolved_date_range: CachedTileInsightResultApiResolvedDateRange
-    /**
-     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
-     * @nullable
-     */
-    readonly resolved_compare_date_range: CachedTileInsightResultApiResolvedCompareDateRange
-    /**
-     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
-     * @nullable
-     */
-    readonly action_names: CachedTileInsightResultApiActionNames
-    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
-    readonly warnings: _InsightResultWarningsApi | null
-}
-
-export interface CachedTileResultApi {
-    /** Dashboard tile ID. */
-    id: number
-    /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
-     *
-     * * `hit` - Hit
-     * * `miss` - Miss
-     * * `forbidden` - Forbidden
-     * * `not_found` - Not found */
-    status: CachedTileStatusEnumApi
-    /** The cached result. Present only when status is 'hit'. */
-    insight?: CachedTileInsightResultApi
-}
-
-export interface CachedTilesResponseApi {
-    /** One entry per requested tile ID, in request order. */
-    results: CachedTileResultApi[]
-}
-
-export interface CopyDashboardGroupRequestApi {
-    /** Dashboard id the group currently belongs to. */
-    fromDashboardId: number
-    /**
-     * Key of the tile group to copy.
-     * @maxLength 100
-     */
-    groupKey: string
-}
-
-export interface CopyDashboardTileRequestApi {
-    /** Dashboard id the tile currently belongs to. */
-    fromDashboardId: number
-    /** Dashboard tile id to copy. */
-    tileId: number
-}
-
-/**
- * * `text` - text
- * * `image` - image
- */
-export type CreateTextTileRequestTypeEnumApi =
-    (typeof CreateTextTileRequestTypeEnumApi)[keyof typeof CreateTextTileRequestTypeEnumApi]
-
-export const CreateTextTileRequestTypeEnumApi = {
-    Text: 'text',
-    Image: 'image',
-} as const
-
-export interface TileLayoutBoxApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface TileLayoutsApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: TileLayoutBoxApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: TileLayoutBoxApi
-}
-
-export interface CreateTextTileRequestApi {
-    /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
-     *
-     * * `text` - text
-     * * `image` - image */
-    type?: CreateTextTileRequestTypeEnumApi
-    /**
-     * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
-     * @minLength 1
-     * @maxLength 4000
-     */
-    body: string
-    /**
-     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
-     * @maxLength 10000
-     * @nullable
-     */
-    agent_context?: string | null
-    /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
-    layouts?: TileLayoutsApi
-    /**
-     * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
-     * @maxLength 400
-     * @nullable
-     */
-    color?: string | null
-}
-
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -2692,6 +2510,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -9876,6 +9696,7 @@ export interface ChartSettingsApi {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
+    movingAverageIntervals?: number | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -9884,6 +9705,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showAnnotations?: boolean | null
     showLegend?: boolean | null
+    showMovingAverage?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null
@@ -10353,6 +10175,191 @@ export type _InsightQuerySchemaApi =
     | DataVisualizationNodeApi
     | BIVisualizationNodeApi
     | HogQueryApi
+
+/**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+ * @nullable
+ */
+export type CachedTileInsightResultApiResolvedDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+ * @nullable
+ */
+export type CachedTileInsightResultApiResolvedCompareDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+ * @nullable
+ */
+export type CachedTileInsightResultApiActionNames = { [key: string]: string } | null
+
+/**
+ * The result fields of an insight tile, without the insight's own metadata.
+ *
+ * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+ * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+ */
+export interface CachedTileInsightResultApi {
+    readonly id: number
+    readonly result: unknown
+    /** @nullable */
+    readonly hasMore: boolean | null
+    /** @nullable */
+    readonly columns: readonly string[] | null
+    /** @nullable */
+    readonly types: readonly unknown[] | null
+    /**
+     * The timezone this chart is displayed in.
+     * @nullable
+     */
+    readonly timezone: string | null
+    /**
+     *
+     *     The datetime this insight's results were generated.
+     *     If added to one or more dashboards the insight can be refreshed separately on each.
+     *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+     *     (see from_dashboard query parameter).
+     *
+     * @nullable
+     */
+    readonly last_refresh: string | null
+    /**
+     * The target age of the cached results for this insight.
+     * @nullable
+     */
+    readonly cache_target_age: string | null
+    /**
+     *
+     *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+     *     by querying the database.
+     *
+     * @nullable
+     */
+    readonly next_allowed_client_refresh: string | null
+    readonly is_cached: boolean
+    readonly query_status: unknown
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
+    readonly resolved_date_range: CachedTileInsightResultApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    readonly resolved_compare_date_range: CachedTileInsightResultApiResolvedCompareDateRange
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    readonly action_names: CachedTileInsightResultApiActionNames
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
+    /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+    readonly query_scan: unknown
+    query?: _InsightQuerySchemaApi | null
+}
+
+export interface CachedTileResultApi {
+    /** Dashboard tile ID. */
+    id: number
+    /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+     *
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found */
+    status: CachedTileStatusEnumApi
+    /** The cached result. Present only when status is 'hit'. */
+    insight?: CachedTileInsightResultApi
+}
+
+export interface CachedTilesResponseApi {
+    /** One entry per requested tile ID, in request order. */
+    results: CachedTileResultApi[]
+}
+
+export interface CopyDashboardGroupRequestApi {
+    /** Dashboard id the group currently belongs to. */
+    fromDashboardId: number
+    /**
+     * Key of the tile group to copy.
+     * @maxLength 100
+     */
+    groupKey: string
+}
+
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
+/**
+ * * `text` - text
+ * * `image` - image
+ */
+export type CreateTextTileRequestTypeEnumApi =
+    (typeof CreateTextTileRequestTypeEnumApi)[keyof typeof CreateTextTileRequestTypeEnumApi]
+
+export const CreateTextTileRequestTypeEnumApi = {
+    Text: 'text',
+    Image: 'image',
+} as const
+
+export interface TileLayoutBoxApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface TileLayoutsApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: TileLayoutBoxApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: TileLayoutBoxApi
+}
+
+export interface CreateTextTileRequestApi {
+    /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+     *
+     * * `text` - text
+     * * `image` - image */
+    type?: CreateTextTileRequestTypeEnumApi
+    /**
+     * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
+     * @minLength 1
+     * @maxLength 4000
+     */
+    body: string
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
+    /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
+    layouts?: TileLayoutsApi
+    /**
+     * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+}
 
 export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
 
@@ -10871,6 +10878,22 @@ export interface RunWidgetsResponseApi {
     results: DashboardWidgetRunResultApi[]
 }
 
+export interface DashboardStreamCachedTileApi {
+    /** Dashboard tile ID. */
+    id: number
+    /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+     *
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found */
+    status: CachedTileStatusEnumApi
+    /** The cached result. Present only when status is 'hit'. */
+    insight?: CachedTileInsightResultApi
+    /** Present on hits: whether the cached result is past its target age. */
+    stale?: boolean
+}
+
 /**
  * * `shared` - Shared
  * * `separate` - Separate
@@ -10914,8 +10937,12 @@ export interface DashboardSharingDebugApi {
 }
 
 export interface DashboardQuerySharingEventApi {
-    /** SSE event type: tile, complete, or error. */
+    /** SSE event type: cached, tile, complete, or error. */
     type: string
+    /** On the cached event: every requested tile's cached result, in request order. */
+    tiles?: DashboardStreamCachedTileApi[]
+    /** On the cached event: the tiles that will each get a tile event, in compute order. */
+    pending?: number[]
     /** Independently completed dashboard tile. */
     tile?: DashboardTileApi
     /** Present only when debug is requested. */
@@ -11636,6 +11663,10 @@ export type DashboardsRetrieveParams = {
      */
     include_dashboards?: boolean
     /**
+     * When true, return the layout and tile metadata without each insight tile's result, to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 is on. Elsewhere, and by default, tiles carry their cached results.
+     */
+    omit_tile_results?: boolean
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string
@@ -11883,6 +11914,10 @@ export const DashboardsRunWidgetsRetrieveFormat = {
 
 export type DashboardsStreamQueryResultsRetrieveParams = {
     /**
+     * Send every tile's cached result in one `cached` event first, stale results included and marked. Then compute only the tiles whose result is missing or stale, or every tile with force_blocking.
+     */
+    cached_first?: boolean
+    /**
      * Cancellation ID for this dashboard refresh batch.
      */
     client_query_id: string
@@ -11904,9 +11939,9 @@ export type DashboardsStreamQueryResultsRetrieveParams = {
      */
     refresh: DashboardsStreamQueryResultsRetrieveRefresh
     /**
-     * Comma-separated insight tile IDs, at most 32.
+     * Comma-separated insight tile IDs, at most 100. Visible tiles first: tiles compute in this order.
      * @minLength 1
-     * @maxLength 512
+     * @maxLength 1024
      */
     tile_ids: string
     /**

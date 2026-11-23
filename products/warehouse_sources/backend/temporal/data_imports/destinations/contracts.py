@@ -9,6 +9,7 @@ capabilities on the writer rather than branched on by the engine.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import AsyncIterator
 from dataclasses import field
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
@@ -42,6 +43,9 @@ class DestinationRunContext:
     primary_keys: tuple[str, ...] = ()
     config: dict = field(default_factory=dict)
     integration_id: int | None = None
+    # When the sync job started, so every batch of the run reads the same time. None when the
+    # job row is gone.
+    run_started_at: dt.datetime | None = None
 
     @property
     def is_full_refresh(self) -> bool:

@@ -46,6 +46,7 @@ class RecordingWriter:
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
     primary_keys: list[tuple[str, ...]] = []
+    run_started_at: list = []
     fail_for: set[str] = set()
     configuration_error_for: set[str] = set()
     rows_written = 1
@@ -64,6 +65,7 @@ class RecordingWriter:
             raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
         RecordingWriter.primary_keys.append(batch_ctx.run.primary_keys)
+        RecordingWriter.run_started_at.append(batch_ctx.run.run_started_at)
         return BatchWriteOutcome(
             rows_written=RecordingWriter.rows_written,
             bytes_written=RecordingWriter.bytes_written.get(self._ctx.destination_name, 0),
@@ -81,6 +83,7 @@ class DeliveryTestCase(BaseTest):
         super().setUp()
         RecordingWriter.calls = []
         RecordingWriter.primary_keys = []
+        RecordingWriter.run_started_at = []
         RecordingWriter.fail_for = set()
         RecordingWriter.configuration_error_for = set()
         RecordingWriter.rows_written = 1
@@ -133,10 +136,11 @@ class DeliveryTestCase(BaseTest):
         is_final: bool = False,
         schema_id: str | None = None,
         primary_keys: list[str] | None = None,
+        job_id: str | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
-            job_id=str(self.job.id),
+            job_id=job_id or str(self.job.id),
             schema_id=schema_id or str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
             resource_name="charges",
@@ -247,6 +251,22 @@ class TestDelivery(DeliveryTestCase):
         delivery.deliver_batch_to_destinations(self._signal([str(redshift.id)], primary_keys=source_keys))
 
         assert RecordingWriter.primary_keys == [expected]
+
+    def test_every_batch_of_a_run_carries_the_time_its_job_started(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", status="Running", source_type="Stripe"
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+        redshift = self._destination("Redshift")
+
+        for batch_index in (0, 1):
+            delivery.deliver_batch_to_destinations(
+                self._signal([str(redshift.id)], batch_index=batch_index, job_id=str(job.id))
+            )
+
+        assert RecordingWriter.run_started_at == [job.created_at, job.created_at]
 
     def test_the_logs_say_where_the_rows_went(self) -> None:
         # A run writing to several destinations is otherwise indistinguishable in the logs from

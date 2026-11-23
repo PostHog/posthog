@@ -680,6 +680,8 @@ jobs:
 
                       billing:
                         - 'ee/billing/**'
+                        - 'posthog/entitlements/**'
+                        - 'posthog/temporal/entitlement_reactions/**'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
                         - 'posthog/temporal/salesforce_enrichment/**'

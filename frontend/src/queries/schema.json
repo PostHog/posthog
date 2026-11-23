@@ -16009,6 +16009,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -19783,6 +19786,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20692,6 +20701,9 @@
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -20715,6 +20727,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
@@ -33662,6 +33677,10 @@
                     "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
                     "type": "boolean"
                 },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -40547,6 +40566,17 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "detectedChange": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationDetectedChange"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one."
+                },
                 "identity": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
                 },
@@ -40650,6 +40680,11 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationDetectedChange": {
+            "const": "negative_keyword",
+            "description": "`negative_keyword`: the search is now excluded by a negative keyword.",
             "type": "string"
         },
         "MarketingAnalyticsRecommendationIdentity": {
@@ -44680,6 +44715,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44694,6 +44756,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -46655,6 +46720,9 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflow_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_table_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
@@ -49474,6 +49542,12 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -53622,6 +53696,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -65861,6 +65938,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -66029,7 +66112,6 @@
                     "$ref": "#/definitions/WebPageDirectoryValue"
                 }
             },
-            "required": ["serverLogs"],
             "type": "object"
         },
         "WebPageDirectorySortBy": {

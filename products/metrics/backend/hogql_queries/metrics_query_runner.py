@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import datetime
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from posthog.schema import (
     CachedMetricsQueryResponse,
@@ -22,6 +22,7 @@ from posthog.schema import (
     MetricsQuery,
     MetricsQueryLanguage,
     MetricsQueryPoint,
+    MetricsQueryProvenance,
     MetricsQueryResponse,
     MetricsQuerySeries,
 )
@@ -40,20 +41,29 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query
+from products.metrics.backend.facade.api import (
+    derived_metric_resources,
+    run_metric_query,
+    run_planned_metric_query,
+    run_precomputed_promql_query,
+)
 from products.metrics.backend.facade.contracts import (
     DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
+    MetricQueryProvenance as MetricQueryProvenanceContract,
     MetricQueryRequest,
+    MetricQueryResult,
+    MetricQueryShadowCheck,
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
     AttributeScope,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -65,6 +75,7 @@ from products.metrics.backend.hogql_queries.tail_refresh import (
     merge_series,
 )
 from products.metrics.backend.metric_query_runner import _resolve_interval
+from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_interval import resolve_query_interval
@@ -90,12 +101,22 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
+# `query executed` reports a tile answered wholly from stored buckets as `derived`, the value that the precompute
+# measurement queries filter on.
+_EVENT_PROVENANCE = {
+    MetricQueryProvenanceMode.PRECOMPUTED: "derived",
+    MetricQueryProvenanceMode.MIXED: "mixed",
+    MetricQueryProvenanceMode.RAW: "raw",
+}
 
 
 class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResponse]):
     query: MetricsQuery
     cached_response: CachedMetricsQueryResponse
     _loaded_variables: dict[str, Variable] | None = None
+    _tile_dashboard_id: int | None = None
+    _provenance: MetricQueryProvenanceContract | None = None
+    _shadow: MetricQueryShadowCheck | None = None
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -233,6 +254,17 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 raise ValueError(unresolved_message(promql.unresolved))
             # A variable set to All writes `label=~".*"`, which matches every series.
             text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
+            if self._tile_dashboard_id is not None and self._precompute_enabled:
+                return self._keep_precompute(
+                    run_precomputed_promql_query(
+                        team=self.team,
+                        promql=text,
+                        date_from=date_from,
+                        date_to=date_to,
+                        interval=interval,
+                        record_use=self._viewer_is_member,
+                    )
+                )
             return run_promql_range(self.team, text, date_from, date_to, interval)
         if not (self.query.sql or "").strip():
             raise ValueError("Write a SQL query first.")
@@ -242,6 +274,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         return run_metrics_sql(self.team, sql.sql, date_from, date_to, interval, sql.placeholders)
 
     def _call_with_rate_limits(self, *, dashboard_id: int | None) -> tuple[MetricsQueryResponse, float]:
+        self._tile_dashboard_id = dashboard_id
         # Tiles that wait for one shared load of the All options must not hold the runner's concurrency slots.
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
@@ -338,6 +371,46 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         return bool(derived_metric_resources(clause.metricName for clause in self.query.clauses))
 
     @cached_property
+    def _precompute_enabled(self) -> bool:
+        return precompute_enabled(self.team)
+
+    @property
+    def _viewer_is_member(self) -> bool:
+        user = cast("Optional[User | SharedLinkUser]", self.user)
+        return user is not None and not user.is_anonymous
+
+    def _run_planned(self) -> list[MetricSeries] | None:
+        """A builder tile that a precomputed metric covers reads its stored buckets, ahead of the tail refresh.
+        Every other query gets None and runs as before."""
+        if (
+            self._tile_dashboard_id is None
+            or (self.query.language or MetricsQueryLanguage.BUILDER) != MetricsQueryLanguage.BUILDER
+            or not self._precompute_enabled
+        ):
+            return None
+        result = run_planned_metric_query(
+            team=self.team, request=self._builder_request(), record_use=self._viewer_is_member
+        )
+        if isinstance(result, MetricQueryProvenanceContract):
+            self._provenance = result
+            return None
+        return self._keep_precompute(result)
+
+    def _keep_precompute(self, result: MetricQueryResult) -> list[MetricSeries]:
+        self._provenance, self._shadow = result.provenance, result.shadow
+        return result.series
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        if self._provenance is None:
+            return {}
+        return {
+            "precompute_provenance": _EVENT_PROVENANCE[self._provenance.mode],
+            "precompute_shadow_checked": self._shadow is not None,
+            "precompute_shadow_max_rel_diff": self._shadow.max_relative_difference if self._shadow else None,
+            "precompute_shadow_mismatched_points": self._shadow.mismatched_points if self._shadow else None,
+        }
+
+    @cached_property
     def _dashboard_v2_enabled(self) -> bool:
         # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
         return posthog_feature_flag_enabled(
@@ -377,15 +450,18 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
         try:
-            if self._tail is not None:
-                return self._calculate_with_tail(self._tail)
-            series = self._run()
+            series = self._run_planned()
+            if series is None and self._tail is not None:
+                response = self._calculate_with_tail(self._tail)
+            else:
+                response = self._response(self._run() if series is None else series)
         except ValueError as exc:
             # The facade signals user errors (bad formula, unknown clause alias, bad
             # quantile) with ValueError; /query only exposes typed errors, so a bare
             # ValueError would surface as a 500 instead of a 400.
             raise ExposedHogQLError(str(exc)) from exc
-        return self._response(series)
+        response.provenance = self._provenance_response()
+        return response
 
     @staticmethod
     def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
@@ -401,6 +477,16 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 )
                 for s in series
             ]
+        )
+
+    def _provenance_response(self) -> MetricsQueryProvenance | None:
+        if self._provenance is None:
+            return None
+        until = self._provenance.precomputed_until
+        return MetricsQueryProvenance(
+            mode=self._provenance.mode.value,
+            precomputedUntil=until.isoformat() if until is not None else None,
+            reasons=list(self._provenance.reasons) or None,
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:

@@ -209,6 +209,8 @@ PAGE_OFFSET_PARAMS = {
     "representatives": "recordStartIndex",
     "items": "recordStartIndex",
     "custom-fields": "pageStartIndex",
+    "notations": "recordStartIndex",
+    "insurance-companies": "recordStartIndex",
 }
 
 
@@ -221,6 +223,10 @@ PAGE_OFFSET_PARAMS = {
         ("job_representatives", 4, "job_id"),
         ("job_custom_fields", 4, "job_id"),
         ("job_contacts", 4, "job_id"),
+        ("supplement_notations", 4, "supplement_id"),
+        ("insurance_companies", 2, None),
+        ("workflow_milestones", 2, None),
+        ("job_insurance", 2, "job_id"),
     ],
 )
 def test_tables_page_with_their_documented_offset_and_keep_keys_unique_across_parents(
@@ -234,8 +240,10 @@ def test_tables_page_with_their_documented_offset_and_keep_keys_unique_across_pa
     def send(request: PreparedRequest, **_: Any) -> Response:
         url = urlsplit(request.url or "")
         segment = url.path.rsplit("/", 1)[-1]
-        if segment == "contacts":
+        if segment in ("contacts", "workflow-milestones"):
             return response(request, {"items": [{"id": "row-0"}, {"id": "row-1"}]})
+        if segment == "insurance":
+            return response(request, {"insuranceCompany": {"id": "insurer-one"}, "claimNumber": "claim-one"})
         # A wrong offset parameter is ignored by AccuLynx, which then repeats the first page.
         offset = int(parse_qs(url.query).get(PAGE_OFFSET_PARAMS[segment], ["0"])[0])
         row = {"id": f"row-{offset}", "type": "SalesOwner", "createdDate": "2025-01-01T00:00:00Z"}

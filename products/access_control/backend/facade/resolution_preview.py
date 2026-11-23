@@ -36,7 +36,6 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
-    _AccessControl,
     model_to_resource,
     ordered_access_levels,
 )
@@ -96,29 +95,6 @@ class _LoadedObject:
     short_id: Optional[str]
 
 
-def deciding_subject_row(subject: SubjectAccessControl, access: ResolvedAccess) -> Optional[_AccessControl]:
-    """The member or role row that decided `access`, or None when no such row did.
-
-    The walks report which kind of subject decided (`source_subject`) but not which row. The
-    deciding row is re-picked from the same cached pool: the highest row of that kind in the
-    scope the walk reported.
-    """
-    if access.source_subject not in ("role", "member"):
-        return None
-    if access.source in ("object", "parent_object"):
-        if access.source_resource_id is None:
-            return None
-        filters = subject._access_controls_filters_for_object(access.source_resource, access.source_resource_id)
-    elif access.source in ("resource", "parent_resource"):
-        filters = subject._access_controls_filters_for_resource(access.source_resource)
-    else:
-        return None
-    rows = [row for row in subject._get_access_controls(filters) if subject._row_subject(row) == access.source_subject]
-    if not rows:
-        return None
-    return subject._highest_access_from_rows(access.source_resource, rows)
-
-
 def deciding_subject_name(
     subject: SubjectAccessControl,
     access: ResolvedAccess,
@@ -126,7 +102,7 @@ def deciding_subject_name(
     member_names: dict[str, str],
 ) -> Optional[str]:
     """Name of the member or role whose row decided `access`."""
-    row = deciding_subject_row(subject, access)
+    row = subject.deciding_row(access)
     if row is None:
         return None
     if row.role_id is not None:

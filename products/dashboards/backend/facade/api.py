@@ -64,7 +64,9 @@ from products.dashboards.backend.logic import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
+    board_stream as v2_board_stream,
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     flag as v2_flag,
@@ -418,6 +420,22 @@ def live_tile_insight_ids(dashboard_id: int) -> list[int]:
         DashboardTile.objects.filter(
             dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
         ).values_list("insight_id", flat=True)
+    )
+
+
+def live_tile_insight_ids_on_dashboards(dashboard_ids: Collection[int], *, team_id: int) -> set[int]:
+    """Ids of the insights on the live tiles of these dashboards of this team, leaving out deleted insights, in one query."""
+    if not dashboard_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id=team_id,
+            dashboard_id__in=list(dashboard_ids),
+            insight_id__isnull=False,
+            insight__deleted=False,
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
     )
 
 
@@ -1129,3 +1147,8 @@ def read_cached_tiles(
         serialize_tile=serialize_tile,
         context=context,
     )
+
+
+def board_stream_cached_event(cached: list[dict[str, Any]], *, force: bool) -> DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` output."""
+    return v2_board_stream.cached_event(cached, force=force)

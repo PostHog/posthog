@@ -20,6 +20,10 @@ DEFAULT_LOOKBACK_DAYS = 89
 # requests. Only the read timeout is widened — the connect timeout stays at 30s.
 ANALYTICS_REQUEST_TIMEOUT_SECONDS = 60
 
+# Value of the analytics `reporting_timezone` parameter that reports days in the ad account's time zone.
+# The other value, PINTEREST_TIME_ZONE (UTC), is Pinterest's default.
+AD_ACCOUNT_TIME_ZONE = "AD_ACCOUNT_TIME_ZONE"
+
 # Pinterest Ads API v5 analytics columns
 # Full column reference: https://developers.pinterest.com/docs/api/v5/ads-analytics/
 ANALYTICS_COLUMNS = [

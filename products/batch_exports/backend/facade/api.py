@@ -335,7 +335,7 @@ def get_teams_with_billable_bytes_exported(begin: dt.datetime, end: dt.datetime)
 def _sum_billable_runs_by_team(begin: dt.datetime, end: dt.datetime, field: str) -> list[contracts.TeamTotal]:
     completed_runs = BatchExportRun.objects.filter(
         finished_at__gte=begin,
-        finished_at__lte=end,
+        finished_at__lt=end,
         status=BatchExportRun.Status.COMPLETED,
     )
     rows = (
