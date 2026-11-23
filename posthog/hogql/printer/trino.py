@@ -10,7 +10,7 @@ from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.trino_locator import resolve_trino_table_locator
+from posthog.hogql.database.trino_locator import missing_trino_locator_error_code, resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
 from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
@@ -4589,7 +4589,7 @@ class TrinoPrinter(PostgresPrinter):
         if locator is not None:
             return ".".join(escape_trino_identifier(part) for part in locator)
         self._unsupported(
-            "TRINO_TABLE_LOCATOR_MISSING",
+            missing_trino_locator_error_code(table),
             f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",
         )
 
