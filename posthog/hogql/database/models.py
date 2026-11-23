@@ -615,6 +615,11 @@ class FunctionCallTable(Table):
     max_args: Optional[int] = None
 
 
+class CTETable(Table):
+    def get_asterisk(self):
+        return {key: field_ for key, field_ in self.fields.items() if isinstance(field_, DatabaseField)}
+
+
 class DANGEROUS_NoTeamIdCheckTable(Table):
     """Don't use this other than referencing tables that contain no user data"""
 
