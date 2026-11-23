@@ -621,6 +621,16 @@ class TrinoPrinter(PostgresPrinter):
                 branches.append(branch)
         return branches
 
+    def visit_constant(self, node: ast.Constant):
+        if isinstance(node.value, str):
+            return self._string_literal(node.value)
+        return super().visit_constant(node)
+
+    def _string_literal(self, value: str) -> str:
+        if "\0" in value:
+            return self.context.add_value(value)
+        return escape_trino_string(value)
+
     def visit_alias(self, node: ast.Alias) -> str:
         parent = self.stack[-2] if len(self.stack) > 1 else None
         if isinstance(parent, ast.SelectQuery) and any(expr is node for expr in parent.select):
@@ -2580,8 +2590,8 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) not in {1, 2}:
             self._invalid_function_arguments(node, "parseDateTimeBestEffort expects a string and optional timezone.")
         value = self.visit(node.args[0])
-        timezone = self.visit(node.args[1]) if len(node.args) == 2 else self.context.add_value(self._get_timezone())
-        day_month_year = self.context.add_value("%e-%b-%y")
+        timezone = self.visit(node.args[1]) if len(node.args) == 2 else self._string_literal(self._get_timezone())
+        day_month_year = self._string_literal("%e-%b-%y")
         # ClickHouse accepts offsets without a colon (+0000); normalize them before Trino's ISO-8601 parser.
         iso_value = f"regexp_replace({value}, '([+-][0-9]{{2}})([0-9]{{2}})$', '$1:$2')"
         parsed = (
@@ -2716,11 +2726,9 @@ class TrinoPrinter(PostgresPrinter):
             else:
                 escaped = str(member).replace("\\", "\\\\").replace('"', '\\"')
                 path += f'["{escaped}"]'
-        if "\0" in path:
-            return self.context.add_value(path)
         # Inlined, because Trino treats every bound `?` as distinct, so a grouped JSON property
         # would never match the same property in the projection.
-        return escape_trino_string(path)
+        return self._string_literal(path)
 
     def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
         if (
@@ -3677,7 +3685,7 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, "tupleToNameValuePairs requires a resolved non-empty tuple type.")
         names = tuple_type.field_names
         entries = [
-            f"ROW({self.context.add_value(names[index] if index < len(names) and names[index] else str(index + 1))}, "
+            f"ROW({self._string_literal(names[index] if index < len(names) and names[index] else str(index + 1))}, "
             f"__hogql_named_tuple[{index + 1}])"
             for index in range(len(tuple_type.item_types))
         ]
@@ -3735,7 +3743,7 @@ class TrinoPrinter(PostgresPrinter):
             )
         value = self.visit(node.args[0])
         if not replacing:
-            regex = self.context.add_value("(?s)" + pattern.value)
+            regex = self._string_literal("(?s)" + pattern.value)
             if indexed:
                 default_group = 1 if groups else 0
                 group_index_node = node.args[2] if len(node.args) == 3 else ast.Constant(value=default_group)
@@ -3802,10 +3810,10 @@ class TrinoPrinter(PostgresPrinter):
                     parts.append(f"coalesce(__hogql_match[{int(char) + 2}], '')")
                     index += 1
                     continue
-            parts.append(self.context.add_value(char))
+            parts.append(self._string_literal(char))
             index += 1
         parts.append(f"__hogql_match[{groups + 3}]")
-        regex = self.context.add_value(r"(?s)\A(.*?)(" + pattern.value + r")(.*)\z")
+        regex = self._string_literal(r"(?s)\A(.*?)(" + pattern.value + r")(.*)\z")
         substitute = " || ".join(parts)
         return f"regexp_replace({value}, {regex}, __hogql_match -> {substitute})"
 
