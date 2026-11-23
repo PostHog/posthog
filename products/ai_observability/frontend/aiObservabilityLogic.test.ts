@@ -61,6 +61,7 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
             '/ai-evals/evaluations/offline/datasets/dataset-1?item=item-1'
         )
+        expect(redirectUrl('/ai-evals/taggers/:id', { id: 'tagger-1' })).toBe('/ai-evals/evaluations')
         expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
             '/ai-evals/evaluations/evaluation-1'
         )
