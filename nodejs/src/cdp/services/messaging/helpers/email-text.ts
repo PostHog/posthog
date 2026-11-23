@@ -8,15 +8,19 @@ const SKIPPED_SELECTORS = [
     'noscript',
     'template',
     '[hidden]',
-    // The two spellings email builders write. Selectors match style text literally, so rarer spacing is not covered.
     '[style*="display:none" i]',
-    '[style*="display: none" i]',
 ]
+
+// Selectors match style text literally, so every spacing CSS allows around the colon is written as one first.
+const STYLE_ATTRIBUTE = /\bstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi
+const HIDDEN_DISPLAY = /display\s*:\s*none/gi
 
 // Bounds the work per send. Longer html goes out without a text part, as html-only emails always did.
 const MAX_HTML_CHARACTERS = 1 << 20
 
 const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+// Block elements the library renders inline, which would run the text of neighbouring blocks together.
+const EXTRA_BLOCKS = ['address', 'caption', 'center', 'dd', 'details', 'dl', 'dt', 'fieldset', 'figcaption', 'figure']
 
 const VISIBLE_CHARACTER = /[^\s\p{Cf}\p{M}]/u
 // Soft hyphens, zero-width spaces, word joiners and byte order marks can sit inside a code like 482&shy;913
@@ -50,6 +54,11 @@ const toText = compile({
     selectors: [
         ...SKIPPED_SELECTORS.map((selector) => ({ selector, format: 'skip' })),
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
+        ...EXTRA_BLOCKS.map((selector) => ({
+            selector,
+            format: 'block',
+            options: { leadingLineBreaks: 1, trailingLineBreaks: 1 },
+        })),
         {
             selector: 'a',
             options: { hideLinkHrefIfSameAsText: true, linkBrackets: ['(', ')'], pathRewrite: linkTarget },
@@ -95,7 +104,10 @@ export const plainTextFromHtml = (html: string): string => {
     }
     let text: string
     try {
-        text = toText(html).replace(INVISIBLE_SEPARATORS, '').trim()
+        const plainStyles = html.replace(STYLE_ATTRIBUTE, (attribute) =>
+            attribute.replace(HIDDEN_DISPLAY, 'display:none')
+        )
+        text = toText(plainStyles).replace(INVISIBLE_SEPARATORS, '').trim()
     } catch {
         // html-to-text recurses once per element, so deeply nested html overflows the stack.
         // The email then goes out without a text part, as html-only emails always did.

@@ -55,9 +55,15 @@ describe('plainTextFromHtml', () => {
         ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
         ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
         [
-            'hidden styles in the spellings email builders write',
-            '<div title="1 > 0" style="display: none">Old</div><div style="color:red;DISPLAY:NONE">Older</div><p>Hello</p>',
-            'Hello',
+            'hidden styles with any spacing around the colon',
+            '<div title="1 > 0" style="display : none">Old code 123456</div>' +
+                '<div style=\'font-family:"Arial"; DISPLAY:\tNONE\'>Older</div><p>Current code 482913</p>',
+            'Current code 482913',
+        ],
+        [
+            'neighbouring center blocks',
+            '<center>482913</center><center>10 minutes remaining</center>',
+            '482913\n10 minutes remaining',
         ],
         [
             'content after the body',
