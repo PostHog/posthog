@@ -26,7 +26,6 @@ function request(
     expectedCount: 5,
     currentCount: 0,
     entryBatches: [],
-    logUrl: "https://logs/r1",
     ...over,
   };
 }
@@ -39,7 +38,7 @@ function createDeps(
 ) {
   const session: CloudLogGapReconcilerSession | undefined =
     over.session === undefined
-      ? { taskId: "t1", processedLineCount: 0, logUrl: "https://logs/r1" }
+      ? { taskId: "t1", processedLineCount: 0 }
       : over.session;
 
   const fetchLogs = vi.fn(
@@ -64,7 +63,7 @@ function createDeps(
 }
 
 describe("CloudLogGapReconciler", () => {
-  it("fills the gap and commits the fetched log with the resolved url", async () => {
+  it("fills the gap and commits the fetched log", async () => {
     const { deps, commit } = createDeps({
       fetch: {
         rawEntries: [entry("a")],
@@ -75,12 +74,7 @@ describe("CloudLogGapReconciler", () => {
     new CloudLogGapReconciler(deps).reconcile(request());
     await tick();
 
-    expect(commit).toHaveBeenCalledWith(
-      "r1",
-      [entry("a")],
-      "https://logs/r1",
-      5,
-    );
+    expect(commit).toHaveBeenCalledWith("r1", [entry("a")], 5);
   });
 
   it("fills a lagging fetched log with the streamed tail", async () => {
@@ -105,7 +99,6 @@ describe("CloudLogGapReconciler", () => {
     expect(commit).toHaveBeenCalledWith(
       "r1",
       [...fetchedEntries, entry("c"), entry("d")],
-      "https://logs/r1",
       4,
     );
   });
@@ -134,14 +127,13 @@ describe("CloudLogGapReconciler", () => {
     expect(commit).toHaveBeenCalledWith(
       "r1",
       [...fetchedEntries, entry("c"), entry("d"), entry("e")],
-      "https://logs/r1",
       5,
     );
   });
 
   it("does not commit when the store already caught up", async () => {
     const { deps, commit } = createDeps({
-      session: { taskId: "t1", processedLineCount: 5, logUrl: undefined },
+      session: { taskId: "t1", processedLineCount: 5 },
     });
     new CloudLogGapReconciler(deps).reconcile(request());
     await tick();
@@ -154,7 +146,6 @@ describe("CloudLogGapReconciler", () => {
       session: {
         taskId: "different",
         processedLineCount: 0,
-        logUrl: undefined,
       },
     });
     new CloudLogGapReconciler(deps).reconcile(request());
@@ -192,12 +183,7 @@ describe("CloudLogGapReconciler", () => {
     new CloudLogGapReconciler(deps).reconcile(request());
     await tick();
 
-    expect(commit).toHaveBeenCalledWith(
-      "r1",
-      [entry("a")],
-      "https://logs/r1",
-      5,
-    );
+    expect(commit).toHaveBeenCalledWith("r1", [entry("a")], 5);
   });
 
   it("commits best-effort once the deficit stops shrinking for enough passes", async () => {
@@ -219,12 +205,7 @@ describe("CloudLogGapReconciler", () => {
     reconciler.reconcile(request());
     await tick();
     expect(commit).toHaveBeenCalledTimes(1);
-    expect(commit).toHaveBeenCalledWith(
-      "r1",
-      [entry("a")],
-      "https://logs/r1",
-      5,
-    );
+    expect(commit).toHaveBeenCalledWith("r1", [entry("a")], 5);
   });
 
   it("forgetting the deficit makes the next short fetch wait again", async () => {

@@ -33,7 +33,6 @@ const mockTrpcWorkspace = vi.hoisted(() => ({
 }));
 
 const mockTrpcLogs = vi.hoisted(() => ({
-  fetchS3Logs: { query: vi.fn() },
   readLocalLogs: { query: vi.fn() },
   writeLocalLogs: { mutate: vi.fn() },
 }));
@@ -61,6 +60,7 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   prepareTaskStagedArtifactUploads: vi.fn(),
   finalizeTaskStagedArtifactUploads: vi.fn(),
   startGithubUserIntegrationConnect: vi.fn(),
+  getTaskRunLog: vi.fn(),
 }));
 
 type MockAuthenticatedClient = typeof mockAuthenticatedClient;
@@ -375,7 +375,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       unsubscribe: vi.fn(),
     });
     mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-    mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+    mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
     mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
     mockTrpcFs.readFileAsBase64.query.mockResolvedValue(null);
     mockAuthenticatedClient.prepareTaskRunArtifactUploads.mockResolvedValue([]);
@@ -399,7 +399,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
     const onData = latestOnData();
 
@@ -493,7 +492,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
 
     // An idle, already-bootstrapped run that completed its turn for THIS run
@@ -546,7 +544,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run",
       );
       const onData = latestOnData();
 
@@ -591,7 +588,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
     const onData = latestOnData();
 
@@ -633,7 +629,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
     const onData = latestOnData();
 
@@ -735,7 +730,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
     const onData = latestOnData();
 
@@ -854,7 +848,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
 
     // Agent booted and idle from a prior turn.
@@ -962,7 +955,6 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       "https://api.anthropic.com",
       123,
       undefined,
-      "https://logs.example.com/run",
     );
     const onData = latestOnData();
 

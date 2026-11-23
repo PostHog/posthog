@@ -68,7 +68,6 @@ export interface AgentSession {
   isCompacting: boolean;
   promptStartedAt: number | null;
   currentPromptId?: number | null;
-  logUrl?: string;
   /** Full cloud transcript entry count across the resume chain. */
   cloudTranscriptEntryCount?: number;
   /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */

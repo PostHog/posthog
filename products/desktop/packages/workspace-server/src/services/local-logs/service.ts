@@ -127,21 +127,6 @@ export class LocalLogsService implements ILogsService {
     { state: WriteState; inFlight: Promise<void> }
   >();
 
-  async fetchS3Logs(logUrl: string): Promise<string | null> {
-    try {
-      const response = await fetch(logUrl);
-      if (response.status === 404) {
-        return null;
-      }
-      if (!response.ok) {
-        return null;
-      }
-      return await response.text();
-    } catch {
-      return null;
-    }
-  }
-
   async readLocalLogs(taskRunId: string): Promise<string | null> {
     const logPath = this.getLocalLogPath(taskRunId);
     try {

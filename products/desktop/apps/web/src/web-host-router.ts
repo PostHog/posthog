@@ -30,7 +30,6 @@ import {
   putWebAttachment,
 } from "./web-attachment-store";
 import { webBrowserTabsStore } from "./web-browser-tabs-store";
-import { fetchS3Logs } from "./web-logs";
 import { webTaskMetadataStore } from "./web-task-metadata-store";
 import { webWorkspaceStore } from "./web-workspace-store";
 
@@ -405,14 +404,9 @@ const archiveStubRouter = router({
     }),
 });
 
-// Cloud task log history. fetchS3Logs is a real, portable fetch of the
-// backend's pre-signed log_url (see web-logs.ts); the local-cache reads/writes
-// are no-ops since the browser has no durable per-run log cache. This is what
-// hydrates a cloud task's transcript on open/reconnect and fills SSE gaps.
+// Cloud task log history. The local-cache reads/writes are no-ops since the
+// browser has no durable per-run log cache.
 const logsStubRouter = router({
-  fetchS3Logs: publicProcedure
-    .input(z.object({ logUrl: z.string().min(1) }))
-    .query(({ input }) => fetchS3Logs(input.logUrl)),
   readLocalLogs: publicProcedure
     .input(z.object({ taskRunId: z.string() }))
     .query(() => null),

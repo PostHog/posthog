@@ -2,23 +2,18 @@ import type { SessionStatus } from "@posthog/shared";
 
 export type LocalConnectRoute =
   | { kind: "no-auth" }
-  | { kind: "resume-existing"; taskRunId: string; logUrl: string }
+  | { kind: "resume-existing"; taskRunId: string }
   | { kind: "create-new" };
 
 export function routeLocalConnect(input: {
   hasAuth: boolean;
   latestRunId?: string | null;
-  latestRunLogUrl?: string | null;
 }): LocalConnectRoute {
   if (!input.hasAuth) {
     return { kind: "no-auth" };
   }
-  if (input.latestRunId && input.latestRunLogUrl) {
-    return {
-      kind: "resume-existing",
-      taskRunId: input.latestRunId,
-      logUrl: input.latestRunLogUrl,
-    };
+  if (input.latestRunId) {
+    return { kind: "resume-existing", taskRunId: input.latestRunId };
   }
   return { kind: "create-new" };
 }

@@ -5295,6 +5295,15 @@ export class PostHogAPIClient {
     };
   }
 
+  async getTaskRunLog(taskId: string, runId: string): Promise<string> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/log_entries/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("scope", "run");
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    return await response.text();
+  }
+
   async getTaskRunSessionLogsResult(
     taskId: string,
     runId: string,

@@ -3881,6 +3881,9 @@ describe("CloudTaskEngine", () => {
     expect(statusFetchCount).toBeLessThanOrEqual(2);
   });
 
+  const ARCHIVED_LOG_URL =
+    "https://app.example.com/api/projects/2/tasks/task-1/runs/run-1/log_entries/?scope=run";
+
   it("loads archived logs when a terminal run has no persisted session logs", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
@@ -3896,7 +3899,7 @@ describe("CloudTaskEngine", () => {
           createJsonResponse([], 200, { "X-Has-More": "false" }),
         );
       }
-      if (url === "https://logs.example.com/run-1.jsonl") {
+      if (url === ARCHIVED_LOG_URL) {
         return Promise.resolve(
           new Response(`${JSON.stringify(archivedEntry)}\n`, { status: 200 }),
         );
@@ -3905,7 +3908,6 @@ describe("CloudTaskEngine", () => {
         createJsonResponse({
           id: "run-1",
           status: "completed",
-          log_url: "https://logs.example.com/run-1.jsonl",
           updated_at: "2026-01-01T00:00:00Z",
         }),
       );
@@ -3927,11 +3929,13 @@ describe("CloudTaskEngine", () => {
         status: "completed",
       }),
     );
-    expect(
-      mockNetFetch.mock.calls.find(
-        ([input]) => input === "https://logs.example.com/run-1.jsonl",
-      )?.[1]?.signal,
-    ).toBeInstanceOf(AbortSignal);
+    const archivedInit = mockNetFetch.mock.calls.find(
+      ([input]) => input === ARCHIVED_LOG_URL,
+    )?.[1];
+    expect(archivedInit?.headers).toEqual(
+      expect.objectContaining({ Authorization: "Bearer token" }),
+    );
+    expect(archivedInit?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("keeps valid archived entries around malformed lines", async () => {
@@ -3949,7 +3953,7 @@ describe("CloudTaskEngine", () => {
           createJsonResponse([], 200, { "X-Has-More": "false" }),
         );
       }
-      if (url === "https://logs.example.com/run-1.jsonl") {
+      if (url === ARCHIVED_LOG_URL) {
         return Promise.resolve(
           new Response(`invalid\n${JSON.stringify(archivedEntry)}\n`, {
             status: 200,
@@ -3960,7 +3964,6 @@ describe("CloudTaskEngine", () => {
         createJsonResponse({
           id: "run-1",
           status: "completed",
-          log_url: "https://logs.example.com/run-1.jsonl",
           updated_at: "2026-01-01T00:00:00Z",
         }),
       );
