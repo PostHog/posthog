@@ -68,6 +68,7 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckBrand
                               |AEOCheckCitation
                               |AEOCheckSearch
                               |AEOCitationCheck
