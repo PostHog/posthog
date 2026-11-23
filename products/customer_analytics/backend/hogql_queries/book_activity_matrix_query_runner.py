@@ -231,7 +231,11 @@ def _product_mask(channel: str | None = None) -> ast.Expr:
 def _users_per_bit(mask: str) -> ast.Expr:
     """People per product index in a combination who have that product's bit set in `mask`."""
     return parse_expr(
-        f"sumForEach(arrayMap(index -> toUInt64(bitTest({mask}, index)), range({len(POSTHOG_PRODUCTS)})))"
+        "sumForEach(arrayMap(index -> toUInt64(bitTest({mask}, index)), range({product_count})))",
+        placeholders={
+            "mask": ast.Field(chain=[mask]),
+            "product_count": ast.Constant(value=len(POSTHOG_PRODUCTS)),
+        },
     )
 
 
