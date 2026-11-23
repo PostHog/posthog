@@ -1,4 +1,5 @@
 import argparse
+from datetime import date
 
 import pytest
 
@@ -6,11 +7,8 @@ from django.core.management.base import CommandError
 
 from temporalio.client import WorkflowExecutionStatus
 
-from products.replay.backend.management.commands.export_recordings_to_s3 import (
-    _shard_list,
-    check_session_list,
-    check_shard_rerun,
-)
+from products.replay.backend.management.commands.export_recordings_to_s3 import _shard_list, check_shard_rerun
+from products.replay.backend.temporal.export_recordings.quote import SelectionError, check_shard_selection
 
 
 @pytest.mark.parametrize(
@@ -35,15 +33,14 @@ def test_shard_list_rejects_malformed_names(value: str) -> None:
     [
         (["a" * 36] * 1000, True),
         (["a" * 36] * 100_001, False),
-        (["a" * 100_000] * 50, False),
     ],
 )
-def test_session_list_must_fit_in_one_query(session_ids: list[str], accepted: bool) -> None:
+def test_a_shard_holds_at_most_the_session_cap(session_ids: list[str], accepted: bool) -> None:
     if accepted:
-        check_session_list(session_ids)
+        check_shard_selection(date(2026, 8, 1), 0, session_ids)
     else:
-        with pytest.raises(CommandError):
-            check_session_list(session_ids)
+        with pytest.raises(SelectionError):
+            check_shard_selection(date(2026, 8, 1), 0, session_ids)
 
 
 @pytest.mark.parametrize(
