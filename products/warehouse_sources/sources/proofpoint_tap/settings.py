@@ -21,7 +21,7 @@ PEOPLE_WINDOW_DAYS = 90
 
 @frozen
 class TapEndpoint:
-    kind: Literal["siem", "threats", "campaigns", "people"]
+    kind: Literal["siem", "threats", "forensics", "campaigns", "people"]
     path: str
     selector: str
     primary_key: str
@@ -57,6 +57,7 @@ ENDPOINTS = {
     "threats": TapEndpoint(
         kind="threats", path="threat/summary/{id}", selector="", primary_key="id", partition_key="identifiedAt"
     ),
+    "forensics": TapEndpoint(kind="forensics", path="forensics", selector="reports", primary_key="id"),
     "campaigns": TapEndpoint(
         kind="campaigns",
         path="campaign/{id}",

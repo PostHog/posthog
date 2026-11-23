@@ -14,7 +14,6 @@ from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_secret
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX, token_auth_cache
 
 DEFAULT_CACHE_TTL = 300
@@ -34,11 +33,6 @@ class TestInvalidateFlagsAuthCacheCommand(BaseTest):
         self._original_redis_client = token_auth_cache._redis_client
         token_auth_cache._redis_client = self.redis
 
-        # BaseTest's team doesn't have secret tokens set
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.secret_api_token_backup = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token", "secret_api_token_backup"])
-
     def tearDown(self):
         token_auth_cache._redis_client = self._original_redis_client
         super().tearDown()
@@ -53,20 +47,6 @@ class TestInvalidateFlagsAuthCacheCommand(BaseTest):
         self.stdout = StringIO()
         call_command("invalidate_flags_auth_cache", *args, stdout=self.stdout, stderr=self.stderr)
         return self.stdout.getvalue()
-
-    def test_invalidates_team_secret_tokens(self):
-        assert self.team.secret_api_token is not None
-        assert self.team.secret_api_token_backup is not None
-        primary_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        backup_hash = hash_key_value(self.team.secret_api_token_backup, mode="sha256")
-        self._seed_cache(primary_hash, {"type": "secret", "team_id": self.team.id})
-        self._seed_cache(backup_hash, {"type": "secret", "team_id": self.team.id})
-
-        output = self._call("--team-id", str(self.team.id))
-
-        assert not self._cache_exists(primary_hash)
-        assert not self._cache_exists(backup_hash)
-        assert "Secret tokens:       2" in output
 
     def test_invalidates_psaks(self):
         psak = ProjectSecretAPIKey.objects.create(
@@ -119,13 +99,17 @@ class TestInvalidateFlagsAuthCacheCommand(BaseTest):
         assert "Personal keys:       0" in output
 
     def test_dry_run_does_not_delete(self):
-        assert self.team.secret_api_token is not None
-        primary_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        self._seed_cache(primary_hash, {"type": "secret", "team_id": self.team.id})
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="Dry run PSAK",
+            secure_value=hash_key_value("test_cmd_dry_run_psak"),
+        )
+        assert psak.secure_value is not None
+        self._seed_cache(psak.secure_value, {"type": "project_secret", "team_id": self.team.id})
 
         output = self._call("--team-id", str(self.team.id), "--dry-run")
 
-        assert self._cache_exists(primary_hash)
+        assert self._cache_exists(psak.secure_value)
         assert "DRY RUN" in output
         assert "No entries were deleted" in output
 

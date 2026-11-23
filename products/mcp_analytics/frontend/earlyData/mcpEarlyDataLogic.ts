@@ -28,6 +28,8 @@ import {
 } from '~/queries/schema/schema-general'
 import type { HogFunctionType } from '~/types'
 
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import {
     DEFAULT_MCP_ACTIVITY_QUERY,
     MCP_ACTIVITY_DATA_COLLECTION_ID,
@@ -136,11 +138,11 @@ export interface mcpEarlyDataLogicActions {
         errorObject?: any
     } // mcpRecurringReportsLogic
     loadReportsSuccess: (
-        reports: import('products/subscriptions/frontend/generated/api.schemas').SubscriptionApi[],
+        reports: SubscriptionApi[],
         payload?: any
     ) => {
         payload?: any
-        reports: import('products/subscriptions/frontend/generated/api.schemas').SubscriptionApi[]
+        reports: SubscriptionApi[]
     } // mcpRecurringReportsLogic
     loadHarnessRows: (_: void) => void
     loadHarnessRowsFailure: (

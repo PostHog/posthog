@@ -37,8 +37,11 @@ export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | und
         : undefined
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
-// inside another attribute's value or as part of a longer name like `data-href`.
-const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
+// inside another attribute's value or as part of a longer name like `data-href`. Only ASCII whitespace
+// separates attributes, as in an HTML parser: `\s` would also take a nonbreaking space and misread
+// `x=&nbsp; data-ph-no-utm` (with the raw character) as one attribute that hides the opt-out.
+const ATTRIBUTE_REGEX =
+    /[\t\n\f\r ]([^\t\n\f\r "'<>/=]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
 
 type Attribute = RegExpMatchArray
 
@@ -264,7 +267,7 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     const isOnSenderDomain = (parsed: URL): boolean =>
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
     return addTagsToEmailLinks(html, {
-        isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
+        isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)

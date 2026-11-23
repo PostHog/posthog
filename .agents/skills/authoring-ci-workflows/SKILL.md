@@ -498,6 +498,14 @@ What this still does not answer is whether a narrowed run would have **caught** 
 Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
 The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
 
+### A repository-wide check can scan only what the diff changes
+
+A job that scans every file in the repository pays for the whole tree on every pull request, so its cost grows with the repository while its findings can only come from the files the diff changes.
+Narrow it whenever the tool's verdict is per file: no markdownlint rule reads two files, so on a given commit a file the diff left alone cannot change a result.
+`frontend-format`'s `Lint markdown files` scanned all 2018 markdown files in about 80s for that reason; a pull request now lints only the markdown it changes, about 1s, while master's push run and the merge queue keep the full scan, which is where drift no single diff shows up in stays covered.
+Keep the full scan for a diff that moves the tool's configuration or its ignore rules: those change the verdict for files the diff does not touch.
+The step logs which mode it took and how many files, so a fallback that bites is readable from the job log; a selector with no such line needs an event, see below.
+
 ### Reusing an earlier passing result
 
 Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.
@@ -524,11 +532,12 @@ The judgment calls when you adopt or change it:
   `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
   A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
 - **A check name that embeds a runner label is brittle.**
-  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  Renaming the job or its runner silently stops reuse, and the only sign is a rise in `no-proven-run` in the `posthog-ci-reuse-decision` events.
   When you rename a job, update `reuse-checks` in the same change.
 - **`reuse-proof-checks` names a job that runs only when the suite really runs.**
   A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
-  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  The action searches the branch's earlier heads for the newest one with the same inputs where a proof check concluded `success`, so a green skip is never the result it reuses.
+  That head need not be the previous one: a revert, a rebase or a force-push can reuse a run from before it.
   Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
 - **Keep filters out of scope when a job they gate must post on every head.**
   Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.

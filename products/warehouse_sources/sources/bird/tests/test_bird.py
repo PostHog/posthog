@@ -147,6 +147,23 @@ class TestIncremental:
                 },
                 {"created_after": None},
             ),
+            (
+                "amb_messages",
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": datetime(2026, 11, 2, tzinfo=UTC),
+                },
+                {"created_after": None},
+            ),
+            # A leg is listed only after it ends, so a start-time watermark would skip long calls.
+            (
+                "voice_legs",
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": datetime(2026, 11, 2, tzinfo=UTC),
+                },
+                {"started_after": None, "status": None},
+            ),
         ],
     )
     def test_shapes_the_time_filter(self, schema: str, inputs: dict[str, Any], expected: dict[str, str | None]) -> None:

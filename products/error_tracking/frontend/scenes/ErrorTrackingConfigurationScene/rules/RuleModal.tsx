@@ -6,12 +6,14 @@ import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, Spinner } f
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { DisabledRuleBanner } from './DisabledRuleBanner'
 import { MatchResultBanner } from './MatchResultBanner'
+import { QuillRuleModal } from './QuillRuleModal'
 
 interface RuleModalProps {
     logic: any
@@ -57,6 +59,7 @@ export function RuleModal({
     const [confirmingDelete, setConfirmingDelete] = useState(false)
     const [confirmEnabled, setConfirmEnabled] = useState(false)
     const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const clearTimers = useCallback(() => {
         timersRef.current.forEach(clearTimeout)
@@ -85,6 +88,42 @@ export function RuleModal({
         return clearTimers
     }, [confirmingDelete, clearTimers])
 
+    const deleteDisabledReason =
+        errorTrackingEditAccessDisabledReason() ??
+        (confirmingDelete && !confirmEnabled ? 'Click again to confirm' : undefined)
+
+    const handleDeleteClick = (): void => {
+        if (confirmingDelete && confirmEnabled) {
+            deleteRule()
+        } else {
+            setConfirmingDelete(true)
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillRuleModal
+                logic={logic}
+                ruleLabel={ruleLabel}
+                description={description}
+                pageKey={pageKey}
+                width={width}
+                taxonomicGroupTypes={taxonomicGroupTypes}
+                saveDisabledReason={resolvedSaveDisabled}
+                suffix={suffix}
+                filterLabels={filterLabels}
+                extraFields={extraFields}
+                footerExtra={footerExtra}
+                samplingRate={samplingRate}
+                filtersOptional={filtersOptional}
+                showTestButton={showTestButton}
+                deleteLabel={confirmingDelete ? 'Confirm delete' : 'Delete'}
+                deleteDisabledReason={deleteDisabledReason}
+                onDeleteClick={handleDeleteClick}
+            />
+        )
+    }
+
     return (
         <LemonModal
             title={rule.id === 'new' ? `New ${ruleLabel} rule` : `Edit ${ruleLabel} rule`}
@@ -102,17 +141,8 @@ export function RuleModal({
                                 status="danger"
                                 size="small"
                                 loading={deletingLoading}
-                                disabledReason={
-                                    errorTrackingEditAccessDisabledReason() ??
-                                    (confirmingDelete && !confirmEnabled ? 'Click again to confirm' : undefined)
-                                }
-                                onClick={() => {
-                                    if (confirmingDelete && confirmEnabled) {
-                                        deleteRule()
-                                    } else {
-                                        setConfirmingDelete(true)
-                                    }
-                                }}
+                                disabledReason={deleteDisabledReason}
+                                onClick={handleDeleteClick}
                             >
                                 {confirmingDelete ? 'Confirm delete' : 'Delete'}
                             </LemonButton>
