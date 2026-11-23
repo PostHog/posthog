@@ -2764,9 +2764,9 @@ Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML pa
 
 Re-audited 2026-11-19 against: <https://apidocs.callrail.com/>
 
-- [ ] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
-- [ ] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
-- [ ] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
+- [x] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
+- [x] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
+- [x] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
 
 Note (2026-11-19): Parsed the v3 reference page (one large HTML file) and listed every /v3/a/{account_id} path. All data collections are already synced, including leads, timelines, page views, SMS threads and summaries. The three gaps are configuration objects, so they are low value. Excluded recordings (files), integration triggers and filters, summary email subscriptions and ignored fields as settings.
 
@@ -4668,10 +4668,10 @@ Today (15): `companies`, `contacts`, `employee_agreements`, `employee_availabili
 
 Diffed against: <https://developer.deputy.com/llms.txt>
 
-- [ ] `EmploymentContract (POST /api/v1/resource/EmploymentContract/QUERY)` — pay rate, award and contract terms behind the employee agreements we sync (high)
-- [ ] `TrainingRecord and TrainingModule (POST /api/v1/resource/TrainingRecord/QUERY; POST /api/v1/resource/TrainingModule/QUERY)` — training assigned to staff and the module lookup, for compliance reporting (medium)
-- [ ] `Team (POST /api/v1/resource/Team/QUERY)` — team groupings of employees, used as a staffing dimension (medium)
-- [ ] `LeaveAccrual (POST /api/v1/resource/LeaveAccrual/QUERY)` — leave balance accruals per employee, to pair with the leave table (medium)
+- [x] `EmploymentContract (POST /api/v1/resource/EmploymentContract/QUERY)` — pay rate, award and contract terms behind the employee agreements we sync (high)
+- [x] `TrainingRecord and TrainingModule (POST /api/v1/resource/TrainingRecord/QUERY; POST /api/v1/resource/TrainingModule/QUERY)` — training assigned to staff and the module lookup, for compliance reporting (medium)
+- [x] `Team (POST /api/v1/resource/Team/QUERY)` — team groupings of employees, used as a staffing dimension (medium)
+- [x] `LeaveAccrual (POST /api/v1/resource/LeaveAccrual/QUERY)` — leave balance accruals per employee, to pair with the leave table (medium)
 - [ ] `RosterOpen (POST /api/v1/resource/RosterOpen/QUERY)` — open unassigned shifts, a core staffing-gap measure (medium)
 - [ ] `Comment (POST /api/v1/resource/Comment/QUERY)` — comments attached to rosters, timesheets and tasks we sync (medium)
 - [ ] `PayRules (POST /api/v1/resource/PayRules/QUERY)` — pay rule definitions that explain timesheet pay returns (medium)
@@ -6365,10 +6365,10 @@ Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 - [x] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
 - [x] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
 - [x] `events/identify` — identity resolution events tying anonymous activity to the synced users and accounts (medium)
-- [ ] `events/formSubmit` — in-product form submissions, the conversion event for guides and surveys (medium)
-- [ ] `events/email` — email engagement events (send/open/click) for engagements delivered by email (medium)
-- [ ] `feature/adoption/{featureId}` — vendor-precomputed adoption statistics per feature — a breakdown dimension that is expensive to recompute (medium)
-- [ ] `events/lead` — lead capture events from in-product forms, for acquisition attribution (low)
+- [x] `events/formSubmit` — in-product form submissions, the conversion event for guides and surveys (medium)
+- [x] `events/email` — email engagement events (send/open/click) for engagements delivered by email (medium)
+- [ ] `feature/adoption/{featureId}` — vendor-precomputed adoption statistics per feature — a breakdown dimension that is expensive to recompute (medium) Skipped: one aggregate per feature and window of at most 7 days, derivable from feature_match_events, and the spec documents the 200 body as Feature, not FeatureAdoption.
+- [x] `events/lead` — lead capture events from in-product forms, for acquisition attribution (low)
 
 Note: Fetched the Swagger 2.0 spec behind the Apiary docs (api.aptrinsic.com). PostHog syncs the seven entity/config objects but none of the /v1/events/\* streams, which are the bulk of what Gainsight PX actually captures and where all the product-analytics value sits.
 
@@ -12344,10 +12344,10 @@ Diffed against: <https://developer.rechargepayments.com/2021-11>
 - [x] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
 - [x] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
 - [x] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
-- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium)
-- [ ] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
-- [ ] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
-- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low)
+- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium). Skipped: the API has no list route for checkouts, only reads by token.
+- [x] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
+- [x] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
+- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low). Skipped: the only route sends an email notification; the API has no notification history to list.
 
 Note: No OpenAPI spec is served (openapi.json 404s). The docs are a Nuxt SSR app; I extracted the complete 2021-11 reference nav from the embedded \_\_NUXT\_\_ payload - 24 API sections. PostHog covers 10 of them. Note the repo already carries products/warehouse_sources/.../sources/recharge/api_inventory.md, which may pre-date some of these.
 
@@ -13976,10 +13976,10 @@ Diffed against: <https://next.sonarqube.com/sonarqube/api/webservices/list>
 - [x] `project_analyses/search` — analysis records with version/event markers; join key for measures history and release comparison (medium)
 - [x] `project_branches/list` — branch-level gate status and last analysis date (medium)
 - [x] `project_pull_requests/list` — PR-level findings and gate status (medium)
-- [ ] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping each project to the profile that generated its issues (medium)
-- [ ] `components/search + components/tree` — component/file inventory that measures and issues key on (medium)
-- [ ] `user_groups/search + user_groups/users` — group membership table for team-level attribution of findings (medium)
-- [ ] `languages/list` — lookup resolving language keys on rules and measures (low)
+- [x] `qualityprofiles/search + qualityprofiles/projects` — lookup mapping each project to the profile that generated its issues (medium)
+- [x] `components/search + components/tree` — component/file inventory that measures and issues key on (medium)
+- [x] `user_groups/search + user_groups/users` — group membership table for team-level attribution of findings (medium)
+- [x] `languages/list` — lookup resolving language keys on rules and measures (low)
 
 Note: Diffed against a live SonarQube instance's own web-service catalog (41 services). Same core gap as SonarCloud: api/metrics is definitions only, api/measures holds the values. views/portfolios and ce/activity also exist but are lower value.
 
@@ -15168,7 +15168,7 @@ Note: Parsed the official reference's GET operations and compared entity collect
 
 ## TravisCI — gaps
 
-Today (7): `branches`, `builds`, `crons`, `jobs`, `repositories`, `requests`, `stages`
+Today (10): `branches`, `builds`, `caches`, `crons`, `jobs`, `messages`, `organizations`, `repositories`, `requests`, `stages`
 
 Diffed against: <https://developer.travis-ci.com/>
 
@@ -15176,10 +15176,10 @@ Diffed against: <https://developer.travis-ci.com/>
 - [x] `build/{id}/stages` — stage rows that group jobs within a build; lookup for the stage a job belongs to (high) — read from the stages embedded in the builds list, not one request per build
 - [ ] `owner/{login}/executions (+ executions_per_repo, executions_per_sender)` — build-minute consumption with per-repo and per-sender breakdown dimensions (high) — skipped: undocumented proxy to the billing service (no pagination envelope, filter field and `to` bound not specified); the per-repo and per-sender variants are date-range aggregates, not rows
 - [x] `repo/{id}/crons` — scheduled build definitions that explain recurring build volume (medium)
-- [ ] `orgs / users` — owner lookup tables resolving the owner ids on repositories and builds (medium)
-- [ ] `scan_results` — security scan findings against build logs (medium)
-- [ ] `repo/{id}/caches` — cache inventory and size per repo/branch (low)
-- [ ] `build/{id}/messages` — build config validation warnings per build (low)
+- [x] `orgs / users` — owner lookup tables resolving the owner ids on repositories and builds (medium) — added as `organizations` (`/orgs`); `users` has no list endpoint in API v3 (only `/user` and `/user/{id}`), so it was not added
+- [ ] `scan_results` — security scan findings against build logs (medium) — Skipped: a GET clears the repository's scan-failed status, so a sync would change customer state.
+- [x] `repo/{id}/caches` — cache inventory and size per repo/branch (low)
+- [x] `build/{id}/messages` — build config validation warnings per build (low) — added as `messages`, read from the messages embedded in each request of `/repo/{id}/requests` (messages belong to requests, not builds)
 - [ ] `job/{id}/log` — job log text for failure-pattern analysis (low)
 - [ ] `owner/{login}/allowance` — remaining credit/concurrency allowance snapshot (low)
 
@@ -15764,8 +15764,8 @@ Diffed against: <https://developers.veeqo.com/api/operations/list-all-customers/
 - [x] `GET stock entry (/sellables/{sellable_id}/warehouses/{warehouse_id}/stock_entry)` — per-warehouse inventory levels, Veeqo's core operational metric, as a flat table (medium)
 - [x] `GET view tracking events (shipments)` — delivery state transitions per shipment, the fulfillment timeline (medium)
 - [x] `GET retrieve bundle detail and GET retrieve bundle content` — bundle/kit composition — resolves which sellables make up a bundled product (low)
-- [ ] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
-- [ ] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
+- [x] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
+- [x] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
 
 Note: Parsed the complete operation index out of the developers.veeqo.com nav (76 operations, identical on every page; the site ships no OpenAPI file — /openapi.yaml, /openapi.json and /swagger.json all 404). Every documented top-level \*list\* endpoint is already synced (orders, products, customers, purchase_orders, suppliers, warehouses, channels->stores, tags, delivery_methods). Veeqo publishes no list endpoints for allocations, shipments, returns or bundles, so all gaps above require fan-out from orders/products; the repo's own veeqo/api_inventory.md notes allocations and shipments are already embedded in the order payload. Excluded the Carrier/Rate Shopping APIs (label buying, scan forms) as operational, not analytical.
 
@@ -15824,8 +15824,8 @@ Diffed against: <https://raw.githubusercontent.com/vimeo/openapi/master/api.yaml
 - [x] `Showcase videos (GET /me/albums/{album_id}/videos)` — link synced videos to showcases and compare content across curated collections (high)
 - [x] `Video comments and replies (GET /videos/{video_id}/comments; GET /videos/{video_id}/comments/{comment_id}/replies)` — analyze audience feedback and discussion on each video (medium)
 - [x] `Video likes (GET /videos/{video_id}/likes)` — measure audience engagement and identify viewers who like each video (medium)
-- [ ] `Video tags (GET /videos/{video_id}/tags)` — group video performance by topic using the tags assigned to each video (medium)
-- [ ] `Followers (GET /me/followers)` — analyze the account audience and follower acquisition (medium)
+- [x] `Video tags (GET /videos/{video_id}/tags)` — group video performance by topic using the tags assigned to each video (medium)
+- [x] `Followers (GET /me/followers)` — analyze the account audience and follower acquisition (medium)
 
 Note: Parsed every GET path in Vimeo's official, archived OpenAPI specification for version 3.4, matching the source version. The live specification requires credentials, so newer operations remain outside this assessment. Video, folder, showcase, and comment sub-resources require parent loops. Excluded upload, authentication, and player configuration operations.
 
@@ -16269,9 +16269,9 @@ Diffed against: <https://wufoo.github.io/docs/>
 - [x] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
 - [x] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
 - [x] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
-- [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low)
-- [ ] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
-- [ ] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)
+- [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low) Skipped: it returns one `EntryCount` number per form, which a count of `form_entries` rows by `form_hash` already gives.
+- [x] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
+- [x] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)
 
 Note: Not dynamic discovery — products/warehouse_sources/sources/wufoo/settings.py hardcodes three account-level endpoints and its comment explicitly defers the per-form fan-out ('require a parent form hash and are intentionally left out of this first cut'). Entries are the product's whole payload, so closing this needs per-form dynamic table generation driven off the forms list. Wufoo v3 is the API's only version and its docs now live at wufoo.github.io/docs (www.wufoo.com/docs/api/v3 redirects to a SurveyMonkey help page).
 

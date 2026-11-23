@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, PropertyOperator } from '~/types'
 
-import { bucketUpperBound, type TracingLatencyHeatmapData } from 'products/tracing/frontend/durationBuckets'
+import type { _TracingLatencyPercentilesRowApi } from 'products/tracing/frontend/generated/api.schemas'
 import type { Span } from 'products/tracing/frontend/types'
 
 /** The env, version and operation the service page is narrowed to. Null means "all". */
@@ -158,41 +158,21 @@ export function environmentKeyFor(environment: string | null, candidates: Enviro
 }
 
 export interface LatencyPercentiles {
+    times: string[]
     p50: number[]
     p95: number[]
     p99: number[]
 }
 
-/**
- * Per time bucket, the duration below which `q` of the spans fall. The heatmap only knows which
- * 1-2-5 bucket a span landed in, so each value is that bucket's upper bound: an upper estimate,
- * never more than one bucket step above the real percentile. Empty buckets are NaN, so the line
- * breaks instead of dropping to zero.
- */
-export function latencyPercentileSeries(data: TracingLatencyHeatmapData): LatencyPercentiles {
-    const quantile = (column: number, q: number): number => {
-        let total = 0
-        for (const row of data.cells) {
-            total += row[column] ?? 0
-        }
-        if (total === 0) {
-            return NaN
-        }
-        const target = q * total
-        let cumulative = 0
-        for (let row = 0; row < data.bucketsNs.length; row++) {
-            cumulative += data.cells[row]?.[column] ?? 0
-            if (cumulative >= target) {
-                return bucketUpperBound(data.bucketsNs[row])
-            }
-        }
-        return bucketUpperBound(data.bucketsNs[data.bucketsNs.length - 1])
-    }
-    const columns = data.timeBuckets.map((_, index) => index)
+/** Per time bucket, in nanoseconds. A bucket with no spans is NaN, so the line breaks instead of dropping to zero. */
+export function latencyPercentileSeries(rows: _TracingLatencyPercentilesRowApi[]): LatencyPercentiles {
+    const values = (pick: (row: _TracingLatencyPercentilesRowApi) => number | null): number[] =>
+        rows.map((row) => pick(row) ?? NaN)
     return {
-        p50: columns.map((column) => quantile(column, 0.5)),
-        p95: columns.map((column) => quantile(column, 0.95)),
-        p99: columns.map((column) => quantile(column, 0.99)),
+        times: rows.map((row) => row.time),
+        p50: values((row) => row.p50_ns),
+        p95: values((row) => row.p95_ns),
+        p99: values((row) => row.p99_ns),
     }
 }
 
