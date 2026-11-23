@@ -888,7 +888,12 @@ describe('EmailService', () => {
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
+                    const labels = {
+                        source,
+                        priority_class: priorityClass,
+                        team_capped: teamCapped,
+                        with_files: 'false',
+                    }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -2456,6 +2461,31 @@ describe('EmailService', () => {
                         attachments: inFilenameOrder(deliveredFiles.map((file) => file())),
                     },
                 ])
+            })
+
+            it('times a send with files apart from plain sends', async () => {
+                invocation.queue = 'email'
+                invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                const latencyCounts = async (withFiles: string): Promise<number[]> => [
+                    await metricValue(
+                        'cdp_ses_send_duration_ms',
+                        { result: 'success', with_files: withFiles },
+                        'cdp_ses_send_duration_ms_count'
+                    ),
+                    await metricValue(
+                        'cdp_email_queue_to_send_ms',
+                        { with_files: withFiles },
+                        'cdp_email_queue_to_send_ms_count'
+                    ),
+                ]
+                const withFilesBefore = await latencyCounts('true')
+                const plainBefore = await latencyCounts('false')
+
+                const result = await sender().executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(await latencyCounts('true')).toEqual(withFilesBefore.map((count) => count + 1))
+                expect(await latencyCounts('false')).toEqual(plainBefore)
             })
 
             describe('team budget across load retries', () => {
