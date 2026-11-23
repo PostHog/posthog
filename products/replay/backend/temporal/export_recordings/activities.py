@@ -83,6 +83,9 @@ BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<sta
 # Our cost and storage paths stay out of the customer's bucket.
 CUSTOMER_QUOTE_FIELDS = ("quote_id", "team_id", "date_from", "date_to", "selection", "created_at", "usage")
 
+# S3 returns these with a 4xx status, but a later attempt can succeed.
+TRANSIENT_S3_ERROR_CODES = frozenset({"RequestTimeout", "SlowDown", "Throttling", "ThrottlingException"})
+
 NON_RETRYABLE_ERRORS = (InvalidCredentialsError, ExternalRoleArnNotConfiguredError)
 
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
@@ -668,9 +671,10 @@ async def _probe[T](call: Awaitable[T], permission: str) -> T:
         return await call
     except ClientError as e:
         status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
-        if status >= 500 or status == 429:
+        code = e.response.get("Error", {}).get("Code")
+        if status >= 500 or status == 429 or code in TRANSIENT_S3_ERROR_CODES:
             raise
-        if e.response.get("Error", {}).get("Code") == "AccessDenied":
+        if code == "AccessDenied":
             message = f"The role needs {permission}, in the AWS account that owns the bucket. AWS said: {e}"
         else:
             message = f"The bucket refused a test upload: {e}"

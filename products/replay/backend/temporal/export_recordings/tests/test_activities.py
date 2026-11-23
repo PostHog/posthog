@@ -242,15 +242,17 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         [
             ("create_denied", "create_multipart_upload", None, 403, "s3:PutObject on s3://customer/exports/"),
             ("part_denied_by_kms", "upload_part", "key-1", 403, f"kms:Decrypt on arn:aws:kms:us-east-1:{BUCKET_OWNER}"),
-            ("throttled", "create_multipart_upload", None, 503, None),
+            ("unavailable", "create_multipart_upload", None, 503, None),
+            ("request_timeout", "create_multipart_upload", None, 400, None),
         ]
     )
-    def test_a_failed_write_check_names_the_missing_permission_and_retries_only_server_errors(
+    def test_a_failed_write_check_names_the_missing_permission_and_retries_only_transient_errors(
         self, _: str, call: str, kms_key_id: str | None, status: int, missing: str | None
     ) -> None:
         self.destination = dataclasses.replace(self.destination, kms_key_id=kms_key_id)
         s3 = FakeS3()
-        response: Any = {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        code = "RequestTimeout" if status == 400 else "AccessDenied"
+        response: Any = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
 
         with patch.object(s3, call, side_effect=ClientError(response, call)), pytest.raises(Exception) as raised:
             self._check_destination(s3)
