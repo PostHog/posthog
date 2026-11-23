@@ -32,7 +32,7 @@ import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exe
 import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
-import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { compileSearchPattern, isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -122,7 +122,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
 function namesMatchingSearch(names: string[], term: string): string[] {
     if (isRegexPattern(term)) {
         try {
-            const regex = new RegExp(term, 'i')
+            const regex = compileSearchPattern(term)
             return names.filter((name) => regex.test(name))
         } catch {
             return []
@@ -2060,8 +2060,11 @@ export function createExecTool(
                             matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
                             matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, query)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        } catch (error) {
+                            throw new ExecCommandError(
+                                `Invalid regex pattern: "${query}": ${(error as Error).message}`,
+                                'invalid_regex'
+                            )
                         }
                         // A guessed name such as `project-update` matches nothing as a regex,
                         // but its words usually name the tool the agent wants.
