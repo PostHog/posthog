@@ -99,6 +99,19 @@ async function metricValue(name: string, labels: Record<string, string>, metricN
     return sample?.value ?? 0
 }
 
+async function metricTotal(name: string, labels: Record<string, string>, metricName: string): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    return values
+        .filter(
+            (value) =>
+                value.metricName === metricName &&
+                Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+        )
+        .reduce((total, value) => total + value.value, 0)
+}
+
 describe('sanitizeEmailSubject', () => {
     it.each([
         ['passes through normal text', 'Hello World', 'Hello World'],
@@ -2471,12 +2484,12 @@ describe('EmailService', () => {
                 invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                 send(files())
                 const latencyCounts = async (withFiles: string): Promise<number[]> => [
-                    await metricValue(
+                    await metricTotal(
                         'cdp_ses_send_duration_ms',
                         { result: 'success', with_files: withFiles },
                         'cdp_ses_send_duration_ms_count'
                     ),
-                    await metricValue(
+                    await metricTotal(
                         'cdp_email_queue_to_send_ms',
                         { with_files: withFiles },
                         'cdp_email_queue_to_send_ms_count'
