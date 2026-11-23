@@ -418,6 +418,8 @@ class LazyTableResolver(TraversingVisitor):
             bool(self.context.modifiers.optimizeCrossJoins)
             and join.join_type == "ALL INNER JOIN"
             and not join.table_final
+            and not join.table_args
+            and not join.column_aliases
             and isinstance(table_type, ast.TableType)
         )
 

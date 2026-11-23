@@ -65,6 +65,33 @@ class TestCrossJoinOptimizer(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("SELECT l.number, r.number FROM numbers(2) l ALL INNER JOIN numbers(2) r ON l.number = r.number",),
+            (
+                "SELECT l.event, r.event FROM events l ALL INNER JOIN events r(event, uuid) "
+                "ON l.distinct_id = r.distinct_id",
+            ),
+        ]
+    )
+    def test_explicit_inner_join_with_table_arguments_or_column_aliases(self, query: str) -> None:
+        def compile_query(enabled: bool) -> str:
+            sql, _ = prepare_and_print_ast(
+                parse_select(query),
+                dialect="clickhouse",
+                context=HogQLContext(
+                    team=Team(id=1, timezone="UTC"),
+                    enable_select_queries=True,
+                    database=Database(timezone="UTC"),
+                    restricted_properties=set(),
+                    use_new_events_schema=False,
+                    modifiers=HogQLQueryModifiers(optimizeCrossJoins=enabled),
+                ),
+            )
+            return sql
+
+        assert compile_query(True) == compile_query(False)
+
+    @parameterized.expand(
+        [
             ("SELECT l.k FROM (SELECT NULL AS k) l CROSS JOIN (SELECT NULL AS k) r WHERE l.k = r.k", True),
             (
                 "SELECT l.k FROM (SELECT 1.0 AS k) l CROSS JOIN (SELECT count() AS k FROM events) r WHERE l.k = r.k",
