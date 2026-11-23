@@ -32,9 +32,9 @@ with workflow.unsafe.imports_passed_through():
         THINKING_LINE_TITLE,
         ProgressPhase,
         done_plan_title,
+        intent_from_narrative,
         phase_for_key,
         phase_line_title,
-        random_progress_title,
     )
 
     from .activities.slack_agent_design import (
@@ -86,10 +86,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._line_ids: dict[str, str] = {}
         self._phases: dict[str, ProgressPhase] = {}
         self._counts: dict[str, int] = {}
-        self._phase_titles: dict[str, str] = {}
         self._current_key: Optional[str] = None
         # Slack appends a step's details, so each call description is sent once.
+        self._unsent_details: dict[str, list[str]] = {}
+        self._keys_with_details: set[str] = set()
+        self._last_description: dict[str, str] = {}
         self._plan_title: Optional[str] = None
+        self._latest_description: Optional[str] = None
         # The spinning line shown while no step is open, until the next line takes over its id.
         self._placeholder: Optional[TaskUpdateChunk] = None
         self._setup_lines: dict[str, TaskUpdateChunk] = {}
@@ -146,7 +149,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             phase = OTHER_WORK
         key = phase.key
         self._phases[key] = phase
-        self._phase_titles[key] = random_progress_title(workflow.random(), self._phase_titles.get(key))
+        description = payload.get("activity")
+        if not isinstance(description, str) or not description:
+            description = intent_from_narrative(narrative) if narrative.strip() else None
+        self._latest_description = description
+        if description and description != self._last_description.get(key):
+            self._last_description[key] = description
+            self._unsent_details.setdefault(key, []).append(description)
         self._counts[key] = self._counts.get(key, 0) + 1
         if key not in self._line_ids:
             self._line_ids[key] = self._claim_line_id()
@@ -230,9 +239,15 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._turn_complete = True
         self._trace_id = trace_id
 
-    def _line_chunk(self, key: str, status: str) -> TaskUpdateChunk:
-        title = self._phase_titles.get(key, phase_line_title(self._phases[key], self._counts.get(key, 0)))
-        return TaskUpdateChunk(id=self._line_ids[key], title=title, status=status)
+    def _line_chunk(self, key: str, status: str, *, with_details: bool = False) -> TaskUpdateChunk:
+        title = phase_line_title(self._phases[key], self._counts.get(key, 0))
+        details = None
+        unsent = self._unsent_details.pop(key, None) if with_details else None
+        if unsent:
+            # Slack appends details to the text it shows, so later descriptions start a new line.
+            details = ("\n" if key in self._keys_with_details else "") + "\n".join(unsent)
+            self._keys_with_details.add(key)
+        return TaskUpdateChunk(id=self._line_ids[key], title=title, status=status, details=details)
 
     def _open_agent_step(self) -> Optional[TaskUpdateChunk]:
         return next((line for line in self._agent_plan if line.status == "in_progress"), None)
@@ -253,12 +268,12 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         for key in self._line_ids:
             if key in self._changed_keys and key not in self._new_keys:
                 status = "in_progress" if key == self._current_key else "complete"
-                chunks.append(self._line_chunk(key, status))
+                chunks.append(self._line_chunk(key, status, with_details=True))
         for key in self._new_keys:
             if self._current_key is not None:
                 chunks.append(self._line_chunk(self._current_key, "complete"))
             self._current_key = key
-            chunks.append(self._line_chunk(key, "in_progress"))
+            chunks.append(self._line_chunk(key, "in_progress", with_details=True))
         self._new_keys = []
         self._changed_keys = set()
         if self._agent_plan_changed:
@@ -281,7 +296,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             open_step = self._open_agent_step()
             return open_step.title if open_step else PLAN_TITLE_WORKING
         if self._current_key is not None:
-            return self._phase_titles[self._current_key]
+            return self._latest_description or self._phases[self._current_key].title
         open_line = self._open_line()
         return open_line.title if open_line else PLAN_TITLE_WORKING
 

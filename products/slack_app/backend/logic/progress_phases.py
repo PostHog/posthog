@@ -1,8 +1,12 @@
-"""Generic progress phases for the Slack agent-design plan block."""
+"""Plain-language progress phases for the Slack agent-design plan block.
+
+A tool call maps to one line per kind of work, never to a tool name or its arguments. A PostHog
+tool gets the title the MCP tool catalogue gives it, because some catalogue categories ("Core",
+"Query wrappers") are internal names.
+"""
 
 import re
 from datetime import timedelta
-from random import Random
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -14,30 +18,22 @@ from posthog.slack.channels import clip_text
 class ProgressPhase:
     key: str
     title: str
-    # The noun that counts calls in the line title. None shows no count.
+    # The noun that counts calls in the line title, such as "queries". None shows no count.
     counter: str | None
 
 
-# Keys of PostHog lines start with this. The rest of the key keeps work types grouped internally.
+# Keys of PostHog lines start with this. The rest of the key is the catalogue title of the tool.
 POSTHOG_PHASE_PREFIX = "posthog:"
-GETTING_CODE = ProgressPhase(key="getting_code", title="Working on it", counter=None)
-READING_CODE = ProgressPhase(key="reading_code", title="Working on it", counter=None)
-SEARCHING_WEB = ProgressPhase(key="searching_web", title="Working on it", counter=None)
-MAKING_CHANGES = ProgressPhase(key="making_changes", title="Working on it", counter=None)
-RUNNING_CHECKS = ProgressPhase(key="running_checks", title="Working on it", counter=None)
-RUNNING_COMMANDS = ProgressPhase(key="running_commands", title="Working on it", counter=None)
-PREPARING_FILES = ProgressPhase(key="preparing_files", title="Working on it", counter=None)
-OPENING_PR = ProgressPhase(key="opening_pr", title="Working on it", counter=None)
+GETTING_CODE = ProgressPhase(key="getting_code", title="Getting the code", counter=None)
+READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter="lookups")
+SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter="lookups")
+MAKING_CHANGES = ProgressPhase(key="making_changes", title="Making changes", counter="edits")
+RUNNING_CHECKS = ProgressPhase(key="running_checks", title="Running checks", counter="checks")
+RUNNING_COMMANDS = ProgressPhase(key="running_commands", title="Running commands", counter="commands")
+PREPARING_FILES = ProgressPhase(key="preparing_files", title="Preparing attachments", counter="files")
+OPENING_PR = ProgressPhase(key="opening_pr", title="Opening a pull request", counter=None)
 # The relay folds phases past its line limit into this line, so the plan stays short.
-OTHER_WORK = ProgressPhase(key="other_work", title="Working on it", counter=None)
-GENERIC_PROGRESS_TITLES = (
-    "Working on it",
-    "Making progress",
-    "Taking care of it",
-    "Still working",
-    "Moving along",
-    "On it",
-)
+OTHER_WORK = ProgressPhase(key="other_work", title="Other work", counter="steps")
 
 PHASES: dict[str, ProgressPhase] = {
     phase.key: phase
@@ -147,9 +143,9 @@ def _short_activity(description: Any) -> str | None:
 
 
 def posthog_phase(tool_title: str) -> ProgressPhase:
-    """The generic line for a PostHog tool call."""
+    """The line for a PostHog tool, titled as the MCP tool catalogue names it."""
     title = clip_text(" ".join(tool_title.split()), _ACTIVITY_LIMIT)
-    return ProgressPhase(key=f"{POSTHOG_PHASE_PREFIX}{title}", title="Working on it", counter=None)
+    return ProgressPhase(key=f"{POSTHOG_PHASE_PREFIX}{title}", title=title, counter="calls")
 
 
 def _phase_for_command(command: str) -> ProgressPhase:
@@ -206,14 +202,14 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
 
 
 def phase_line_title(phase: ProgressPhase, count: int) -> str:
-    """The generic plan line for a phase."""
-    return phase.title
+    """The plan line for a phase, such as "Execute SQL query (3 calls)". A single call shows no count.
 
-
-def random_progress_title(generator: Random, previous: str | None = None) -> str:
-    """Choose a generic progress title that differs from the previous one."""
-    choices = tuple(title for title in GENERIC_PROGRESS_TITLES if title != previous)
-    return generator.choice(choices)
+    The count goes in the title because Slack replaces a step's title on each update, but
+    appends its details.
+    """
+    if phase.counter is None or count <= 1:
+        return phase.title
+    return f"{phase.title} ({count} {phase.counter})"
 
 
 def done_plan_title(elapsed: timedelta) -> str:

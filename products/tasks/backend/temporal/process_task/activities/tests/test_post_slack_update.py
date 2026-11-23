@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
+    _IN_PROGRESS_STAGES,
     SLACK_DENIAL_STOP_MESSAGE,
     SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT,
     SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
@@ -12,9 +14,17 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
     SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
     _classify_failure_recovery,
     _failure_recovery_prompt,
+    _get_stage_from_status,
     _post_cancelled_once,
     _post_error_once,
 )
+
+
+@pytest.mark.parametrize("stage", [None, "build", "implementation"])
+def test_in_progress_stage_uses_a_generic_variant(stage: str | None) -> None:
+    result = _get_stage_from_status(TaskRun.Status.IN_PROGRESS, stage, "run-1")
+
+    assert result in _IN_PROGRESS_STAGES
 
 
 @pytest.mark.parametrize(

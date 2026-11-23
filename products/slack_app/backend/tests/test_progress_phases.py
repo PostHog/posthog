@@ -1,17 +1,13 @@
 from datetime import timedelta
-from random import Random
 from typing import Any
 
 from parameterized import parameterized
 
 from products.slack_app.backend.logic.progress_phases import (
-    GENERIC_PROGRESS_TITLES,
     agent_plan_steps,
     done_plan_title,
     intent_from_narrative,
     phase_for_tool_call,
-    phase_line_title,
-    random_progress_title,
     tool_call_from_acp_update,
 )
 
@@ -94,8 +90,6 @@ class TestPhaseForToolCall:
         phase = phase_for_tool_call(tool_call)
 
         assert (phase.key if phase else None) == expected
-        if phase:
-            assert phase_line_title(phase, 5) == "Working on it"
 
     @parameterized.expand(
         [
@@ -137,18 +131,6 @@ class TestPhaseForToolCall:
 
         assert tool_call is not None
         assert tool_call.description == expected
-
-
-def test_random_progress_titles_stay_generic_and_do_not_repeat() -> None:
-    generator = Random(7)
-    titles: list[str] = []
-    previous = None
-    for _ in range(4):
-        previous = random_progress_title(generator, previous)
-        titles.append(previous)
-
-    assert all(title in GENERIC_PROGRESS_TITLES for title in titles)
-    assert len(set(titles)) == len(titles)
 
 
 class TestAgentPlanSteps:

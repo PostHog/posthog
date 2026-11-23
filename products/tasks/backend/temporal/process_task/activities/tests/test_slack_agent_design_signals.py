@@ -111,7 +111,7 @@ class TestSlackAgentDesignSignalEmitter:
                 "shell_description",
                 "Bash",
                 {"command": "pytest", "description": "Run the tests"},
-                {"phase": "running_checks"},
+                {"phase": "running_checks", "activity": "Run the tests"},
             ),
             (
                 "posthog_query",
@@ -121,7 +121,7 @@ class TestSlackAgentDesignSignalEmitter:
             ),
         ]
     )
-    def test_call_emits_only_its_generic_phase(
+    def test_call_carries_what_runs_now_to_the_open_line(
         self, _name: str, tool_name: str, raw_input: dict[str, Any], expected: dict[str, Any]
     ) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

@@ -107,10 +107,12 @@ _RECOVERY_PROMPTS = {
 _NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
 _QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
 _IN_PROGRESS_STAGES = (
-    "Paws on the keyboard",
-    "Nose in the code",
-    "Digging through the code",
-    "Building, one quill at a time",
+    "Working on it",
+    "Making progress",
+    "Continuing",
+    "Still working",
+    "Getting it done",
+    "Taking care of it",
 )
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
@@ -210,12 +212,12 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
 
 
 def _get_stage_from_status(status: str, stage: str | None = None, run_id: str | None = None) -> str:
-    """Map task run status to human-readable stage. Uses the run's stage field when available."""
-    if stage:
-        return stage
-
+    """Use a generic message for active runs and the task stage for other statuses."""
     from products.slack_app.backend.slack_thread import pick_variant
     from products.tasks.backend.models import TaskRun
+
+    if status != TaskRun.Status.IN_PROGRESS and stage:
+        return stage
 
     status_map: dict[str, tuple[str, ...]] = {
         TaskRun.Status.NOT_STARTED: _NOT_STARTED_STAGES,

@@ -876,9 +876,10 @@ def _is_active_agent_update(event_data: dict) -> bool:
 
 
 def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
-    """The generic Slack phase for an ACP tool call, or the agent's todo list.
+    """The Slack plan payload for an ACP tool call (``{"phase", "activity"}``) or todo list (``{"plan"}``).
 
-    An id is marked seen only once its command is known, so a call that arrives without input retries.
+    It carries no tool name or arguments, only the call's description written for people. An id is
+    marked seen only once its command is known, so a call that arrives without input retries.
     """
     if not _is_session_update(event_data):
         return None
@@ -901,7 +902,10 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     # A hidden tool still ends the narrative burst before it, so it is signaled without a phase.
     if phase is None:
         return {"phase": None}
-    return {"phase": phase.key}
+    payload: dict[str, Any] = {"phase": phase.key}
+    if tool_call.description:
+        payload["activity"] = tool_call.description
+    return payload
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:
