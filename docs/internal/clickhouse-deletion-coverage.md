@@ -20,7 +20,7 @@ It is a property of every table that stores rows attributable to a person.
 
 The first five use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
-A target of derived rows (`derived_from_events`) has neither an `event` nor a `properties` column, so those two requests skip it instead of counting its rows, and the sweep log records the skip.
+A target of derived rows (`derived_from_events`) has neither an `event` nor a `properties` column, so those two requests leave it out before resolving placements, and never count or sweep its rows.
 
 The event arm deletes one row by `(team_id, uuid)` from an `AsyncDeletion` row of type `Event`, which any Postgres writer can queue in the same transaction as its own delete.
 Replay Vision writes those rows: the recording-api inserts one per `$recording_observed` event in the same statement that deletes the recording's observations, so the queue entry and the observation delete commit together.
@@ -215,6 +215,14 @@ Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
 ## Known gaps
+
+### Event and property removal leave the experiment precompute cache to its TTL
+
+An event-removal or property-removal request completes while the cache tables still hold rows built from the rows it removed.
+A cache row has no `event` or `properties` column, so neither request can match it, and `derived_from_events` makes both skip the table instead of failing on an unknown column.
+The rows stay readable until their TTL, about 74 days after the build at most, and an exposure row can carry the removed property's value in `breakdown_value`.
+The deferred path with a HogQL predicate is the exception: it queues the uuid of each removed event, and the queued-uuid drain deletes the cache rows built from those events.
+Deleting the cache rows of the request's window instead would leave a completed precompute job with missing rows and silently wrong experiment results, so that is not done.
 
 ### The survivor count is a report, not a gate
 
