@@ -1464,7 +1464,7 @@ class UnversionedStaticPathMiddleware:
 class MissingStaticFileMiddleware:
     """Answers 404 for a /static/ path that WhiteNoise did not serve.
 
-    Without it the request goes on to the session and login middleware and to the frontend
+    Without it the request goes on to the login middleware and to the frontend
     catch-all route, so each missing file costs a database connection. A browser with developer
     tools open asks for the source map of every chunk, and the production image ships no source
     maps, so one page load can open more connections than Postgres allows.
@@ -1475,10 +1475,9 @@ class MissingStaticFileMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if request.path_info.startswith(settings.STATIC_URL):
+            # CSPMiddleware sits above this middleware and gives this response its policy.
+            # XFrameOptionsMiddleware sits below it, so this response sets that header itself.
             response = HttpResponseNotFound(content_type="text/plain")
-            # This response skips CSPMiddleware and XFrameOptionsMiddleware, which sit below this
-            # middleware, so it sets the headers that they give every other response without a document.
-            response.headers["Content-Security-Policy"] = "default-src 'none'"
             response.headers["X-Frame-Options"] = settings.X_FRAME_OPTIONS
             return response
         return self.get_response(request)

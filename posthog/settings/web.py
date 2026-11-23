@@ -206,11 +206,13 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     *_UNVERSIONED_STATIC_MIDDLEWARE,  # Must precede WhiteNoise — it reads the path this rewrites
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "posthog.middleware.MissingStaticFileMiddleware",  # Must follow WhiteNoise, which serves the files that exist
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.csp_middleware.CSPMiddleware",
+    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware, so that the 404
+    # gets its policy. Above the middleware that loads the session and the user from the database.
+    "posthog.middleware.MissingStaticFileMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the

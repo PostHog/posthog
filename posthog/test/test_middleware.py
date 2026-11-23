@@ -824,11 +824,13 @@ class TestMissingStaticFileMiddleware(SimpleTestCase):
         ]
     )
     def test_a_static_file_that_does_not_exist_is_a_404_without_a_database_query(self, _name: str, path: str) -> None:
-        # SimpleTestCase refuses database access, so the session and login middleware cannot have run.
+        # SimpleTestCase refuses database access. A signed-in browser sends a session cookie, so the
+        # request carries one to prove that nothing loads the session or its user.
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = "a-session-key"
+
         response = self.client.get(path)
 
         assert response.status_code == 404
-        # The middleware that sets these headers on other responses sits below this one.
         assert response.headers["Content-Security-Policy"] == "default-src 'none'"
         assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
 
