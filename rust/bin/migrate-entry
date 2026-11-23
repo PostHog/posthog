@@ -100,74 +100,6 @@ run_persons_migrations() {
     fi
 }
 
-# An interrupted CREATE INDEX CONCURRENTLY leaves its index INVALID, and the planner does not use it.
-# The rerun's IF NOT EXISTS skips the existing index and sqlx records the migration as applied, so no later
-# run builds it again. This step rebuilds each INVALID index that a migration in $2 builds concurrently, and
-# drops the INVALID copies (<name>_ccnew, <name>_ccold) that an interrupted REINDEX CONCURRENTLY leaves.
-# It keeps to indexes on the table that an unqualified table name resolves to through the search path, as the
-# migrations' own statements do, so a same-named index in another schema stays untouched.
-# A failed repair fails the run, and the next run repeats it. A URL that psql cannot use skips the repair with a
-# warning instead, because sqlx already applied the migrations with it.
-# One psql session holds an advisory lock from the catalog read to the last repair. A second migrate run that
-# finds the lock taken fails at once instead of waiting: a waiting statement holds a snapshot, and
-# REINDEX CONCURRENTLY in the first run waits for that snapshot, so the two runs would deadlock.
-# \gexec runs each repair as its own statement, because the CONCURRENTLY forms cannot run in a transaction block.
-rebuild_invalid_concurrent_indexes() {
-    local database_url="$1"
-    local source="$2"
-    local db_type="$3"
-
-    local names
-    names=$(cat "$source"/*.sql | tr -s '[:space:]' ' ' \
-        | grep -oiE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY +(IF +NOT +EXISTS +)?[a-z0-9_]+' \
-        | awk '{ print $NF }' | sort -u | paste -sd, -)
-    [ -n "$names" ] || return 0
-
-    # sqlx migrate read the URL first, and libpq refuses some options that sqlx accepts. psql gets the libpq
-    # names of sqlx's ssl options, and no statement-cache-capacity, which only sqlx reads.
-    local url
-    url=$(printf '%s' "$database_url" | sed -E \
-        -e 's/([?&])ssl-mode=/\1sslmode=/g' \
-        -e 's/([?&])ssl-(root-cert|ca)=/\1sslrootcert=/g' \
-        -e 's/([?&])ssl-cert=/\1sslcert=/g' \
-        -e 's/([?&])ssl-key=/\1sslkey=/g' \
-        -e 's/([?&])statement-cache-capacity=[^&]*(&|$)/\1/g' \
-        -e 's/[?&]$//')
-
-    # libpq can print parts of a URL it cannot read, the password included, in its error. A first connection
-    # checks the URL, and its error reaches the log without quoted values and without the URL.
-    local connect_error
-    if ! connect_error=$(psql "$url" -X -q -t -c 'SELECT 1' 2>&1 >/dev/null); then
-        connect_error=$(printf '%s' "${connect_error//"$url"/<url>}" | head -1 \
-            | sed -E 's/"[^"]*"/<redacted>/g; s#[a-z]+://[^ ]*#<url>#g; s/["\\]//g')
-        log_json "warn" "Skipping the invalid index repair, psql could not connect: $connect_error" "running" "$db_type"
-        return 0
-    fi
-
-    log_json "info" "Repairing invalid indexes" "running" "$db_type"
-    psql "$url" -X -q -e -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
-SELECT pg_try_advisory_lock(hashtext('migrate-entry rebuild_invalid_concurrent_indexes')) AS locked \gset
-\if :locked
-\else
-DO $$ BEGIN RAISE EXCEPTION 'another migrate run is repairing invalid indexes; the next run repeats the repair'; END $$;
-\endif
-SELECT CASE WHEN c.relname = ANY (:'names'::text[])
-            THEN format('REINDEX INDEX CONCURRENTLY %I.%I', n.nspname, c.relname)
-            ELSE format('DROP INDEX CONCURRENTLY IF EXISTS %I.%I', n.nspname, c.relname)
-       END
-FROM pg_index i
-JOIN pg_class c ON c.oid = i.indexrelid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-JOIN pg_class t ON t.oid = i.indrelid
-WHERE NOT i.indisvalid
-  AND to_regclass(format('%I', t.relname)) = t.oid
-  AND (c.relname = ANY (:'names'::text[])
-       OR substring(c.relname FROM '^(.*)_cc(?:new|old)[0-9]*$') = ANY (:'names'::text[]))
-ORDER BY c.relname = ANY (:'names'::text[]), c.relname
-\gexec
-SQL
-}
-
 run_cyclotron_node_migrations() {
     local db_type="cyclotron-node"
     CYCLOTRON_NODE_DATABASE_NAME=${CYCLOTRON_NODE_DATABASE_NAME:-cyclotron_node}
@@ -183,7 +115,6 @@ run_cyclotron_node_migrations() {
         log_json "info" "Database created or already exists" "running" "$db_type"
 
         sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-node-migrations/"
-        rebuild_invalid_concurrent_indexes "$CYCLOTRON_NODE_DATABASE_URL" "$MIGRATIONS_BASE/cyclotron-node-migrations" "$db_type"
         log_json "info" "Migrations completed successfully" "completed" "$db_type"
     fi
 }
