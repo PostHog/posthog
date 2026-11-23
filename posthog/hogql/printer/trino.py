@@ -3685,7 +3685,7 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, "tupleToNameValuePairs requires a resolved non-empty tuple type.")
         names = tuple_type.field_names
         entries = [
-            f"ROW({self._string_literal(names[index] if index < len(names) and names[index] else str(index + 1))}, "
+            f"ROW({self._string_literal((names[index] if index < len(names) else None) or str(index + 1))}, "
             f"__hogql_named_tuple[{index + 1}])"
             for index in range(len(tuple_type.item_types))
         ]
