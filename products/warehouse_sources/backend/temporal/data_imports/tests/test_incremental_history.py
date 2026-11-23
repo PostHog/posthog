@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     HISTORY_SEED_PENDING_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_RUN_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import HistoryTableNameTakenError
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
     IncrementalHistoryUnavailableError,
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
     stamp_history_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
     STAGED_BATCH_COLUMN,
     STAGED_ROW_COLUMN,
@@ -233,9 +236,10 @@ class TestHistoryLaneWrites(BaseTest):
             patch.object(DeltaTableRef, "_get_delta_table_uri", autospec=True, side_effect=_local_uri(self.root))
         )
         self.enterContext(patch.object(DeltaTableRef, "_get_credentials", return_value={}))
+        source = ExternalDataSource.objects.create(team=self.team)
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            source=ExternalDataSource.objects.create(team=self.team),
+            source=source,
             name="orders",
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             sync_type_config={
@@ -245,7 +249,10 @@ class TestHistoryLaneWrites(BaseTest):
                 INCREMENTAL_HISTORY_KEY: True,
             },
         )
-        self.history = DeltaTableRef(resource_name="orders_history", job=MagicMock(), logger=make_logger())
+        self.job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=self.schema, status=ExternalDataJob.Status.RUNNING, rows_synced=2
+        )
+        self.history = DeltaTableRef(resource_name="orders_history", job=self.job, logger=make_logger())
 
     def test_staged_batches_become_versions_at_finalize(self) -> None:
         assert self._finalize(0) is None
@@ -258,56 +265,63 @@ class TestHistoryLaneWrites(BaseTest):
         assert self._history_rows() == [(1, "a", _JAN, None, "current"), (2, "b", _FEB, None, "current")]
         assert result is not None and result.staged_rows == 3
 
-    def test_a_seed_starts_the_history_from_the_main_table_as_it_was_before_the_run(self) -> None:
+    @parameterized.expand([("history_rows_bill", True, 2 + 3), ("history_rows_free", False, 2)])
+    def test_a_seed_starts_the_history_from_the_main_table_as_it_was_before_the_run(
+        self, _name: str, billable: bool, rows_synced: int
+    ) -> None:
+        self.job.billable = billable
+        self.job.save()
         requested_at = "2026-10-05T00:00:00+00:00"
         self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = requested_at
         self.schema.save()
         self._write_main([(1, "a", _JAN), (2, "b", _FEB), (3, "c", None)], run_uuid="earlier-run")
+        # A partitioned write tags only its last merge.
+        self._write_main([(2, "b2", _MAR)], run_uuid=None)
         self._write_main([(1, "a2", _MAR)], run_uuid="run")
-        self._stage([(1, "a2", _MAR)], batch_index=0)
+        self._stage([(1, "a2", _MAR), (2, "b2", _MAR)], batch_index=0)
 
-        self._finalize(0)
+        with patch.object(history_upsert, "finalize", side_effect=RuntimeError("lost the loader")):
+            with pytest.raises(RuntimeError):
+                self._finalize(0)
+        result = self._finalize(0)
 
         expected = [
             (1, "a", _JAN, _MAR, "2026-03"),
             (1, "a2", _MAR, None, "current"),
-            (2, "b", _FEB, None, "current"),
+            (2, "b", _FEB, _MAR, "2026-03"),
+            (2, "b2", _MAR, None, "current"),
             (3, "c", datetime.fromisoformat(requested_at), None, "current"),
         ]
         assert self._history_rows() == expected
+        assert result is not None and result.staged_rows == 5
         assert PARTITION_KEY not in deltalake.DeltaTable(str(self.root / "orders_history")).schema().to_arrow().names
         self.schema.refresh_from_db()
         assert HISTORY_SEED_PENDING_KEY not in self.schema.sync_type_config
+        self.job.refresh_from_db()
+        assert self.job.rows_synced == rows_synced
 
-        # A crash before the request was cleared seeds again on the retry.
-        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = requested_at
-        self.schema.save()
-        version = deltalake.DeltaTable(str(self.root / "orders_history")).version()
-        self._finalize(0)
-
-        assert self._history_rows() == expected
-        assert deltalake.DeltaTable(str(self.root / "orders_history")).version() == version
-
-    def _write_main(self, rows: Sequence[tuple[int, str, datetime | None]], *, run_uuid: str) -> None:
+    def _write_main(self, rows: Sequence[tuple[int, str, datetime | None]], *, run_uuid: str | None) -> None:
         table = _rows(rows).append_column(PARTITION_KEY, pa.array(["p"] * len(rows)))
         deltalake.write_deltalake(
             str(self.root / "orders"),
             table,
             mode="append",
-            commit_properties=deltalake.CommitProperties(custom_metadata={"run_uuid": run_uuid, "batch_index": "0"}),
+            commit_properties=deltalake.CommitProperties(
+                custom_metadata={"run_uuid": run_uuid, "batch_index": "0"} if run_uuid else None
+            ),
         )
 
     def _stage(self, rows: Sequence[tuple[int, str, datetime | None]], *, batch_index: int) -> None:
         batch = _rows(rows)
         batch = batch.append_column("_ph_valid_from", batch.column("updated_at"))
         async_to_sync(stage_history_batch)(
-            self.history, batch, primary_keys=["id"], run_uuid="run", batch_index=batch_index
+            self.history, batch, primary_keys=["id"], run_uuid=_HISTORY_RUN, batch_index=batch_index
         )
 
     def _finalize(self, batch_index: int) -> HistoryFinalizeResult | None:
         schema = ExternalDataSchema.objects.get(id=self.schema.id)
         return async_to_sync(finalize_history_lane)(
-            self.history, ["id"], schema=schema, run_uuid="run", batch_index=batch_index
+            self.history, ["id"], schema=schema, run_uuid=_HISTORY_RUN, batch_index=batch_index
         )
 
     def _history_rows(self) -> list[tuple[Any, ...]]:
@@ -317,6 +331,8 @@ class TestHistoryLaneWrites(BaseTest):
         )
 
 
+# A run that keeps both tables writes its history lane as a companion of run "run".
+_HISTORY_RUN = f"run{COMPANION_RUN_SUFFIX}"
 _JAN, _FEB, _MAR = (datetime(2026, month, 1, tzinfo=UTC) for month in (1, 2, 3))
 
 

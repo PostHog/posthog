@@ -5324,6 +5324,17 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 False,
                 True,
             ),
+            (
+                "turn_on_with_a_new_mask",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="consolidated",
+                    request_body={"cdc_table_mode": "both", "masked_columns": ["email"]},
+                    source_columns=("email",),
+                ),
+                True,
+                False,
+            ),
             # Only the source holds the rows of a main table added next to a history table.
             ("add_the_main_table", _OutputTablesCase(mode="both", initial_mode="cdc_only"), True, False),
             ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False, False),

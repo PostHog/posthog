@@ -814,6 +814,8 @@ def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable
 
 def _stage_mask_rebuild(config: dict[str, Any]) -> None:
     config["reset_pipeline"] = True
+    # The rebuild reads every row again with the mask, and a copy of the stored table would bring back the old values.
+    config.pop(HISTORY_SEED_PENDING_KEY, None)
 
 
 def _stage_disabled_cdc_mask_snapshot(config: dict[str, Any]) -> None:
