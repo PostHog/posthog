@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from products.messaging.backend.provider_imports.mailchimp_templates import convert_email, convert_text
 
-ESCAPED_FNAME = "{{ person.properties.FNAME | escape | raw }}"
+ESCAPED_FNAME = "{{ person.properties.first_name | escape | raw }}"
 
 
 class TestMailchimpMergeTags(SimpleTestCase):
@@ -12,6 +12,7 @@ class TestMailchimpMergeTags(SimpleTestCase):
         [
             ("value_in_text", "<p>Hi *|FNAME|*</p>", f"<p>Hi {ESCAPED_FNAME}</p>", ()),
             ("email_reads_the_email_property", "*|EMAIL|*", "{{ person.properties.email | escape | raw }}", ()),
+            ("lname_reads_the_last_name_property", "*|lname|*", "{{ person.properties.last_name | escape | raw }}", ()),
             ("html_modifier_prints_raw", "<div>*|HTML:BIO|*</div>", "<div>{{ person.properties.BIO | raw }}</div>", ()),
             ("value_in_quoted_attribute", '<a title="*|FNAME|*">x</a>', f'<a title="{ESCAPED_FNAME}">x</a>', ()),
             (
@@ -46,7 +47,7 @@ class TestMailchimpMergeTags(SimpleTestCase):
             (
                 "balanced_condition",
                 "*|IF:FNAME|*Hi *|FNAME|**|ELSE:|*Hi*|END:IF|*",
-                '{% if person.properties.FNAME and person.properties.FNAME != "" %}Hi '
+                '{% if person.properties.first_name and person.properties.first_name != "" %}Hi '
                 + ESCAPED_FNAME
                 + "{% else %}Hi{% endif %}",
                 (),
@@ -60,7 +61,7 @@ class TestMailchimpMergeTags(SimpleTestCase):
             (
                 "ifnot",
                 "*|IFNOT:FNAME|*friend*|END:IF|*",
-                '{% if person.properties.FNAME == nil or person.properties.FNAME == "" %}friend{% endif %}',
+                '{% if person.properties.first_name == nil or person.properties.first_name == "" %}friend{% endif %}',
                 (),
             ),
             (
@@ -90,7 +91,7 @@ class TestMailchimpMergeTags(SimpleTestCase):
         assert converted.unsupported == unsupported
 
     def test_subject_prints_values_without_html_escaping(self) -> None:
-        assert convert_text("*|FNAME|*, hi", is_html=False).text == "{{ person.properties.FNAME }}, hi"
+        assert convert_text("*|FNAME|*, hi", is_html=False).text == "{{ person.properties.first_name }}, hi"
 
     def test_fixed_tags_go_in_as_escaped_text(self) -> None:
         converted = convert_text("<p>*|LIST:COMPANY|*</p>", is_html=True, fixed={"LIST:COMPANY": "A & B {{ evil }}"})
@@ -98,7 +99,9 @@ class TestMailchimpMergeTags(SimpleTestCase):
         assert converted.text == '<p>A &amp; B {{ "{{" }} evil }}</p>'
 
     def test_email_notes_name_what_to_check(self) -> None:
-        converted = convert_email("", "*|FNAME|* *|EMAIL|* *|ARCHIVE|* *|IF:X|*a*|END:IF|* *|UPDATE_PROFILE|*", None)
+        converted = convert_email(
+            "", "*|FNAME|* *|lname|* *|EMAIL|* *|ARCHIVE|* *|IF:X|*a*|END:IF|* *|UPDATE_PROFILE|*", None
+        )
 
         assert converted.notes == (
             "PostHog can't convert *|ARCHIVE|*, so it stays as written. Replace it with Liquid or remove it.",
@@ -107,8 +110,8 @@ class TestMailchimpMergeTags(SimpleTestCase):
             "This email has no subject in Mailchimp. Add one here.",
         )
         assert converted.send_notes == (
-            "Mailchimp fills X, FNAME from each audience member. PostHog reads person properties with the same "
-            "names, so set those on your people or change the template.",
+            "Set these person properties on your people or change the template: X, first_name (FNAME in "
+            "Mailchimp), last_name (LNAME in Mailchimp).",
         )
 
     def test_a_clean_template_has_no_notes(self) -> None:

@@ -136,8 +136,9 @@ class MailchimpImportProvider(ImportProvider):
     next_steps = (
         "Add your sending domain in PostHog and publish its DNS records.",
         "Open each template with notes and fix what they mention, then send yourself a test.",
-        "Mailchimp fills merge tags such as *|FNAME|* from the audience. PostHog reads person properties with the "
-        "same names, so send those to PostHog for your people.",
+        "Mailchimp fills merge tags such as *|COMPANY|* from the audience. PostHog reads *|FNAME|* and *|LNAME|* "
+        "from the first_name and last_name person properties and every other tag from the property of the same "
+        "name, so send those to PostHog for your people.",
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Once nothing sends through Mailchimp, delete the API key you created for this import.",

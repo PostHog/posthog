@@ -70,7 +70,7 @@ _DATE_SEPARATORS = frozenset(" /-.,:")
 @frozen
 class ConvertedText:
     text: str
-    # Audience fields the text reads, which PostHog takes from person properties of the same name.
+    # Audience fields the text reads, as Mailchimp names them.
     merge_fields: tuple[str, ...] = ()
     # Tags left as written, as they appear in the source.
     unsupported: tuple[str, ...] = ()
@@ -141,10 +141,11 @@ def convert_email(
         notes.append("This email has no subject in Mailchimp. Add one here.")
     fields = [name for name in dict.fromkeys(name for part in parts for name in part.merge_fields) if name != "EMAIL"]
     if fields:
-        send_notes.append(
-            f"Mailchimp fills {_shown(fields)} from each audience member. PostHog reads person properties with the "
-            "same names, so set those on your people or change the template."
-        )
+        properties = [
+            name if name not in _PERSON_PROPERTIES else f"{_PERSON_PROPERTIES[name]} ({name} in Mailchimp)"
+            for name in fields
+        ]
+        send_notes.append(f"Set these person properties on your people or change the template: {_shown(properties)}.")
     return ConvertedEmail(
         subject=parts[0].text,
         html=parts[1].text,
@@ -159,8 +160,16 @@ def _shown(items: list[str]) -> str:
     return f"{shown} and {len(items) - _MAX_NOTED_TAGS} more" if len(items) > _MAX_NOTED_TAGS else shown
 
 
+# Mailchimp's default audience fields, read from the person properties the other importers fill.
+_PERSON_PROPERTIES = {"EMAIL": "email", "FNAME": "first_name", "LNAME": "last_name"}
+
+
+def _field_name(name: str) -> str:
+    return name.upper() if name.upper() in _PERSON_PROPERTIES else name
+
+
 def person_path(name: str) -> str:
-    return "person.properties.email" if name.upper() == "EMAIL" else f"person.properties.{name}"
+    return f"person.properties.{_PERSON_PROPERTIES.get(name.upper(), name)}"
 
 
 class _Converter:
@@ -234,7 +243,7 @@ class _Converter:
         name = body[5:] if raw else body
         if not _NAME.fullmatch(name) or name.upper() in _MAILCHIMP_ONLY or name.upper() in _UNSUBSCRIBE | _PREFERENCES:
             return None
-        self.merge_fields.append(name.upper() if name.upper() == "EMAIL" else name)
+        self.merge_fields.append(_field_name(name))
         path = person_path(name)
         if not self.is_html:
             liquid = f"{{{{ {path} }}}}"
@@ -301,7 +310,7 @@ class _Converter:
         if name.upper() in _MAILCHIMP_ONLY:
             return None
         self.person_conditions = True
-        self.merge_fields.append(name.upper() if name.upper() == "EMAIL" else name)
+        self.merge_fields.append(_field_name(name))
         path = person_path(name)
         if operator is None:
             # Liquid treats an empty string as true, while Mailchimp treats a blank field as false.

@@ -111,7 +111,7 @@ class TestMailchimpImport(BaseTest):
             "mailchimp-template-104",
         ]
         welcome = templates["mailchimp-template-101"].content["email"]["html"]
-        assert "{{ person.properties.FNAME | escape | raw }}" in welcome
+        assert "{{ person.properties.first_name | escape | raw }}" in welcome
         assert '{% if person.properties.COMPANY and person.properties.COMPANY != "" %}' in welcome
         assert "*|ARCHIVE|*" in welcome
         assert "*|LIST:COMPANY|*" in welcome
@@ -122,7 +122,7 @@ class TestMailchimpImport(BaseTest):
         )
 
         draft = templates["mailchimp-campaign-camp001"].content["email"]
-        assert draft["subject"] == "{{ person.properties.FNAME }}, here's what's new"
+        assert draft["subject"] == "{{ person.properties.first_name }}, here's what's new"
         assert "<title>*|MC:SUBJECT|*</title>" in draft["html"]
         assert "<!--{% if true %}--><span>Five things we shipped</span><!--{% endif %}-->" in draft["html"]
         assert "MC_PREVIEW_TEXT" not in templates["mailchimp-campaign-camp001"].description
@@ -131,7 +131,7 @@ class TestMailchimpImport(BaseTest):
         assert "&lt;b&gt;no html here&lt;/b&gt;" in plain
         assert "{{ unsubscribe_url }}" in plain
         ab_test = templates["mailchimp-campaign-camp005"]
-        assert ab_test.content["email"]["html"] == "<p>Short {{ person.properties.FNAME | escape | raw }}</p>"
+        assert ab_test.content["email"]["html"] == "<p>Short {{ person.properties.first_name | escape | raw }}</p>"
         assert "A/B test with 2 variations. PostHog imported Short subject." in ab_test.description
 
     def test_importing_again_adds_nothing(self) -> None:
@@ -174,8 +174,8 @@ class TestMailchimpImport(BaseTest):
         if "camp003" in templates:
             html = templates["camp003"].content["email"]["html"]
             assert html == (
-                "<!--{% if true %}--><span>*|MC_PREVIEW_TEXT|*</span><!--{% endif %}-->{% if person.properties.FNAME "
-                'and person.properties.FNAME != "" %}<p>October {{ person.properties.FNAME | escape | raw }}</p>'
+                "<!--{% if true %}--><span>*|MC_PREVIEW_TEXT|*</span><!--{% endif %}-->{% if person.properties.first_name "
+                'and person.properties.first_name != "" %}<p>October {{ person.properties.first_name | escape | raw }}</p>'
                 "{% endif %}"
             )
 
