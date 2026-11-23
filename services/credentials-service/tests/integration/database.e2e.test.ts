@@ -34,6 +34,7 @@ const MIGRATIONS = [
     '1794400000000_integrations-changes-index',
     '1794400000001_audit-exported-at',
     '1794400000002_audit-partman',
+    '1794400000003_integrations-source-version',
 ]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 // pg_cron runs in this one database of the cluster, so every test that migrates with a runtime
@@ -72,7 +73,7 @@ function deployedDatabase(): Promise<{ url: string; runtimeUrl: string }> {
             databaseUrl: url,
             direction: 'up',
             runtimeRole: RUNTIME_ROLE,
-            count: MIGRATIONS.length - 1,
+            count: MIGRATIONS.indexOf('1794400000002_audit-partman'),
         })
         const db = new Pool({ connectionString: url })
         try {
