@@ -6,6 +6,7 @@ from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
+    ExperimentHealthAnalysisSetup,
     ExperimentHealthExposureSetup,
     ExperimentHealthReaderAccess,
     ExperimentHealthReleaseCondition,
@@ -24,6 +25,8 @@ from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
+from products.experiments.backend.hogql_queries.utils import FrequentistSettings
+from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 from products.feature_flags.backend.facade.filters import (
@@ -120,6 +123,37 @@ def _health_setup(experiment: Experiment, ctx: HealthContext) -> ExperimentHealt
         )
         if exposure_events
         else None,
+        analysis=_analysis_setup(experiment),
+    )
+
+
+def _analysis_setup(experiment: Experiment) -> ExperimentHealthAnalysisSetup:
+    # The key version changes no field read here, and resolving it evaluates a feature flag.
+    settings = ExperimentCalculationSettings.from_experiment(experiment, key_version=1)
+    stats = settings.stats
+    stats_config = experiment.stats_config if isinstance(experiment.stats_config, dict) else {}
+    exposure_readable = "unparsed" not in settings.normalized_exposure
+    # A missing key falls back to the project default, as `resolve_experiment_cuped_config` and
+    # `resolve_frequentist_settings` decide. An experiment that sets False overrides a default of True.
+    cuped_config = stats_config.get("cuped")
+    frequentist_config = stats_config.get("frequentist")
+    return ExperimentHealthAnalysisSetup(
+        stats_method=settings.stats_method,
+        confidence_level=1 - stats.alpha if isinstance(stats, FrequentistSettings) else stats.ci_level,
+        sequential_testing=stats.sequential_testing_enabled if isinstance(stats, FrequentistSettings) else None,
+        sequential_testing_from_project_default=isinstance(stats, FrequentistSettings)
+        and not (isinstance(frequentist_config, dict) and "sequential_testing_enabled" in frequentist_config),
+        cuped=settings.cuped.enabled,
+        cuped_lookback_days=settings.cuped.lookback_days if settings.cuped.enabled else None,
+        cuped_from_project_default=not (isinstance(cuped_config, dict) and "enabled" in cuped_config),
+        filters_test_accounts=bool(settings.normalized_exposure["filter_test_accounts"]) if exposure_readable else None,
+        test_account_filter_count=len(settings.test_account_filters),
+        multiple_variant_handling=settings.normalized_exposure["multiple_variant_handling"]
+        if exposure_readable
+        else None,
+        only_count_matured_users=settings.only_count_matured_users,
+        baseline_variant=settings.baseline,
+        excluded_variants=settings.excluded_variants,
     )
 
 

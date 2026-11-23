@@ -813,6 +813,19 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
             ),
             (
+                "frequentist_with_project_defaults",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "stats_config": {
+                        "method": "frequentist",
+                        "frequentist": {"alpha": 0.1},
+                        "cuped": {"enabled": False},
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
                 "custom_exposure_event",
                 {
                     "metrics": [_HEALTH_METRIC],
@@ -838,6 +851,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        if _name == "frequentist_with_project_defaults":
+            TeamExperimentsConfig.objects.update_or_create(
+                team=self.team, defaults={"default_sequential_testing_enabled": True, "default_cuped_enabled": True}
+            )
         EventDefinition.objects.create(
             team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
         )
@@ -956,6 +973,32 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
                 "exposure": {"event": counted_event, "action": None, "activation": None},
+                "analysis": {
+                    "stats_method": "bayesian",
+                    "confidence_level": 0.95,
+                    "sequential_testing": None,
+                    "sequential_testing_from_project_default": False,
+                    "cuped": False,
+                    "cuped_lookback_days": None,
+                    "cuped_from_project_default": True,
+                    "filters_test_accounts": True,
+                    "test_account_filter_count": 1,
+                    "multiple_variant_handling": "exclude",
+                    "only_count_matured_users": False,
+                    "baseline_variant": "holdout" if _name == "baseline_not_a_variant" else "control",
+                    "excluded_variants": [],
+                    **(
+                        {
+                            "stats_method": "frequentist",
+                            "confidence_level": 0.9,
+                            "sequential_testing": True,
+                            "sequential_testing_from_project_default": True,
+                            "cuped_from_project_default": False,
+                        }
+                        if _name == "frequentist_with_project_defaults"
+                        else {}
+                    ),
+                },
             },
         )
         if _name == "condition_added_after_launch":

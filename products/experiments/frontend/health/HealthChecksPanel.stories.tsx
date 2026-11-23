@@ -95,6 +95,21 @@ const SETUP: ExperimentHealthSetupApi = {
     evaluation_contexts: ['web-app'],
     ensure_experience_continuity: false,
     exposure: { event: null, action: null, activation: null },
+    analysis: {
+        stats_method: 'frequentist',
+        confidence_level: 0.95,
+        sequential_testing: true,
+        sequential_testing_from_project_default: true,
+        cuped: true,
+        cuped_lookback_days: 14,
+        cuped_from_project_default: false,
+        filters_test_accounts: true,
+        test_account_filter_count: 2,
+        multiple_variant_handling: 'exclude',
+        only_count_matured_users: false,
+        baseline_variant: 'control',
+        excluded_variants: [],
+    },
 }
 
 const meta: Meta<typeof HealthChecksPanel> = {

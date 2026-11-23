@@ -3047,6 +3047,73 @@ export interface ExperimentHealthExposureSetupApi {
     activation: string | null
 }
 
+/**
+ * * `bayesian` - bayesian
+ * * `frequentist` - frequentist
+ */
+export type StatsMethodEnumApi = (typeof StatsMethodEnumApi)[keyof typeof StatsMethodEnumApi]
+
+export const StatsMethodEnumApi = {
+    Bayesian: 'bayesian',
+    Frequentist: 'frequentist',
+} as const
+
+/**
+ * * `exclude` - exclude
+ * * `first_seen` - first_seen
+ */
+export type ExperimentWatchMultipleVariantHandlingEnumApi =
+    (typeof ExperimentWatchMultipleVariantHandlingEnumApi)[keyof typeof ExperimentWatchMultipleVariantHandlingEnumApi]
+
+export const ExperimentWatchMultipleVariantHandlingEnumApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
+export interface ExperimentHealthAnalysisSetupApi {
+    /** The statistical method of the results.
+     *
+     * * `bayesian` - bayesian
+     * * `frequentist` - frequentist */
+    stats_method: StatsMethodEnumApi
+    /** The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95. */
+    confidence_level: number
+    /**
+     * Whether the frequentist test uses sequential testing. Null for the Bayesian method.
+     * @nullable
+     */
+    sequential_testing: boolean | null
+    /** Whether the experiment leaves sequential testing unset, so the project's default applies. */
+    sequential_testing_from_project_default: boolean
+    /** Whether the results apply CUPED variance reduction to the metrics that support it. */
+    cuped: boolean
+    /**
+     * The days before exposure that CUPED reads. Null when CUPED is off.
+     * @nullable
+     */
+    cuped_lookback_days: number | null
+    /** Whether the experiment leaves CUPED unset, so the project's default applies. */
+    cuped_from_project_default: boolean
+    /**
+     * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read.
+     * @nullable
+     */
+    filters_test_accounts: boolean | null
+    /** How many of the project's test account filters the results apply. 0 when they count test accounts. */
+    test_account_filter_count: number
+    /** What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
+     *
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen */
+    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi | null
+    /** Whether a user counts only after their conversion or retention window is complete. */
+    only_count_matured_users: boolean
+    /** The variant that the others are compared against. */
+    baseline_variant: string
+    /** The variants that the results leave out. */
+    excluded_variants: string[]
+}
+
 export interface ExperimentHealthSetupApi {
     /** The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`. */
     release_conditions: ExperimentHealthReleaseConditionApi[]
@@ -3074,6 +3141,8 @@ export interface ExperimentHealthSetupApi {
     ensure_experience_continuity: boolean
     /** What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table. */
     exposure: ExperimentHealthExposureSetupApi | null
+    /** What the results calculation reads besides the metrics, with the project's defaults applied. */
+    analysis: ExperimentHealthAnalysisSetupApi
 }
 
 export interface ExperimentHealthApi {
@@ -4885,18 +4954,6 @@ export interface ExperimentWatchVariantApi {
     /** Sessions those people had within 24 hours of being exposed, and before the experiment ended or this request was made, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
     sessions: number
 }
-
-/**
- * * `exclude` - exclude
- * * `first_seen` - first_seen
- */
-export type ExperimentWatchMultipleVariantHandlingEnumApi =
-    (typeof ExperimentWatchMultipleVariantHandlingEnumApi)[keyof typeof ExperimentWatchMultipleVariantHandlingEnumApi]
-
-export const ExperimentWatchMultipleVariantHandlingEnumApi = {
-    Exclude: 'exclude',
-    FirstSeen: 'first_seen',
-} as const
 
 /**
  * * `too_early` - too_early
