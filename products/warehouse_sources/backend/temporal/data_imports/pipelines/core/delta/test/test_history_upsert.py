@@ -303,3 +303,38 @@ class TestHistoryUpsert:
             (7, "a", _at(1), _at(2), "2026-02"),
             (7, "b", _at(2), None, "current"),
         ]
+
+    @pytest.mark.asyncio
+    async def test_an_event_ordered_call_over_the_source_limit_splits_into_more_chunks(self, tmp_path: Path) -> None:
+        import deltalite
+
+        def _events(name: str, at: datetime) -> pa.Table:
+            batch = _keys(20, name, at)
+            return (
+                batch.append_column("_ph_event_id", pa.array([f"{name}-{key}" for key in range(20)]))
+                .append_column("_ph_event_time", batch.column(_VALID_FROM))
+                .append_column("_ph_event_rank", pa.array([0] * 20, type=pa.int64()))
+                .append_column("_ph_arrival", pa.array([""] * 20))
+            )
+
+        order = history_upsert.EventOrder(
+            order_columns=("_ph_event_time", "_ph_event_rank", "_ph_arrival"), dedupe_column="_ph_event_id"
+        )
+        tables = _Tables(tmp_path)
+        await tables.run("run-1", _events("a", _at(1)), event_order=order)
+        real_upsert = history_upsert._history_upsert
+
+        # The versions an event-ordered call reads count against deltalite's limit, and the staged size leaves them out.
+        async def _refuse_one_call(*args: Any, **kwargs: Any) -> Any:
+            if kwargs["chunks"] == 1:
+                raise deltalite.DeltaLiteSourceTooLargeError("source too large")
+            return await real_upsert(*args, **kwargs)
+
+        with patch.object(history_upsert, "_history_upsert", side_effect=_refuse_one_call):
+            result = await tables.run("run-2", _events("b", _at(2)), event_order=order)
+
+        assert result is not None and result.calls > 1
+        assert [(row[1], row[2], row[3]) for row in tables.rows() if row[0] == 0] == [
+            ("a", _at(1), _at(2)),
+            ("b", _at(2), None),
+        ]

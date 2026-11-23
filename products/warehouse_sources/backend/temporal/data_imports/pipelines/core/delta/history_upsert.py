@@ -72,6 +72,7 @@ CHUNK_TARGET_BYTES = 512 * 1024 * 1024
 # Rows per scanned batch, so one decoded batch of wide rows stays small next to the call budget.
 _SCAN_BATCH_ROWS = 16_384
 _MAX_OPEN_CHUNK_FILES = 256
+_MAX_EVENT_ORDER_CHUNKS = 1024
 # deltalite's source guard also counts its copies of the key, order and tie-break columns (about twice their
 # size) and a key-map entry plus two row indexes per row.
 _INDEX_BYTES_PER_ROW = 48 + 2 * 4
@@ -277,48 +278,64 @@ async def finalize(
         for name in _SUMMED_STATS:
             totals[name] += int(getattr(stats, name, 0))
 
-    with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-        if call_bytes <= max_call_bytes:
-            await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
-        else:
-            chunks = math.ceil(call_bytes / chunk_target_bytes)
-            spill_directory = Path(directory)
-            per_pass = max(1, min(_MAX_OPEN_CHUNK_FILES, _free_bytes(spill_directory) // 2 // chunk_target_bytes))
-            first = 0
-            while first < chunks:
-                buckets = range(first, min(chunks, first + per_pass))
-                # A chunk can be far above the target, and other spills share the disk, so the pass watches
-                # the free disk itself and stops at half of what was free when it started.
-                floor = _free_bytes(spill_directory) // 2
-                try:
-                    spilled = await asyncio.to_thread(
-                        _spill_chunks,
-                        handle,
-                        history_table.schema(),
-                        staging_dataset,
-                        columns,
-                        key_columns,
-                        narrow_columns,
-                        chunks,
-                        buckets,
-                        spill_directory,
-                        floor,
-                    )
-                except _SpillOutOfDisk:
-                    for path in spill_directory.iterdir():
-                        path.unlink()
-                    if len(buckets) == 1:
-                        raise HistoryChunkTooLargeError(
-                            f"{table.resource_name}: a key chunk of this sync needs more than half the free "
-                            f"local disk ({floor} bytes)"
+    async def _apply_in(chunks: int) -> None:
+        nonlocal staged_rows
+        staged_rows = 0
+        with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
+            if chunks == 1:
+                await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
+            else:
+                spill_directory = Path(directory)
+                per_pass = max(1, min(_MAX_OPEN_CHUNK_FILES, _free_bytes(spill_directory) // 2 // chunk_target_bytes))
+                first = 0
+                while first < chunks:
+                    buckets = range(first, min(chunks, first + per_pass))
+                    # A chunk can be far above the target, and other spills share the disk, so the pass watches
+                    # the free disk itself and stops at half of what was free when it started.
+                    floor = _free_bytes(spill_directory) // 2
+                    try:
+                        spilled = await asyncio.to_thread(
+                            _spill_chunks,
+                            handle,
+                            history_table.schema(),
+                            staging_dataset,
+                            columns,
+                            key_columns,
+                            narrow_columns,
+                            chunks,
+                            buckets,
+                            spill_directory,
+                            floor,
                         )
-                    per_pass = len(buckets) // 2
-                    continue
-                for index, (path, footprint) in enumerate(spilled):
-                    last = buckets.stop == chunks and index == len(spilled) - 1
-                    await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
-                    path.unlink()
-                first = buckets.stop
+                    except _SpillOutOfDisk:
+                        for path in spill_directory.iterdir():
+                            path.unlink()
+                        if len(buckets) == 1:
+                            raise HistoryChunkTooLargeError(
+                                f"{table.resource_name}: a key chunk of this sync needs more than half the free "
+                                f"local disk ({floor} bytes)"
+                            )
+                        per_pass = len(buckets) // 2
+                        continue
+                    for index, (path, footprint) in enumerate(spilled):
+                        last = buckets.stop == chunks and index == len(spilled) - 1
+                        await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
+                        path.unlink()
+                    first = buckets.stop
+
+    import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
+
+    chunks = 1 if call_bytes <= max_call_bytes else math.ceil(call_bytes / chunk_target_bytes)
+    while True:
+        try:
+            await _apply_in(chunks)
+            break
+        except deltalite.DeltaLiteSourceTooLargeError:
+            # With `event_order` a call also holds the versions its rows touch, which the staged size leaves out.
+            # A chunk that already committed applies nothing again.
+            if event_order is None or chunks >= _MAX_EVENT_ORDER_CHUNKS:
+                raise
+            chunks *= 2
 
     # Only after every chunk committed: a crash before this point leaves the rows staged for the re-run.
     await DeltaWriter(staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
