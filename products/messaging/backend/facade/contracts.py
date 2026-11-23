@@ -517,6 +517,27 @@ class TransactionalPushLogEntry:
     title: str
 
 
+class PushStatusReason(LabeledStrEnum):
+    NO_PERSON = "no_person", "No person"
+    NO_DEVICE = "no_device", "No device"
+    OPTED_OUT = "opted_out", "Opted out"
+    FREQUENCY_CAPPED = "frequency_capped", "Frequency capped"
+    INTEGRATION_ERROR = "integration_error", "Integration error"
+    PROVIDER_ERROR = "provider_error", "Provider error"
+    CANCELED = "canceled", "Canceled"
+    ERROR = "error", "Error"
+    UNKNOWN = "unknown", "Unknown"
+
+
+@frozen
+class TransactionalPushStatus:
+    run_id: str
+    status: PushSendStatus
+    created_at: datetime
+    # Why a push was not sent or failed. None while it is sending and once it was sent.
+    reason: PushStatusReason | None
+
+
 @frozen
 class TransactionalPushStatsRow:
     template_id: str

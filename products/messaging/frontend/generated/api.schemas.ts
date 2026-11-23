@@ -151,6 +151,72 @@ export interface TopicPreferencesApi {
 }
 
 /**
+ * * `sending` - Sending
+ * * `sent` - Sent
+ * * `not_sent` - Not sent
+ * * `failed` - Failed
+ */
+export type PushSendStatusEnumApi = (typeof PushSendStatusEnumApi)[keyof typeof PushSendStatusEnumApi]
+
+export const PushSendStatusEnumApi = {
+    Sending: 'sending',
+    Sent: 'sent',
+    NotSent: 'not_sent',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `no_person` - No person
+ * * `no_device` - No device
+ * * `opted_out` - Opted out
+ * * `frequency_capped` - Frequency capped
+ * * `integration_error` - Integration error
+ * * `provider_error` - Provider error
+ * * `canceled` - Canceled
+ * * `error` - Error
+ * * `unknown` - Unknown
+ */
+export type PushStatusReasonEnumApi = (typeof PushStatusReasonEnumApi)[keyof typeof PushStatusReasonEnumApi]
+
+export const PushStatusReasonEnumApi = {
+    NoPerson: 'no_person',
+    NoDevice: 'no_device',
+    OptedOut: 'opted_out',
+    FrequencyCapped: 'frequency_capped',
+    IntegrationError: 'integration_error',
+    ProviderError: 'provider_error',
+    Canceled: 'canceled',
+    Error: 'error',
+    Unknown: 'unknown',
+} as const
+
+export interface PushStatusApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** What happened to the push notification. `sending` means it is still going out. `sent` means Apple or Google accepted it for at least one of the person's devices. `not_sent` means none of the person's devices got it, and `reason` says why. `failed` means the send stopped with an error.
+     *
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `not_sent` - Not sent
+     * * `failed` - Failed */
+    status: PushSendStatusEnumApi
+    /** When PostHog accepted the send. */
+    created_at: string
+    /** Why a push notification was not sent or failed. A not sent push has `no_person` when no person has the `distinct_id`, `no_device` when the person has no registered device for the template's channels or every device token expired, `opted_out` or `frequency_capped`, or `unknown`. A failed push has `integration_error` when the Firebase or APNs integration is missing or needs reconnecting, `provider_error` when Apple or Google refused it, `canceled`, or `error`. Null while it is sending and once it was sent.
+     *
+     * * `no_person` - No person
+     * * `no_device` - No device
+     * * `opted_out` - Opted out
+     * * `frequency_capped` - Frequency capped
+     * * `integration_error` - Integration error
+     * * `provider_error` - Provider error
+     * * `canceled` - Canceled
+     * * `error` - Error
+     * * `unknown` - Unknown */
+    reason: PushStatusReasonEnumApi | null
+}
+
+/**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
@@ -323,7 +389,7 @@ export interface SendPushApi {
 }
 
 export interface SendTransactionalPushResponseApi {
-    /** ID of the queued send. Delivery is reported against the template's workflow asynchronously. */
+    /** ID of the queued send. Read whether it reached a device with GET /api/projects/{project_id}/messaging/pushes/{message_id}/. */
     message_id: string
     /** True when an earlier request with the same `Idempotency-Key` already queued this notification. No new notification was sent, and `message_id` is the earlier send's ID. */
     replayed: boolean
@@ -1869,21 +1935,6 @@ export interface TransactionalEmailStatsOverTimeApi {
     previous: TransactionalEmailStatsCountsApi | null
 }
 
-/**
- * * `sending` - Sending
- * * `sent` - Sent
- * * `not_sent` - Not sent
- * * `failed` - Failed
- */
-export type PushSendStatusEnumApi = (typeof PushSendStatusEnumApi)[keyof typeof PushSendStatusEnumApi]
-
-export const PushSendStatusEnumApi = {
-    Sending: 'sending',
-    Sent: 'sent',
-    NotSent: 'not_sent',
-    Failed: 'failed',
-} as const
-
 export interface TransactionalPushLogEntryApi {
     /** The ID of this send. */
     run_id: string
@@ -2014,6 +2065,18 @@ export interface WorkflowEmailDetailApi {
 export type MessagingEmailsStatusRetrieveParams = {
     /**
      * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string
+}
+
+export type MessagingPushesStatusRetrieveParams = {
+    /**
+     * The `Idempotency-Key` the send was made with, when you don't have its `message_id`, for example after a lost response.
      * @minLength 1
      */
     idempotency_key?: string

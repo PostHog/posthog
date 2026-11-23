@@ -64,9 +64,14 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     return message_id.version == 5
 
 
-def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
-    name = json.dumps([team_id, _TRANSACTIONAL_EMAIL_RUN_SCOPE, idempotency_key], separators=(",", ":"))
+def keyed_run_id(team_id: int, scope: str, idempotency_key: str) -> UUID:
+    """The ID the CDP service gives a send made with an idempotency key, the same for every retry of the key."""
+    name = json.dumps([team_id, scope, idempotency_key], separators=(",", ":"))
     return uuid5(_KEYED_RUN_ID_NAMESPACE, name)
+
+
+def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
+    return keyed_run_id(team_id, _TRANSACTIONAL_EMAIL_RUN_SCOPE, idempotency_key)
 
 
 # The events cluster has no email_status table, so a project that reads events_json still looks a send up here.

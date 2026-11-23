@@ -196,6 +196,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'messaging_preference:write',
     'transactional_email:read',
     'transactional_email:write',
+    'transactional_push:read',
     'transactional_push:write',
     'llm_prompt:read',
     'logs:read',

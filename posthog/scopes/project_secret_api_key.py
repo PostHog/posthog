@@ -37,7 +37,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     ("messaging_preference", "write"),
     ("transactional_email", "read"),
     ("transactional_email", "write"),
-    # Lets a service send transactional push notifications (`messaging/send/push/`).
+    # Lets a service send transactional push notifications (`messaging/send/push/`) and read a send's status
+    # (`messaging/pushes/:id/`).
+    ("transactional_push", "read"),
     ("transactional_push", "write"),
     # SDK prompt fetches by name and by list, so a service does not need a credential tied
     # to one person's account. Publishing, labels and archiving stay closed to these keys.

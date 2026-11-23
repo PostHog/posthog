@@ -8,6 +8,7 @@ import re
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
@@ -16,10 +17,13 @@ from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.contracts import (
     PushSendStatus,
+    PushStatusReason,
     TransactionalPushLogEntry,
     TransactionalPushStatsRow,
+    TransactionalPushStatus,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.services.transactional_email_status import keyed_run_id
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 # Runs, stored pushes and run logs are all kept this long.
@@ -33,6 +37,28 @@ _RETRY_MARGIN = timedelta(days=1)
 _MAX_MESSAGES = 10
 # The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
 _ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)?")
+TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
+
+# The lines the push step logs when it skips a send or stops on an error, matched in this order. They come from
+# nodejs/src/cdp/services/messaging/push-notification.service.ts and the message step's opt-out and frequency cap
+# checks, so a change to that wording needs a change here.
+_NOT_SENT_REASONS: tuple[tuple[PushStatusReason, re.Pattern[str]], ...] = (
+    (PushStatusReason.NO_PERSON, re.compile(r"^No person found for distinct_id")),
+    (PushStatusReason.OPTED_OUT, re.compile(r"opted out|suppression list")),
+    (PushStatusReason.FREQUENCY_CAPPED, re.compile(r"frequency cap")),
+    # A token Apple or Google no longer accepts was a device that is gone.
+    (PushStatusReason.NO_DEVICE, re.compile(r"^(?:No active (?:FCM|APNS) device token found|FCM: |APNs: )")),
+)
+_FAILED_REASONS: tuple[tuple[PushStatusReason, re.Pattern[str]], ...] = (
+    (
+        PushStatusReason.INTEGRATION_ERROR,
+        re.compile(
+            r"^(?:Push notification integration not found|The push notification integration could not be decrypted"
+            r"|Unsupported push integration kind)"
+        ),
+    ),
+    (PushStatusReason.ERROR, re.compile(r"^Could not look up the person")),
+)
 
 _RUNS = """
     SELECT
@@ -161,6 +187,80 @@ def _titles(team_id: int, workflow_ids: Sequence[str], run_ids: Sequence[str], s
         {"workflows": list(workflow_ids), "runs": list(run_ids), "start": _ch_time(start)},
     )
     return dict(rows)
+
+
+def push_status_reason(
+    status: PushSendStatus, run_status: str, step_messages: Sequence[str]
+) -> PushStatusReason | None:
+    """Why a push was not sent or failed, from the warnings and errors its push step logged."""
+    if status in (PushSendStatus.SENDING, PushSendStatus.SENT):
+        return None
+    if status == PushSendStatus.NOT_SENT:
+        return _first_reason(_NOT_SENT_REASONS, step_messages) or PushStatusReason.UNKNOWN
+    if run_status == "canceled":
+        return PushStatusReason.CANCELED
+    # The push step logs Apple's or Google's refusal, so a failure it logged that matches nothing else is theirs.
+    return _first_reason(_FAILED_REASONS, step_messages) or (
+        PushStatusReason.PROVIDER_ERROR if step_messages else PushStatusReason.ERROR
+    )
+
+
+def _first_reason(
+    reasons: Sequence[tuple[PushStatusReason, re.Pattern[str]]], messages: Sequence[str]
+) -> PushStatusReason | None:
+    for reason, pattern in reasons:
+        if any(pattern.search(message) for message in messages):
+            return reason
+    return None
+
+
+def keyed_push_run_id(team_id: int, idempotency_key: str) -> UUID:
+    return keyed_run_id(team_id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotency_key)
+
+
+def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | None:
+    """The status of one send of a push notification, or None when no send of the project's pushes has this ID."""
+    # A push template deleted after the send still sent it.
+    workflow_ids = [
+        str(workflow_id)
+        for workflow_id in MessageTemplate.objects.filter(
+            team_id=team_id, type="push", transactional_hog_flow_id__isnull=False
+        ).values_list("transactional_hog_flow_id", flat=True)
+    ]
+    if not workflow_ids:
+        return None
+    now = datetime.now(UTC)
+    period = _Period(start=now - RETENTION, end=now + _CLOCK_SKEW)
+    condition = "AND invocation_id = %(run_id)s"
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT queued_at, run_status, send_status
+        FROM (
+            SELECT *, {_SEND_STATUS.format(search=condition)} AS send_status
+            FROM ({_RUNS.format(search=condition)})
+            WHERE run_is_deleted = 0
+        )
+        """,
+        {
+            "workflows": workflow_ids,
+            "run_id": str(run_id),
+            "start": _ch_time(period.start),
+            "end": _ch_time(period.end),
+            "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+        },
+    )
+    if not rows:
+        return None
+    queued_at, run_status, send_status = rows[0]
+    status = PushSendStatus(send_status)
+    step_messages = _step_messages(team_id, workflow_ids, [str(run_id)], period.start).get(str(run_id), [])
+    return TransactionalPushStatus(
+        run_id=str(run_id),
+        status=status,
+        created_at=queued_at.replace(tzinfo=UTC),
+        reason=push_status_reason(status, run_status, step_messages),
+    )
 
 
 def list_transactional_pushes(

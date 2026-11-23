@@ -34,6 +34,7 @@ import type {
     MessagingEmailsStatusRetrieveParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
+    MessagingPushesStatusRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
@@ -47,6 +48,7 @@ import type {
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
+    PushStatusApi,
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
     SendEmailApi,
@@ -191,6 +193,59 @@ export const messagingPreferencesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setPreferencesApi),
+    })
+}
+
+export const getMessagingPushesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/pushes/${id}/`
+}
+
+/**
+ * Get the status of one transactional push notification by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_push:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The send is recorded a few seconds after it is accepted, so a read right after a send can answer 404. Read again a few seconds later.
+ * @summary Get a transactional push notification's status
+ */
+export const messagingPushesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushStatusApi> => {
+    return apiMutator<PushStatusApi>(getMessagingPushesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingPushesStatusRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPushesStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/pushes/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/pushes/status/`
+}
+
+/**
+ * Get the status of one transactional push notification by its `message_id`, or by the `Idempotency-Key` it was sent with when the send's response was lost. Name exactly one of them. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_push:read` scope. A 404 doesn't mean the push wasn't sent: it can take a few seconds to be recorded.
+ * @summary Find a transactional push notification's status
+ */
+export const messagingPushesStatusRetrieve = async (
+    projectId: string,
+    params?: MessagingPushesStatusRetrieveParams,
+    options?: RequestInit
+): Promise<PushStatusApi> => {
+    return apiMutator<PushStatusApi>(getMessagingPushesStatusRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -6,6 +6,7 @@ from products.messaging.backend.presentation.views.attachment_uploads import Mes
 from products.messaging.backend.presentation.views.key_scoped import (
     KeyScopedMessagingAttachmentsViewSet,
     KeyScopedMessagingEmailsViewSet,
+    KeyScopedMessagingPushesViewSet,
     KeyScopedMessagingSendViewSet,
     KeyScopedTopicPreferencesViewSet,
 )
@@ -26,6 +27,7 @@ from products.messaging.backend.presentation.views.transactional_code_emails imp
 from products.messaging.backend.presentation.views.transactional_email_log import TransactionalEmailLogViewSet
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
 from products.messaging.backend.presentation.views.transactional_push_log import TransactionalPushLogViewSet
+from products.messaging.backend.presentation.views.transactional_push_status import MessagingPushesViewSet
 from products.messaging.backend.presentation.views.workflow_email_log import WorkflowEmailLogViewSet
 
 webhook_urlpatterns: list[URLPattern] = [
@@ -65,6 +67,7 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"messaging/emails", MessagingEmailsViewSet, "project_messaging_emails", ["team_id"])
+    routers.projects.register(r"messaging/pushes", MessagingPushesViewSet, "project_messaging_pushes", ["team_id"])
     routers.projects.register(
         r"messaging/preferences", TopicPreferencesViewSet, "project_messaging_set_preferences", ["team_id"]
     )
@@ -75,6 +78,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.root.register(r"messaging/send", KeyScopedMessagingSendViewSet, "messaging_send")
     routers.root.register(r"messaging/attachments", KeyScopedMessagingAttachmentsViewSet, "messaging_attachments")
     routers.root.register(r"messaging/emails", KeyScopedMessagingEmailsViewSet, "messaging_emails")
+    routers.root.register(r"messaging/pushes", KeyScopedMessagingPushesViewSet, "messaging_pushes")
     routers.root.register(r"messaging/preferences", KeyScopedTopicPreferencesViewSet, "messaging_preferences")
     routers.projects.register(
         r"transactional_push_log", TransactionalPushLogViewSet, "project_transactional_push_log", ["team_id"]

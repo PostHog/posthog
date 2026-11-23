@@ -1039,7 +1039,8 @@ class SendPushSerializer(serializers.Serializer):
 
 class SendTransactionalPushResponseSerializer(serializers.Serializer):
     message_id = serializers.CharField(
-        help_text="ID of the queued send. Delivery is reported against the template's workflow asynchronously."
+        help_text="ID of the queued send. Read whether it reached a device with GET "
+        "/api/projects/{project_id}/messaging/pushes/{message_id}/."
     )
     replayed = serializers.BooleanField(
         help_text="True when an earlier request with the same `Idempotency-Key` already queued this notification. "
@@ -1139,6 +1140,7 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
 TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
 TRANSACTIONAL_PUSH_SEND_SCOPE = "transactional_push:write"
 TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
+TRANSACTIONAL_PUSH_STATUS_SCOPE = "transactional_push:read"
 
 
 def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
