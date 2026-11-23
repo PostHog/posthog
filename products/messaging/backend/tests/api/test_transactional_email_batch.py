@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache, caches
 from django.test import override_settings
 
@@ -595,21 +596,22 @@ class TestTransactionalEmailBatch(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{layout}", throttle, layout == "shared_prefix")
+            (f"{name}_{layout}", throttle, layout)
             for name, throttle in [
                 ("key_burst", TransactionalEmailBurstThrottle),
                 ("key_sustained", TransactionalEmailSustainedThrottle),
                 ("team_burst", TransactionalEmailTeamBurstThrottle),
                 ("team_sustained", TransactionalEmailTeamSustainedThrottle),
             ]
-            for layout in ("shared_prefix", "own_history_prefix")
+            for layout in ("configured_caches", "own_history_prefix")
         ]
     )
     def test_a_batch_spends_one_send_per_recipient_and_a_refused_one_spends_one(
-        self, mock_post, _flag, _capture, _name, throttle, shared_history_prefix
+        self, mock_post, _flag, _capture, _name, throttle, layout
     ):
-        caches_under_test = lagging_reader_caches(
-            unique_key_prefix("test-batch-throttle"), shared_history_prefix=shared_history_prefix
+        own_history_prefix = layout == "own_history_prefix"
+        caches_under_test = (
+            lagging_reader_caches(unique_key_prefix("test-batch-throttle")) if own_history_prefix else settings.CACHES
         )
         with (
             override_settings(CACHES=caches_under_test),
@@ -624,10 +626,11 @@ class TestTransactionalEmailBatch(APIBaseTest):
                 last_single = self._single("template")
                 over_budget = self._single("template")
             finally:
-                for alias in ("default", "throttle_history"):
-                    redis_cache = caches[alias]
-                    assert isinstance(redis_cache, RedisCache)
-                    redis_cache.delete_pattern("*")
+                if own_history_prefix:
+                    for alias in ("default", "throttle_history"):
+                        redis_cache = caches[alias]
+                        assert isinstance(redis_cache, RedisCache)
+                        redis_cache.delete_pattern("*")
 
         assert spent.status_code == status.HTTP_200_OK, spent.json()
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
