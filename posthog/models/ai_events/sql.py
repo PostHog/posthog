@@ -26,7 +26,8 @@ HEAVY_AI_PROPERTIES = [
 # Clamped at both ends: a missing or malformed header can never make a row expire early, and no producer to the
 # topic can keep one longer than ingestion's own limit or push drop_date past what a Date holds.
 RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL = (
-    "least(greatest(toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365)"
+    "toInt16(least(greatest("
+    "toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365))"
 )
 
 

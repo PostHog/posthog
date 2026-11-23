@@ -7678,12 +7678,14 @@ CREATE MATERIALIZED VIEW posthog.ai_events_json_mv TO posthog.ai_events (uuid UU
   nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
-  least(
-    greatest(
-      toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)),
-      30
-    ),
-    365
+  toInt16(
+    least(
+      greatest(
+        toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)),
+        30
+      ),
+      365
+    )
   ) AS retention_days,
   _timestamp,
   _offset,

@@ -87,7 +87,7 @@ SELECT
     nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
 
     -- Retention
-    least(greatest(toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365) AS retention_days,
+    toInt16(least(greatest(toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365)) AS retention_days,
 
     -- Kafka metadata
     _timestamp,
