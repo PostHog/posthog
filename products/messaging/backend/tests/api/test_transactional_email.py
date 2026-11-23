@@ -1013,6 +1013,7 @@ class TestTransactionalEmail(APIBaseTest):
 
     def _archived_key_workflow(self) -> None:
         hog_flow_id = transactional_email._key_workflow_id(self.team.id, self._code_send()["template_key"])
+        assert hog_flow_id is not None
         HogFlow.objects.filter(team=self.team, id=hog_flow_id).update(status="archived")
 
     def _category(self, key: str = "newsletter", **fields: Any) -> MessageCategory:
