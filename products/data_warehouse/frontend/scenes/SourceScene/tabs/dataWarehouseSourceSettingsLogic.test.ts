@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
@@ -387,7 +388,7 @@ describe('sourceSettingsLogic', () => {
         expect(loadJobsSpy).not.toHaveBeenCalled()
     })
 
-    it('dispatches breadcrumb name to the sourceSceneLogic for the source', async () => {
+    it('names the source scene and its Data recent, which pins by source id', async () => {
         const sceneLogicForSource = sourceSceneLogic({ id: 'managed-source-1' })
         sceneLogicForSource.mount()
 
@@ -397,6 +398,12 @@ describe('sourceSettingsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(sceneLogicForSource.values.breadcrumbName).toEqual('warehouse')
+        expect(sceneLogicForSource.values.todayRecent).toEqual({
+            type: 'data_source',
+            name: 'Postgres (warehouse)',
+            href: urls.dataWarehouseSource('managed-source-1', 'schemas'),
+            ref: 'source-1',
+        })
 
         sceneLogicForSource.unmount()
     })
