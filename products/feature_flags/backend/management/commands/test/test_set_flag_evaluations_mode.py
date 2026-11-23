@@ -31,6 +31,9 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
+    RecordedHistory,
+    RestoreOutcome,
+    restore_organizations_flag_evaluations_configs,
     set_organizations_flag_evaluations_mode,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -63,6 +66,19 @@ class TestSetFlagEvaluationsMode(BaseTest):
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=organization, defaults={"flag_evaluations_mode": mode}
         )
+
+    def _store_config(self, organization: Organization, mode: FlagEvaluationsMode, keeps_events_writes: bool) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=organization,
+            defaults={"flag_evaluations_mode": mode, "keep_writing_flag_calls_to_events": keeps_events_writes},
+        )
+
+    def _stored_config(self, organization: Organization) -> tuple[int, bool]:
+        config = OrganizationFeatureFlagsConfig.objects.get(organization=organization)
+        return config.flag_evaluations_mode, config.keep_writing_flag_calls_to_events
+
+    def _listed_ids(self, path: str) -> list[str]:
+        return [line.split()[0] for line in Path(path).read_text().splitlines() if line.strip()]
 
     def _ids_file(self, *lines: object) -> str:
         directory = tempfile.TemporaryDirectory()
@@ -104,15 +120,32 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_evaluations_only", "2", (), True, True),
-            ("read_flag_evaluations", "1", (), True, False),
-            ("skipped_count", "2", ("--skip-experiment-count",), False, False),
-            ("events_writes_kept", "2", ("--keep-writing-flag-calls-to-events",), True, True),
+            ("flag_evaluations_only", lambda self: ("--mode", "2", *self._selects_organization), True, True),
+            ("read_flag_evaluations", lambda self: ("--mode", "1", *self._selects_organization), True, False),
+            (
+                "skipped_count",
+                lambda self: ("--mode", "2", *self._selects_organization, "--skip-experiment-count"),
+                False,
+                False,
+            ),
+            (
+                "events_writes_kept",
+                lambda self: ("--mode", "2", *self._selects_organization, "--keep-writing-flag-calls-to-events"),
+                True,
+                True,
+            ),
+            (
+                "restore_to_flag_evaluations_only",
+                lambda self: ("--restore-from-changed-ids-file", self._ids_file(f"{self.organization.id} 2 0 0 0")),
+                True,
+                True,
+            ),
         ]
     )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
-        self, _name: str, mode: str, extra_args: tuple[str, ...], expects_count: bool, expects_warning: bool
+        self, _name: str, build_args: Any, expects_count: bool, expects_warning: bool
     ) -> None:
+        self._selects_organization = ("--organization-id", str(self.organization.id))
         create_experiment(
             team_id=self.team.id,
             feature_flag_id=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user).id,
@@ -121,7 +154,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             metrics=[FLAG_CALL_METRIC],
         )
 
-        output = self._run("--mode", mode, "--organization-id", str(self.organization.id), "--dry-run", *extra_args)
+        output = self._run(*build_args(self), "--dry-run")
 
         self.assertEqual("1 experiment(s) reading $feature_flag_called from events" in output, expects_count)
         self.assertEqual("1 running experiment(s) read $feature_flag_called from events" in output, expects_warning)
@@ -206,6 +239,30 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertFalse(change.changed)
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
+    def test_a_restore_does_not_overwrite_a_change_after_its_read(self) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        after_the_run = FlagEvaluationsConfig(mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keeps_events_writes=False)
+
+        # The stale read stands in for a write that the row lock does not stop, such as an insert of a row that the
+        # read found missing.
+        with patch(
+            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_configs",
+            return_value={self.organization.id: after_the_run},
+        ):
+            [restore] = restore_organizations_flag_evaluations_configs(
+                {
+                    self.organization.id: RecordedHistory(
+                        before=FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False),
+                        after=after_the_run,
+                        unbroken=True,
+                    )
+                },
+                dry_run=False,
+            )
+
+        self.assertEqual(restore.outcome, RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS)
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
     @parameterized.expand(
         [
             (
@@ -251,6 +308,24 @@ class TestSetFlagEvaluationsMode(BaseTest):
                     self._ids_file(),
                 ),
                 "a dry run changes none",
+            ),
+            (
+                "changed_ids_file_in_the_older_format_of_bare_ids",
+                lambda self, missing: (
+                    "--organization-id",
+                    str(self.organization.id),
+                    "--write-changed-ids",
+                    self._ids_file(self.organization.id),
+                ),
+                "Write the changed ids to a new file",
+            ),
+            (
+                "changed_ids_file_as_the_ids_file",
+                lambda self, missing: (
+                    "--organization-ids-file",
+                    self._ids_file(f"{self.organization.id} 0 0 2 0"),
+                ),
+                "--restore-from-changed-ids-file",
             ),
             (
                 "changed_ids_file_another_run_writes",
@@ -322,14 +397,12 @@ class TestSetFlagEvaluationsMode(BaseTest):
             FlagEvaluationsMode.READ_FLAG_EVALUATIONS if first_chunk_commits else FlagEvaluationsMode.EVENTS,
         )
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(
-            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if first_chunk_commits else []
-        )
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if first_chunk_commits else [])
 
         self._run(*args)
 
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id), str(second.id)])
 
     @parameterized.expand(
         [
@@ -378,9 +451,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             )
 
         self.assertEqual(self._stored_mode(self.organization), expected_mode)
-        self.assertEqual(
-            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if expects_listed else []
-        )
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if expects_listed else [])
 
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
         included, excluded = self._organizations_without_config(2)
@@ -393,13 +464,14 @@ class TestSetFlagEvaluationsMode(BaseTest):
         )
         self.assertEqual(get_organization_flag_evaluations_mode(excluded.id), FlagEvaluationsMode.EVENTS)
 
-    def test_the_changed_ids_file_lists_an_organization_only_when_its_mode_changed(self) -> None:
-        moved, only_turned_on = self._organizations_without_config(2)
-        self._store_mode(only_turned_on, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+    def test_a_restore_puts_each_organization_the_run_changed_back_to_its_own_settings(self) -> None:
+        moved_up, only_turned_on, already_kept, deleted_later = self._organizations_without_config(4)
+        self._store_config(only_turned_on, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
+        self._store_config(already_kept, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True)
         changed_ids_file = self._ids_file()
-        ids_file = self._ids_file(moved.id, only_turned_on.id)
+        ids_file = self._ids_file(moved_up.id, only_turned_on.id, already_kept.id, deleted_later.id)
 
-        output = self._run(
+        run_output = self._run(
             "--mode",
             "2",
             "--keep-writing-flag-calls-to-events",
@@ -408,31 +480,155 @@ class TestSetFlagEvaluationsMode(BaseTest):
             "--write-changed-ids",
             changed_ids_file,
         )
-
-        self.assertTrue(self._keeps_events_writes(only_turned_on))
-        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(moved.id)])
-        self.assertIn(f"Appended 1 changed organization id(s) to {changed_ids_file}.", output)
-
-    def test_a_rollback_from_the_changed_ids_file_lowers_only_the_organizations_the_run_moved(self) -> None:
-        already_on_two, moved, deleted_later = self._organizations_without_config(3)
-        self._store_mode(already_on_two, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        changed_ids_file = self._ids_file()
-        ids_file = self._ids_file(already_on_two.id, moved.id, moved.id, deleted_later.id)
-
-        self._run("--mode", "2", "--organization-ids-file", ids_file, "--write-changed-ids", changed_ids_file)
         deleted_later.delete()
         output = self._run(
-            "--mode",
-            "0",
-            "--allow-downgrade",
-            "--organization-ids-file",
-            changed_ids_file,
-            "--skip-unknown-organization-ids",
+            "--restore-from-changed-ids-file", changed_ids_file, "--skip-unknown-organization-ids", "--chunk-size", "1"
         )
 
+        self.assertIn(f"Appended 3 changed organization(s) to {changed_ids_file}.", run_output)
         self.assertIn(f"Skipping 1 unknown organization id(s) in {changed_ids_file}.", output)
-        self.assertEqual(self._stored_mode(moved), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(self._stored_mode(already_on_two), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.assertEqual(
+            {
+                organization: self._stored_config(organization)
+                for organization in (moved_up, only_turned_on, already_kept)
+            },
+            {
+                moved_up: (FlagEvaluationsMode.EVENTS, False),
+                only_turned_on: (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                already_kept: (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "restores_the_first_record_of_an_organization_two_runs_changed",
+                ["0 0 1 0", "1 0 2 0"],
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                (FlagEvaluationsMode.EVENTS, False),
+                "Restored 1 organization(s).",
+            ),
+            (
+                "leaves_an_organization_already_back_at_its_first_record",
+                ["0 0 2 0"],
+                (FlagEvaluationsMode.EVENTS, False),
+                (FlagEvaluationsMode.EVENTS, False),
+                "1 organization(s) already had the settings the file records from before the run.",
+            ),
+            (
+                "keeps_an_organization_changed_since_the_run",
+                ["0 0 2 0"],
+                (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+                (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+                "Kept the settings of 1 organization(s)",
+            ),
+            (
+                "keeps_an_organization_changed_between_two_runs",
+                ["0 0 1 0", "2 0 2 1"],
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+                "Kept the settings of 1 organization(s)",
+            ),
+        ]
+    )
+    def test_a_restore_writes_only_an_organization_that_still_has_the_settings_the_runs_left(
+        self,
+        _name: str,
+        records: list[str],
+        current: tuple[FlagEvaluationsMode, bool],
+        expected: tuple[FlagEvaluationsMode, bool],
+        expected_output: str,
+    ) -> None:
+        self._store_config(self.organization, *current)
+        changed_ids_file = self._ids_file(*(f"{self.organization.id} {record}" for record in records))
+
+        output = self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        self.assertEqual(self._stored_config(self.organization), expected)
+        self.assertIn(expected_output, output)
+
+    @parameterized.expand(
+        [
+            ("a_mode", ("--mode", "0"), "--mode"),
+            ("an_exclude_file", ("--exclude-organization-ids-file", "ids"), "--exclude-organization-ids-file"),
+            ("kept_writes", ("--keep-writing-flag-calls-to-events",), "--keep-writing-flag-calls-to-events"),
+            ("a_changed_ids_file", ("--write-changed-ids", "ids"), "--write-changed-ids"),
+            ("allow_downgrade", ("--allow-downgrade",), "--allow-downgrade"),
+        ]
+    )
+    def test_a_restore_refuses_an_option_it_would_ignore(
+        self, _name: str, extra_args: tuple[str, ...], message: str
+    ) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0 2 0")
+        args = [self._ids_file() if arg == "ids" else arg for arg in extra_args]
+
+        with self.assertRaisesMessage(CommandError, message):
+            self._run("--restore-from-changed-ids-file", changed_ids_file, *args)
+
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+    def test_a_restore_refuses_a_file_without_the_settings_from_before_the_run(self) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0 2 0", self.organization.id)
+
+        with self.assertRaisesMessage(CommandError, f"{changed_ids_file}:2:"):
+            self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+    def test_a_restore_locks_every_listed_row_in_id_order_before_it_writes(self) -> None:
+        # Other writers lock rows in id order. The restore's UPDATE joins an unnest, whose plan sets the order it
+        # locks rows in, so without an up-front lock in id order a concurrent writer can deadlock with it.
+        first, second = self._organizations_without_config(2)
+        self._store_config(first, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
+        self._store_config(second, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
+        changed_ids_file = self._ids_file(f"{second.id} 1 0 2 0", f"{first.id} 0 0 2 0")
+
+        with CaptureQueriesContext(connection) as queries:
+            self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        statements = [query["sql"] for query in queries]
+        lock = next(i for i, sql in enumerate(statements) if "FOR UPDATE" in sql)
+        first_write = next(i for i, sql in enumerate(statements) if sql.lstrip().startswith("UPDATE"))
+        self.assertLess(lock, first_write)
+        self.assertRegex(statements[lock], r"^SELECT \S+\.\"organization_id\" .* ORDER BY 1 ASC FOR UPDATE$")
+        self.assertEqual(self._stored_config(first), (FlagEvaluationsMode.EVENTS, False))
+        self.assertEqual(self._stored_config(second), (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False))
+
+    def test_a_restore_that_fails_partway_finishes_when_it_runs_again(self) -> None:
+        first, second = self._organizations_without_config(2)
+        self._store_config(first, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
+        self._store_config(second, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
+        args = (
+            "--restore-from-changed-ids-file",
+            self._ids_file(f"{first.id} 0 0 2 0", f"{second.id} 0 0 2 0"),
+            "--chunk-size",
+            "1",
+        )
+
+        def fail_on_second(histories: Any, *args: Any, **kwargs: Any) -> Any:
+            if second.id in histories:
+                raise RuntimeError("write failed")
+            return restore_organizations_flag_evaluations_configs(histories, *args, **kwargs)
+
+        with (
+            patch(
+                "products.feature_flags.backend.management.commands.set_flag_evaluations_mode."
+                "restore_organizations_flag_evaluations_configs",
+                side_effect=fail_on_second,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            self._run(*args)
+        self.assertEqual(self._stored_mode(first), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(self._stored_mode(second), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
+        output = self._run(*args)
+
+        self.assertEqual(self._stored_mode(second), FlagEvaluationsMode.EVENTS)
+        self.assertIn("Restored 1 organization(s).", output)
+        self.assertIn("1 organization(s) already had the settings the file records from before the run.", output)
 
     @parameterized.expand(
         [
@@ -471,11 +667,11 @@ class TestSetFlagEvaluationsMode(BaseTest):
     def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(self) -> None:
         listed, moved = self._organizations_without_config(2)
         changed_ids_file = self._ids_file()
-        Path(changed_ids_file).write_text(str(listed.id))
+        Path(changed_ids_file).write_text(f"{listed.id} 0 0 1 0")
 
         self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
-        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(listed.id), str(moved.id)])
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(listed.id), str(moved.id)])
 
     def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
         organizations = self._organizations_without_config(5)

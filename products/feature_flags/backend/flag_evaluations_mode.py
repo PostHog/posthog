@@ -1,7 +1,8 @@
 """Writes of OrganizationFeatureFlagsConfig.flag_evaluations_mode for a list of organizations."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime
+from enum import StrEnum
 from itertools import batched
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from posthog.models import Organization, Team
 
 from products.experiments.backend.facade import count_running_experiments_needing_flag_calls_in_events
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_configs
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_configs
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 ID_LOOKUP_BATCH_SIZE = 10_000
@@ -59,6 +60,87 @@ class OrganizationModeChange:
     left_above_mode: bool
 
 
+@frozen
+class RecordedChange:
+    """One line of a --write-changed-ids file: an organization's settings before and after one run changed them."""
+
+    organization_id: UUID
+    before: FlagEvaluationsConfig
+    after: FlagEvaluationsConfig
+
+    def to_line(self) -> str:
+        return (
+            f"{self.organization_id} {self.before.mode} {int(self.before.keeps_events_writes)} "
+            f"{self.after.mode} {int(self.after.keeps_events_writes)}"
+        )
+
+    @classmethod
+    def from_line(cls, text: str) -> "RecordedChange":
+        """Parse `<organization id> <mode before> <kept before> <mode after> <kept after>`, where a kept value is 0 or
+        1. Raises ValueError on any other text."""
+        columns = text.split()
+        if len(columns) != 5 or any(kept not in ("0", "1") for kept in (columns[2], columns[4])):
+            raise ValueError(f"{text!r} is not `<organization id> <mode before> <0|1> <mode after> <0|1>`")
+        return cls(
+            organization_id=UUID(columns[0]),
+            before=FlagEvaluationsConfig(
+                mode=FlagEvaluationsMode(int(columns[1])), keeps_events_writes=columns[2] == "1"
+            ),
+            after=FlagEvaluationsConfig(
+                mode=FlagEvaluationsMode(int(columns[3])), keeps_events_writes=columns[4] == "1"
+            ),
+        )
+
+
+@frozen
+class RecordedHistory:
+    """What the runs that wrote a changed-ids file did to one organization."""
+
+    # The settings before the first run that changed the organization.
+    before: FlagEvaluationsConfig
+    # The settings after the last run that changed it.
+    after: FlagEvaluationsConfig
+    # False when a record does not start from the settings the previous record ended at. Something outside the runs
+    # then changed the organization between two of them.
+    unbroken: bool
+
+
+def collapse_recorded_changes(changes: Iterable[RecordedChange]) -> dict[UUID, RecordedHistory]:
+    """The history of each organization, in the order the records first name them. Records are in the order the runs
+    appended them."""
+    histories: dict[UUID, RecordedHistory] = {}
+    for change in changes:
+        previous = histories.get(change.organization_id)
+        histories[change.organization_id] = (
+            RecordedHistory(before=change.before, after=change.after, unbroken=True)
+            if previous is None
+            else RecordedHistory(
+                before=previous.before,
+                after=change.after,
+                unbroken=previous.unbroken and previous.after == change.before,
+            )
+        )
+    return histories
+
+
+class RestoreOutcome(StrEnum):
+    RESTORED = "restored"
+    # The organization already has its settings from before the runs, such as after a restore that ran before.
+    ALREADY_RESTORED = "already restored"
+    # Something outside the recorded runs changed the organization, so the restore keeps its settings.
+    CHANGED_OUTSIDE_THE_RUNS = "changed outside the recorded runs, kept"
+
+
+@frozen
+class OrganizationRestore:
+    organization_id: UUID
+    current: FlagEvaluationsConfig
+    target: FlagEvaluationsConfig
+    outcome: RestoreOutcome
+    # As on OrganizationModeChange. Counted only for a restored organization, and 0 when counting is off.
+    running_experiments_needing_flag_calls_in_events: int
+
+
 class UnknownIdsError(Exception):
     def __init__(self, label: str, missing_ids: Collection[object]) -> None:
         super().__init__(f"Unknown {label} id(s): {', '.join(sorted(map(str, missing_ids)))}")
@@ -99,6 +181,104 @@ def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
     if missing_ids := set(team_ids) - organization_id_by_team_id.keys():
         raise UnknownIdsError("team", missing_ids)
     return get_organizations(set(organization_id_by_team_id.values()))
+
+
+def _lock_organization_configs(organization_ids: Collection[UUID]) -> None:
+    """Lock the organizations' config rows in id order, the order every writer of these rows locks them in."""
+    list(
+        OrganizationFeatureFlagsConfig.objects.select_for_update()
+        .filter(organization_id__in=organization_ids)
+        .order_by("organization_id")
+        .values_list("organization_id", flat=True)
+    )
+
+
+def _restore_configs(histories: Mapping[UUID, RecordedHistory]) -> set[UUID]:
+    """Set each organization's row back to its history's `before`, only where the row still holds its history's
+    `after`. Returns the ids of the rows it changed. It writes no row that is missing."""
+    if not histories:
+        return set()
+    table = OrganizationFeatureFlagsConfig._meta.db_table
+    query = f"""
+        UPDATE {table}
+           SET flag_evaluations_mode = restore.mode,
+               keep_writing_flag_calls_to_events = restore.kept
+          FROM unnest(%s::uuid[], %s::smallint[], %s::boolean[], %s::smallint[], %s::boolean[])
+               AS restore(organization_id, mode, kept, expected_mode, expected_kept)
+         WHERE {table}.organization_id = restore.organization_id
+           AND {table}.flag_evaluations_mode = restore.expected_mode
+           AND {table}.keep_writing_flag_calls_to_events = restore.expected_kept
+        RETURNING {table}.organization_id
+    """
+    organization_ids = sorted(histories)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            query,
+            [
+                [str(organization_id) for organization_id in organization_ids],
+                [int(histories[organization_id].before.mode) for organization_id in organization_ids],
+                [histories[organization_id].before.keeps_events_writes for organization_id in organization_ids],
+                [int(histories[organization_id].after.mode) for organization_id in organization_ids],
+                [histories[organization_id].after.keeps_events_writes for organization_id in organization_ids],
+            ],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def restore_organizations_flag_evaluations_configs(
+    histories: Mapping[UUID, RecordedHistory], *, dry_run: bool, count_experiments: bool = True
+) -> list[OrganizationRestore]:
+    """Put each organization back to the settings it had before the recorded runs, in the order given.
+
+    An organization is restored only while it still has the settings the last run left it with, and its records
+    chain. Any other organization changed outside the runs, and the restore keeps its settings. An organization that
+    already has its settings from before the runs is left alone, so a restore that runs again changes nothing more.
+
+    Opens no transaction. The caller wraps the call in one, because the row locks it takes last until the
+    transaction ends.
+    """
+    organization_ids = list(histories)
+    if not dry_run:
+        # The UPDATE locks rows in the order its plan visits them. Locking them in id order first keeps the restore
+        # from deadlocking with another writer, and holds the rows still between the read and the write.
+        _lock_organization_configs(organization_ids)
+    current_configs = get_organization_flag_evaluations_configs(organization_ids)
+
+    def outcome_from_read(organization_id: UUID) -> RestoreOutcome:
+        history, current = histories[organization_id], current_configs[organization_id]
+        if current == history.before:
+            return RestoreOutcome.ALREADY_RESTORED
+        if history.unbroken and current == history.after:
+            return RestoreOutcome.RESTORED
+        return RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS
+
+    outcomes = {organization_id: outcome_from_read(organization_id) for organization_id in organization_ids}
+    restorable = {
+        organization_id: histories[organization_id]
+        for organization_id, outcome in outcomes.items()
+        if outcome == RestoreOutcome.RESTORED
+    }
+    restored_ids = set(restorable) if dry_run else _restore_configs(restorable)
+    results = []
+    for organization_id in organization_ids:
+        outcome = outcomes[organization_id]
+        if outcome == RestoreOutcome.RESTORED and organization_id not in restored_ids:
+            # The read saw a config that the row does not hold, which happens only when the organization has no row.
+            outcome = RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS
+        results.append(
+            OrganizationRestore(
+                organization_id=organization_id,
+                current=current_configs[organization_id],
+                target=histories[organization_id].before,
+                outcome=outcome,
+                running_experiments_needing_flag_calls_in_events=(
+                    count_running_experiments_needing_flag_calls_in_events(organization_id)
+                    if count_experiments and outcome == RestoreOutcome.RESTORED
+                    else 0
+                ),
+            )
+        )
+    return results
 
 
 def _upsert_modes(
