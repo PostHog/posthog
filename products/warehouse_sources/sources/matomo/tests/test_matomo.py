@@ -158,6 +158,11 @@ class TestDrivenEndpoints:
             ("pages", "Actions.getPageUrls", ["1"]),
             ("entry_pages", "Actions.getEntryPageUrls", ["1"]),
             ("exit_pages", "Actions.getExitPageUrls", ["1"]),
+            # Titles nest under category rows when the site sets a title category delimiter.
+            ("page_titles", "Actions.getPageTitles", ["1"]),
+            ("product_skus", "Goals.getItemsSku", None),
+            ("cities", "UserCountry.getCity", None),
+            ("visits_by_days_since_last", "VisitorInterest.getNumberOfVisitsByDaysSinceLast", None),
             ("event_names", "Events.getName", None),
             # Flattening would emit one row per referring URL, not per website.
             ("referrer_websites", "Referrers.getWebsites", None),

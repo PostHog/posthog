@@ -9534,10 +9534,10 @@ Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getRe
 - [x] `Referrers.getReferrerType / getSearchEngines / getWebsites / getSocials` — Channel-level referrer breakdowns; referrers today is only the flat getAll roll-up (medium)
 - [x] `DevicesDetection.getType / getBrowsers / getOsFamilies` — Device, browser and OS breakdown dimensions (medium)
 - [x] `MarketingCampaignsReporting.getName / getSource / getMedium` — UTM campaign attribution reports (medium)
-- [ ] `Goals.getItemsSku / getItemsName / getItemsCategory` — Ecommerce product-level line items and revenue (medium)
-- [ ] `UserCountry.getRegion / getCity` — Finer geographic breakdown; only country is synced (medium)
-- [ ] `Actions.getPageTitles and getSiteSearchKeywords` — Page title and on-site search reporting (low)
-- [ ] `VisitFrequency.get and VisitorInterest.*` — Returning-visitor and engagement-depth metrics (low)
+- [x] `Goals.getItemsSku / getItemsName / getItemsCategory` — Ecommerce product-level line items and revenue (medium)
+- [x] `UserCountry.getRegion / getCity` — Finer geographic breakdown; only country is synced (medium)
+- [x] `Actions.getPageTitles and getSiteSearchKeywords` — Page title and on-site search reporting (low)
+- [x] `VisitFrequency.get and VisitorInterest.*` — Returning-visitor and engagement-depth metrics (low)
 
 Note: Matomo's reference site is JS-rendered, so I read the authoritative report catalog from a live instance via API.getReportMetadata on the public demo - it returns 100 reports across 25 modules. PostHog exposes 5 static tables (Live.getLastVisitsDetails plus 4 report methods) and MATOMO_ENDPOINTS is a static dict, so there is no dynamic discovery. Goals.getGoals and SegmentEditor.getAll were separately confirmed live on the demo instance (SitesManager.getAllSites requires superuser and 401s).
 
