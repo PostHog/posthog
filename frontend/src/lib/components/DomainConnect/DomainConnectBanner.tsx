@@ -3,11 +3,14 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
 import { DomainConnectProviderName } from '~/queries/schema/schema-general'
 
 import cloudflareLogo from './assets/cloudflare.svg'
 import vercelLogo from './assets/vercel.png'
 import { DomainConnectLogicProps, domainConnectLogic } from './domainConnectLogic'
+import { QuillDomainConnectBanner } from './QuillDomainConnectBanner'
 
 const PROVIDER_LOGOS: Record<DomainConnectProviderName, string> = {
     [DomainConnectProviderName.Cloudflare]: cloudflareLogo,
@@ -36,12 +39,24 @@ export function DomainConnectBanner(props: DomainConnectLogicProps & { className
     const logic = domainConnectLogic(props)
     const { autoDetected, providerName, domainConnectInfoLoading } = useValues(logic)
     const { openDomainConnect } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     if (domainConnectInfoLoading) {
         return null
     }
 
     if (autoDetected && providerName) {
+        if (quillSurface) {
+            return (
+                <QuillDomainConnectBanner
+                    providerName={providerName}
+                    providerLogo={<ProviderLogo name={providerName} />}
+                    onConfigure={() => openDomainConnect()}
+                    className={props.className}
+                />
+            )
+        }
+
         return (
             <LemonBanner type="info" className={props.className}>
                 <div className="flex items-center justify-between gap-2">

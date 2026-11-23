@@ -184,3 +184,45 @@ export const Disabled: Story = {
         </div>
     ),
 } satisfies Story
+
+export const DisabledReason: Story = {
+    render: () => (
+        <div className="max-w-48 mt-32">
+            <Select items={allItems} defaultValue="apple">
+                <SelectTrigger className="w-full max-w-48" disabledReason="Only admins can change the fruit">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {fruits.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    ),
+} satisfies Story
+
+export const ItemDisabledReason: Story = {
+    render: () => (
+        <div className="max-w-48">
+            <Select items={allItems} defaultValue="apple">
+                <SelectTrigger className="w-full max-w-48">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {fruits.map((item) => (
+                        <SelectItem
+                            key={item.value}
+                            value={item.value}
+                            disabledReason={item.value === 'banana' ? 'Out of season' : undefined}
+                        >
+                            {item.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    ),
+} satisfies Story

@@ -162,6 +162,21 @@
             "SpamComplaint": {"Enabled": false, "IncludeContent": false},
             "SubscriptionChange": {"Enabled": false}
           }
+        },
+        {
+          "ID": 702,
+          "Url": "https://hooks.example.com/postmark/deliveries",
+          "MessageStream": "outbound",
+          "HttpAuth": null,
+          "HttpHeaders": [],
+          "Triggers": {
+            "Open": {"Enabled": false, "PostFirstOpenOnly": false},
+            "Click": {"Enabled": false},
+            "Delivery": {"Enabled": true},
+            "Bounce": {"Enabled": false, "IncludeContent": false},
+            "SpamComplaint": {"Enabled": false, "IncludeContent": false},
+            "SubscriptionChange": {"Enabled": false}
+          }
         }
       ]
     },

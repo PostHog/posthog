@@ -24,11 +24,13 @@ from products.warehouse_sources.sources.mem0.settings import (
     MEM0_ENDPOINTS,
     MEMORIES_ENDPOINT,
     MEMORY_HISTORY_ENDPOINT,
+    ORGANIZATION_MEMBERS_ENDPOINT,
     ORGANIZATIONS_ENDPOINT,
     PROJECTS_ENDPOINT,
 )
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     JSONResponsePaginator,
     Resource,
@@ -209,7 +211,9 @@ def mem0_source(
     elif endpoint == ORGANIZATIONS_ENDPOINT:
         resource = _organizations_resource(client, team_id, job_id)
     elif endpoint == PROJECTS_ENDPOINT:
-        resource = _projects_resource(client, team_id, job_id)
+        resource = _organization_child_resource(client, team_id, job_id, PROJECTS_ENDPOINT)
+    elif endpoint == ORGANIZATION_MEMBERS_ENDPOINT:
+        resource = _organization_child_resource(client, team_id, job_id, ORGANIZATION_MEMBERS_ENDPOINT, "members")
     else:
         raise ValueError(f"Unknown Mem0 endpoint: {endpoint}")
 
@@ -501,28 +505,34 @@ def _organizations_resource(client: ClientConfig, team_id: int, job_id: str) -> 
     return rest_api_resource(rest_config, team_id, job_id, None)
 
 
-def _projects_resource(client: ClientConfig, team_id: int, job_id: str) -> Any:
+def _organization_child_resource(
+    client: ClientConfig, team_id: int, job_id: str, endpoint: str, data_selector: str | None = None
+) -> Any:
+    child_endpoint: Endpoint = {
+        "path": MEM0_ENDPOINTS[endpoint].path,
+        "method": "GET",
+        "params": {"org_id": {"type": "resolve", "resource": ORGANIZATIONS_ENDPOINT, "field": "org_id"}},
+        "paginator": SinglePagePaginator(),
+    }
+    if data_selector:
+        child_endpoint["data_selector"] = data_selector
+
     rest_config: RESTAPIConfig = {
         "client": client,
         "resource_defaults": {},
         "resources": [
             _organizations_config(),
             {
-                "name": PROJECTS_ENDPOINT,
-                "table_name": PROJECTS_ENDPOINT,
+                "name": endpoint,
+                "table_name": endpoint,
                 "write_disposition": "replace",
                 "include_from_parent": ["org_id"],
-                "endpoint": {
-                    "path": MEM0_ENDPOINTS[PROJECTS_ENDPOINT].path,
-                    "method": "GET",
-                    "params": {"org_id": {"type": "resolve", "resource": ORGANIZATIONS_ENDPOINT, "field": "org_id"}},
-                    "paginator": SinglePagePaginator(),
-                },
+                "endpoint": child_endpoint,
             },
         ],
     }
 
-    return _child_resource(rest_config, PROJECTS_ENDPOINT, team_id, job_id).add_map(
+    return _child_resource(rest_config, endpoint, team_id, job_id).add_map(
         rename_parent_fields(ORGANIZATIONS_ENDPOINT, {"org_id": "org_id"})
     )
 

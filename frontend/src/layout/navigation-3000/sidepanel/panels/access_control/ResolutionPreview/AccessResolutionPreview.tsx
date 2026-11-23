@@ -14,15 +14,17 @@ import {
 } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { objectRuleUrl } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/accessDetailLogic'
 import { humanizeAccessControlLevel } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/helpers'
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { describeResolutionChange } from './describeResolutionChange'
+import { QuillAccessResolutionPreview } from './QuillAccessResolutionPreview'
 import { ResolutionChange, resolutionPreviewLogic } from './resolutionPreviewLogic'
+import { urlForChangeObject } from './urlForChangeObject'
 
 function WhyExplainer(): JSX.Element {
     return (
@@ -52,21 +54,6 @@ function WhyExplainer(): JSX.Element {
             ]}
         />
     )
-}
-
-function urlForChangeObject(change: ResolutionChange): string | null {
-    if (change.object_id === null) {
-        return null
-    }
-    // Same link rules as the object rules table on the access control settings page
-    const url = objectRuleUrl({
-        resource: change.resource as APIScopeObject,
-        resource_id: change.object_id,
-        name: change.object_name ?? change.object_id,
-        short_id: change.object_short_id,
-        access_level: change.proposed.access_level as AccessControlLevel,
-    })
-    return url ? urls.project(change.project_id, url) : null
 }
 
 function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
@@ -118,6 +105,7 @@ export function AccessResolutionPreview(): JSX.Element {
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
     // `accepted` keeps the completed state if the organization reload after the switch fails
     const alreadyEnabled = accepted || !!currentOrganization?.uses_most_specific_access_resolution
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmAccept = (): void => {
         LemonDialog.open({
@@ -131,6 +119,10 @@ export function AccessResolutionPreview(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return <QuillAccessResolutionPreview onAccept={confirmAccept} />
     }
 
     if (previewLoading) {

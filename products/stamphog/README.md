@@ -283,6 +283,11 @@ A migration whose `Migration risk` check has not reported gets the same WAIT the
 Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
+PostHog Review can ask for the gate result of one PR head (`check_approval_gates` in `backend/facade/api.py`) to choose how deep its automatic review goes.
+The check reads the PR from GitHub and runs the same gate pre-check, with no LLM call.
+It never starts a review, creates no run, and writes nothing to GitHub.
+When the pre-check cannot settle the result, the check gives no answer, and PostHog Review keeps its default depth.
+
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
 

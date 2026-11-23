@@ -31,6 +31,7 @@ import type {
     MessageTemplateApi,
     MessageTemplatePlacementApi,
     MessagingCategoriesListParams,
+    MessagingEmailsStatusRetrieveParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -127,6 +128,40 @@ export const messagingEmailsRetrieve = async (
     options?: RequestInit
 ): Promise<EmailStatusApi> => {
     return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingEmailsStatusRetrieveUrl = (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/status/`
+}
+
+/**
+ * Get the status of one transactional email by its `message_id`, or by the `idempotency_key` it was sent with when the send's response was lost. Name exactly one of them. A key gives the latest send with it that PostHog has a status for. Compare the response's `created_at` with when you sent: an earlier time means an earlier send with the same key, not the one whose response was lost. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_email:read` scope. A 404 doesn't mean the email wasn't sent: its first status can take a few seconds to arrive. To make sure it goes out, send it again with the same key within 24 hours.
+ * @summary Find a transactional email's status
+ */
+export const messagingEmailsStatusRetrieve = async (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -639,7 +674,8 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -659,7 +695,8 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -682,7 +719,8 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -703,7 +741,8 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
@@ -1056,7 +1095,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (

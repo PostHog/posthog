@@ -359,12 +359,14 @@ async def _list_query_folder_files(s3: "S3FileSystem", folder_uri: str) -> dict[
     """
     parent_uri, _, folder_name = folder_uri.rstrip("/").rpartition("/")
     try:
-        # With a key prefix, `_find` is one flat listing. Without it, an empty folder costs two more
-        # requests, because `_find` then probes whether the path is a file.
-        found = await s3._find(parent_uri, prefix=f"{folder_name}/", detail=True)
+        # A flat listing with no delimiter, not `_find`. `_find` sends the same requests, but then it
+        # builds a directory entry for each parent folder with a list-membership check per entry. That
+        # work is quadratic in the number of partition folders, and it runs on the loader's event loop.
+        # For a table with hundreds of thousands of partitions, it stopped the loop for many minutes, so
+        # the consumer could not renew its leases or end its open queue transaction.
+        entries = await s3._lsdir(parent_uri, delimiter="", prefix=f"{folder_name}/")
     except FileNotFoundError:
         return {}
-    entries = found.values() if isinstance(found, dict) else found
     prefix = folder_uri.split("://", 1)[-1].rstrip("/") + "/"
     files: dict[str, str] = {}
     for entry in entries:

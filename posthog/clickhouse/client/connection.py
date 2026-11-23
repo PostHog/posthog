@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
+    from clickhouse_connect.driver.external import ExternalData
 
 from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.workload import Workload
@@ -386,6 +387,26 @@ class ClickHouseClient(SyncClient):
         return stashed
 
 
+def _to_http_external_data(external_tables: list[Mapping[str, Any]] | None) -> "ExternalData | None":
+    """Convert clickhouse_driver `external_tables` (name, structure, row dicts) to clickhouse_connect's
+    `ExternalData`, so a query that reads an external table works on the HTTP client too."""
+    if not external_tables:
+        return None
+
+    from clickhouse_connect.driver.external import ExternalData  # noqa: PLC0415
+
+    external_data = ExternalData()
+    for table in external_tables:
+        rows = "".join(json.dumps(row, default=str) + "\n" for row in table["data"])
+        external_data.add_file(
+            file_name=table["name"],
+            data=rows.encode(),
+            fmt="JSONEachRow",
+            structure=[f"{column} {column_type}" for column, column_type in table["structure"]],
+        )
+    return external_data
+
+
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
@@ -408,7 +429,13 @@ class ProxyClient:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
-        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        result = self._client.query(
+            query=query,
+            parameters=params,
+            settings=settings,
+            column_oriented=columnar,
+            external_data=_to_http_external_data(external_tables),
+        )
         self.last_query_summary = QuerySummary(
             rows=int(result.summary.get("read_rows", 0)),
             elapsed_ns=int(result.summary.get("elapsed_ns", 0)),

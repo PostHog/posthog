@@ -243,6 +243,31 @@ class TestFanOutEndpoints:
         )
         assert result.paths[2] == "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/reviewers"
 
+    def test_pull_request_iteration_statuses_fan_out_over_each_iteration(self):
+        result = _driver().run(
+            "pull_request_iteration_statuses",
+            [
+                _response(self.PROJECTS),
+                _response({"value": [{"pullRequestId": 22, "repository": {"id": "repo-1"}}]}),
+                _response({"value": [{"id": 1}, {"description": "no id"}, {"id": 2}]}),
+                _response({"value": [{"id": 7, "iterationId": 1, "state": "succeeded"}]}),
+                _response({"value": []}),
+                _response({"value": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [
+            (row["id"], row["state"], row["repository_id"], row["pull_request_id"], row["iteration_id"])
+            for row in result.rows
+        ] == [(7, "succeeded", "repo-1", 22, 1)]
+        pr_path = "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22"
+        assert result.paths[2:5] == [
+            f"{pr_path}/iterations",
+            f"{pr_path}/iterations/1/statuses",
+            f"{pr_path}/iterations/2/statuses",
+        ]
+
     def test_teams_are_read_by_project_id_not_project_name(self):
         # The Core teams route takes a project ID; passing the display name 404s.
         result = _driver().run(
