@@ -12,7 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.error_tracking.backend.logic import team_flags
-from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG, RULE_SWEEP_WRITES_FLAG
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.sweep import (
     RuleSweep,
     TagRuleSweepSkipReason,
@@ -57,7 +57,7 @@ CHECKOUT = rule_filters("$pathname", "icontains", "/checkout")
 class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enabled_flags = {ISSUE_TAGS_FLAG, RULE_SWEEP_WRITES_FLAG}
+        self.enabled_flags = {ISSUE_TAGS_FLAG}
         flags = patch.object(
             team_flags, "feature_enabled_or_false", new=lambda flag, *args, **kwargs: flag in self.enabled_flags
         )
@@ -97,15 +97,12 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-    @parameterized.expand([("writes_flag_off", False), ("forced_with_writes_flag_on", True)])
-    def test_a_dry_run_counts_the_labels_and_writes_none(self, _name: str, force_dry_run: bool) -> None:
-        if not force_dry_run:
-            self.enabled_flags.remove(RULE_SWEEP_WRITES_FLAG)
+    def test_a_dry_run_counts_the_labels_and_writes_none(self) -> None:
         issue = self._issue()
         self._exception(issue, "/checkout/pay", hours_ago=2)
         flush_persons_and_events()
 
-        result = self._sweep(force_dry_run=force_dry_run)
+        result = self._sweep(dry_run=True)
 
         assert result == self._result(dry_run=True, matching=1, to_write=1, written=0)
         assert self._answers() == []
@@ -188,10 +185,10 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
         assert (result.rules, result.rules_skipped) == ((), 1)
 
     def _sweep(
-        self, on_progress: Callable[[], object] = lambda: None, force_dry_run: bool = False
+        self, on_progress: Callable[[], object] = lambda: None, dry_run: bool = False
     ) -> TeamTagRuleSweep | TagRuleSweepSkipReason:
         result = sweep_team_tag_rules(
-            self.team.id, start=self.end - WINDOW, end=self.end, force_dry_run=force_dry_run, on_progress=on_progress
+            self.team.id, start=self.end - WINDOW, end=self.end, dry_run=dry_run, on_progress=on_progress
         )
         # The measured query time differs on every run.
         if isinstance(result, TeamTagRuleSweep):

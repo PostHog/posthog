@@ -22,12 +22,10 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_tags.enabled import _active_rules, active_rule_definition
-from products.error_tracking.backend.logic.issue_tags.flag import RULE_SWEEP_WRITES_FLAG
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.rules import _read_properties
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
 logger = structlog.get_logger(__name__)
@@ -124,15 +122,15 @@ def sweep_team_tag_rules(
     *,
     start: datetime,
     end: datetime,
-    force_dry_run: bool = False,
+    dry_run: bool = False,
     on_progress: Callable[[], object] = lambda: None,
 ) -> TeamTagRuleSweep | TagRuleSweepSkipReason:
     """Label each issue with an exception from `start` to `end` that matches a tag rule, unless the issue answers the
     rule's tag already.
 
-    A label stays when later exceptions stop matching, and a person's answer is never replaced. Without
-    RULE_SWEEP_WRITES_FLAG for the team, or with `force_dry_run`, the sweep counts the labels and writes none. The
-    issue tags flag check comes first, so a team without issue tags reads no rule and no event.
+    A label stays when later exceptions stop matching, and a person's answer is never replaced. A dry run counts the
+    labels and writes none. The issue tags flag check comes first, so a team without issue tags reads no rule and no
+    event.
     """
     if not issue_tags_enabled(team_id):
         return TagRuleSweepSkipReason.DISABLED
@@ -140,7 +138,6 @@ def sweep_team_tag_rules(
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         return TagRuleSweepSkipReason.TEAM_MISSING
-    dry_run = force_dry_run or not team_flag_enabled(RULE_SWEEP_WRITES_FLAG, team_id)
     rules, rules_skipped = _sweepable_rules(team)
     matches = _NO_MATCHES
     if rules:

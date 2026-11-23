@@ -80,7 +80,7 @@ class ErrorTrackingTagRuleSweepWorkflow(PostHogWorkflow):
             async with semaphore:
                 return await workflow.execute_activity(
                     sweep_team_tag_rules_activity,
-                    SweepTeamTagRulesInputs(team_id=team_id, start=start, end=end, force_dry_run=inputs.force_dry_run),
+                    SweepTeamTagRulesInputs(team_id=team_id, start=start, end=end, dry_run=inputs.dry_run),
                     start_to_close_timeout=SWEEP_TEAM_START_TO_CLOSE_TIMEOUT,
                     heartbeat_timeout=SWEEP_TEAM_HEARTBEAT_TIMEOUT,
                     retry_policy=SWEEP_TEAM_RETRY_POLICY,
@@ -118,7 +118,6 @@ class ErrorTrackingTagRuleSweepWorkflow(PostHogWorkflow):
             extra={
                 **dataclasses.asdict(summary),
                 "teams_truncated": sum(1 for result in swept if result.truncated),
-                "force_dry_run": inputs.force_dry_run,
             },
         )
 

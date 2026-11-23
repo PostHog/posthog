@@ -66,7 +66,7 @@ def sweep_team_tag_rules_activity(inputs: SweepTeamTagRulesInputs) -> SweepTeamT
             inputs.team_id,
             start=inputs.start,
             end=inputs.end,
-            force_dry_run=inputs.force_dry_run,
+            dry_run=inputs.dry_run,
             on_progress=activity.heartbeat,
         )
     except Exception as error:

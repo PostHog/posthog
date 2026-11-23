@@ -7,8 +7,8 @@ from products.error_tracking.backend.logic.issue_tags.sweep import TagRuleSweepS
 
 @frozen
 class TagRuleSweepInputs:
-    # True makes every team a dry run, for a manual run. Otherwise RULE_SWEEP_WRITES_FLAG decides for each team.
-    force_dry_run: bool = False
+    # True counts the labels for every team and writes none, for a manual run that measures the sweep.
+    dry_run: bool = False
     # Each team runs one query on the offline cluster, which shares its concurrent query limit with every product.
     max_concurrent_teams: int = 4
 
@@ -18,7 +18,7 @@ class SweepTeamTagRulesInputs:
     team_id: int
     start: datetime
     end: datetime
-    force_dry_run: bool
+    dry_run: bool
 
 
 @frozen

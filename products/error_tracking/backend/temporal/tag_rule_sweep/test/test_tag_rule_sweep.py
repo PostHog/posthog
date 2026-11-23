@@ -59,9 +59,7 @@ class TestSweepTeamTagRulesActivity(BaseTest):
             order_key=1,
         )
         end = timezone.now()
-        self.inputs = SweepTeamTagRulesInputs(
-            team_id=self.team.id, start=end - SWEEP_WINDOW, end=end, force_dry_run=False
-        )
+        self.inputs = SweepTeamTagRulesInputs(team_id=self.team.id, start=end - SWEEP_WINDOW, end=end, dry_run=False)
 
     @parameterized.expand(
         [
