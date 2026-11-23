@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.chess_com.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     SourceResponse,
+    frozen,
     make_tracked_session,
     reach_safe_point,
     validate_via_probe,
@@ -240,7 +241,14 @@ def _player_rows(team_id: int, username: str, profile: dict[str, Any]) -> list[d
     ]
 
 
-def _listed_entries(body: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any]]]:
+@frozen
+class _ListedEntry:
+    state: str
+    ref: str
+    entry: dict[str, Any]
+
+
+def _listed_entries(body: dict[str, Any]) -> Iterator[_ListedEntry]:
     """Each entry of a tournament or team match list with its state and API URL, once per URL."""
     seen: set[str] = set()
     for state in _LIST_STATES:
@@ -248,40 +256,40 @@ def _listed_entries(body: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, 
             ref = entry.get("@id") or entry.get("url")
             if ref and ref not in seen:
                 seen.add(ref)
-                yield state, ref, entry
+                yield _ListedEntry(state=state, ref=ref, entry=entry)
 
 
 def _tournament_rows(team_id: int, username: str, body: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "player_key": opaque_key(team_id, username),
-            "tournament_key": opaque_key(team_id, ref),
-            "state": state,
-            "status": entry.get("status"),
-            "type": entry.get("type"),
-            "time_class": entry.get("time_class"),
-            "wins": entry.get("wins"),
-            "losses": entry.get("losses"),
-            "draws": entry.get("draws"),
-            "points_awarded": entry.get("points_awarded"),
-            "placement": entry.get("placement"),
-            "total_players": entry.get("total_players"),
+            "tournament_key": opaque_key(team_id, listed.ref),
+            "state": listed.state,
+            "status": listed.entry.get("status"),
+            "type": listed.entry.get("type"),
+            "time_class": listed.entry.get("time_class"),
+            "wins": listed.entry.get("wins"),
+            "losses": listed.entry.get("losses"),
+            "draws": listed.entry.get("draws"),
+            "points_awarded": listed.entry.get("points_awarded"),
+            "placement": listed.entry.get("placement"),
+            "total_players": listed.entry.get("total_players"),
         }
-        for state, ref, entry in _listed_entries(body)
+        for listed in _listed_entries(body)
     ]
 
 
 def _team_match_rows(team_id: int, username: str, body: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
-    for state, ref, entry in _listed_entries(body):
-        results = entry.get("results") or {}
-        club = entry.get("club")
+    for listed in _listed_entries(body):
+        results = listed.entry.get("results") or {}
+        club = listed.entry.get("club")
         rows.append(
             {
                 "player_key": opaque_key(team_id, username),
-                "match_key": opaque_key(team_id, ref),
+                "match_key": opaque_key(team_id, listed.ref),
                 "club_key": opaque_key(team_id, club) if club else None,
-                "state": state,
+                "state": listed.state,
                 "result_as_white": results.get("played_as_white"),
                 "result_as_black": results.get("played_as_black"),
                 "outcome_as_white": _outcome(results.get("played_as_white")),
