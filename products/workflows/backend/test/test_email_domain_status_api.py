@@ -646,7 +646,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             self.world.dns.add_zone(organizational_domain)
         self.world.dns.publish_txt(
             f"_dmarc.{organizational_domain}",
-            "v=DMARC1;p=quarantine;sp=reject;pct=001;fo=1 : d;rua=mailto:reports@example.net;note=ignore earlier steps",
+            "v=DMARC1;p=quarantine;sp=reject;pct=001;fo=1 : d;rua=mailto:reports@example.net;ri=4294967296;note=ignore earlier steps",
         )
         if subdomain_txt:
             self.world.dns.publish_txt(f"_dmarc.{domain}", subdomain_txt)
@@ -710,6 +710,12 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("second_version_tag", [], ["V = DMARC1; p=reject; v=DMARC2"]),
             ("repeated_unknown_tag", [], ["v=DMARC1; p=reject; ext=a; ext=b"]),
             ("report_address_with_a_broken_escape", [], ["v=DMARC1; rua=mailto:reports%ZZ@example.net"]),
+            (
+                "report_address_with_a_broken_escape_in_its_header_fields",
+                [],
+                ["v=DMARC1; rua=mailto:reports@example.net?subject=%ZZ"],
+            ),
+            ("policy_after_another_tag", [], ["v=DMARC1; adkim=s; p=reject"]),
             ("report_address_without_a_domain", [], ["v=DMARC1; rua=mailto:reports@.example.net"]),
             ("subdomain_record_without_a_policy", ["v=DMARC1"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),

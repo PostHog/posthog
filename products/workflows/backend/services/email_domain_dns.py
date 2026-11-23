@@ -35,7 +35,7 @@ _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_d
 _DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_URI = re.compile(
-    r"mailto:(?:[^\s,;!@?%]|%[0-9a-f]{2})+@[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\?[^\s,;!]*)?(?:![0-9]+[kmgt]?)?",
+    r"mailto:(?:[^\s,;!@?%]|%[0-9a-f]{2})+@[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\?(?:[^\s,;!%]|%[0-9a-f]{2})*)?(?:![0-9]+[kmgt]?)?",
     re.IGNORECASE,
 )
 _DMARC_URI_TAGS = frozenset({"rua", "ruf"})
@@ -47,7 +47,6 @@ _DMARC_TAG_VALUES = {
         "adkim": r"[rs]",
         "aspf": r"[rs]",
         "pct": r"100|0?[0-9]?[0-9]",
-        "ri": r"\d{1,10}",
         "fo": r"[01ds](?:\s*:\s*[01ds])*",
         "rf": r"afrf|iodef",
     }.items()
@@ -239,6 +238,8 @@ def _policy_in_force(policy: str) -> str | None:
     if len(names) != len(set(names)):
         return None
     valid = {name: checked for name, value in tags if (checked := _valid_tag_value(name, value))}
+    if tags and tags[0][0] != "p":
+        valid.pop("p", None)
     if "p" not in valid or ("sp" in names and "sp" not in valid):
         if "rua" not in valid:
             return None
@@ -249,6 +250,8 @@ def _policy_in_force(policy: str) -> str | None:
 def _valid_tag_value(name: str, value: str) -> str | None:
     if name in _DMARC_URI_TAGS:
         return ",".join(uri.strip() for uri in value.split(",") if _DMARC_URI.fullmatch(uri.strip())) or None
+    if name == "ri":
+        return value if re.fullmatch(r"[0-9]{1,10}", value) and int(value) < 2**32 else None
     known = _DMARC_TAG_VALUES.get(name)
     return value if known is not None and known.fullmatch(value) else None
 
