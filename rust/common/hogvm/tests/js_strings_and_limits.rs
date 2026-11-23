@@ -315,3 +315,18 @@ fn a_bounded_regex_cache_refuses_the_repetitions_that_re2_refuses() {
         assert_eq!(run(pattern, true).unwrap(), json!([true]), "{pattern}");
     }
 }
+
+// 400 times: let o := {}; o['<1 MiB>'] := 1
+const ONE_LONG_KEY_IN_MANY_OBJECTS: &str = r#"["_H", 1, 33, 0, 33, 400, 36, 0, 15, 40, 19, 42, 0, 36, 1, 32, "ZZK", 33, 1, 46, 35, 33, 1, 36, 0, 6, 37, 0, 39, -26, 35, 33, 1, 38]"#;
+
+#[test]
+fn a_long_key_counts_toward_the_heap_limit_in_each_object_that_copies_it() {
+    let bytecode = ONE_LONG_KEY_IN_MANY_OBJECTS.replace("ZZK", &"k".repeat(1024 * 1024));
+    let error = sync_execute(&context(&bytecode, json!({})), false)
+        .unwrap_err()
+        .error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
+    );
+}

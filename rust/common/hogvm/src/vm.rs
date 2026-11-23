@@ -645,7 +645,11 @@ impl<'a> HogVM<'a> {
                 };
 
                 let mut allocated_bytes = val.size();
-                let key_bytes = key.size();
+                // An object owns a copy of its key, so a shared string costs its text here.
+                let key_bytes = match &key {
+                    HogLiteral::String(text) => text.len(),
+                    other => other.size(),
+                };
                 let freed_bytes = target.set_property(key, val)?;
                 if freed_bytes == 0 {
                     allocated_bytes += key_bytes; // We inserted a new key as well as a new prop
