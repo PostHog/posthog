@@ -111,7 +111,11 @@ tools:
             flag over the chart window of their interval come before series that flag often, because a series that is
             usually quiet and now flags matters more than one that always flags. Pass `order: recent` for the series
             whose newest flagged bucket ended last first, so an hourly series flagged a few hours ago sorts above a
-            daily series flagged yesterday. Pass `search` to keep only insights whose name contains the text. When
+            daily series flagged yesterday. Pass `search` to keep only insights whose name contains the text. When you
+            act for a person and want what they follow, pass `viewed_within_days` (7, 14, 30, 45 or 90): the search then
+            covers only the insights they opened in that window and the insights on the dashboards they opened in it.
+            Views count only in the web app. When they viewed nothing in the window, `viewed_scope_empty` is true and
+            the result covers the whole project. Without the parameter the search covers the whole project. When
             `has_more` is true, read the next page with `offset` set to `offset + limit`. When `series_capped` is true,
             the project has more scored series than one search reads, so some matching series are missing from every
             page: narrow the date range, or pass `insight_id`, `dashboard_id` or `search`. A 404 means anomaly search is
