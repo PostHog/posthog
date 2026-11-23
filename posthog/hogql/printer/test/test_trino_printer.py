@@ -3457,6 +3457,7 @@ def test_removes_noop_sample_one_for_trino() -> None:
             "SELECT arrayJoin([count(), count() + 1]) AS n, count() OVER () + n AS c FROM users",
             "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
         ),
+        ("SELECT x + 1 AS y, arrayJoin([sum(id)]) AS x FROM users", "TRINO_ARRAY_JOIN_AGGREGATE_FORWARD_REFERENCE"),
     ],
 )
 def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: str, feature_code: str) -> None:

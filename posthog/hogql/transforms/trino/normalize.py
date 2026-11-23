@@ -673,6 +673,12 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         unnested_names = {output_name for _, output_name, _ in pending} | {
             output_names[position] for position in unnested_positions
         }
+        if any(_unresolved_names(projection) & unnested_names for projection in query.select):
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_AGGREGATE_FORWARD_REFERENCE",
+                "a projection that reads an arrayJoin over aggregates defined after it",
+                query,
+            )
         for clause in [query.where, query.prewhere, query.having, *(query.group_by or [])]:
             if clause is not None and _read_names(clause) & unnested_names:
                 raise TrinoLoweringError(
@@ -816,6 +822,22 @@ def _is_lambda_argument(node: ast.Field) -> bool:
     while isinstance(field_type, ast.FieldAliasType):
         field_type = field_type.type
     return isinstance(field_type, ast.LambdaArgumentType)
+
+
+class _UnresolvedNameFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if isinstance(node.type, ast.UnresolvedFieldType) and node.chain and isinstance(node.chain[0], str):
+            self.names.add(node.chain[0])
+
+
+def _unresolved_names(node: ast.Expr) -> set[str]:
+    finder = _UnresolvedNameFinder()
+    finder.visit(node)
+    return finder.names
 
 
 def _read_names(node: ast.Expr) -> set[str]:
