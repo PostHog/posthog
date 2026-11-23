@@ -15,7 +15,7 @@ Before you create a branch or PR, choose the route:
 
 Two questions help you choose between the embargo and a public PR:
 
-- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask team-security to look before it merges, and to decide if it must land faster than the merge queue allows.
+- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask in the `#team-security` Slack channel for a look before it merges, and for a decision on whether it must land faster than the merge queue allows.
 - **Could an attacker, or an agent that reads every public diff, exploit the weakness from your diff before the fix is live?** A merged fix takes about an hour to deploy. If the diff does not give that head start, the fix goes public. If it does and the finding meets the severe bar above, it needs the embargo.
 
 A public security fix is a normal fix with a neutral description.
@@ -64,6 +64,11 @@ Add the label yourself with `gh pr edit <number> --add-label security-review` in
 
 - The PR is already ready for review when you find that it matches.
 - A push to a reviewed PR changes one of the areas in the list.
+
+A bot does the review, so the label notifies no person.
+Do not request a review from `team-security` or from one of its members to start the review.
+That request also adds the label, but it notifies the team.
+Request a `team-security` review only when the user asks for it in the current conversation.
 
 A review reads one layer of a stack, so answer on each layer.
 

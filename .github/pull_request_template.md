@@ -70,7 +70,7 @@
 
 **Driver checked:** [what the driver read, ran or decided, or "Not yet checked by the driver"]
 
-<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". Do not request a team-security review to start this review: the label alone starts it. -->
 
 **Security review:** [needed or not needed]
 
