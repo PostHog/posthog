@@ -54,8 +54,6 @@ class JobUsageCollector:
         counts: Counter[tuple[int | None, str | None, str | None]] = Counter()
         for offset in range(0, len(jobs), BATCH_SIZE):
             keys = {(job.team_id, job.workflow_id, job.workflow_run_id) for job in jobs[offset : offset + BATCH_SIZE]}
-            # One exact-key match per job, so Postgres seeks each key in the index instead of
-            # scanning every job of every team in the batch.
             counts.update(
                 DataModelingJob.objects.filter(
                     reduce(
