@@ -7,10 +7,10 @@ from django.http import HttpRequest, HttpResponse
 
 import structlog
 
+from posthog.admin.console.organization_tools import DeactivationReasonForm, deactivate_organizations
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.models.organization import Organization
 
 from ee.billing.quota_limiting import QuotaResource
@@ -20,12 +20,21 @@ logger = structlog.get_logger(__name__)
 BILLING = Owner(name="Billing", crest="billing", staff_group="Billing Team")
 
 
+def deactivate_organization(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, Organization) and form is not None
+    if deactivate_organizations([obj.id], form.cleaned_data["resolved_reason"]):
+        messages.success(request, f"Deactivated '{obj.name}'.")
+    else:
+        messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
+    return None
+
+
 @console.register_panel
 class OrganizationOverviewPanel(Panel):
     record = "organization"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -45,13 +54,33 @@ class OrganizationOverviewPanel(Panel):
             facts.append(Fact(label="Deletion", value="Pending", tone=Tone.WARNING))
         return facts
 
+    def operations(self, obj: Model) -> list[Operation]:
+        assert isinstance(obj, Organization)
+        if obj.is_active is False:
+            return []
+        return [
+            Operation(
+                key="deactivate",
+                label="Deactivate organization",
+                handler=deactivate_organization,
+                danger=True,
+                description=(
+                    "Members see the reason you pick instead of the app, but they can still sign in and use the API "
+                    "through a browser session, and background work such as batch exports keeps running. To lock "
+                    "an abuser out, also deactivate their user accounts."
+                ),
+                form_class=DeactivationReasonForm,
+                undo_hint="To undo, reactivate the organization on its Django admin page.",
+            )
+        ]
+
 
 @console.register_panel
 class OrganizationTeamsPanel(Panel):
     record = "organization"
     key = "teams"
     title = "Teams"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 20
 
     def facts(self, obj: Model) -> list[Fact]:

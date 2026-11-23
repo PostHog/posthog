@@ -1,3 +1,4 @@
+import re
 import asyncio
 import datetime as dt
 import dataclasses
@@ -128,6 +129,7 @@ class TestQualityGateBranching:
         [
             (None, False, "completed", "none"),
             ("Trino write failed", False, "failed", "other"),
+            ("Trino restarted while it was building this model, and all 3 attempts failed.", False, "failed", "infra"),
             ("Trino write failed: upstream table missing", True, "skipped", "none"),
         ],
     )
@@ -148,7 +150,7 @@ class TestQualityGateBranching:
         )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
             if shadow_error:
-                with pytest.raises(temporalio.exceptions.ApplicationError, match="Trino write failed"):
+                with pytest.raises(temporalio.exceptions.ApplicationError, match=re.escape(shadow_error)):
                     await self._run(
                         [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
                     )

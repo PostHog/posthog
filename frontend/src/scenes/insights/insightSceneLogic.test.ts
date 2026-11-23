@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
@@ -425,6 +425,47 @@ describe('insightSceneLogic', () => {
         const dataLogic = logic.values.insightDataLogicRef
         expect(dataLogic).not.toBeNull()
         expect(dataLogic!.logic.values.query).toEqual(sharedQuery)
+    })
+
+    it("edits the stored query, not the dashboard tile's filtered one, when opened from a tile", async () => {
+        const storedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], dateRange: { date_from: '-30d' } },
+        }) as InsightVizNode
+        const tileQuery = { ...storedQuery, source: { ...storedQuery.source, dateRange: { date_from: '-7d' } } }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'], query: storedQuery }],
+                },
+            },
+        })
+        const tileProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 7,
+            cachedInsight: { id: 42, short_id: Insight42, query: tileQuery },
+        }
+        insightLogic(tileProps).mount()
+        const tileDataLogic = insightDataLogic(tileProps)
+        tileDataLogic.mount()
+
+        router.actions.push(urls.insightEdit(Insight42, 7))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(storedQuery)
+        expect(tileDataLogic.values.query).toEqual(tileQuery)
+        const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightEdit',
+            sceneParams
+        )
+        sceneLogic.actions.setScene(Scene.Insight, 'insightEdit', sceneParams, false)
+        expect(isInsightSceneInstance(tileProps)).toBe(false)
+        expect(isInsightSceneInstance(logic.values.insightLogicRef!.logic.props)).toBe(true)
     })
 
     it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {

@@ -51,7 +51,7 @@ from products.alerts.backend.judge.prompt import (
     earlier_flag_column,
 )
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
-from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+from products.alerts.backend.llm_detector_limits import LLM_DETECTOR_CONSENT_MESSAGE, llm_detector_access_error
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -151,6 +151,17 @@ def _verdict_memo_key(
     return f"alerts:llm_detector:verdict:{fingerprint.hexdigest()}"
 
 
+def _access_error(attribution: JudgeAttribution) -> str | None:
+    if attribution.user is None:
+        # No person to check the rollout for, so the caller's own rollout gates the call. Consent still applies.
+        if attribution.team.organization.is_ai_data_processing_approved is not True:
+            return LLM_DETECTOR_CONSENT_MESSAGE
+        return None
+    return llm_detector_access_error(
+        distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
+    )
+
+
 def _is_over_ai_credit_budget(team: "Team") -> bool:
     from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the facade import path
         is_team_over_ai_credit_budget,
@@ -179,6 +190,7 @@ class _ModelRequest:
     """One model call, before it is shaped for a provider's client."""
 
     model: str
+    ai_product: str
     trace_id: str
     team_id: int
     user_content: str | list[str | dict[Any, Any]]
@@ -187,7 +199,7 @@ class _ModelRequest:
 
 def _ask_anthropic(request: _ModelRequest) -> object:
     client = build_ai_gateway_anthropic_client(
-        ai_product=LLM_DETECTOR_AI_PRODUCT, trace_id=request.trace_id, team_id=request.team_id
+        ai_product=request.ai_product, trace_id=request.trace_id, team_id=request.team_id
     )
     with client:
         # One in-request retry absorbs a transient blip inside the check's own budget;
@@ -233,7 +245,7 @@ def _ask_openai(request: _ModelRequest) -> object:
     # property, so the gateway charges the same team either way.
     client = build_ai_gateway_openai_client(
         gateway.api_key,
-        ai_product=LLM_DETECTOR_AI_PRODUCT,
+        ai_product=request.ai_product,
         trace_id=request.trace_id,
         properties={"team_id": str(request.team_id)},
     )
@@ -325,9 +337,7 @@ class LLMSeriesJudge:
         # An alert created while the organization was in the rollout and had consent on keeps
         # being checked after either is withdrawn. Refusing here covers every path to the
         # model, scheduled or previewed, so the flag is a real stop on spend.
-        access_error = llm_detector_access_error(
-            distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
-        )
+        access_error = _access_error(attribution)
         if access_error:
             raise LLMDetectorPausedError(f"{access_error} {LLM_DETECTOR_PAUSED_SUFFIX}")
         # A call that is not billable charges no credits, so only a billable call needs them.
@@ -363,6 +373,7 @@ class LLMSeriesJudge:
             verdict = ask(
                 _ModelRequest(
                     model=self.model,
+                    ai_product=attribution.ai_product or LLM_DETECTOR_AI_PRODUCT,
                     trace_id=f"alert-llm-detector-{uuid.uuid4()}",
                     team_id=attribution.team.id,
                     user_content=build_human_message(data=data, context=series, window=window),

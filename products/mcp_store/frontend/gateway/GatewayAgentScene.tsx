@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { ConnectionStateEnumApi, MCPGatewayServerApi } from '../generated/api.schemas'
+import type { ConnectionStateEnumApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayAgentLogicProps, gatewayAgentLogic } from './gatewayAgentLogic'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
@@ -92,9 +92,7 @@ export function GatewayAgentScene({
     const statusLoading = accountStatusLoadingIds.has(account.id)
 
     const yourConnectionState = (serverId: string): ConnectionStateEnumApi | undefined =>
-        account.servers.find(
-            (accountServer) => accountServer.id === serverId && accountServer.shared_by.id === currentUserId
-        )?.connection_state
+        yourAgentConnectionState(account, currentUserId, serverId)
 
     return (
         <SceneContent>
@@ -273,14 +271,27 @@ export function GatewayAgentScene({
     )
 }
 
+export function openGatewayTeamTab(): void {
+    router.actions.push(urls.mcpGatewayTab('team'))
+}
+
+export function yourAgentConnectionState(
+    account: MCPServiceAccountApi,
+    currentUserId: number | null,
+    serverId: string
+): ConnectionStateEnumApi | undefined {
+    return account.servers.find(
+        (accountServer) => accountServer.id === serverId && accountServer.shared_by.id === currentUserId
+    )?.connection_state
+}
+
+export function canChangeAgentShare(checked: boolean, loading: boolean, disabledReason: string | undefined): boolean {
+    return !loading && (!checked || !disabledReason)
+}
+
 function BackToTeamButton({ onBack }: { onBack?: () => void }): JSX.Element {
     return (
-        <LemonButton
-            type="tertiary"
-            size="small"
-            icon={<IconArrowLeft />}
-            onClick={onBack ?? (() => router.actions.push(urls.mcpGatewayTab('team')))}
-        >
+        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack ?? openGatewayTeamTab}>
             Back to team & agents
         </LemonButton>
     )
@@ -368,7 +379,7 @@ function ServerAccessRow({
                 disabledReason={connectionDisabledReason}
                 aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${accountName}`}
                 onChange={(checked) => {
-                    if (!loading && (!checked || !connectionDisabledReason)) {
+                    if (canChangeAgentShare(checked, loading, connectionDisabledReason)) {
                         onSetAccess(accountId, server.id, checked)
                     }
                 }}
@@ -377,7 +388,7 @@ function ServerAccessRow({
     )
 }
 
-function agentShareDisabledReason(server: MCPGatewayServerApi): string | undefined {
+export function agentShareDisabledReason(server: MCPGatewayServerApi): string | undefined {
     if (!server.is_team_enabled) {
         return 'Turn this server on for the team before sharing it with an agent.'
     }
@@ -399,7 +410,7 @@ function agentShareDisabledReason(server: MCPGatewayServerApi): string | undefin
     return undefined
 }
 
-function agentConnectionStatus(state: ConnectionStateEnumApi): { label: string; detail: string } {
+export function agentConnectionStatus(state: ConnectionStateEnumApi): { label: string; detail: string } {
     switch (state) {
         case 'ready':
             return { label: 'Ready', detail: '' }

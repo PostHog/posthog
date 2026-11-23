@@ -6,12 +6,7 @@ from django.test import override_settings
 
 from rest_framework.response import Response
 
-from posthog.auth import (
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 
 from products.feature_flags.backend.api import remote_config_shadow as shadow
 from products.feature_flags.backend.api.feature_flag import _JSONNullResponse
@@ -21,7 +16,7 @@ from products.feature_flags.backend.api.feature_flag import _JSONNullResponse
 REDACTED = '"********* (encrypted)"'
 
 
-def _request(authenticator=TeamSecretTokenAuthentication, authorization="Bearer phs_x", query=None):
+def _request(authenticator=ProjectSecretAPIKeyAuthentication, authorization="Bearer phs_x", query=None):
     req = MagicMock()
     req.successful_authenticator = MagicMock(spec=authenticator) if authenticator else None
     req.headers = {"Authorization": authorization} if authorization else {}
@@ -67,7 +62,7 @@ def test_unsupported_auth_is_skipped(authenticator):
 
 @pytest.mark.parametrize(
     "authenticator",
-    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+    [PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
 )
 def test_supported_auth_is_compared(authenticator):
     with (
@@ -82,7 +77,7 @@ def test_supported_auth_is_compared(authenticator):
 
 @pytest.mark.parametrize(
     "authenticator",
-    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+    [PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
 )
 def test_non_header_credential_is_skipped(authenticator):
     # Django also authenticates via ?personal_api_key= / request body, but Rust reads only the

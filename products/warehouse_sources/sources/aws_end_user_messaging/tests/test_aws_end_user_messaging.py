@@ -27,6 +27,7 @@ LIST_A = "arn:aws:sms-voice:us-east-1:123456789012:opt-out-list/list-a"
 LIST_B = "arn:aws:sms-voice:us-east-1:123456789012:opt-out-list/list-b"
 NUMBER = "arn:aws:sms-voice:us-east-1:123456789012:phone-number/phone-1"
 POOL = "arn:aws:sms-voice:us-east-1:123456789012:pool/pool-1"
+REGISTRATION = "arn:aws:sms-voice:us-east-1:123456789012:registration/registration-1"
 
 ACCESS_DENIED = ScriptedResponse(
     status=400,
@@ -269,6 +270,115 @@ def test_keywords_fan_out_over_phone_numbers_then_pools() -> None:
             "keyword_action": "OPT_OUT",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("schema", "parent_response", "child_response", "expected_child_request", "expected_row"),
+    [
+        (
+            "registration_associations",
+            {"Registrations": [{"RegistrationArn": REGISTRATION, "RegistrationId": "registration-1"}]},
+            {
+                "RegistrationArn": REGISTRATION,
+                "RegistrationId": "registration-1",
+                "RegistrationType": "US_TEN_DLC_CAMPAIGN_REGISTRATION",
+                "RegistrationAssociations": [
+                    {"ResourceArn": NUMBER, "ResourceId": "phone-1", "ResourceType": "phone-number"}
+                ],
+            },
+            ("ListRegistrationAssociations", {"MaxResults": 100, "RegistrationId": "registration-1"}),
+            {
+                "registration_arn": REGISTRATION,
+                "registration_id": "registration-1",
+                "registration_type": "US_TEN_DLC_CAMPAIGN_REGISTRATION",
+                "resource_arn": NUMBER,
+                "resource_id": "phone-1",
+                "resource_type": "phone-number",
+            },
+        ),
+        (
+            "registration_versions",
+            {"Registrations": [{"RegistrationArn": REGISTRATION, "RegistrationId": "registration-1"}]},
+            {
+                "RegistrationArn": REGISTRATION,
+                "RegistrationId": "registration-1",
+                "RegistrationVersions": [
+                    {
+                        "VersionNumber": 2,
+                        "RegistrationVersionStatus": "DENIED",
+                        "RegistrationVersionStatusHistory": {"DraftTimestamp": 1700000000},
+                        "DeniedReasons": [{"Reason": "x", "ShortDescription": "y"}],
+                    }
+                ],
+            },
+            ("DescribeRegistrationVersions", {"MaxResults": 100, "RegistrationId": "registration-1"}),
+            {
+                "registration_arn": REGISTRATION,
+                "registration_id": "registration-1",
+                "version_number": 2,
+                "registration_version_status": "DENIED",
+                "registration_version_status_history": {"DraftTimestamp": 1700000000},
+                "denied_reasons": [{"Reason": "x", "ShortDescription": "y"}],
+            },
+        ),
+        (
+            # The version number is only at the top level of the response.
+            "registration_field_values",
+            {"Registrations": [{"RegistrationArn": REGISTRATION, "RegistrationId": "registration-1"}]},
+            {
+                "RegistrationArn": REGISTRATION,
+                "RegistrationId": "registration-1",
+                "VersionNumber": 3,
+                "RegistrationFieldValues": [{"FieldPath": "companyInfo.companyName", "TextValue": "Example"}],
+            },
+            ("DescribeRegistrationFieldValues", {"MaxResults": 100, "RegistrationId": "registration-1"}),
+            {
+                "registration_arn": REGISTRATION,
+                "registration_id": "registration-1",
+                "version_number": 3,
+                "field_path": "companyInfo.companyName",
+                "text_value": "Example",
+            },
+        ),
+        (
+            "pool_origination_identities",
+            {"Pools": [{"PoolArn": POOL, "PoolId": "pool-1"}]},
+            {
+                "PoolArn": POOL,
+                "PoolId": "pool-1",
+                "OriginationIdentities": [
+                    {
+                        "OriginationIdentityArn": NUMBER,
+                        "OriginationIdentity": "phone-1",
+                        "IsoCountryCode": "US",
+                        "NumberCapabilities": ["SMS"],
+                    }
+                ],
+            },
+            ("ListPoolOriginationIdentities", {"MaxResults": 100, "PoolId": POOL}),
+            {
+                "pool_arn": POOL,
+                "pool_id": "pool-1",
+                "origination_identity_arn": NUMBER,
+                "origination_identity": "phone-1",
+                "iso_country_code": "US",
+                "number_capabilities": ["SMS"],
+            },
+        ),
+    ],
+)
+def test_child_tables_send_the_parent_identity_and_keep_parent_columns(
+    schema: str,
+    parent_response: dict[str, Any],
+    child_response: dict[str, Any],
+    expected_child_request: tuple[str, dict[str, Any]],
+    expected_row: dict[str, Any],
+) -> None:
+    result = _driver().run(schema, [ScriptedResponse(json=parent_response), ScriptedResponse(json=child_response)])
+
+    assert result.raised is None
+    assert _calls(result.requests)[1] == expected_child_request
+    assert result.rows == [expected_row]
 
 
 @pytest.mark.parametrize(

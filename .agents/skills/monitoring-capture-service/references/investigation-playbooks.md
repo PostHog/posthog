@@ -1,171 +1,95 @@
 # Investigation playbooks
 
-Workflows for common capture service investigations.
-Each playbook describes **what to check and in what order** —
-construct PromQL live using the discovery workflow from the main skill doc.
+Each step names a query that ran against prod-us and prod-eu. Scope app metrics to `namespace=~"capture-(analytics|ai|replay|import)"` (shortened below to `$capture`) or to one namespace.
+Run the PromQL as written through `query-metrics` (PostHog MCP) or `query_prometheus` on datasource `victoriametrics` (Grafana MCP). Logs use `query-logs` or Loki datasource `P44D702D3E93867EC`.
 
-## 1. "Is capture healthy?" — quick health check
+## 1. Is capture healthy?
 
-Start by pulling up the main dashboard:
-`get_dashboard_by_uid` with uid `"capture"`.
+1. **Edge success** (both pipelines, cannot split by route):
+   `sum by (envoy_cluster_name, envoy_response_code_class) (rate(envoy_cluster_upstream_rq_xx{namespace="contour", envoy_cluster_name=~"capture-(analytics|ai|replay)_.*"}[5m]))`
+2. **Legacy errors**: `sum by (namespace, status) (rate(http_requests_total{namespace=~"$capture", path!~"/i/v1/.*"}[5m]))`
+3. **v1 errors and outcomes**: `sum by (namespace, error, status_code) (rate(capture_v1_analytics_error{namespace=~"$capture"}[5m]))` and `sum by (namespace, outcome) (rate(capture_v1_batch_outcomes[5m]))`. A steady `billing_limit_exceeded` (402) and a trickle of `missing_required_headers` (400) are normal.
+4. **Kafka**: `max by (namespace) (capture_kafka_any_brokers_down)` must be 0, and `max by (namespace) (capture_kafka_producer_queue_depth / capture_kafka_producer_queue_depth_limit)` well under 0.8.
+5. **Backends up**: `min by (envoy_cluster_name) (envoy_cluster_membership_healthy{namespace="contour", envoy_cluster_name=~"capture-(analytics|ai|replay)_.*"} / envoy_cluster_membership_total{namespace="contour", envoy_cluster_name=~"capture-(analytics|ai|replay)_.*"})`, below 1 outside a deploy is a problem.
+6. **Shared state loaded**: `max by (namespace, pipeline) (capture_event_restrictions_stale{namespace=~"$capture"})` = 0, and `max by (namespace, cache_key) (capture_billing_limits_loaded_tokens{namespace=~"$capture"})` above 0 for every `@posthog/quota-limits/*` key.
+7. **GRL evaluating**: `sum by (namespace, scope, result) (rate(global_rate_limiter_eval_counts_total[5m]))` has `allowed` traffic for each scope.
 
-Then verify these signals in order:
+## 2. Events are being lost
 
-1. **HTTP error rate** — `http_requests_duration_seconds_count` by `status`, scoped by `namespace`.
-   Any sustained 5xx spike is the top-priority signal.
-2. **Kafka connectivity** — `capture_kafka_any_brokers_down`. Value of 1 on any pod is critical.
-3. **Event acceptance ratio** — `rate(capture_events_ingested_total)` / `rate(capture_events_received_total)`.
-   Sustained drop below ~0.95 warrants investigation.
-4. **Envoy backend health** — `envoy_cluster_membership_healthy` vs `envoy_cluster_membership_total`
-   for `envoy_cluster_name=~"posthog_capture-.*"`. Ratio < 1.0 outside of deploys is a problem.
-5. **Event restrictions staleness** — `capture_event_restrictions_stale` gauge.
-   Value of 1 means restrictions aren't being refreshed from Redis.
-6. **Billing limits loaded** — `capture_billing_limits_loaded_tokens` by `cache_key`.
-   Zero for any cache key means quota limits aren't loading.
+Pick the pipeline first; the counters differ.
 
-## 2. "Events are being lost" — event lifecycle funnel
+**Legacy**
 
-The event funnel: received -> ingested -> dropped/rerouted.
+1. In versus out: `sum by (namespace) (rate(capture_events_received_total{namespace=~"$capture"}[5m]))` against `sum by (namespace) (rate(capture_events_ingested_total{namespace=~"$capture"}[5m]))`. Ingested also counts v1 and reroutes, so read the gap as a trend, not a balance.
+2. Why: `sort_desc(sum by (namespace, cause) (increase(capture_events_dropped_total{namespace=~"$capture"}[1h])))`. Quota causes (`*_over_quota`) dominate normally; new or growing `kafka_message_size`, `event_too_big` or `token_dropper` are worth a look.
+3. Request-level failures: `sum by (namespace, stage, error) (increase(capture_error_by_stage_and_type[1h]))`.
 
-1. **Compare rates** — `rate(capture_events_received_total)` vs `rate(capture_events_ingested_total)`.
-   The gap is drops + reroutes.
-2. **Discover drop causes** — `capture_events_dropped_total` by `cause`.
-   Discover live values with `list_prometheus_label_values` on `cause`.
-   Key causes to watch:
-   - `retryable_sink` — Kafka producer failures (check Kafka health next)
-   - `events_over_quota` / `recordings_over_quota` / `*_over_quota` — billing limits hit
-   - `token_dropper` — token-level restriction
-   - `kafka_message_size` — individual event too large for Kafka
-   - `no_distinct_id` / `no_event_name` — malformed events from SDKs
-3. **Check Kafka delivery** — `capture_kafka_produce_errors_total` rate.
-   Non-zero = messages failing to produce.
-4. **Check quota limits** — `capture_quota_limit_exceeded` by `resource`.
-5. **Check event restrictions** — `capture_event_restrictions_applied` by `restriction_type`.
-   `drop_event` directly causes loss; `force_overflow` reroutes to overflow topic.
-6. **Check rerouting** — `capture_events_rerouted_overflow` by `reason`.
-   Events rerouted aren't lost but take a different path through the pipeline.
+**v1**
 
-## 3. "Latency is high" — layered diagnosis
+1. Per-request outcome: `sum by (namespace, path, outcome) (increase(capture_v1_batch_outcomes[1h]))`. `partial_failure`, `all_drop` and `all_retry` carry per-event results back to the SDK.
+2. Per-event drops: `sum by (namespace, reason, stage) (increase(capture_v1_events_dropped[1h]))` and `sum by (namespace, result) (increase(capture_v1_parsed_events[1h]))`.
+3. Whole-request rejections: `sum by (namespace, error, status_code) (increase(capture_v1_analytics_error[1h]))`.
+4. Silent loss, absent until it happens: `capture_v1_serialize_failed_total`, `capture_v1_serialize_panic_total`.
 
-Diagnose layer by layer, outside-in:
+**Both**
 
-1. **Envoy layer** — `envoy_cluster_upstream_rq_time_bucket` histogram for
-   `envoy_cluster_name=~"posthog_capture-.*"`.
-   Compute p99 with `histogram_quantile(0.99, ...)`.
-   If Envoy latency is high but HTTP handler latency is normal, the issue is between Envoy and the pod (networking, connection pool).
+- Kafka delivery: `sum by (namespace, topic, outcome) (rate(capture_kafka_produce_ack_duration_ms_count{namespace=~"$capture"}[5m]))`. `dropped` means the delivery future was abandoned.
+- Restrictions that drop: `sum by (namespace, pipeline, restriction_type) (increase(capture_event_restrictions_applied[1h]))` (both pipelines) and `capture_v1_events_restricted{action}` (v1).
+- Reroutes are not loss: `capture_events_rerouted_overflow{reason}`, `capture_events_rerouted_custom_topic`, `capture_v1_events_rerouted_historical{reason}`.
 
-2. **HTTP handler** — `http_requests_duration_seconds_bucket` scoped by `namespace`.
-   This is the end-to-end request latency inside the capture binary.
-   Compare p99 across namespaces to isolate which pipeline is slow.
+## 3. Latency is high
 
-3. **Kafka produce RTT** — `capture_kafka_produce_rtt_latency_us` by `broker` and `quantile`.
-   p99 > 100ms sustained = broker overload or network issues.
-   p99 > 500ms = critical.
-   Cross-reference with queue depth for backpressure signal.
+Outside in:
 
-4. **Redis latency** — no direct latency metric in capture.
-   Check `capture_event_restrictions_redis_fetch{result="error"}` rate as a proxy.
-   For actual Redis latency, use CloudWatch ElastiCache metrics via datasource `P034F075C744B399F`.
+1. Edge p99: `histogram_quantile(0.99, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{namespace="contour", envoy_cluster_name=~"capture-(analytics|ai|replay)_.*"}[5m])))` (milliseconds).
+2. In-process, legacy: `histogram_quantile(0.99, sum by (le, namespace) (rate(http_requests_duration_seconds_bucket{namespace=~"$capture", path!~"/i/v1/.*"}[5m])))`.
+3. In-process, v1: `histogram_quantile(0.99, sum by (le, namespace, path) (rate(capture_v1_response_time_seconds_bucket[5m])))` and `max by (namespace, quantile) (capture_v1_processing_duration_seconds)`.
+4. Kafka round trip: `max by (namespace, broker) (capture_kafka_produce_rtt_latency_us{quantile="p99"})` and queue depth from playbook 1.
+5. If the edge is slow and the app is not, look at Envoy (`envoy_cluster_upstream_rq_timeout`, `envoy_cluster_upstream_rq_pending_overflow`) and pod CPU (`container_cpu_usage_seconds_total{namespace=~"$capture"}`).
 
-5. **Kafka producer queue depth** — `capture_kafka_producer_queue_depth` / `capture_kafka_producer_queue_depth_limit`.
-   Ratio > 0.8 = producer near saturation, will backpressure the HTTP handler.
+## 4. Kafka or WarpStream backpressure
 
-## 4. "Kafka backpressure" — producer saturation
+1. Queue: `max by (namespace) (capture_kafka_producer_queue_depth / capture_kafka_producer_queue_depth_limit)` and the `_bytes` pair.
+2. One broker or all: `max by (namespace, broker) (capture_kafka_produce_rtt_latency_us{quantile="p99"})`, `sum by (namespace, broker) (rate(capture_kafka_broker_request_timeouts[5m]))`, `min by (namespace, broker) (capture_kafka_broker_connected)`.
+3. Which topic: `sum by (namespace, topic) (rate(capture_kafka_produce_bytes_total[5m]))`.
+4. Backend: capture-analytics and capture-import produce to MSK (`kminion-msk-ingestion`); capture-ai and capture-replay to WarpStream (`kminion-warpstream-ingestion`, `kminion-warpstream-replay`). There is no broker-side metric for the MSK ingestion cluster; `aws_kafka_*` covers only the CDP intake cluster.
+5. Downstream lag: `sum by (app_kubernetes_io_instance, topic_name) (kminion_kafka_consumer_group_topic_lag{topic_name=~"ingestion-.*"})`.
 
-1. **Queue saturation** — `capture_kafka_producer_queue_depth` / `capture_kafka_producer_queue_depth_limit`.
-   Also check bytes: `capture_kafka_producer_queue_bytes` / `_bytes_limit`.
-2. **Broker RTT** — `capture_kafka_produce_rtt_latency_us{quantile="p99"}` by `broker`.
-   Identify if a single broker is slow vs all brokers.
-3. **Broker connectivity** — `capture_kafka_broker_connected` by `broker`.
-   Any broker at 0 across all pods needs immediate investigation.
-4. **Broker errors** — `capture_kafka_broker_tx_errors_total` and `_rx_errors_total` by broker.
-   `capture_kafka_broker_request_timeouts` by broker.
-5. **MSK throttle time** — discover `aws_msk_*` metrics with
-   `list_prometheus_metric_names` regex `"aws_msk_kafka.*throttle.*"`.
-   Throttling means Kafka quota enforcement is active.
-6. **MSK network processor** — look for idle % metric.
-   < 30% idle = broker network thread saturation warning.
-7. **Topic-level** — `capture_kafka_produce_avg_batch_size_bytes` and `_events` by `topic`.
-   Identify which topic is receiving the most load.
-8. **Downstream impact** — `overflow_redirect_*` metrics on the Node.js ingestion pipeline.
-   These are NOT capture metrics but show how overflow topics are being consumed.
+## 5. Quota, restrictions and rate limits
 
-## 5. "Rate limiting / quota impact" — which limiters are active
+Layers in request order:
 
-Multiple layers of rate limiting can affect capture. Check in this order:
+1. **Edge per-IP limit** (Contour, before capture, answers 429): `sum(increase(ratelimit_service_rate_limit_over_limit{namespace="contour", key1="remote_address"}[1h]))` against the same on `ratelimit_service_rate_limit_total_hits`. No series means no rejections. The metric does not name the IP. Errors: `ratelimit_service_should_rate_limit_error{err_type}`.
+2. **Billing quota**:
+   - Legacy: `sum by (namespace, resource) (increase(capture_quota_limit_exceeded[1h]))`
+   - v1: `sum by (namespace, resource) (increase(capture_v1_events_quota_limited[1h]))`, plus whole-request 402s in `capture_v1_analytics_error{error="billing_limit_exceeded"}`
+   - Tokens flagged: `max by (namespace, cache_key) (capture_billing_limits_loaded_tokens)`
+3. **Event restrictions**: `capture_event_restrictions_applied{pipeline,restriction_type}`, staleness and loaded counts per `pipeline`. Stale means capture fails open and applies nothing.
+4. **Global rate limiter**:
+   - Decisions: `sum by (namespace, scope, result) (rate(global_rate_limiter_eval_counts_total[5m]))`
+   - App effect: `capture_v1_rate_limiter{outcome}` (v1), `capture_events_rate_limited_token_distinctid{reason}` (legacy)
+   - Health: `sum by (namespace, scope, step, cause, redis_idx) (increase(global_rate_limiter_error_total[1h]))`, `max by (namespace, scope, redis_idx) (global_rate_limiter_read_failing_seconds)`, `max by (namespace, scope) (global_rate_limiter_update_channel_depth)`
+5. **AI byte budget**: GRL scopes `events_ai_bytes` (capture-analytics) and `ai_ai_bytes` (capture-ai), and the legacy drop cause `ai_byte_rate_limited`.
+6. **Overflow**: `sum by (namespace, reason) (increase(capture_events_rerouted_overflow[1h]))`.
 
-1. **Billing quota** (per-team, Redis-backed)
-   - `capture_quota_limit_exceeded` by `resource` — which quota types are being hit
-   - `capture_billing_limits_loaded_tokens` by `cache_key` — how many tokens are flagged
-   - Drop causes: `events_over_quota`, `recordings_over_quota`, `exceptions_over_quota`,
-     `llm_events_over_quota`, `survey_responses_over_quota` on `capture_events_dropped_total`
+## 6. Redis problems
 
-2. **Event restrictions** (per-team, Redis-backed)
-   - `capture_event_restrictions_applied` by `restriction_type`
-   - `drop_event` = hard drop, `force_overflow` = reroute to overflow topic,
-     `redirect_to_topic` = reroute to custom topic, `skip_person_processing` = pass through but skip person
+Find the instance from the symptom, then check its health source (table in SKILL.md).
 
-3. **Global rate limiter** (per-token+distinct_id, Redis-backed)
-   - `global_rate_limiter_*` metrics for direct limiter decisions.
-   - `capture_events_rerouted_overflow{reason="rate_limited"}` rate — proxy signal from the overflow path.
-   - Config: `GLOBAL_RATE_LIMIT_ENABLED`, `GLOBAL_RATE_LIMIT_TOKEN_DISTINCTID_THRESHOLD`
+| Symptom                                                                                                               | Instance                                  |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `Failed to update cache from Redis` (`target="limiters::redis"`), billing tokens stop changing                        | primary `posthog` reader                  |
+| `capture_event_restrictions_redis_fetch{result=~"error\|parse_error"}` rising, `capture_event_restrictions_stale` = 1 | `ingestion-prod-redis`                    |
+| `global_rate_limiter_error_total` or `global_rate_limiter_read_failing_seconds` rising for a `redis_idx`              | GRL shard 0 or 1                          |
+| `ratelimit_service_should_rate_limit_error{err_type="redis_error"}`                                                   | edge `ratelimit-prod-redis` (not capture) |
 
-4. **Overflow routing** (the combined effect)
-   - `capture_events_rerouted_overflow` by `reason`:
-     `rate_limited` (GRL), `force_limited` (event restrictions), `event_restriction` (explicit overflow)
+- Primary, US: `redis_connected_clients{job="redis", instance="prometheus-redis-exporter.monitoring.svc.cluster.local:9121"}` and other `redis_*` exporter metrics.
+- Others: `max by (cache_cluster_id) (aws_elasticache_engine_cpuutilization_average{cache_cluster_id=~"capture-globalratelimit.*"})`, and the same with `database_memory_usage_percentage_average`, `evictions_sum`, `curr_connections_average`.
+- What fails open: billing keeps its last loaded set; restrictions apply nothing once stale (default 300 s); the GRL skips limits for keys whose Redis shard is in a read outage (`global_rate_limiter_outage_limit_skipped_total`, absent until it fires).
 
-5. **Contour rate limit** (per-IP, Envoy-layer, NOT capture binary)
-   - `ratelimit_service_rate_limit_over_limit` — actively limited IPs
-   - `ratelimit_service_rate_limit_total_hits` — total evaluations
-   - Labels: `domain="posthog"`, `key1`, `key2` for rule identification
-   - This Redis (`ratelimit-{env}-redis`) is separate from capture's Redis instances
+## 7. prod-us versus prod-eu
 
-## 6. "Redis problems" — diagnosing Redis dependency failures
-
-First, identify **which** Redis instance is affected:
-
-| Symptom                                                           | Likely instance                        |
-| ----------------------------------------------------------------- | -------------------------------------- |
-| `capture_event_restrictions_redis_fetch{result="error"}` rising   | Primary or event restrictions Redis    |
-| `capture_event_restrictions_stale` = 1                            | Primary or event restrictions Redis    |
-| `capture_billing_limits_loaded_tokens` = 0 for a `cache_key`      | Primary Redis                          |
-| `capture_events_rerouted_overflow{reason="rate_limited"}` anomaly | GRL Redis                              |
-| `ratelimit_service_*` errors                                      | Contour rate limit Redis (not capture) |
-
-Then check infrastructure health:
-
-1. **CloudWatch ElastiCache** — use datasource `P034F075C744B399F`.
-   Key metrics: `EngineCPUUtilization`, `DatabaseMemoryUsagePercentage`,
-   `CurrConnections`, `Evictions`, `ReplicationLag`.
-   Cluster IDs:
-   - Primary: `posthog-solo` (prod-us) or `posthog-prod-redis-encripted` (prod-eu; sic — typo in actual name)
-   - GRL: `capture-globalratelimit-prod-redis`
-   - Rate limit: `ratelimit-prod-redis`
-
-2. **prometheus-redis-exporter** — search VictoriaMetrics for Redis exporter metrics
-   if available: `list_prometheus_metric_names` regex `"redis_.*"`.
-
-3. **Fail-open behavior** — capture is designed to fail open for most Redis failures:
-   - Quota limiter: if Redis is down, limits aren't refreshed but cached limits still apply
-   - Event restrictions: `event_restrictions_fail_open_after_secs` config controls
-     how long after a Redis failure before restrictions are bypassed
-   - GRL: if Redis is down, rate limiting stops (traffic passes through)
-
-## 7. "Comparing prod-us vs prod-eu" — cross-environment
-
-Most capture app metrics use `namespace`/`container` labels but **no environment label** —
-the environment is implicit in which Grafana instance you're connected to.
-
-For cross-environment comparison:
-
-1. **MSK metrics** use `environment="prod-us"` or `"prod-eu"` label — these can be
-   compared in a single query.
-2. **CloudWatch** datasource has access to both regions — use region selector
-   in the query.
-3. **Dashboard variables** — some dashboards have an `environment` variable.
-   Check with `get_dashboard_by_uid` and look at template variables.
-4. **Kafka topic names differ by partition count** — `ingestion-analytics-main-1024` (US)
-   vs `ingestion-analytics-main-512` (EU). The `topic` label works for comparing produce
-   patterns but values won't match across envs.
-5. **Both envs have a dedicated ingestion MSK cluster** — capture-analytics and capture-ai
-   produce to `msk-ingestion`, not the events cluster (prod-us: c21; prod-eu: `posthog-prod-eu-ingestion-*`).
+- Run the same query through each region's tools; `environment` only labels series.
+- Topic names differ by partition count (`ingestion-analytics-main-1024` in US, `-512` in EU), so compare by `namespace` or a topic regex.
+- Replica counts differ (EU runs fewer pods), so compare per-pod rates or ratios, not sums.
+- EU's primary Redis (`posthog-prod-redis-encripted`, spelled that way) is also in `aws_elasticache_*`; US `posthog-solo` is only in the Redis exporter.

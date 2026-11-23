@@ -60,6 +60,7 @@ from rest_framework.exceptions import (
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
@@ -67,8 +68,14 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    ReauthorizationRequired,
+)
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.user_integration import NoAccessibleRepositories, UserGitHubIntegration, UserIntegration
 from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
 from posthog.user_permissions import UserPermissions
@@ -1454,6 +1461,14 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
 
 def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
+
+
+def get_task_signal_report_source_ids(*, task_ids: Iterable[str | UUID], team_id: int) -> dict[str, UUID]:
+    """The source report of each task that has one, keyed by task id."""
+    tasks = Task.objects.filter(team_id=team_id, id__in=list(task_ids)).only(
+        "id", "source_kind", "source_id", "signal_report_id", "hog_flow_id"
+    )
+    return {str(task.id): source_id for task in tasks if (source_id := task.signal_report_source_id) is not None}
 
 
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
@@ -4271,7 +4286,12 @@ def _entries_show_agent_activity(entries: list[dict]) -> bool:
 
 
 def append_task_run_log(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    sent_by_run_sandbox: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Append log entries to a run's S3 log and heartbeat its workflow.
 
@@ -4282,7 +4302,7 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries, lock_attempts=1)
+    run.append_log(entries, lock_attempts=1, sent_by_run_sandbox=sent_by_run_sandbox)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
@@ -4458,8 +4478,7 @@ def append_imported_task_run_log(
     append the same lines: the append only happens while ``expected_state`` still matches the
     run's state, and returns False when another writer moved it on first. ``batch_id`` names
     this batch in the log, so a retry after the append succeeded but the state write failed
-    skips the append instead of writing the lines twice. Imported transcripts are user chat
-    history, so the log is never tagged for expiry, and there is no workflow to heartbeat.
+    skips the append instead of writing the lines twice. There is no workflow to heartbeat.
     ``completed_at`` follows the source so the run reads as current as the conversation it copies.
     """
     with transaction.atomic():
@@ -4467,7 +4486,7 @@ def append_imported_task_run_log(
         state = run.state or {}
         if any(state.get(key) != value for key, value in expected_state.items()):
             return False
-        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        run.append_log(entries, batch_id=batch_id)
         run.state = {**state, **state_updates}
         run.completed_at = completed_at
         run.save(update_fields=["state", "completed_at"])
@@ -6707,6 +6726,63 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     user = User.objects.filter(id=user_id).first()
     integration = get_user_github_integration(user, allow_refresh=False)
     return user_github_integration_is_usable(integration)
+
+
+def check_personal_github_repo_access(user_id: int, repository: str) -> contracts.PersonalGitHubRepoAccess:
+    """Ask GitHub whether the user's personal GitHub connection can open `repository`.
+
+    Unlike `user_has_usable_personal_github`, this makes network calls. A token that GitHub
+    revoked still looks usable in the stored row, and an installation that grants only
+    selected repositories can be healthy but not include this repository. A transient GitHub
+    failure returns OK, so that a GitHub outage does not block a task here.
+    """
+    from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415 — keep temporalio off the api import path
+        resolve_coordinated_user_token,
+    )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        user_github_integration_is_usable,
+    )
+
+    integrations = list(
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).order_by(
+            "created_at"
+        )
+    )
+    if not integrations:
+        return contracts.PersonalGitHubRepoAccess.NOT_CONNECTED
+
+    any_usable = False
+    for integration in integrations:
+        github = UserGitHubIntegration(integration, source="slack_app_repo_access_check", priority=Priority.NORMAL)
+        if github.needs_reauthorization or not user_github_integration_is_usable(github):
+            continue
+        try:
+            # GitHub rotates the refresh token on every refresh, so a refresh that races the
+            # task's own provisioning makes one side fail and strips the user's tokens. Refresh
+            # under the same per-integration lock that provisioning uses. If the lock wait runs
+            # out, the token is still expired, and the probes below would refresh it without
+            # the lock, so skip the check.
+            resolve_coordinated_user_token(github)
+            if github.user_access_token_expired():
+                return contracts.PersonalGitHubRepoAccess.OK
+            # Call the base installation probe directly. The `UserGitHubIntegration` override
+            # converts ReauthorizationRequired to False, which would show a revoked token as
+            # missing repo access.
+            if github.user_can_open_repository(repository) and GitHubIntegrationBase.installation_can_access_repository(
+                github, repository, raise_on_transient=True
+            ):
+                return contracts.PersonalGitHubRepoAccess.OK
+        except ReauthorizationRequired:
+            continue
+        except NoAccessibleRepositories:
+            pass
+        except GitHubIntegrationError:
+            return contracts.PersonalGitHubRepoAccess.OK
+        any_usable = True
+
+    if any_usable:
+        return contracts.PersonalGitHubRepoAccess.NO_REPO_ACCESS
+    return contracts.PersonalGitHubRepoAccess.NEEDS_RECONNECT
 
 
 def _ensure_task_team_github_integration(task: Task) -> bool:
@@ -9043,6 +9119,18 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
     return True
+
+
+def release_task_origin_key(team_id: int, origin_key: str) -> int:
+    """Soft-delete the tasks holding ``origin_key`` and clear it, since the unique keys ignore ``deleted``."""
+    with transaction.atomic():
+        tasks = list(Task.objects.select_for_update().filter(idempotency_key_q(origin_key), team_id=team_id))
+        for task in tasks:
+            if not task.deleted:
+                task.soft_delete()
+                soft_delete_conversations_for_task(task.id)
+        Task.objects.filter(id__in=[task.id for task in tasks]).update(origin_key=None, idempotency_key=None)
+    return len(tasks)
 
 
 # --- Task handoff (transfer ownership to a colleague) ---
@@ -12680,13 +12768,12 @@ def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     )
 
 
-def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
+def _task_activity_qs(team_id: int, user_id: int, visible_tasks: QuerySet[Task]) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
@@ -12708,9 +12795,8 @@ def _visible_activity_canvas_ids(team_id: int, user_id: int) -> set[str]:
 
 
 def _comment_activity_qs(
-    team_id: int, user_id: int, visible_canvas_ids: set[str] | None = None
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str] | None = None
 ) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     if visible_canvas_ids is None:
         visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
     return (
@@ -12770,13 +12856,20 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
-    return _count_unread_activity(team_id, user_id, _visible_activity_canvas_ids(team_id, user_id))
+    return _count_unread_activity(
+        team_id,
+        user_id,
+        _activity_visible_task_qs(team_id, user_id),
+        _visible_activity_canvas_ids(team_id, user_id),
+    )
 
 
-def _count_unread_activity(team_id: int, user_id: int, visible_canvas_ids: set[str]) -> int:
+def _count_unread_activity(
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str]
+) -> int:
     return (
-        _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_activity_qs(team_id, user_id, visible_canvas_ids).filter(read_at__isnull=True).count()
+        _task_activity_qs(team_id, user_id, visible_tasks).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids).filter(read_at__isnull=True).count()
     )
 
 
@@ -12795,9 +12888,10 @@ def list_task_activity(
     """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    task_qs = _task_activity_qs(team_id, user_id)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
+    task_qs = _task_activity_qs(team_id, user_id, visible_tasks)
     visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
-    comment_qs = _comment_activity_qs(team_id, user_id, visible_canvas_ids)
+    comment_qs = _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
@@ -12851,7 +12945,7 @@ def list_task_activity(
             for row in rows
             for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
-        unread_count=_count_unread_activity(team_id, user_id, visible_canvas_ids),
+        unread_count=_count_unread_activity(team_id, user_id, visible_tasks, visible_canvas_ids),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )

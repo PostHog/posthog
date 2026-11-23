@@ -22,7 +22,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
           : definition?.getConfigError && tileEditorConfigErrorLoading
             ? 'Validating tile settings'
             : definition?.getConfigError
-              ? tileEditorConfigError
+              ? (tileEditorConfigError ?? undefined)
               : undefined
 
     return (

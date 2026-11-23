@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { dataDeletionRequestsCreate, dataDeletionRequestsPreviewCreate } from '~/generated/core/api'
 import type { DataDeletionRequestApi } from '~/generated/core/api.schemas'
 import { NodeKind } from '~/queries/schema/schema-general'
+import type { DataVisualizationNode } from '~/queries/schema/schema-general'
 import { Breadcrumb, ChartDisplayType } from '~/types'
 
 export const DATA_DELETION_EDITOR_TAB_ID = 'data-deletion-request-new'
@@ -63,8 +64,8 @@ export interface dataDeletionRequestNewLogicActions {
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     } // sqlEditorLogic
-    setSourceQuery: (sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode) => {
-        sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode
+    setSourceQuery: (sourceQuery: DataVisualizationNode) => {
+        sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
     clearPreview: () => any
     clearPreviewFailure: (

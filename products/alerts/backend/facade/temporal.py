@@ -1,8 +1,6 @@
 """Temporal workflows and activities this product registers on the alerts platform's queues."""
 
-from collections.abc import Callable
-
-from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+from posthog.temporal.common.registration import ActivityDefinition, QueueBinding, TemporalRegistration
 
 from products.alerts.backend.temporal.platform_evaluate import (
     PLATFORM_AI_QUEUE_ACTIVITIES,
@@ -14,7 +12,7 @@ from products.alerts.backend.temporal.platform_native_cleanup import NATIVE_CLEA
 
 # The evaluation workflow starts the late chart by name on its own queue, so both run on one worker.
 PLATFORM_EVALUATION_WORKFLOWS = [*_EVALUATION_WORKFLOWS, *LATE_CHART_WORKFLOWS, *NATIVE_CLEANUP_WORKFLOWS]
-PLATFORM_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+PLATFORM_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
     *_EVALUATION_ACTIVITIES,
     *LATE_CHART_ACTIVITIES,
     *NATIVE_CLEANUP_ACTIVITIES,

@@ -38,6 +38,7 @@ class ComputeSurface(StrEnum):
     DASHBOARD_RUN_INSIGHTS = "dashboard_run_insights"
     DASHBOARD_MUTATE = "dashboard_mutate"
     # Must stay cache-only: a computing default would run every missed tile of a board inside one request.
+    # Cache-only even when the request carries `refresh`, which the board stream sends for the tiles it computes next.
     DASHBOARD_CACHED_TILES = "dashboard_cached_tiles"
     SHARED = "shared"
     LEGACY_UNKNOWN = "legacy_unknown"
@@ -86,7 +87,9 @@ def resolve_execution_mode(
     # execution_mode_from_refresh, matching historical behavior — so a client that opts out of
     # refreshing still gets CACHE_ONLY even after a surface default is flipped off cache-only.
     # The surface default applies only when no refresh param is present at all.
-    if refresh_param_present(request):
+    if surface == ComputeSurface.DASHBOARD_CACHED_TILES:
+        execution_mode = ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+    elif refresh_param_present(request):
         execution_mode = execution_mode_from_refresh(refresh_requested_by_client(request))
     else:
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]

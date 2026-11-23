@@ -71,7 +71,6 @@ describe('offlineExperimentsLogic', () => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-                [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
             })
             const tabs = offlineEvaluationsLogic()
             tabs.mount()
@@ -98,47 +97,6 @@ describe('offlineExperimentsLogic', () => {
             expect(tabs.values.activeTab).toBe('experiments')
         }
     )
-
-    it.each([undefined, 'experiments', 'datasets'])(
-        'opens datasets and preserves filters when offline evals are disabled and tab is %s',
-        (tab) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-                [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false,
-            })
-            const filters = { tab, search: 'regression', dataset_status: 'archived', datasets_page: 2 }
-            router.actions.push(urls.aiObservabilityOfflineEvaluations(), filters, { panel: 'datasets' })
-            const tabs = offlineEvaluationsLogic()
-            tabs.mount()
-
-            expect(tabs.values.activeTab).toBe('datasets')
-            expect(router.values.searchParams).toEqual({ ...filters, tab: 'datasets' })
-            expect(router.values.hashParams).toEqual({ panel: 'datasets' })
-            expect(router.values.lastMethod).toBe(tab === 'datasets' ? 'PUSH' : 'REPLACE')
-
-            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
-            expect(router.values.searchParams.tab).toBe('datasets')
-            tabs.actions.setActiveTab('experiments')
-            expect(tabs.values.activeTab).toBe('datasets')
-            expect(router.values.searchParams.tab).toBe('datasets')
-        }
-    )
-
-    it('redirects after feature flags arrive without redirecting unrelated pages', () => {
-        const tabs = offlineEvaluationsLogic()
-        tabs.mount()
-        expect(router.values.searchParams.tab).toBeUndefined()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
-        expect(tabs.values.activeTab).toBe('datasets')
-        expect(router.values.searchParams.tab).toBe('datasets')
-
-        router.actions.push(urls.aiObservabilityScorers())
-        const pathname = router.values.location.pathname
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
-        expect(router.values.location.pathname).toBe(pathname)
-        expect(router.values.searchParams.tab).toBeUndefined()
-    })
 
     it('remembers collapsed score trends and defers score requests until the first expansion', async () => {
         const logic = offlineExperimentsLogic(props)

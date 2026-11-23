@@ -3,13 +3,14 @@ from datetime import timedelta
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
 
 from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
 
+from posthog.hogql.database.models import DecimalDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import redis
@@ -254,3 +255,15 @@ def _refund_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.R
         name: {"type": "noul", "noul": 0.9 if "refund" in json["state"][name] else 0.1} for name in json["questions"]
     }
     return httpx.Response(200, json={"model": "jevk5-0.2", "answers": answers, "usage": {"input_tokens": 10}})
+
+
+class TestHogqlFieldsKeepDecimalScale(SimpleTestCase):
+    def test_decimal_column_keeps_its_scale(self) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            columns={"amount": {"clickhouse": "Nullable(Decimal(38, 8))", "hogql": "DecimalDatabaseField"}}
+        )
+
+        field = saved_query.hogql_fields()["amount"]
+
+        assert isinstance(field, DecimalDatabaseField)
+        assert field.scale == 8

@@ -230,6 +230,7 @@ rules:
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
@@ -267,6 +268,7 @@ rules:
                               |HogFlow
                               |HogFlowBatchJob
                               |HogFlowBatchJobAudienceMember
+                              |HogFlowConversionGoal
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -328,6 +330,8 @@ rules:
                               |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricPrecomputedChunk
+                              |MetricPrecomputedMetric
                               |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
@@ -471,6 +475,7 @@ rules:
                               |AnomalyScoringDueInsight
                               |PushTokenImport
                               |SignalScratchpad
+                              |SignalScratchpadRevision
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
@@ -821,6 +826,7 @@ rules:
                         |HogFlow
                         |HogFlowBatchJob
                         |HogFlowBatchJobAudienceMember
+                        |HogFlowConversionGoal
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -876,6 +882,8 @@ rules:
                         |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
+                        |MetricPrecomputedChunk
+                        |MetricPrecomputedMetric
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
@@ -1016,6 +1024,7 @@ rules:
                         |AnomalyScoringDueInsight
                         |PushTokenImport
                         |SignalScratchpad
+                        |SignalScratchpadRevision
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
@@ -1503,7 +1512,9 @@ rules:
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIPRestrictions
+                              |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1588,7 +1599,9 @@ rules:
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIPRestrictions
+                        |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite

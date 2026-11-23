@@ -98,17 +98,14 @@ describe('useCarryTile', () => {
         expect(press.defaultPrevented).toBe(false)
     })
 
-    it.each([
-        { name: 'clicked', releaseAt: 11, input: 'click' },
-        { name: 'dragged', releaseAt: 60, input: 'drag' },
-    ])('keeps resizing a tile after its handle is $name until the next click', ({ releaseAt, input }) => {
+    it('keeps resizing a tile after its handle is clicked until the next click', () => {
         const { onCarryingChange, result } = renderMove(true, 'resize')
         const resizeReleases: MouseEvent[] = []
         document.addEventListener('mouseup', (event) => resizeReleases.push(event))
 
         resizeHandle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
         document.body.dispatchEvent(
-            new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, clientX: releaseAt, clientY: 10 })
+            new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, clientX: 11, clientY: 10 })
         )
         expect(onCarryingChange).toHaveBeenLastCalledWith('resize')
         expect(resizeReleases).toHaveLength(0)
@@ -117,8 +114,31 @@ describe('useCarryTile', () => {
         document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
 
         expect(resizeReleases).toHaveLength(1)
-        expect(result.current.tileCarryInputRef.current).toBe(input)
+        expect(result.current.tileCarryInputRef.current).toBe('click')
         expect(onCarryingChange).toHaveBeenLastCalledWith(null)
+    })
+
+    it.each([
+        { kind: 'move' as const, pressOn: (): HTMLElement => handle },
+        { kind: 'resize' as const, pressOn: (): HTMLElement => resizeHandle },
+    ])('ends a dragged $kind when the button is released', ({ kind, pressOn }) => {
+        const { onCarryingChange, result } = renderMove(true, kind)
+        const gridReleases: MouseEvent[] = []
+        document.addEventListener('mouseup', (event) => gridReleases.push(event))
+
+        pressOn().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 10 }))
+        document.body.dispatchEvent(
+            new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, clientX: 60, clientY: 10 })
+        )
+
+        expect(gridReleases).toHaveLength(1)
+        expect(gridReleases[0].defaultPrevented).toBe(false)
+        expect(result.current.tileCarryInputRef.current).toBe('drag')
+        expect(onCarryingChange).not.toHaveBeenCalled()
+        const nextPress = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })
+        document.body.dispatchEvent(nextPress)
+        expect(nextPress.defaultPrevented).toBe(false)
     })
 
     it.each([
@@ -147,7 +167,9 @@ describe('useCarryTile', () => {
         )
 
         resizeHandle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
-        document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }))
+        document.body.dispatchEvent(
+            new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY: 10 })
+        )
         document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }))
 
         // The grid settles the resize on this release, so it must already know the resize was canceled.

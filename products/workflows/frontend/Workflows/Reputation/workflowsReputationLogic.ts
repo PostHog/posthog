@@ -16,6 +16,7 @@ import type { BillingType } from '~/types'
 import { hogFlowsReputationRetrieve } from 'products/workflows/frontend/generated/api'
 import type {
     AwsTenantReputationApi,
+    EmailInfrastructureHealthApi,
     EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     IspSendingHealthApi,
@@ -62,6 +63,7 @@ export interface workflowsReputationLogicValues {
     currentProjectId: number | null // projectLogic
     awsReputation: AwsTenantReputationApi | null
     canRequestSendingTierIncrease: boolean
+    infrastructureHealth: EmailInfrastructureHealthApi | null
     ispSendingHealth: readonly IspSendingHealthApi[]
     ispSharedDomains: readonly string[]
     ispWithheldDomains: readonly string[]
@@ -80,7 +82,7 @@ export interface workflowsReputationLogicActions {
             target?: 'modal' | 'sidePanel'
         }
     ) => Partial<SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+        target?: 'modal' | 'sidePanel'
     } // supportLogic
     loadReputation: () => {
         value: true
@@ -123,6 +125,9 @@ export interface workflowsReputationLogicMeta {
         sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         ispSendingHealth: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly IspSendingHealthApi[]
+        infrastructureHealth: (
+            reputationResponse: TeamEmailReputationResponseApi | null
+        ) => EmailInfrastructureHealthApi | null
         ispSharedDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
         ispWithheldDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
         workflowSnapshots: (
@@ -235,6 +240,11 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         ispSendingHealth: [
             (s) => [s.reputationResponse],
             (response: TeamEmailReputationResponseApi | null): readonly IspSendingHealthApi[] => response?.isps ?? [],
+        ],
+        infrastructureHealth: [
+            (s) => [s.reputationResponse],
+            (response: TeamEmailReputationResponseApi | null): EmailInfrastructureHealthApi | null =>
+                response?.infrastructure ?? null,
         ],
         ispSharedDomains: [
             (s) => [s.reputationResponse],

@@ -363,6 +363,11 @@ export type insightSceneLogicType = MakeLogicType<
     insightSceneLogicMeta
 >
 
+// A dashboard tile mounts insightLogic for the same insight and dashboard. Sharing its instance would hand the
+// editor the tile's query, which has the dashboard's filters merged in, and saving it would write them into the insight.
+export const insightSceneTabId = (dashboardId: DashboardType['id'] | null | undefined): string | undefined =>
+    dashboardId != null ? 'insight-scene' : undefined
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
@@ -790,6 +795,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: insightSceneTabId(values.dashboardId),
                     }
                     const reusesDashboardTileLogic = editsDashboardTileLogic(values.insightMode, insightProps)
 

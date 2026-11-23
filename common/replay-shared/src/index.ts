@@ -19,7 +19,7 @@ export {
     stripChromeExtensionDataFromNode,
     stripChromeExtensionData,
 } from './snapshot-processing/chrome-extension-stripping'
-export { decompressEvent } from './snapshot-processing/decompress'
+export { ExpansionBudget, ExpansionBudgetExceededError, decompressEvent } from './snapshot-processing/decompress'
 export type { ViewportResolution } from './snapshot-processing/patch-meta-event'
 export { extractDimensionsFromMobileSnapshot, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 export type { SourceKey } from './snapshot-processing/source-key'
