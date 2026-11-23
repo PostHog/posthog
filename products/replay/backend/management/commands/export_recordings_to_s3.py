@@ -35,6 +35,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
+from posthog.models.integration.aws import is_unique_aws_role_by_organization_id
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.errors import describe_failure
 
@@ -165,6 +166,10 @@ class Command(BaseCommand):
         )
         if error := destination_error(destination):
             raise CommandError(error)
+        organization_id = Team.objects.values_list("organization_id", flat=True).get(id=quote.team_id)
+        # Same rule as AWS integrations: a role another organization registered must not receive this team's data.
+        if not is_unique_aws_role_by_organization_id(role_arn, str(organization_id)):
+            raise CommandError(f"{role_arn} is registered by another organization")
         workflow_input = ExportRecordingsInput(
             team_id=quote.team_id,
             destination=destination,
