@@ -55,13 +55,13 @@ describe('pushChannelsSetupLogic', () => {
     })
 
     it.each([
-        { name: 'no push app is connected', integrations: [], channels: [], counts: {}, warning: 'no_integration' },
+        { name: 'no push app is connected', integrations: [], channels: [], counts: {}, warning: null },
         {
             name: 'the selected app was disconnected',
             integrations: [FIREBASE],
             channels: [1],
             counts: {},
-            warning: 'no_integration',
+            warning: 'app_disconnected',
         },
         {
             name: 'no selected app has a device',
@@ -78,7 +78,7 @@ describe('pushChannelsSetupLogic', () => {
             warning: null,
         },
         { name: 'no channel is picked yet', integrations: [APNS], channels: [], counts: {}, warning: null },
-    ])('warns when $name', async ({ integrations, channels, counts, warning }) => {
+    ])('picks the warning when $name', async ({ integrations, channels, counts, warning }) => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
             const appId = Object.keys(counts).find((id) => String(query).includes(id))
             return { results: [[appId ? counts[appId as keyof typeof counts] : 0]] } as HogQLQueryResponse
