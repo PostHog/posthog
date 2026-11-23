@@ -2764,9 +2764,9 @@ Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML pa
 
 Re-audited 2026-11-19 against: <https://apidocs.callrail.com/>
 
-- [ ] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
-- [ ] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
-- [ ] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
+- [x] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
+- [x] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
+- [x] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
 
 Note (2026-11-19): Parsed the v3 reference page (one large HTML file) and listed every /v3/a/{account_id} path. All data collections are already synced, including leads, timelines, page views, SMS threads and summaries. The three gaps are configuration objects, so they are low value. Excluded recordings (files), integration triggers and filters, summary email subscriptions and ignored fields as settings.
 
