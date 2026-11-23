@@ -129,7 +129,9 @@ class UsageDailySerializer(serializers.Serializer):
 
 class UsageBreakdownSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Raw group key: a client source, a Trino principal, or a project id.")
-    label = serializers.CharField(help_text="Readable name for the key.")
+    # `label` and `source` are attributes of the DRF Field class, so these fields go into the class
+    # namespace by name, as `from` does below.
+    vars()["label"] = serializers.CharField(help_text="Readable name for the key.")
     queries = serializers.IntegerField(help_text="Number of queries in the group.")
     billable_bytes = serializers.IntegerField(help_text="Bytes billed for compute in the group.")
     estimated_cost_share_usd = serializers.DecimalField(
@@ -175,7 +177,7 @@ class QueryHistoryQuerySerializer(serializers.Serializer):
     vars()["from"] = serializers.DateTimeField(required=False, help_text="Only queries created at or after this time.")
     to = serializers.DateTimeField(required=False, help_text="Only queries created before this time.")
     principal = serializers.CharField(required=False, help_text="Only queries run by this Trino principal.")
-    source = serializers.CharField(required=False, help_text="Only queries from this client source.")
+    vars()["source"] = serializers.CharField(required=False, help_text="Only queries from this client source.")
     state = serializers.ChoiceField(
         choices=QueryHistoryState.choices, required=False, help_text="Only queries that finished or failed."
     )
@@ -198,7 +200,7 @@ class QueryHistoryRowSerializer(serializers.Serializer):
     principal = serializers.CharField(help_text="Trino user that ran the query.")
     principal_label = serializers.CharField(help_text="Readable name for the principal.")
     team_id = serializers.IntegerField(allow_null=True, help_text="Project the query ran for, when known.")
-    source = serializers.CharField(help_text="Client source that sent the query.")
+    vars()["source"] = serializers.CharField(help_text="Client source that sent the query.")
     source_label = serializers.CharField(help_text="Readable name for the source.")
     state = serializers.ChoiceField(choices=QueryHistoryState.choices, help_text="Final Trino state.")
     error_code = serializers.CharField(allow_null=True, help_text="Trino error code of a failed query.")
@@ -551,7 +553,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def usage(self, request: Request, **kwargs) -> Response:
         if (gate := self._warehouse_wide_gate(request)) is not None:
             return gate
-        query = cast(dict, request.validated_query_data)  # type: ignore[attr-defined]
+        query = cast(dict, request.validated_query_data)
         try:
             summary = console_facade.build_usage_summary(
                 self._organization_id, period=query["period"], group_by=query["group_by"]
@@ -575,7 +577,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def queries(self, request: Request, **kwargs) -> Response:
         if (gate := self._warehouse_wide_gate(request)) is not None:
             return gate
-        query = cast(dict, request.validated_query_data)  # type: ignore[attr-defined]
+        query = cast(dict, request.validated_query_data)
         try:
             page = console_facade.list_query_history(
                 self._organization_id,
@@ -626,7 +628,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # A member may cancel only a query that runs as their own SQL editor principal. hogtower
             # checks the running query's Trino user against the principal we forward and answers 404
             # on a mismatch, so a wrong or borrowed principal cannot cancel someone else's query.
-            principal = request.validated_data.get("principal", "")  # type: ignore[attr-defined]
+            principal = request.validated_data.get("principal", "")
             user = cast(User, request.user)
             if not console_facade.is_own_sql_editor_principal(
                 principal or "", organization_id=self._organization_id, user_id=user.pk
@@ -678,7 +680,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def estimate(self, request: Request, **kwargs) -> Response:
         if (disabled := self._disabled_response()) is not None:
             return disabled
-        data = request.validated_data  # type: ignore[attr-defined]
+        data = request.validated_data
         try:
             result = console_facade.estimate_managed_trino_query(
                 self.team,
@@ -734,7 +736,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._admin_required_response("change the spend settings of")
         updated = console_facade.update_console_settings(
             self._organization_id,
-            changes=dict(request.validated_data),  # type: ignore[attr-defined]
+            changes=dict(request.validated_data),
         )
         return Response(ConsoleSettingsSerializer(updated).data)
 
@@ -784,7 +786,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def create_login(self, request: Request, **kwargs) -> Response:
         if (gate := self._login_admin_gate(request, changes_login=True)) is not None:
             return gate
-        data = request.validated_data  # type: ignore[attr-defined]
+        data = request.validated_data
         try:
             credential = console_facade.create_project_login(
                 self._organization_id,
@@ -854,7 +856,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             login = console_facade.set_login_disabled(
                 self._organization_id,
                 username,
-                disabled=request.validated_data["disabled"],  # type: ignore[attr-defined]
+                disabled=request.validated_data["disabled"],
                 acting_user_id=cast(User, request.user).pk,
             )
         except Exception as error:

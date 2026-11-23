@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -17,6 +17,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ControlPlaneUnavailableError,
     ControlPlaneUpstreamError,
     QueryNotFoundError,
+    UsageSummary,
     WarehouseNotFoundError,
 )
 from products.managed_warehouse.backend.logic import console_pricing, console_queries, console_usage
@@ -57,15 +58,21 @@ def _fake_usage(by_day: dict, by_breakdown: dict):
 @HOGTOWER
 class TestBuildUsageSummary(BaseTest):
     def _build(
-        self, by_day: dict, by_breakdown: dict, *, period: str = "last_month", group_by: str = "source", now=None
-    ):
+        self,
+        by_day: dict,
+        by_breakdown: dict,
+        *,
+        period: Literal["current_month", "last_month"] = "last_month",
+        group_by: Literal["source", "principal", "team"] = "source",
+        now: datetime | None = None,
+    ) -> UsageSummary:
         now = now or datetime(2026, 3, 10, 12, tzinfo=UTC)
         with patch(_SEND, side_effect=_fake_usage(by_day, by_breakdown)):
             return console_usage.build_usage_summary(
                 str(self.organization.id),
                 period=period,
                 group_by=group_by,
-                now=now,  # type: ignore[arg-type]
+                now=now,
             )
 
     def test_empty_month_is_zero_filled_without_nan(self) -> None:

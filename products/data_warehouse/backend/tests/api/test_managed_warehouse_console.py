@@ -66,30 +66,28 @@ STORAGE_BODY = {
     "read_at": "2026-11-20T10:00:00Z",
 }
 USAGE_BODY = {"from": "a", "to": "b", "group_by": "day", "compute": [], "storage": []}
-HISTORY_BODY = {
-    "queries": [
-        {
-            "id": 9,
-            "query_id": QUERY_ID,
-            "principal": "dbt_user",
-            "team_id": None,
-            "source": "dbt-trino",
-            "state": "FAILED",
-            "error_code": "X",
-            "error_type": "USER_ERROR",
-            "created_at": None,
-            "completed_at": "2026-11-20T10:15:01Z",
-            "elapsed_ms": 5,
-            "queued_ms": None,
-            "logical_bytes_scanned": 2 * 1024**4,
-            "billable": True,
-            "cpu_seconds": 1.5,
-            "query": "select 1",
-        }
-    ],
+HISTORY_ROW: dict[str, Any] = {
+    "id": 9,
+    "query_id": QUERY_ID,
+    "principal": "dbt_user",
+    "team_id": None,
+    "source": "dbt-trino",
+    "state": "FAILED",
+    "error_code": "X",
+    "error_type": "USER_ERROR",
+    "created_at": None,
+    "completed_at": "2026-11-20T10:15:01Z",
+    "elapsed_ms": 5,
+    "queued_ms": None,
+    "logical_bytes_scanned": 2 * 1024**4,
+    "billable": True,
+    "cpu_seconds": 1.5,
+    "query": "select 1",
+}
+HISTORY_BODY: dict[str, Any] = {
+    "queries": [HISTORY_ROW, {**HISTORY_ROW, "id": 8, "billable": False}],
     "next_cursor": "c-4",
 }
-HISTORY_BODY["queries"].append({**HISTORY_BODY["queries"][0], "id": 8, "billable": False})
 
 
 def _user(username: str, mode: str, team_id: int | None = None, disabled: bool = False) -> dict[str, Any]:
