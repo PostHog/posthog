@@ -11,6 +11,7 @@ import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
@@ -5307,7 +5308,8 @@ describe('CDP API', () => {
                         const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
                         const variables = decodeJobState(row, opener).state?.variables ?? {}
                         for (const variable of Object.values(variables)) {
-                            expect(value.toString()).not.toContain(JSON.stringify(variable))
+                            const plaintext = typeof variable === 'string' ? variable : JSON.stringify(variable)
+                            expect(value.toString()).not.toContain(plaintext)
                         }
                         return [job.id, variables]
                     })
@@ -5644,14 +5646,32 @@ describe('CDP API', () => {
                 }
             })
 
+            const batchRequestsCounted = async (outcome: string): Promise<number> => {
+                const exported = await register.getSingleMetricAsString('cdp_transactional_email_batch_requests_total')
+                const sample = exported
+                    .split('\n')
+                    .find((line) =>
+                        line.startsWith(`cdp_transactional_email_batch_requests_total{outcome="${outcome}"} `)
+                    )
+                return sample ? Number(sample.split(' ').pop()) : 0
+            }
+
             it.each([
-                ['in intake mode off', 'off', true, 409, 'batch_unavailable'],
-                ['in intake mode shadow', 'shadow', true, 409, 'batch_unavailable'],
-                ['in intake mode async, on a pod that does not seal', 'async', false, 503, expect.any(String)],
+                ['in intake mode off', 'off', true, 409, 'batch_unavailable', 'batch_unavailable'],
+                ['in intake mode shadow', 'shadow', true, 409, 'batch_unavailable', 'batch_unavailable'],
+                [
+                    'in intake mode async, on a pod that does not seal',
+                    'async',
+                    false,
+                    503,
+                    expect.any(String),
+                    'not_sealing',
+                ],
             ])(
                 'refuses a whole batch for a team %s, and sends nothing',
-                async (_name, mode, sealing, status, error) => {
+                async (_name, mode, sealing, status, error, outcome) => {
                     setIntakeModes({ [mode]: String(team.id), sealing })
+                    const countedBefore = await batchRequestsCounted(outcome)
 
                     const res = await sendBatch(TEMPLATE, {
                         variables: body.variables,
@@ -5660,6 +5680,7 @@ describe('CDP API', () => {
 
                     expect(res.status).toEqual(status)
                     expect(res.body).toEqual({ error })
+                    expect(await batchRequestsCounted(outcome)).toEqual(countedBefore + 1)
                     expect(intakeRecords()).toEqual([])
                     expect(await storedRuns()).toEqual([])
                 }
