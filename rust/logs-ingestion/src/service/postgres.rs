@@ -200,7 +200,7 @@ async fn fetch_teams(
         .map_err(classify_pg_error)?;
         for row in rows {
             let hash: String = row.try_get("secure_value")?;
-            out.insert(format!("secret:{hash}"), Some(cached_team(&row)?));
+            out.insert(secret_key(&hash), Some(cached_team(&row)?));
         }
     }
     Ok(out)
