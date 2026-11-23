@@ -14,7 +14,7 @@ use metrics::counter;
 use serde_json::json;
 use tracing::{error, warn};
 
-use crate::secret_key::{find_secret_key, is_secret_key_digest};
+use crate::secret_key::{find_secret_key, is_secret_key_digest, SECRET_KEY_PREFIX};
 use crate::unknown_tokens::{UnknownTokenMode, UnknownTokens};
 
 const REJECTED_COUNTER: &str = "capture_logs_requests_rejected_total";
@@ -151,16 +151,13 @@ impl Authorizer {
             return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
         }
 
-        // A project token holds only these characters. A value with any other character can hold a
-        // secret key in a form that `find_secret_key` does not find, so it must not reach a span,
-        // a log or Kafka.
+        // A value that holds the key prefix next to a character that no token has can be a secret
+        // key in a form that `find_secret_key` does not find. A public token with an unusual
+        // character and no key prefix is not affected.
         let is_token_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
-        if !is_digest && !token.bytes().all(is_token_char) {
-            return Err(self.reject(
-                signal,
-                "invalid_token",
-                unauthorized("Invalid project API key (unexpected character). Use your project API key, which you can find in your PostHog project settings."),
-            ));
+        let holds_key_prefix = token.to_ascii_lowercase().contains(SECRET_KEY_PREFIX);
+        if !is_digest && holds_key_prefix && !token.bytes().all(is_token_char) {
+            return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
         }
 
         if self.token_dropper.should_drop(token, "") {
@@ -414,6 +411,8 @@ mod tests {
             " phs_example",
             "Basic phs_example",
             "Bearer phs_example",
+            "Bearer%20phs_broken.key",
+            "abcPHS_def.ghi",
         ] {
             assert_secret_key_not_allowed(authorizer().check(token, Signal::Logs, false), token);
             assert_secret_key_not_allowed(
@@ -438,15 +437,7 @@ mod tests {
     fn structurally_impossible_tokens_are_rejected() {
         let too_long = "a".repeat(65);
 
-        for token in [
-            too_long.as_str(),
-            "tokenwith\0nullbyte",
-            "🦀",
-            "",
-            "\"phc_quoted\"",
-            "phc_with.dot",
-            "Bearer%20phs_broken.key",
-        ] {
+        for token in [too_long.as_str(), "tokenwith\0nullbyte", "🦀", ""] {
             let (status, _) = authorizer()
                 .check(token, Signal::Logs, false)
                 .expect_err("expected rejection");
@@ -455,10 +446,18 @@ mod tests {
     }
 
     #[test]
-    fn a_well_formed_token_is_accepted() {
-        assert!(authorizer()
-            .check("phc_well_formed", Signal::Logs, false)
-            .is_ok());
+    fn a_public_token_is_accepted_also_with_an_unusual_character() {
+        for token in [
+            "phc_well_formed",
+            "phc_with.dot",
+            "team:token",
+            "abcphs_def",
+        ] {
+            assert!(
+                authorizer().check(token, Signal::Logs, false).is_ok(),
+                "{token}"
+            );
+        }
     }
 
     mod unknown_tokens {
