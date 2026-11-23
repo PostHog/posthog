@@ -220,6 +220,11 @@ services:
             # PersonHog is required for CDP — point at the local gRPC router
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            # Each Kafka consumer's fetch holds a libuv thread, and this process runs every CDP
+            # consumer. With the default 4 threads, DNS lookups for new Redis connections queue
+            # behind them, connects time out, and the Redis client stops the process. Production
+            # CDP pods set the same value.
+            UV_THREADPOOL_SIZE: '128'
         depends_on:
             kafka:
                 condition: service_started
@@ -543,6 +548,7 @@ services:
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/config.d/dev-system-logs.xml:/etc/clickhouse-server/config.d/dev-system-logs.xml
+            - ./docker/clickhouse/config.d/dev-idle-polling.xml:/etc/clickhouse-server/config.d/dev-idle-polling.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts

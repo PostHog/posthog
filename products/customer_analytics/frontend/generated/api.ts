@@ -34,6 +34,7 @@ import type {
     AccountViewsDestroyParams,
     AccountsAutomationsListParams,
     AccountsByExternalIdRetrieveParams,
+    AccountsCustomPropertyValuesHistoryRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -63,6 +64,7 @@ import type {
     CustomPropertySourcesRunsListParams,
     CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
+    CustomPropertyValueHistoryEntryApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
     CustomerAnalyticsExternalAccountRetrieveParams,
@@ -175,7 +177,7 @@ export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
 }
 
 /**
- * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts a project secret API key with the `account:read` scope.
  * @summary Get an external customer analytics account
  */
 export const customerAnalyticsExternalAccountRetrieve = async (
@@ -193,7 +195,7 @@ export const getCustomerAnalyticsExternalAccountCreateUrl = () => {
 }
 
 /**
- * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts a project secret API key with the `account:write` scope.
  * @summary Create an external customer analytics account
  */
 export const customerAnalyticsExternalAccountCreate = async (
@@ -657,6 +659,41 @@ export const accountsCustomPropertyValuesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(customPropertyValueWriteApi),
     })
+}
+
+export const getAccountsCustomPropertyValuesHistoryRetrieveUrl = (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/`
+}
+
+export const accountsCustomPropertyValuesHistoryRetrieve = async (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<CustomPropertyValueHistoryEntryApi[]> => {
+    return apiMutator<CustomPropertyValueHistoryEntryApi[]>(
+        getAccountsCustomPropertyValuesHistoryRetrieveUrl(projectId, accountId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAccountsNotebooksListUrl = (

@@ -29,6 +29,14 @@ class DevToken:
 
 
 @dataclass(frozen=True)
+class DevTokenRequest:
+    """The cap and lifetime a staff member picked. None takes the instance default."""
+
+    cap_usd: Decimal | None = None
+    ttl_seconds: int | None = None
+
+
+@dataclass(frozen=True)
 class MintedDevToken:
     id: UUID
     token: str
@@ -44,7 +52,10 @@ class DevTokenUsage:
     used_usd: Decimal
     token_cap_usd: Decimal
     token_cap_min_usd: Decimal
+    default_cap_usd: Decimal
     ttl_seconds: int
+    ttl_min_seconds: int
+    ttl_max_seconds: int
     tokens: list[DevToken]
 
 

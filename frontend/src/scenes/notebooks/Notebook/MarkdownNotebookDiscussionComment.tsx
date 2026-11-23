@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { FocusEvent, KeyboardEvent, useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconSend, IconTrash } from '@posthog/icons'
+import { IconCheck, IconComment, IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -77,10 +77,15 @@ export function NotebookDiscussionComment({
     const refId = typeof node.props.ref === 'string' ? node.props.ref : null
     const [draft, setDraft] = useState('')
     const [isHovered, setIsHovered] = useState(false)
+    // An always-open reply box on every thread makes the cards tall enough to push each one far
+    // below the text it discusses, so it opens only on demand.
+    const [isComposerOpen, setIsComposerOpen] = useState(false)
+    const [shouldFocusComposer, setShouldFocusComposer] = useState(false)
     const repliesRef = useRef<HTMLDivElement | null>(null)
     const isEditable = (notebookMode ?? mode) === 'edit'
     const isResolved = node.props.resolved === true
     const draftText = draft.trim()
+    const showComposer = !isResolved && (isComposerOpen || replies.length === 0 || draftText.length > 0)
 
     // Light up the anchored highlight while the cursor is over the thread.
     useEffect(() => {
@@ -117,6 +122,21 @@ export function NotebookDiscussionComment({
         }
         updateProps({ replies: [...replies, reply] })
         setDraft('')
+    }
+
+    const openComposer = (): void => {
+        setIsComposerOpen(true)
+        setShouldFocusComposer(true)
+    }
+
+    const handleComposerBlur = (event: FocusEvent<HTMLDivElement>): void => {
+        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+            return
+        }
+        if (!draftText) {
+            setIsComposerOpen(false)
+            setShouldFocusComposer(false)
+        }
     }
 
     const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -160,8 +180,8 @@ export function NotebookDiscussionComment({
                 ) : null}
             </div>
             {isEditable ? (
-                <div className="MarkdownNotebook__discussion-comment-composer">
-                    {!isResolved ? (
+                <div className="MarkdownNotebook__discussion-comment-composer" onBlur={handleComposerBlur}>
+                    {showComposer ? (
                         <div className="flex flex-col rounded input-like">
                             <textarea
                                 className="LemonTextArea MarkdownNotebook__discussion-comment-input w-full rounded"
@@ -171,18 +191,34 @@ export function NotebookDiscussionComment({
                                     setDraft(event.currentTarget.value)
                                 }}
                                 onKeyDown={handleComposerKeyDown}
+                                onFocus={() => setIsComposerOpen(true)}
                                 placeholder={replies.length ? 'Reply...' : 'Comment...'}
                                 rows={1}
-                                autoFocus={wasNotebookNodeJustInserted(node.id)}
+                                autoFocus={shouldFocusComposer || wasNotebookNodeJustInserted(node.id)}
                                 data-attr="notebook-discussion-comment-input"
                             />
                         </div>
                     ) : null}
                     <div className="MarkdownNotebook__discussion-comment-actions">
+                        {!showComposer && !isResolved ? (
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconComment />}
+                                onClick={openComposer}
+                                data-attr="notebook-discussion-comment-reply"
+                            >
+                                Reply
+                            </LemonButton>
+                        ) : null}
                         <LemonButton
                             size="xsmall"
                             icon={<IconCheck />}
-                            onClick={() => updateProps({ resolved: !isResolved })}
+                            onClick={() => {
+                                if (isResolved) {
+                                    openComposer()
+                                }
+                                updateProps({ resolved: !isResolved })
+                            }}
                             data-attr="notebook-discussion-comment-resolve"
                         >
                             {isResolved ? 'Reopen' : 'Resolve'}
@@ -194,7 +230,7 @@ export function NotebookDiscussionComment({
                             aria-label="Delete thread"
                             onClick={deleteNode}
                         />
-                        {!isResolved ? (
+                        {showComposer ? (
                             <LemonButton
                                 size="xsmall"
                                 type="primary"

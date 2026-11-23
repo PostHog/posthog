@@ -24,6 +24,7 @@ import {
     type IssueApi,
     type IssueBreakdownApi,
     type IssueEventsResponseApi,
+    type IssueSort,
     type IssueStatusApi,
     type IssueSummaryApi,
     type IssuesListResponseApi,
@@ -92,13 +93,13 @@ export interface IssuesListState extends QueryState<IssueRow[]> {
     retrySpikes: () => void
 }
 
-export function useIssuesList(window: ErrorsWindow, filter: IssueFilter): IssuesListState {
+export function useIssuesList(window: ErrorsWindow, filter: IssueFilter, sort: IssueSort): IssuesListState {
     const context = useErrorsContext()
     const { scope, myUserId, ready } = context
     const queryClient = useQueryClient()
     const input = useMemo(
-        () => ({ window, assigneeUserId: filter === 'mine' && myUserId !== null ? myUserId : undefined }),
-        [window, filter, myUserId]
+        () => ({ window, sort, assigneeUserId: filter === 'mine' && myUserId !== null ? myUserId : undefined }),
+        [window, sort, filter, myUserId]
     )
     const list = useInfiniteQuery({
         queryKey: errorTrackingKeys.list(scope, input),
@@ -151,7 +152,7 @@ export function useIssuesList(window: ErrorsWindow, filter: IssueFilter): Issues
     const [pulling, setPulling] = useState(false)
     const { refetch: refetchList } = list
     const onPull = useCallback(async (): Promise<void> => {
-        trackErrorsRefreshed({ window })
+        trackErrorsRefreshed({ window, sort })
         setPulling(true)
         try {
             await queryClient.cancelQueries({ queryKey: errorTrackingKeys.list(scope, input) })
@@ -166,7 +167,7 @@ export function useIssuesList(window: ErrorsWindow, filter: IssueFilter): Issues
         } finally {
             setPulling(false)
         }
-    }, [queryClient, scope, input, refetchList, window])
+    }, [queryClient, scope, input, refetchList, window, sort])
     const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = list
     const loadMore = useCallback((): void => {
         if (hasNextPage && !isFetching) {

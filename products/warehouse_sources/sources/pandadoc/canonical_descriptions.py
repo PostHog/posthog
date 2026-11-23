@@ -188,4 +188,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Version number of the document.",
         },
     },
+    "document_linked_objects": {
+        "description": "A CRM or other third-party object linked to a document, such as a deal in a connected CRM.",
+        "docs_url": "https://developers.pandadoc.com/reference/list-linked-objects",
+        "columns": {
+            "id": "Identifier of the link between the document and the object.",
+            "document_id": "Identifier of the document the object is linked to.",
+            "provider": "Lowercase name of the integration the object comes from (e.g. pipedrive).",
+            "entity_type": "Type of the linked object in the provider (e.g. deal).",
+            "entity_id": "Identifier of the linked object in the provider.",
+            "children": "Child objects of the linked object in a hierarchical chain, with their type and ID.",
+        },
+    },
+    "content_library_items": {
+        "description": "A content library item: a reusable block of content that can be added to documents and templates.",
+        "docs_url": "https://developers.pandadoc.com/reference/list-content-library-items",
+        "columns": {
+            "id": "Unique identifier for the content library item.",
+            "name": "The content library item's name.",
+            "date_created": "Time at which the content library item was created.",
+            "date_modified": "Time at which the content library item was last modified.",
+            "version": "Version number of the content library item.",
+        },
+    },
+    "workspaces": {
+        "description": "An active workspace in the PandaDoc organization.",
+        "docs_url": "https://developers.pandadoc.com/reference/list-workspaces",
+        "columns": {
+            "id": "Unique identifier of the workspace in the organization.",
+            "name": "The workspace's name.",
+            "date_created": "Time at which the workspace was created.",
+            "owner": "Email address of the workspace owner.",
+        },
+    },
+    "users": {
+        "description": "A user with a membership in the PandaDoc organization, with their license and workspace roles.",
+        "docs_url": "https://developers.pandadoc.com/reference/list-users",
+        "columns": {
+            "user_id": "Unique identifier of the user in the organization.",
+            "email": "The user's email address.",
+            "first_name": "The user's first name.",
+            "last_name": "The user's last name.",
+            "phone_number": "The user's phone number.",
+            "license": "The user's license in the organization (e.g. Full).",
+            "is_organization_owner": "Whether the user is the owner of the organization.",
+            "workspaces": "Workspaces the user belongs to, with the user's role and membership ID in each.",
+        },
+    },
 }

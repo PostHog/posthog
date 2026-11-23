@@ -6,6 +6,7 @@ import {
     type BuilderQuery,
     type ConversionResult,
     SQL_EMPTY_INTERVAL_ISSUE,
+    countRangeFunction,
     normalizeClause,
     normalizeLabelKey,
     plainNumber,
@@ -90,6 +91,9 @@ function pointsWhere(clause: BuilderClause, from: string): string[] {
     const conditions = [`metric_name = ${metricName}`]
     if (clause.metricType) {
         conditions.push(`metric_type = ${quoteSqlString(clause.metricType)}`)
+    } else if (countRangeFunction(clause)) {
+        // Other types store count = 1 per point, which would count samples, not observations.
+        conditions.push("metric_type IN ('exponential_histogram', 'histogram', 'summary')")
     }
     conditions.push(`timestamp >= ${from}`, 'timestamp < {date_to}')
     if (clause.filters?.length) {
@@ -182,9 +186,17 @@ function lastValueSql(clause: BuilderClause): string[] {
 
 const COUNTER_LOOKBACK_FROM = '{date_from} - toIntervalSecond(greatest({interval_seconds}, 300))'
 
-/** The rate or increase of each series in each bucket, from per-sample deltas. */
-function rangeFunctionSql(clause: BuilderClause): string[] {
-    const value = clause.rangeFunction === 'rate' ? 'sum(c.contribution) / {interval_seconds}' : 'sum(c.contribution)'
+/**
+ * The rate or increase of each series in each bucket, from per-sample deltas.
+ * `count` reads a histogram's observation count instead of its running sum.
+ */
+function rangeFunctionSql(
+    clause: BuilderClause,
+    rangeFunction: 'rate' | 'increase',
+    source: 'value' | 'count'
+): string[] {
+    const value = rangeFunction === 'rate' ? 'sum(c.contribution) / {interval_seconds}' : 'sum(c.contribution)'
+    const counter = source === 'count' ? 'toFloat(count)' : 'value'
     return [
         'SELECT',
         '    toStartOfInterval(c.sample_timestamp, {interval}) AS time,',
@@ -204,9 +216,9 @@ function rangeFunctionSql(clause: BuilderClause): string[] {
         '        SELECT',
         '            timestamp,',
         '            series_fingerprint,',
-        '            value,',
+        source === 'count' ? `            ${counter} AS value,` : '            value,',
         '            aggregation_temporality,',
-        '            lagInFrame(toNullable(value)) OVER (',
+        `            lagInFrame(toNullable(${counter})) OVER (`,
         '                PARTITION BY series_fingerprint',
         '                ORDER BY timestamp ASC',
         '                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING',
@@ -225,8 +237,14 @@ function rangeFunctionSql(clause: BuilderClause): string[] {
 function seriesClauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
     const labels = labelSelect(clause, options)
     const join = groupJoin(clause)
-    const value = clause.aggregation ? SIMPLE_VALUE[clause.aggregation](clause.quantile) : 's.series_value'
-    const inner = clause.rangeFunction ? rangeFunctionSql(clause) : lastValueSql(clause)
+    const countFunction = countRangeFunction(clause)
+    const aggregation = countFunction ? 'sum' : clause.aggregation
+    const value = aggregation ? SIMPLE_VALUE[aggregation](clause.quantile) : 's.series_value'
+    const inner = countFunction
+        ? rangeFunctionSql(clause, countFunction, 'count')
+        : clause.rangeFunction
+          ? rangeFunctionSql(clause, clause.rangeFunction, 'value')
+          : lastValueSql(clause)
     const lines = [
         'SELECT',
         `    ${['s.time AS time', ...labels.columns, `${value} AS value`].join(',\n    ')}`,

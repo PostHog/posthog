@@ -7,7 +7,7 @@ import time_machine
 from unittest.mock import patch
 
 from products.warehouse_sources.sources.pendo._config import PendoSourceConfig
-from products.warehouse_sources.sources.pendo.pendo import PendoResumeConfig, validate_credentials
+from products.warehouse_sources.sources.pendo.pendo import PendoResumeConfig, _with_bucket_id, validate_credentials
 from products.warehouse_sources.sources.pendo.settings import ENDPOINTS, PENDO_ENDPOINTS
 from products.warehouse_sources.sources.pendo.source import PendoSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -67,12 +67,67 @@ class TestGetRowsListEndpoint:
         assert result.paths == ["/api/v1/page"]
         assert [row["id"] for row in result.rows] == [4]
 
-    @pytest.mark.parametrize("endpoint, expected_expand", [("pages", "*"), ("reports", None)])
+    @pytest.mark.parametrize("endpoint, expected_expand", [("pages", "*"), ("reports", None), ("segments", None)])
     def test_expands_to_every_app_only_for_app_scoped_objects(self, endpoint: str, expected_expand: str | None) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[{"id": "a"}])])
 
         assert result.raised is None
         assert result.requests[0].param("expand") == expected_expand
+
+
+class TestGetRowsFanOut:
+    def test_walks_sorted_parent_ids_after_the_resume_point_and_skips_deleted_parents(self) -> None:
+        guides = [{"id": "g3"}, {"id": "g1"}, {"id": "g2"}, {"id": "g4"}, {"name": "no id"}]
+        g3_history = [{"id": "g3", "stableVersionId": "g3-v2"}, {"id": "g3", "stableVersionId": "g3-v1"}]
+        g4_history = [{"id": "g4", "stableVersionId": "g4-v1"}]
+
+        result = _driver().run(
+            "guide_history",
+            [
+                ScriptedResponse(json=guides),
+                ScriptedResponse(status=404, json={"message": "guide not found"}),
+                ScriptedResponse(json=g3_history),
+                ScriptedResponse(json={"results": g4_history}),
+            ],
+            resume_state=PendoResumeConfig(last_id="g1"),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/guide",
+            "/api/v1/guide/g2/history",
+            "/api/v1/guide/g3/history",
+            "/api/v1/guide/g4/history",
+        ]
+        assert result.requests[0].param("expand") == "*"
+        assert result.requests[1].param("expand") is None
+        assert result.rows == g3_history + g4_history
+        assert result.saved_states == [
+            PendoResumeConfig(last_id="g2"),
+            PendoResumeConfig(last_id="g3"),
+            PendoResumeConfig(last_id="g4"),
+        ]
+
+    def test_quotes_the_parent_id_in_the_child_path(self) -> None:
+        result = _driver().run(
+            "guide_history",
+            [ScriptedResponse(json=[{"id": "a/b c"}]), ScriptedResponse(json=[])],
+        )
+
+        assert result.raised is None
+        assert result.urls[1].endswith("/api/v1/guide/a%2Fb%20c/history")
+
+    @pytest.mark.parametrize("status", [400, 401])
+    def test_raises_child_errors_other_than_not_found(self, status: int) -> None:
+        result = _driver().run(
+            "guide_history",
+            [ScriptedResponse(json=[{"id": "g1"}]), ScriptedResponse(status=status, json={})],
+        )
+
+        assert result.raised is not None
+        assert f"{status} Client Error" in str(result.raised)
+        assert result.rows == []
+        assert result.saved_states == []
 
 
 class TestGetRowsAggregation:
@@ -189,6 +244,48 @@ class TestGetRowsEvents:
         first_id, other_tab_id, re_read_id = (row["id"] for row in result.rows)
         assert first_id == re_read_id
         assert first_id != other_tab_id
+
+    @pytest.mark.parametrize("endpoint, event_source", [("guide_events", "guideEvents"), ("poll_events", "pollEvents")])
+    @pytest.mark.parametrize(
+        "start_time, expected_day",
+        [
+            # Pendo names the window by its start in the subscription's timezone.
+            (_ms("2026-03-09T05:00:00"), _ms("2026-03-09T05:00:00")),
+            (str(_ms("2026-03-09T05:00:00")), _ms("2026-03-09T05:00:00")),
+            # With no startTime, the row falls back to the requested UTC day.
+            (None, _ms("2026-03-09T00:00:00")),
+        ],
+    )
+    def test_raw_events_get_a_stable_hash_id_and_the_window_day(
+        self, endpoint: str, event_source: str, start_time: Any, expected_day: int
+    ) -> None:
+        event: dict[str, Any] = {
+            "type": "guideSeen",
+            "guideId": "g1",
+            "visitorId": "v1",
+            "browserTime": _ms("2026-03-09T08:00:00"),
+        }
+        other = {**event, "browserTime": event["browserTime"] + 1}
+        body: dict[str, Any] = {"results": [event, other]}
+        if start_time is not None:
+            body["startTime"] = start_time
+
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=body)],
+            resume_state=PendoResumeConfig(next_day="2026-03-09"),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].json()["request"]["pipeline"][0]["source"][event_source] == {
+            "appId": 'expandAppIds("*")'
+        }
+        first, second = result.rows
+        assert {key: first[key] for key in event} == event
+        assert first["day"] == second["day"] == expected_day
+        assert first["id"] != second["id"]
+        # The id ignores the day, so a re-read of the event lands on the same row.
+        assert first["id"] == _with_bucket_id(event)["id"]
 
     def test_survey_responses_keep_their_pendo_id_and_send_no_app_filter(self) -> None:
         response = {"id": "r1", "surveyId": "s1", "visitorId": "v1", "lastUpdatedAt": _ms("2026-03-09T08:00:00")}

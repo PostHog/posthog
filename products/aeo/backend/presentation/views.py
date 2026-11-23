@@ -42,8 +42,10 @@ from products.aeo.backend.facade.api import (
     get_prompt_suggestions,
     import_prompts,
     list_brands,
+    list_competitor_candidates,
     list_engine_settings,
     list_prompt_checks,
+    list_prompt_set_citations,
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
@@ -56,6 +58,8 @@ from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    COMPETITOR_CANDIDATE_DAYS,
+    DEFAULT_STATS_DAYS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
@@ -67,15 +71,18 @@ from products.aeo.backend.facade.contracts import (
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
+    BrandSentimentSentence,
     BrandStatus,
     BrandUpdate,
     CheckFrequency,
+    CompetitorCandidate,
     EngineNotFoundError,
     EngineSetting,
     EngineSettingUpdate,
     Prompt,
     PromptAuthor,
     PromptCheck,
+    PromptCitation,
     PromptDailyEngineStats,
     PromptEngineCheck,
     PromptEngineDomainShare,
@@ -121,9 +128,11 @@ MAX_SUGGESTED_PROMPTS = 50
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_CHECKS_PAGE_SIZE = 20
 DEFAULT_BRANDS_PAGE_SIZE = 100
+DEFAULT_COMPETITOR_CANDIDATES = 20
+MAX_COMPETITOR_CANDIDATES = 100
 MAX_BRAND_ALIASES = 20
 MAX_CHECKS_PAGE_SIZE = 100
-STATS_DAYS = 30
+STATS_DAYS = DEFAULT_STATS_DAYS
 MAX_OVERVIEW_DAYS = 90
 ENGINE_HELP = (
     "Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. "
@@ -277,7 +286,26 @@ class AEOPromptTopicSerializer(DataclassSerializer):
         }
 
 
+class AEOBrandSentimentSentenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BrandSentimentSentence
+        ref_name = "AEOBrandSentimentSentence"
+        extra_kwargs = {
+            "start": {
+                "help_text": "Offset of the sentence's first character in 'answer_text', counted in Unicode code points."
+            },
+            "end": {"help_text": "Offset just past the sentence's last character, counted in Unicode code points."},
+            "label": {"help_text": "Sentiment of this sentence: 'positive', 'neutral' or 'negative'."},
+            "score": {"help_text": "Classifier confidence (0-1) in 'label'."},
+        }
+
+
 class AEOPromptCheckSerializer(DataclassSerializer):
+    brand_sentiment_sentences = AEOBrandSentimentSentenceSerializer(
+        many=True,
+        help_text="The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored.",
+    )
+
     class Meta:
         dataclass = PromptCheck
         ref_name = "AEOPromptCheck"
@@ -927,6 +955,35 @@ class AEOBrandSerializer(DataclassSerializer):
         }
 
 
+class AEOCompetitorCandidateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CompetitorCandidate
+        ref_name = "AEOCompetitorCandidate"
+        extra_kwargs = {
+            "brand_id": {
+                "help_text": "Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update."
+            },
+            "name": {"help_text": "Brand name. Starts as a guess from the domain until someone edits it."},
+            "domain": {"help_text": "Registrable domain of the brand."},
+            "answers_naming": {
+                "help_text": "Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word."
+            },
+            "answers_citing": {
+                "help_text": "Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains."
+            },
+        }
+
+
+class AEOCompetitorCandidatesQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_COMPETITOR_CANDIDATES,
+        min_value=1,
+        max_value=MAX_COMPETITOR_CANDIDATES,
+        help_text=f"How many candidates to return, at most {MAX_COMPETITOR_CANDIDATES}.",
+    )
+
+
 class AEOPromptSuggestRequestSerializer(serializers.Serializer):
     domain = serializers.CharField(
         max_length=200,
@@ -1060,6 +1117,79 @@ class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     )
 
 
+class AEOPromptCitationSerializer(AEOPromptCheckSerializer):
+    class Meta:
+        dataclass = PromptCitation
+        ref_name = "AEOPromptCitation"
+        extra_kwargs = {
+            **AEOPromptCheckSerializer.Meta.extra_kwargs,
+            "answer_text": {
+                "help_text": "The engine's answer as plain text, sanitized and truncated. Null unless the request set include_answer_text=true. "
+                + THIRD_PARTY_TEXT_HELP
+            },
+            "prompt_id": {"help_text": "Id of the prompt that ran. Open it with aeo_prompts/<id>/."},
+            "prompt_text": {"help_text": "The prompt's text as it ran, which can differ from its current version."},
+            "prompt_topic": {"help_text": "The prompt's topic when it ran. Empty when it had none."},
+            "mentioned": {"help_text": MENTIONED_HELP},
+        }
+
+
+class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
+    url = serializers.CharField(
+        required=False,
+        max_length=2048,
+        help_text="List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.",
+    )
+    domain = serializers.CharField(
+        required=False,
+        max_length=253,
+        help_text=(
+            "List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host "
+            "from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com)."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        max_length=1000,
+        help_text=(
+            "List the answers whose engine ran this web search. Case and repeated spaces are ignored, as in the "
+            "overview's top_searches."
+        ),
+    )
+    days = serializers.IntegerField(
+        required=False,
+        default=STATS_DAYS,
+        min_value=1,
+        max_value=MAX_OVERVIEW_DAYS,
+        help_text=f"Length of the window in days, ending today in the project's timezone. Default {STATS_DAYS}, at most {MAX_OVERVIEW_DAYS}.",
+    )
+    branded = serializers.ChoiceField(
+        choices=BrandedSegment.choices,
+        required=False,
+        default=BrandedSegment.ALL.value,
+        help_text=(
+            "Which answers to list, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) "
+            "or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. "
+            + BRANDED_PROMPT_HELP
+        ),
+    )
+    engine = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only list answers from this answer engine, for example 'claude-web-search'.",
+    )
+    include_answer_text = serializers.BooleanField(
+        default=False,
+        help_text="Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        given = [field for field in ("url", "domain", "search") if attrs.get(field)]
+        if len(given) != 1:
+            raise ValidationError("Pass exactly one of url, domain or search.")
+        return attrs
+
+
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -1093,6 +1223,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "versions",
         "overview",
         "rankings",
+        "citations",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
@@ -1305,6 +1436,45 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
     @validated_request(
+        query_serializer=AEOPromptSetCitationsQuerySerializer,
+        operation_id="aeo_prompts_citations",
+        summary="List the answers behind a cited page, site or search",
+        description=(
+            "Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one "
+            f"domain, or ran one web search, over the last 'days' days (default {STATS_DAYS}) in the project's "
+            "timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the "
+            "prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches "
+            "it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview "
+            "or the rankings, with the same 'days' and 'branded' values."
+        ),
+        responses={
+            200: AEOPromptCitationSerializer(many=True),
+            400: OpenApiResponse(description="None, or more than one, of url, domain and search was given."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=AEOPromptChecksPagination)
+    def citations(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        paginator = cast(AEOPromptChecksPagination, self.paginator)
+        data = request.validated_query_data
+        citations, count = list_prompt_set_citations(
+            self.team_id,
+            timezone_name=self.team.timezone,
+            days=data["days"],
+            limit=paginator.get_limit(request) or DEFAULT_CHECKS_PAGE_SIZE,
+            offset=paginator.get_offset(request),
+            url=data.get("url"),
+            domain=data.get("domain"),
+            search=data.get("search"),
+            engine=data.get("engine"),
+            branded=BrandedSegment(data["branded"]),
+            include_answer_text=data["include_answer_text"],
+        )
+        paginator.set_count(count)
+        page = self.paginate_queryset(citations)
+        return self.get_paginated_response(AEOPromptCitationSerializer(page, many=True).data)
+
+    @validated_request(
         operation_id="aeo_prompts_create_dashboard",
         summary="Create the AI visibility weekly dashboard",
         description=(
@@ -1412,7 +1582,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
 
 class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "competitor_candidates"]
     scope_object_write_actions = ["create", "partial_update"]
     pagination_class = PrecountedLimitOffsetPagination
 
@@ -1437,6 +1607,25 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         paginator.set_count(count)
         page = self.paginate_queryset(page_brands)
         return self.get_paginated_response(AEOBrandSerializer(page, many=True).data)
+
+    @validated_request(
+        query_serializer=AEOCompetitorCandidatesQuerySerializer,
+        operation_id="aeo_brands_competitor_candidates",
+        summary="List likely AEO competitors",
+        description=(
+            f"Lists suggested brands that are likely competitors, from the answers of the last {COMPETITOR_CANDIDATE_DAYS} "
+            "days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. "
+            "Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the "
+            "smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or "
+            "ignore it with aeo_brands_partial_update."
+        ),
+        responses={200: AEOCompetitorCandidateSerializer(many=True)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def competitor_candidates(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        candidates = list_competitor_candidates(self.team_id, limit=request.validated_query_data["limit"])
+        return Response(AEOCompetitorCandidateSerializer(candidates, many=True).data)
 
     @validated_request(
         operation_id="aeo_brands_retrieve",

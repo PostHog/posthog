@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ACCESS_BLOCKED_ERROR_CODE, PROJECT_ACCESS_DENIED_DETAIL } from 'lib/api-error'
+import { ACCESS_BLOCKED_ERROR_CODE, isAccessDeniedError } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isOAuthMode } from 'lib/utils/oauthClient'
@@ -65,10 +65,12 @@ export function isUserActionInProgress(): boolean {
 
 const PROJECT_API_PATH = /^\/api\/(?:projects|environments)\/([^/]+)\//
 
-function isCurrentProjectAccessDenial(url: string, responseData: any): boolean {
-    if (responseData?.detail !== PROJECT_ACCESS_DENIED_DETAIL) {
+function isCurrentProjectAccessDenial(response: Response, responseData: any): boolean {
+    // Project-level and resource-level refusals share this code. The project read below tells them apart.
+    if (!isAccessDeniedError({ status: response.status, code: responseData?.code })) {
         return false
     }
+    const url = response.url
     const currentTeam = teamLogic.findMounted()?.values.currentTeam
     if (!currentTeam || !url) {
         return false
@@ -83,9 +85,23 @@ function isCurrentProjectAccessDenial(url: string, responseData: any): boolean {
     return !!projectInPath && [String(currentTeam.id), String(currentTeam.project_id)].includes(projectInPath)
 }
 
-function markCurrentProjectAccessDenied(url: string, responseData: any): void {
-    if (isCurrentProjectAccessDenial(url, responseData)) {
-        teamLogic.findMounted()?.actions.currentProjectAccessDenied()
+// One endpoint can refuse a member who still has project access, and background polls hit many
+// endpoints. Ask the endpoint that loads the project before the whole app goes behind the screen.
+async function confirmCurrentProjectAccessDenied(): Promise<void> {
+    const team = teamLogic.findMounted()
+    const projectId = team?.values.currentTeam?.project_id
+    if (!team || !projectId || team.values.isCurrentProjectAccessDenied) {
+        return
+    }
+    try {
+        // nosemgrep: prefer-codegen-api -- Same raw project read as teamLogic.loadCurrentTeam. No generated function covers this endpoint yet.
+        await api.get(`api/projects/${projectId}`)
+    } catch (error: any) {
+        // The projects queryset leaves out a project the user cannot view, so lost access usually reads as a 404.
+        const projectHidden = error?.status === 404 && error?.code === 'not_found'
+        if (projectHidden || isAccessDeniedError(error ?? {})) {
+            team.actions.currentProjectAccessDenied()
+        }
     }
 }
 
@@ -200,7 +216,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    markCurrentProjectAccessDenied(response.url, responseData)
+                    // The check request can itself return this 403, so run one check at a time.
+                    if (!cache.projectAccessCheck && isCurrentProjectAccessDenial(response, responseData)) {
+                        cache.projectAccessCheck = confirmCurrentProjectAccessDenied().finally(() => {
+                            cache.projectAccessCheck = null
+                        })
+                        await cache.projectAccessCheck
+                    }
                     if (responseData.code === 'ip_not_allowed' && !isOAuthMode()) {
                         if (!cache.ipRestrictionRedirectStarted) {
                             cache.ipRestrictionRedirectStarted = true

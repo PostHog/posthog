@@ -251,7 +251,6 @@ class TestReportUserAction(BaseTest):
             ("oauth", AccessMethod.OAUTH, "oauth"),
             ("id_jag", AccessMethod.ID_JAG, "id_jag"),
             ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, "project_secret_api_key"),
-            ("team_secret_token", AccessMethod.TEAM_SECRET_TOKEN, "team_secret_token"),
         ]
     )
     @patch("posthog.event_usage.posthoganalytics.capture")

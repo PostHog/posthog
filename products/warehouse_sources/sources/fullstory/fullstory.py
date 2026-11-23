@@ -1,10 +1,9 @@
 import gzip
 import json
-import time
 import tempfile
 import itertools
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlsplit
@@ -17,8 +16,8 @@ from products.warehouse_sources.sources.fullstory.settings import (
     EVENTS_EXPORT_WINDOW,
     EVENTS_INITIAL_LOOKBACK,
     EXPORT_BATCH_SIZE,
+    EXPORT_POLL_BUDGET_SECONDS,
     EXPORT_POLL_INTERVAL_SECONDS,
-    EXPORT_POLL_MAX_ATTEMPTS,
     EXPORT_SEGMENT_ID,
     FULLSTORY_BASE_URL,
     REQUEST_TIMEOUT_SECONDS,
@@ -27,14 +26,17 @@ from products.warehouse_sources.sources.fullstory.settings import (
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     DependentEndpointConfig,
+    JobStatus,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     frozen,
     make_tracked_session,
     parse_datetime_value,
+    poll_until_done,
     rest_api_resource,
     validate_via_probe,
 )
@@ -115,10 +117,6 @@ def _client_config(api_key: str) -> ClientConfig:
         # any raised error message. Only non-secret headers would go in client `headers`.
         "auth": {"type": "api_key", "api_key": _auth_header(api_key), "name": "Authorization"},
     }
-
-
-def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -212,7 +210,7 @@ def _sessions_resource(api_key: str, team_id: int, job_id: str) -> Iterable[Any]
 
 
 def _create_event_export(session: requests.Session, start: datetime, end: datetime) -> str:
-    time_range = {"start": _format_timestamp(start), "end": _format_timestamp(end)}
+    time_range = {"start": format_datetime(start, "iso_z_millis"), "end": format_datetime(end, "iso_z_millis")}
     response = session.post(
         f"{FULLSTORY_BASE_URL}/segments/v1/exports",
         json={
@@ -232,9 +230,8 @@ def _create_event_export(session: requests.Session, start: datetime, end: dateti
     return operation_id
 
 
-def _wait_for_export(session: requests.Session, operation_id: str) -> str:
-    state = None
-    for _attempt in range(EXPORT_POLL_MAX_ATTEMPTS):
+def _wait_for_export(session: requests.Session, operation_id: str, safe_point: Callable[[], None]) -> str:
+    def check() -> JobStatus[str]:
         response = session.get(
             f"{FULLSTORY_BASE_URL}/operations/v1/{quote(operation_id, safe='')}",
             timeout=REQUEST_TIMEOUT_SECONDS,
@@ -246,13 +243,23 @@ def _wait_for_export(session: requests.Session, operation_id: str) -> str:
             export_id = (operation.get("results") or {}).get("searchExportId")
             if not export_id:
                 raise FullStoryExportError(f"Fullstory export operation {operation_id} completed without an export id")
-            return export_id
+            return JobStatus(done=True, result=export_id)
         if state == "FAILED":
-            raise FullStoryExportFailedError(
-                f"Fullstory export operation {operation_id} failed: {operation.get('errorDetails')}"
-            )
-        time.sleep(EXPORT_POLL_INTERVAL_SECONDS)
-    raise FullStoryExportError(f"Fullstory export operation {operation_id} still {state} after polling budget")
+            return JobStatus(failed=True, message=str(operation.get("errorDetails")))
+        return JobStatus(message=str(state))
+
+    return poll_until_done(
+        check,
+        interval=EXPORT_POLL_INTERVAL_SECONDS,
+        budget_seconds=EXPORT_POLL_BUDGET_SECONDS,
+        safe_point=safe_point,
+        failed_error=lambda status: FullStoryExportFailedError(
+            f"Fullstory export operation {operation_id} failed: {status.message}"
+        ),
+        timeout_error=lambda status: FullStoryExportError(
+            f"Fullstory export operation {operation_id} still {status.message} after polling budget"
+        ),
+    )
 
 
 def _iter_export_rows(session: requests.Session, export_id: str) -> Iterator[dict[str, Any]]:
@@ -301,8 +308,8 @@ def _export_checkpoint(
     window_start: datetime, window_end: datetime, operation_id: str, rows_done: int
 ) -> FullStoryResumeConfig:
     return FullStoryResumeConfig(
-        export_window_start=_format_timestamp(window_start),
-        export_window_end=_format_timestamp(window_end),
+        export_window_start=format_datetime(window_start, "iso_z_millis"),
+        export_window_end=format_datetime(window_end, "iso_z_millis"),
         export_operation_id=operation_id,
         export_rows_done=rows_done,
     )
@@ -367,17 +374,17 @@ def get_events(
             operation_id = _start_event_export(
                 session, resumable_source_manager, window_start, window_end, commit=not yielded_any
             )
-            export_id = _wait_for_export(session, operation_id)
+            export_id = _wait_for_export(session, operation_id, resumable_source_manager.safe_point)
         else:
             try:
-                export_id = _wait_for_export(session, operation_id)
+                export_id = _wait_for_export(session, operation_id, resumable_source_manager.safe_point)
             except FullStoryExportFailedError:
                 # A saved operation that failed would fail every retry, so export the window again.
                 operation_id = _start_event_export(
                     session, resumable_source_manager, window_start, window_end, commit=not yielded_any
                 )
                 rows_done = 0
-                export_id = _wait_for_export(session, operation_id)
+                export_id = _wait_for_export(session, operation_id, resumable_source_manager.safe_point)
 
         batch: list[dict[str, Any]] = []
         written = rows_done

@@ -81,6 +81,12 @@ export interface variantsPanelLogicActions {
     validateFeatureFlagKeySuccess: (
         featureFlagKeyValidation:
             | {
+                  error: null
+                  existingFlag?: undefined
+                  key: string
+                  valid: true
+              }
+            | {
                   error: string
                   existingFlag: any
                   key: string
@@ -91,12 +97,6 @@ export interface variantsPanelLogicActions {
                   existingFlag?: undefined
                   key: string
                   valid: false
-              }
-            | {
-                  error: null
-                  existingFlag?: undefined
-                  key: string
-                  valid: true
               },
         payload?: {
             key: string
@@ -104,6 +104,12 @@ export interface variantsPanelLogicActions {
     ) => {
         featureFlagKeyValidation:
             | {
+                  error: null
+                  existingFlag?: undefined
+                  key: string
+                  valid: true
+              }
+            | {
                   error: string
                   existingFlag: any
                   key: string
@@ -114,12 +120,6 @@ export interface variantsPanelLogicActions {
                   existingFlag?: undefined
                   key: string
                   valid: false
-              }
-            | {
-                  error: null
-                  existingFlag?: undefined
-                  key: string
-                  valid: true
               }
         payload?: {
             key: string

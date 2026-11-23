@@ -2,8 +2,10 @@ import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
 import { getCustomApiBaseUrl, isLocalApi } from '@/lib/constants'
+import { getPostHogClient } from '@/lib/posthog/client'
 
 import { createApp } from './app'
+import { recordCaptureLosses } from './capture-losses'
 import { installHttpDispatcher } from './http-dispatcher'
 import { redisOperationsTotal } from './metrics'
 import { connectRedis } from './redis-connection'
@@ -55,6 +57,8 @@ async function main(): Promise<void> {
         console.error('[MCP] Failed to connect to Redis:', err)
         process.exit(1)
     }
+
+    recordCaptureLosses(getPostHogClient())
 
     const { app, lifecycle, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
 

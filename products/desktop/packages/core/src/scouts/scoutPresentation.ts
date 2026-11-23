@@ -5,6 +5,12 @@ import type {
   ScoutPauseReason,
   ScoutRun,
 } from "@posthog/api-client/posthog-client";
+import { scoutDisplayName } from "@posthog/shared/scout-names";
+
+export {
+  prettifyScoutSkillName,
+  scoutDisplayName,
+} from "@posthog/shared/scout-names";
 
 export type ScoutOrigin = "canonical" | "custom";
 
@@ -272,16 +278,6 @@ export function scoutSummarySentence(
   if (sentence.length <= SUMMARY_MAX_CHARS) return sentence;
   const cut = sentence.slice(0, SUMMARY_MAX_CHARS);
   return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
-}
-
-/** "signals-scout-error-tracking" → "Error tracking" */
-export function prettifyScoutSkillName(skillName: string): string {
-  const cleaned = skillName
-    .replace(/^signals-scout-/, "")
-    .replace(/[-_]/g, " ")
-    .trim();
-  if (!cleaned) return skillName;
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 /**
@@ -1021,7 +1017,7 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
     .map((config) => ({
       config,
       systemPaused: deriveScoutLifecycle(config).isSystemPaused,
-      name: prettifyScoutSkillName(config.skill_name),
+      name: scoutDisplayName(config),
     }))
     .sort((a, b) => {
       if (a.config.enabled !== b.config.enabled) {

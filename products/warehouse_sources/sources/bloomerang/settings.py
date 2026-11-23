@@ -39,8 +39,8 @@ class BloomerangEndpointConfig:
     name: str
     path: str  # path under https://api.bloomerang.co/v2
     # Whether the list action accepts a server-side `lastModified` filter *and* `orderBy=LastModifiedDate`,
-    # so incremental pages arrive in ascending cursor order. Households, Addresses, and Emails accept
-    # the filter but not `orderBy`, so they stay full refresh.
+    # so incremental pages arrive in ascending cursor order. Households, Addresses, Emails, and
+    # RelationshipRoles accept the filter but not `orderBy`, so they stay full refresh.
     supports_incremental: bool
     # Whether the list action accepts `orderBy`/`orderDirection` at all (Appeals/Campaigns/Funds
     # accept neither, per the API's own parameter docs).
@@ -57,6 +57,9 @@ class BloomerangEndpointConfig:
     # Stable creation-time column to partition by. None when the endpoint has no AuditTrail.
     partition_key: Optional[str] = "CreatedDate"
     fanout: Optional[BloomerangFanoutConfig] = None
+    # When set, the endpoint is read once per params set and the results are concatenated. Used when a
+    # filter has a non-empty default and takes a single value, so no one request returns every row.
+    param_variants: tuple[dict[str, str], ...] = ()
 
 
 BLOOMERANG_ENDPOINTS: dict[str, BloomerangEndpointConfig] = {
@@ -202,6 +205,40 @@ BLOOMERANG_ENDPOINTS: dict[str, BloomerangEndpointConfig] = {
             parent_id_column="PledgeId",
             designation_type="Pledge",
         ),
+    ),
+    "Users": BloomerangEndpointConfig(
+        name="Users",
+        path="users",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        partition_key=None,
+        # `isActive` defaults to true, so an unfiltered request leaves out deactivated users that
+        # older tasks and audit trails still reference.
+        param_variants=({"isActive": "true"}, {"isActive": "false"}),
+    ),
+    "Tributes": BloomerangEndpointConfig(
+        name="Tributes",
+        path="tributes",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        partition_key=None,
+    ),
+    "Processors": BloomerangEndpointConfig(
+        name="Processors",
+        path="processors",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        partition_key=None,
+    ),
+    "RelationshipRoles": BloomerangEndpointConfig(
+        name="RelationshipRoles",
+        path="relationshiproles",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=True,
     ),
 }
 

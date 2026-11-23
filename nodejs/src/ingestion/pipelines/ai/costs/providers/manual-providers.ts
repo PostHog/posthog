@@ -26,7 +26,7 @@ const manualProviderCosts: ModelCostRow[] = [
             default: {
                 prompt_token: 0.0000025,
                 completion_token: 0.000015,
-                cache_read_token: 0.000000625,
+                cache_read_token: 0.00000025,
             },
         },
     },
@@ -40,6 +40,20 @@ const manualProviderCosts: ModelCostRow[] = [
         cost: {
             default: { prompt_token: 0.000001, completion_token: 0.00002, audio_output: 0.00002 },
             'google-ai-studio': { prompt_token: 0.000001, completion_token: 0.00002, audio_output: 0.00002 },
+        },
+    })),
+    // GPT Image 2 is absent from OpenRouter; manual rates: https://developers.openai.com/api/docs/pricing
+    ...['gpt-image-2', 'gpt-image-2-2026-04-21'].map((model) => ({
+        model,
+        cost: {
+            default: {
+                prompt_token: 0.000005,
+                completion_token: 0.00003,
+                cache_read_token: 0.00000125,
+                image: 0.000008,
+                input_image_cache: 0.000002,
+                image_output: 0.00003,
+            },
         },
     })),
     // Other
@@ -56,8 +70,9 @@ const manualProviderCosts: ModelCostRow[] = [
         model: 'mistral-large-latest',
         cost: {
             default: {
-                prompt_token: 0.000002,
-                completion_token: 0.000006,
+                prompt_token: 0.0000007,
+                completion_token: 0.0000021,
+                cache_read_token: 0.00000007,
             },
         },
     },

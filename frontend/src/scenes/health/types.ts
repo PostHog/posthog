@@ -2,6 +2,8 @@ export type HealthIssueSeverity = 'critical' | 'warning' | 'info'
 export type HealthIssueStatus = 'active' | 'resolved'
 export const SEVERITY_ORDER: HealthIssueSeverity[] = ['critical', 'warning', 'info']
 
+export const HEALTH_ISSUES_PAGE_SIZE = 50
+
 export const SNOOZE_DURATIONS = [
     { label: 'Snooze for 7 days', duration: '7d' },
     { label: 'Snooze for 30 days', duration: '30d' },
@@ -29,6 +31,7 @@ export interface HealthIssueCounts {
     total: number
     by_severity: Partial<Record<HealthIssueSeverity, number>>
     by_kind: Record<string, number>
+    worst_severity_by_kind: Record<string, HealthIssueSeverity>
 }
 
 export interface HealthIssueSummary {

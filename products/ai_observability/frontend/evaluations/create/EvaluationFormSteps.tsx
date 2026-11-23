@@ -81,8 +81,8 @@ const STEPS: Step[] = [
     },
     {
         key: 'check',
-        title: 'Check',
-        heading: 'How it checks',
+        title: 'Score',
+        heading: 'How it scores',
         description: ['Write the prompt or the code that decides each result.'],
         hoggie: pngHoggie(judgePng),
         part: 'model',

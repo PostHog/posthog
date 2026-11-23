@@ -69,6 +69,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -290,9 +291,10 @@ def create_scout_report(
 
     report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
     try:
         with transaction.atomic():
-            report = SignalReport.objects.create(
+            report = SignalReport(
                 id=report_id,
                 team_id=team_id,
                 self_driving_funding=direct_report_funding_snapshot(team_id),
@@ -314,6 +316,10 @@ def create_scout_report(
                     timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
                 ),
             )
+            if emit_signals:
+                # The backing signals reach ClickHouse after this commit, so the ready event cannot read their source yet.
+                report._known_source_products = [source_product]  # type: ignore[attr-defined]
+            report.save(force_insert=True)
             report_id = str(report.id)
             _apply_report_tags(report, tags)
             # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -381,6 +387,9 @@ def create_scout_report(
                     report_id=report_id,
                     content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
+                    implementation_authorization=ImplementationAuthorization(mode="reviewer")
+                    if created_by_id is None
+                    else None,
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
@@ -432,7 +441,6 @@ def create_scout_report(
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
         skill_name = run.skill_name if run is not None else None
-        source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
                 team_id=team_id,
@@ -1473,6 +1481,7 @@ def set_scout_report_reviewers(
             report_id=report_id,
             content=merged,
             attribution=attribution,
+            implementation_authorization=ImplementationAuthorization(mode="reviewer"),
             reviewer_proposal=proposal,
             reevaluate_autostart=False,
         )

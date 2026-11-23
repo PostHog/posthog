@@ -21,6 +21,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ReviewerProposal, SuggestedReviewerEntry, SuggestedReviewers
 from products.signals.backend.assignment_flags import default_owner_fallback_enabled
 from products.signals.backend.github_optional import team_has_code_access
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -74,12 +75,13 @@ def accountable_candidate_ids(team_id: int) -> list[int]:
         .values_list("created_by_id", flat=True)
     )
     admin_ids = (
-        OrganizationMembership.objects.filter(
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
             organization_id=org_id,
             user__is_active=True,
-            level__gte=OrganizationMembership.Level.ADMIN,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
         )
-        .order_by("-level", "user_id")
+        .order_by("-resolved_level", "user_id")
         .values_list("user_id", flat=True)
     )
     return list(dict.fromkeys([*enabler_ids, *admin_ids]))
@@ -221,10 +223,21 @@ def assign_default_owner(team: Team, report_id: str) -> bool:
             )
             if contains_reviewer(snapshot.corrections.excluded, entry):
                 return False
+            previous = (
+                SignalReportArtefact.objects.filter(team_id=team.id, id=snapshot.state.reviewers_id).first()
+                if snapshot.state.reviewers_id is not None
+                else None
+            )
+            authorization = (
+                ImplementationAuthorization.from_stored(previous.implementation_authorization)
+                if previous is not None
+                else ImplementationAuthorization(mode="reviewer")
+            )
             artefact = SignalReportArtefact.append_status(
                 team_id=team.id,
                 report_id=report_id,
                 content=SuggestedReviewers(root=[entry]),
+                implementation_authorization=authorization,
                 attribution=ArtefactAttribution.system(),
                 # Autostart never runs as a default owner, so this write cannot change its decision.
                 reevaluate_autostart=False,

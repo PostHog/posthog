@@ -46,10 +46,11 @@ class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
             label="Argo CD",
             keywords=["argo", "gitops", "kubernetes", "deployments"],
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Sync applications, deployment history, events, managed resources, commit metadata, projects, repositories, and clusters from your Argo CD server, e.g. to track deployment frequency and configuration drift.
+            caption="""Sync applications, ApplicationSets, deployment history, application and project events, managed resources, commit and Helm chart metadata, projects, repositories with their branches and tags, and clusters from your Argo CD server, e.g. to track deployment frequency and configuration drift.
 
 Generate an API token with `argocd account generate-token`. The account needs the `apiKey` capability enabled and read access to the resources you want to sync, for example:
 - `applications, get`
+- `applicationsets, get`
 - `projects, get`
 - `repositories, get`
 - `clusters, get`

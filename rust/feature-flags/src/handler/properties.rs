@@ -34,6 +34,7 @@ pub fn prepare_overrides(
         group_properties: group_property_overrides,
         groups,
         hash_key: request.extract_hash_key_override(),
+        known_absent: request.known_absent_properties()?,
     })
 }
 

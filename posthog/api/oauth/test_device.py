@@ -558,7 +558,28 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(response.json()["error"], expected)
         fetch.assert_not_called()
 
-    def test_a_device_grant_always_asks_for_the_scopes_the_client_requires(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "current names",
+                "dashboard:write cohort:read",
+                "cohort:read",
+                ["cohort:read", "dashboard:write", "insight:read"],
+                ["cohort:read", "insight:read"],
+            ),
+            # Shipped desktop builds still send the scope names from before the code review rename.
+            (
+                "renamed scope names",
+                "dashboard:write stamphog:read",
+                "stamphog:read",
+                ["code_review_approval:read", "dashboard:write", "insight:read"],
+                ["code_review_approval:read", "insight:read"],
+            ),
+        ]
+    )
+    def test_a_device_grant_always_asks_for_the_scopes_the_client_requires(
+        self, _name: str, scope: str, required_scopes: str, expected_scopes: list[str], expected_required: list[str]
+    ) -> None:
         OAuthApplication.objects.create(
             name="required",
             client_id="required-scopes-client",
@@ -568,16 +589,14 @@ class TestOAuthDeviceGrant(APIBaseTest):
             redirect_uris="",
             algorithm="RS256",
             scopes=["insight:read"],
-            optional_scopes=["dashboard:write", "cohort:read"],
+            optional_scopes=["dashboard:write", "cohort:read", "code_review_approval:read"],
         )
-        started = self._start(
-            client_id="required-scopes-client", scope="dashboard:write cohort:read", required_scopes="cohort:read"
-        )
+        started = self._start(client_id="required-scopes-client", scope=scope, required_scopes=required_scopes)
 
         lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
 
-        self.assertEqual(lookup.json()["scopes"], ["cohort:read", "dashboard:write", "insight:read"])
-        self.assertEqual(lookup.json()["required_scopes"], ["cohort:read", "insight:read"])
+        self.assertEqual(lookup.json()["scopes"], expected_scopes)
+        self.assertEqual(lookup.json()["required_scopes"], expected_required)
 
     @parameterized.expand(
         [

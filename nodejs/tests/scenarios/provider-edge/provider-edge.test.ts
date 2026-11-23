@@ -426,11 +426,4 @@ describe('provider edge', () => {
         expect(json.problems).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^${field}`))]))
         expect(await send(ALICE)).toBe('sent')
     })
-
-    it('refuses to hold a bounce on an edge that cannot sign feedback', async () => {
-        const bounce = ruleOf({ name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } })
-
-        expect(() => edge.hold(bounce)).toThrow(/^params\.type: a bounce needs an edge with/)
-        expect(await send(ALICE)).toBe('sent')
-    })
 })

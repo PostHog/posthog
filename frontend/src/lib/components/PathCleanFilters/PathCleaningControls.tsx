@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
