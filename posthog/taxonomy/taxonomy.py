@@ -3151,6 +3151,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session ID",
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary — use $mcp_conversation_id when you need a stable identifier across reconnects.",
         },
+        "$mcp_session_source": {
+            "label": "MCP session source",
+            "description": "Which identifier the MCP SDK used to group this event into a session: `client_metadata` (the client's own conversation ID, for example from ChatGPT, Codex or VS Code), `conversation` (the agent-echoed $mcp_conversation_id), `transport` (the transport session, as in $mcp_session_id) or `generated` (a new ID, because the request carried none).",
+        },
         "$mcp_conversation_id": {
             "label": "MCP conversation ID",
             "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
