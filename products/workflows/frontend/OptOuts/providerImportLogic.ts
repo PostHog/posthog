@@ -27,6 +27,7 @@ import { ImportEntryPoint, sortProvidersByName } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
 const MAX_RUN_DETAIL_RETRIES = 5
+const IGNORE_OUTSIDE_CLICKS_MS = 1000
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
 
 export interface ImportFormValues {
@@ -88,6 +89,7 @@ export interface providerImportLogicValues {
     deselectedImportSteps: string[]
     entryPoint: ImportEntryPoint
     hasSeveralProviders: boolean
+    ignoreOutsideClicks: boolean
     importButtonLabel: string
     importError: string | null
     importForm: ImportFormValues
@@ -178,6 +180,9 @@ export interface providerImportLogicActions {
     }
     selectProvider: (providerKey: string | null) => {
         providerKey: string | null
+    }
+    setIgnoreOutsideClicks: (ignore: boolean) => {
+        ignore: boolean
     }
     setImportError: (error: string | null) => {
         error: string | null
@@ -321,6 +326,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         resetImport: true,
         setImportError: (error: string | null) => ({ error }),
         toggleImportStep: (step: string) => ({ step }),
+        setIgnoreOutsideClicks: (ignore: boolean) => ({ ignore }),
         setTrackedImportRunIds: (runIds: string[]) => ({ runIds }),
         setShowImportAgainForm: (show: boolean) => ({ show }),
         setStartingProviderKey: (providerKey: string | null) => ({ providerKey }),
@@ -384,6 +390,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
             false,
             {
                 openImportModal: () => true,
+                closeImportModal: () => false,
+            },
+        ],
+        // The window shrinks when an import starts, so a second click on Start lands outside it and would close it.
+        ignoreOutsideClicks: [
+            false,
+            {
+                startImportSuccess: () => true,
+                setIgnoreOutsideClicks: (_, { ignore }) => ignore,
                 closeImportModal: () => false,
             },
         ],
@@ -614,6 +629,10 @@ export const providerImportLogic = kea<providerImportLogicType>([
             actions.setStartingProviderKey(values.selectedProvider?.key ?? null)
         },
         startImportSuccess: ({ startedImportRun }) => {
+            cache.disposables.add(() => {
+                const timeout = setTimeout(() => actions.setIgnoreOutsideClicks(false), IGNORE_OUTSIDE_CLICKS_MS)
+                return () => clearTimeout(timeout)
+            }, 'ignoreOutsideClicks')
             // Show the new run at once, so a failed first refresh still shows progress and keeps polling.
             actions.loadImportRunsSuccess([
                 startedImportRun,

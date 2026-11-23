@@ -144,7 +144,8 @@ function ProviderImportModalContent(): JSX.Element {
 
 export function ProviderImportModal(): JSX.Element {
     useMountedLogic(customerIOImportLogic)
-    const { isImportModalOpen, selectedProvider, showsAutomationImport } = useValues(providerImportLogic)
+    const { isImportModalOpen, ignoreOutsideClicks, selectedProvider, showsAutomationImport } =
+        useValues(providerImportLogic)
     const { closeImportModal } = useActions(providerImportLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
 
@@ -172,6 +173,7 @@ export function ProviderImportModal(): JSX.Element {
                 }
                 isOpen={isImportModalOpen}
                 onClose={closeImportModal}
+                closeOnOverlayClick={!ignoreOutsideClicks}
                 width={640}
             >
                 <ProviderImportModalContent />

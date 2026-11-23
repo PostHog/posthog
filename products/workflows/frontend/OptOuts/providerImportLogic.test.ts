@@ -444,6 +444,24 @@ describe('providerImportLogic', () => {
         }
     )
 
+    it.each([
+        ['a second passes', () => jest.advanceTimersByTime(1000)],
+        ['the window closes', () => logic.actions.closeImportModal()],
+    ])('ignores clicks outside the window once an import starts, until %s', (_, release) => {
+        jest.useFakeTimers()
+        try {
+            logic.actions.openImportModal()
+            logic.actions.startImportSuccess(importRun('queued'))
+            jest.advanceTimersByTime(999)
+            expect(logic.values.ignoreOutsideClicks).toBe(true)
+
+            release()
+            expect(logic.values.ignoreOutsideClicks).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('lists the tools by name, whatever order the API sends', () => {
         const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
         logic.actions.loadImportProvidersSuccess([
