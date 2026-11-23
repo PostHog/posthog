@@ -614,6 +614,8 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("spaced_tags", [" V = DMARC1 ; p = reject "]),
             ("lowercase_copy_receivers_ignore", ["v=dmarc1; p=none", "v=DMARC1; p=reject"]),
             ("reporting_address_without_a_policy", ["v=DMARC1; rua=mailto:reports@example.net"]),
+            ("reporting_list_with_one_valid_address", ["v=DMARC1; p=block; rua=mailto:o'hare@example.net,broken"]),
+            ("repeated_tag_receivers_ignore", ["v=DMARC1; p=reject; ext=a; ext=b"]),
         ]
     )
     def test_dmarc_record_receivers_apply_counts(self, _name: str, dmarc: list[str]) -> None:
@@ -669,7 +671,19 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
                 "verified",
             )
         ]
-        assert self.verify(sender).status_code == status.HTTP_200_OK
+        response = self.verify(sender)
+        assert response.status_code == status.HTTP_200_OK
+        assert [
+            (record["recordHostname"], record["recordValue"], record["status"])
+            for record in response.json()["dnsRecords"]
+            if record["type"] == "dmarc"
+        ] == [
+            (
+                f"_dmarc.{organizational_domain}",
+                "v=DMARC1; p=quarantine; sp=reject; pct=10; rua=mailto:reports@example.net",
+                "success",
+            )
+        ]
         assert self.is_verified(sender)
 
     def test_subdomain_under_a_private_suffix_does_not_inherit_the_suffix_operators_dmarc_record(self) -> None:

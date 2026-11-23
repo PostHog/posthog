@@ -310,7 +310,9 @@ class TestSESProvider(TestCase):
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
             assert result["status"] == expected_status
-            assert len(result["dnsRecords"]) > 0  # Records are now always returned
+            assert [record["status"] for record in result["dnsRecords"] if record["type"] == "dmarc"] == [
+                expected_status
+            ]
 
     @parameterized.expand(
         [

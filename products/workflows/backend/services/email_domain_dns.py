@@ -34,14 +34,13 @@ ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 _DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
 _DMARC_REQUEST = r"none|quarantine|reject"
-_DMARC_URI = r"mailto:[a-z0-9._%+=-]+@[a-z0-9.-]+(?:![0-9]+[kmgt]?)?"
+_DMARC_URI = re.compile(r"mailto:[^\s,;!@]+@[a-z0-9.-]+(?:![0-9]+[kmgt]?)?", re.IGNORECASE)
+_DMARC_URI_TAGS = frozenset({"rua", "ruf"})
 _DMARC_TAG_VALUES = {
     name: re.compile(pattern, re.IGNORECASE)
     for name, pattern in {
         "p": _DMARC_REQUEST,
         "sp": _DMARC_REQUEST,
-        "rua": rf"{_DMARC_URI}(?:\s*,\s*{_DMARC_URI})*",
-        "ruf": rf"{_DMARC_URI}(?:\s*,\s*{_DMARC_URI})*",
         "adkim": r"[rs]",
         "aspf": r"[rs]",
         "pct": r"\d{1,3}",
@@ -233,15 +232,22 @@ def _policy_in_force(policy: str) -> str | None:
         for name, _, value in (tag.partition("=") for tag in policy.split(";")[1:])
         if name.strip()
     ]
-    names = [name for name, _ in tags]
+    names = [name for name, _ in tags if name in _DMARC_TAG_VALUES or name in _DMARC_URI_TAGS]
     if len(names) != len(set(names)):
         return None
-    valid = {name: value for name, value in tags if (known := _DMARC_TAG_VALUES.get(name)) and known.fullmatch(value)}
+    valid = {name: checked for name, value in tags if (checked := _valid_tag_value(name, value))}
     if "p" not in valid or ("sp" in names and "sp" not in valid):
         if "rua" not in valid:
             return None
         valid = {name: value for name, value in valid.items() if name not in ("p", "sp")}
     return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in valid.items())])
+
+
+def _valid_tag_value(name: str, value: str) -> str | None:
+    if name in _DMARC_URI_TAGS:
+        return ",".join(uri.strip() for uri in value.split(",") if _DMARC_URI.fullmatch(uri.strip())) or None
+    known = _DMARC_TAG_VALUES.get(name)
+    return value if known is not None and known.fullmatch(value) else None
 
 
 def _is_spf(answer: str) -> bool:
