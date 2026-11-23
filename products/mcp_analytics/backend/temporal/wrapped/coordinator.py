@@ -67,6 +67,8 @@ class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
                 retry_policy=DISCOVERY_RETRY_POLICY,
             )
 
+        # A repeated id would run twice in one batch, with both attempts writing the same row.
+        team_ids = list(dict.fromkeys(team_ids))
         statuses: Counter[str] = Counter(inputs.statuses)
         failed_team_ids = list(inputs.failed_team_ids)
         this_run, remaining = team_ids[: inputs.teams_per_run], team_ids[inputs.teams_per_run :]

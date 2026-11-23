@@ -117,7 +117,7 @@ async def test_only_transient_errors_are_retried(_name: str, error: type[Excepti
 
 
 async def test_chosen_projects_skip_discovery() -> None:
-    result = await _run(WrappedCoordinatorInputs(year=2026, team_ids=[2]))
+    result = await _run(WrappedCoordinatorInputs(year=2026, team_ids=[2, 2]))
 
     assert _discovered_years == []
     assert _generated_team_ids == [2]
