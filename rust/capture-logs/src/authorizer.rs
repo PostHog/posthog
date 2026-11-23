@@ -72,7 +72,7 @@ impl Authorizer {
     ) -> Result<&'a str, Rejection> {
         let (token, from_header) = resolve_token(headers, query_token)
             .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-        // Only `hash_secret_keys` writes a digest, and it writes only to the `Authorization` header.
+        // Only `hash_secret_keys` writes a digest, and it writes only to a header.
         self.check(token, signal, from_header && signal == Signal::Logs)?;
         Ok(token)
     }
@@ -94,13 +94,13 @@ impl Authorizer {
             .filter(|token| !token.is_empty());
         match verbatim {
             Some(token) => {
-                self.authorize_token(token, signal)?;
+                self.check(token, signal, signal == Signal::Logs)?;
                 Ok(token)
             }
             None => {
                 let (token, _) = resolve_token(headers, None)
                     .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-                self.authorize_token(token, signal)?;
+                self.check(token, signal, signal == Signal::Logs)?;
                 Ok(token)
             }
         }
@@ -126,24 +126,41 @@ impl Authorizer {
                     .unwrap_or(value)
                     .trim()
             });
-        let token = [path_token, header_token, query_token]
-            .into_iter()
-            .flatten()
-            .find(|token| !token.is_empty())
-            .ok_or_else(|| self.reject(signal, "missing_token", missing_token()))?;
-        self.authorize_token(token, signal)?;
+        let (token, from_header) = [
+            (path_token, false),
+            (header_token, true),
+            (query_token, false),
+        ]
+        .into_iter()
+        .find_map(|(token, from_header)| {
+            token
+                .filter(|token| !token.is_empty())
+                .map(|token| (token, from_header))
+        })
+        .ok_or_else(|| self.reject(signal, "missing_token", missing_token()))?;
+        self.check(token, signal, from_header && signal == Signal::Logs)?;
         Ok(token)
     }
 
-    fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
-        self.check(token, signal, false)
-    }
-
+    /// `digest_allowed` is true only for a logs token that came from a header.
     fn check(&self, token: &str, signal: Signal, digest_allowed: bool) -> Result<(), Rejection> {
         let is_digest = is_secret_key_digest(token);
-        // A URL path, a query string and a vendor header reach access logs.
+        // A key that `hash_secret_keys` did not hash came from a URL path or a query string, and
+        // those reach access logs. The key scope is `logs:write`, so a digest is for logs only.
         if find_secret_key(token).is_some() || (is_digest && !digest_allowed) {
             return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
+        }
+
+        // A project token holds only these characters. A value with any other character can hold a
+        // secret key in a form that `find_secret_key` does not find, so it must not reach a span,
+        // a log or Kafka.
+        let is_token_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+        if !is_digest && !token.bytes().all(is_token_char) {
+            return Err(self.reject(
+                signal,
+                "invalid_token",
+                unauthorized("Invalid project API key (unexpected character). Use your project API key, which you can find in your PostHog project settings."),
+            ));
         }
 
         if self.token_dropper.should_drop(token, "") {
@@ -200,7 +217,7 @@ impl Authorizer {
 
 fn secret_key_not_allowed() -> Rejection {
     unauthorized(
-        "A project secret API key works only on the OTLP logs endpoint, as a Bearer token in the Authorization header. Use your project API key here.",
+        "A project secret API key works only on a logs endpoint, and only in a request header. Use your project API key here.",
     )
 }
 
@@ -324,44 +341,68 @@ mod tests {
     }
 
     #[test]
-    fn a_secret_key_digest_is_accepted_only_from_the_otlp_logs_header() {
+    fn a_secret_key_digest_is_accepted_only_from_a_header_of_a_logs_request() {
+        const FIREHOSE: &str = "x-amz-firehose-access-key";
         let bearer = format!("Bearer {DIGEST}");
         let from_header = headers(&[("Authorization", bearer.as_str())]);
+        let from_firehose = headers(&[(FIREHOSE, bearer.as_str())]);
         let no_headers = HeaderMap::new();
+        let a = authorizer();
 
-        assert_eq!(
-            authorizer()
-                .authorize(&from_header, None, Signal::Logs)
-                .ok(),
-            Some(DIGEST)
-        );
-        for signal in [Signal::Traces, Signal::Metrics] {
-            assert_secret_key_not_allowed(
-                authorizer().authorize(&from_header, None, signal),
-                signal.as_str(),
-            );
+        for (accepted, case) in [
+            (a.authorize(&from_header, None, Signal::Logs), "otlp"),
+            (
+                a.authorize_from_path_header_or_query(None, &from_header, None, Signal::Logs),
+                "vendor header",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_firehose, FIREHOSE, Signal::Logs),
+                "firehose header",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_header, FIREHOSE, Signal::Logs),
+                "firehose fallback",
+            ),
+        ] {
+            assert_eq!(accepted.ok(), Some(DIGEST), "{case}");
         }
-        assert_secret_key_not_allowed(
-            authorizer().authorize(&no_headers, Some(DIGEST), Signal::Logs),
-            "otlp query",
-        );
-        assert_secret_key_not_allowed(
-            authorizer().authorize_from_path_header_or_query(
-                None,
-                &from_header,
-                None,
-                Signal::Logs,
+
+        for (rejected, case) in [
+            (a.authorize(&from_header, None, Signal::Traces), "traces"),
+            (a.authorize(&from_header, None, Signal::Metrics), "metrics"),
+            (
+                a.authorize(&no_headers, Some(DIGEST), Signal::Logs),
+                "otlp query",
             ),
-            "vendor header",
-        );
-        assert_secret_key_not_allowed(
-            authorizer().authorize_from_header_or_bearer(
-                &from_header,
-                "x-amz-firehose-access-key",
-                Signal::Logs,
+            (
+                a.authorize_from_path_header_or_query(None, &from_header, None, Signal::Metrics),
+                "vendor metrics header",
             ),
-            "firehose fallback",
-        );
+            (
+                a.authorize_from_path_header_or_query(
+                    Some(DIGEST),
+                    &from_header,
+                    None,
+                    Signal::Logs,
+                ),
+                "vendor path",
+            ),
+            (
+                a.authorize_from_path_header_or_query(
+                    None,
+                    &no_headers,
+                    Some(DIGEST),
+                    Signal::Logs,
+                ),
+                "vendor query",
+            ),
+            (
+                a.authorize_from_header_or_bearer(&from_firehose, FIREHOSE, Signal::Metrics),
+                "firehose metrics",
+            ),
+        ] {
+            assert_secret_key_not_allowed(rejected, case);
+        }
     }
 
     #[test]
@@ -369,11 +410,12 @@ mod tests {
         let no_headers = HeaderMap::new();
         for token in [
             "phs_example",
+            "PHS_example",
             " phs_example",
             "Basic phs_example",
             "Bearer phs_example",
         ] {
-            assert_secret_key_not_allowed(authorizer().authorize_token(token, Signal::Logs), token);
+            assert_secret_key_not_allowed(authorizer().check(token, Signal::Logs, false), token);
             assert_secret_key_not_allowed(
                 authorizer().authorize(&no_headers, Some(token), Signal::Logs),
                 token,
@@ -386,7 +428,7 @@ mod tests {
         // Pasting a personal API key into an exporter is the misconfiguration that used to be
         // answered 200 forever while every record was dropped downstream.
         let (status, _) = authorizer()
-            .authorize_token("phx_personal_api_key", Signal::Logs)
+            .check("phx_personal_api_key", Signal::Logs, false)
             .expect_err("a personal API key should not be accepted");
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -396,9 +438,17 @@ mod tests {
     fn structurally_impossible_tokens_are_rejected() {
         let too_long = "a".repeat(65);
 
-        for token in [too_long.as_str(), "tokenwith\0nullbyte", "🦀", ""] {
+        for token in [
+            too_long.as_str(),
+            "tokenwith\0nullbyte",
+            "🦀",
+            "",
+            "\"phc_quoted\"",
+            "phc_with.dot",
+            "Bearer%20phs_broken.key",
+        ] {
             let (status, _) = authorizer()
-                .authorize_token(token, Signal::Logs)
+                .check(token, Signal::Logs, false)
                 .expect_err("expected rejection");
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{token:?}");
         }
@@ -407,7 +457,7 @@ mod tests {
     #[test]
     fn a_well_formed_token_is_accepted() {
         assert!(authorizer()
-            .authorize_token("phc_well_formed", Signal::Logs)
+            .check("phc_well_formed", Signal::Logs, false)
             .is_ok());
     }
 
@@ -436,9 +486,7 @@ mod tests {
         async fn off_accepts_a_token_that_is_in_the_set() {
             let authorizer = authorizer_in(UnknownTokenMode::Off, &["phc_ghost"]).await;
 
-            assert!(authorizer
-                .authorize_token("phc_ghost", Signal::Logs)
-                .is_ok());
+            assert!(authorizer.check("phc_ghost", Signal::Logs, false).is_ok());
         }
 
         #[tokio::test]
@@ -446,7 +494,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Shadow, &["phc_ghost"]).await;
 
             for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
-                assert!(authorizer.authorize_token("phc_ghost", signal).is_ok());
+                assert!(authorizer.check("phc_ghost", signal, false).is_ok());
             }
         }
 
@@ -456,7 +504,7 @@ mod tests {
 
             for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
                 let (status, body) = authorizer
-                    .authorize_token("phc_ghost", signal)
+                    .check("phc_ghost", signal, false)
                     .expect_err("expected rejection");
                 assert_eq!(status, StatusCode::UNAUTHORIZED);
                 assert_eq!(
@@ -485,7 +533,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phc_ghost"]).await;
 
             assert!(authorizer
-                .authorize_token("phc_real_project", Signal::Logs)
+                .check("phc_real_project", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -494,7 +542,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &[]).await;
 
             assert!(authorizer
-                .authorize_token("phc_anything", Signal::Logs)
+                .check("phc_anything", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -504,7 +552,7 @@ mod tests {
             let authorizer = authorizer().with_unknown_tokens(unknown);
 
             assert!(authorizer
-                .authorize_token("phc_anything", Signal::Logs)
+                .check("phc_anything", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -524,11 +572,9 @@ mod tests {
                 .is_err());
             let authorizer = authorizer().with_unknown_tokens(unknown);
 
+            assert!(authorizer.check("phc_ghost", Signal::Logs, false).is_err());
             assert!(authorizer
-                .authorize_token("phc_ghost", Signal::Logs)
-                .is_err());
-            assert!(authorizer
-                .authorize_token("phc_real_project", Signal::Logs)
+                .check("phc_real_project", Signal::Logs, false)
                 .is_ok());
         }
 
@@ -537,7 +583,7 @@ mod tests {
             let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phx_personal"]).await;
 
             let (_, body) = authorizer
-                .authorize_token("phx_personal", Signal::Logs)
+                .check("phx_personal", Signal::Logs, false)
                 .expect_err("expected rejection");
             assert_ne!(body.0, json!({ "error": "Unknown project API key" }));
         }

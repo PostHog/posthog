@@ -4,13 +4,14 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{header, HeaderValue},
+    http::{header, HeaderName, HeaderValue},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use sha2::{Digest, Sha256};
 
 use crate::authorizer::unauthorized;
+use crate::endpoints::aws_firehose::ACCESS_KEY_HEADER;
 
 pub const SECRET_KEY_PREFIX: &str = "phs_";
 /// Must match `hash_key_value` in posthog/models/utils.py, which writes `secure_value`.
@@ -20,11 +21,15 @@ pub const SECRET_KEY_DIGEST_PREFIX: &str = "sha256$";
 /// So a run this long marks a key even with no boundary before it, as in `Bearer%20phs_...`.
 const SECRET_KEY_RUN: usize = 44;
 
-/// Finds a secret key anywhere in `value`, so that no scheme, quote or encoding can pass one
-/// through. A public token that holds `phs_` in the middle does not match.
+/// Finds a secret key anywhere in `value`, behind a scheme, a quote or an encoding, and with the
+/// prefix in any letter case. A public token that holds `phs_` in the middle does not match.
+/// It does not find a key that the sender changed in another way. The authorizer rejects a token
+/// with a character that no project token has, so such a value is not written anywhere.
 pub fn find_secret_key(value: &str) -> Option<&str> {
     let is_key_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
-    value
+    // ASCII lowercase keeps every byte offset, so an index into `lowercase` is valid in `value`.
+    let lowercase = value.to_ascii_lowercase();
+    lowercase
         .match_indices(SECRET_KEY_PREFIX)
         .find_map(|(start, _)| {
             let rest = &value[start..];
@@ -64,24 +69,31 @@ pub(crate) const EXAMPLE_DIGEST: &str =
     "sha256$e39f07893ca51c363342a580d6699460bc91b2f829304ac421b4c02ee99a5fd0";
 
 pub async fn hash_secret_keys(mut req: Request<Body>, next: Next) -> Response {
-    let mut digest = None;
-    for value in req.headers().get_all(header::AUTHORIZATION) {
-        let Ok(value) = value.to_str() else { continue };
-        // The consumer trusts a digest as much as the key. A sender that learned a digest must not
-        // be able to send it in place of the key, so only this layer may write one.
-        if value.contains(SECRET_KEY_DIGEST_PREFIX) {
-            return unauthorized("Invalid token").into_response();
+    // Only a header can carry a key. A URL path and a query string reach access logs before this
+    // layer runs, so the authorizer rejects a key that arrives in one of them.
+    for name in [
+        header::AUTHORIZATION,
+        HeaderName::from_static(ACCESS_KEY_HEADER),
+    ] {
+        let mut digest = None;
+        for value in req.headers().get_all(&name) {
+            let Ok(value) = value.to_str() else { continue };
+            // The consumer trusts a digest as much as the key. A sender that learned a digest must
+            // not be able to send it in place of the key, so only this layer may write one.
+            if value.contains(SECRET_KEY_DIGEST_PREFIX) {
+                return unauthorized("Invalid token").into_response();
+            }
+            if let Some(secret_key) = find_secret_key(value) {
+                digest = Some(hash_secret_key(secret_key));
+            }
         }
-        if let Some(secret_key) = find_secret_key(value) {
-            digest = Some(hash_secret_key(secret_key));
-        }
-    }
 
-    if let Some(digest) = digest {
-        let Ok(value) = HeaderValue::from_str(&format!("Bearer {digest}")) else {
-            return unauthorized("Invalid token").into_response();
-        };
-        req.headers_mut().insert(header::AUTHORIZATION, value);
+        if let Some(digest) = digest {
+            let Ok(value) = HeaderValue::from_str(&format!("Bearer {digest}")) else {
+                return unauthorized("Invalid token").into_response();
+            };
+            req.headers_mut().insert(name, value);
+        }
     }
 
     next.run(req).await
@@ -97,15 +109,20 @@ mod tests {
         req.headers()
             .get_all(header::AUTHORIZATION)
             .iter()
+            .chain(req.headers().get_all(ACCESS_KEY_HEADER))
             .map(|v| v.to_str().unwrap())
             .collect::<Vec<_>>()
             .join("|")
     }
 
     async fn call(authorization: &[&str]) -> (StatusCode, String) {
+        call_header(header::AUTHORIZATION.as_str(), authorization).await
+    }
+
+    async fn call_header(name: &str, values: &[&str]) -> (StatusCode, String) {
         let mut builder = Request::builder().method("POST").uri("/x");
-        for value in authorization {
-            builder = builder.header(header::AUTHORIZATION, *value);
+        for value in values {
+            builder = builder.header(name, *value);
         }
         let response = Router::new()
             .route("/x", post(echo_authorization))
@@ -157,6 +174,25 @@ mod tests {
                 "{prefix}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_key_in_the_firehose_header_and_a_key_with_an_uppercase_prefix_are_hashed() {
+        assert_eq!(
+            call_header(ACCESS_KEY_HEADER, &["phs_example"]).await,
+            (StatusCode::OK, format!("Bearer {EXAMPLE_DIGEST}"))
+        );
+        assert_eq!(
+            call_header(ACCESS_KEY_HEADER, &[EXAMPLE_DIGEST]).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&["Bearer PHS_example"]).await,
+            (
+                StatusCode::OK,
+                format!("Bearer {}", hash_secret_key("PHS_example"))
+            )
+        );
     }
 
     #[test]

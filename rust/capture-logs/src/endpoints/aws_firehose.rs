@@ -32,7 +32,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
-const ACCESS_KEY_HEADER: &str = "x-amz-firehose-access-key";
+pub(crate) const ACCESS_KEY_HEADER: &str = "x-amz-firehose-access-key";
 const REQUEST_ID_HEADER: &str = "x-amz-firehose-request-id";
 const SOURCE_ARN_HEADER: &str = "x-amz-firehose-source-arn";
 const COMMON_ATTRIBUTES_HEADER: &str = "x-amz-firehose-common-attributes";
