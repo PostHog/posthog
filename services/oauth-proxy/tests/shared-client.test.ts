@@ -175,6 +175,30 @@ describe('a client shared by users in both regions', () => {
         expect(String(fetchMock.mock.calls[0]![0])).toMatch(/^https:\/\/eu\.posthog\.com/)
     })
 
+    it('ignores a code route recorded by a flow for a different client', async () => {
+        const fetchMock = stubRegions({ victim_code: 'us' })
+        await kv.put(`client:other_client`, JSON.stringify({ ...MAPPING, us_client_id: 'other_client' }))
+        const attackerNonce = await handleAuthorize(
+            new Request(
+                `https://oauth.posthog.com/oauth/authorize/?client_id=other_client` +
+                    `&redirect_uri=${encodeURIComponent(CLIENT_REDIRECT_URI)}&response_type=code&state=x&_region=eu`
+            ),
+            kv
+        ).then((r) => new URL(r.headers.get('location')!).searchParams.get('state')!)
+        await callback(kv, attackerNonce, 'victim_code')
+        await kv.put(`region:${await hashKey(PROXY_CLIENT_ID)}`, 'us')
+        await kv.put(`callback:${await hashKey(PROXY_CLIENT_ID)}`, CLIENT_REDIRECT_URI)
+
+        const response = await token(kv, {
+            grant_type: 'authorization_code',
+            code: 'victim_code',
+            redirect_uri: CLIENT_REDIRECT_URI,
+        })
+
+        expect(response.status).toBe(200)
+        expect(String(fetchMock.mock.calls[0]![0])).toMatch(/^https:\/\/us\.posthog\.com/)
+    })
+
     it('records nothing for a callback that carries an error instead of a code', async () => {
         const nonce = await authorize(kv, 'eu', 'denied_state')
         const response = await handleCallback(

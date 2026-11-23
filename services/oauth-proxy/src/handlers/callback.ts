@@ -28,9 +28,13 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
     }
 
     const code = url.searchParams.get('code')
-    if (code && record.region) {
+    if (code && record.region && record.client_id) {
         try {
-            await putCodeRoute(kv, code, { region: record.region, redirect_uri: record.redirect_uri })
+            await putCodeRoute(kv, code, {
+                region: record.region,
+                redirect_uri: record.redirect_uri,
+                client_id: record.client_id,
+            })
         } catch {
             console.warn(JSON.stringify({ handler: 'callback', error: 'code_route_put_failed' }))
         }

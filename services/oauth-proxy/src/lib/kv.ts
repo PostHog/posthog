@@ -66,6 +66,7 @@ export interface PendingCallback {
     redirect_uri: string
     state: string | null
     region?: Region
+    client_id?: string
 }
 
 export async function putPendingCallback(kv: KVNamespace, nonce: string, record: PendingCallback): Promise<void> {
@@ -118,6 +119,7 @@ export function resolveMappingRewrite(
 export interface CodeRoute {
     region: Region
     redirect_uri: string
+    client_id: string
 }
 
 export async function putCodeRoute(kv: KVNamespace, code: string, route: CodeRoute): Promise<void> {
@@ -128,7 +130,12 @@ export async function putCodeRoute(kv: KVNamespace, code: string, route: CodeRou
 
 export async function getCodeRoute(kv: KVNamespace, code: string): Promise<CodeRoute | null> {
     const data = (await kv.get(`${CODE_ROUTE_PREFIX}${await hashKey(code)}`, 'json')) as CodeRoute | null
-    if (data && (data.region === 'us' || data.region === 'eu') && typeof data.redirect_uri === 'string') {
+    if (
+        data &&
+        (data.region === 'us' || data.region === 'eu') &&
+        typeof data.redirect_uri === 'string' &&
+        typeof data.client_id === 'string'
+    ) {
         return data
     }
     return null

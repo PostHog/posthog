@@ -181,6 +181,7 @@ describe('handleAuthorize', () => {
             redirect_uri: 'http://localhost:3000/callback',
             state: 'abc123',
             region: 'eu',
+            client_id: 'us_id',
         })
 
         const stateHash = await hashKey('abc123')

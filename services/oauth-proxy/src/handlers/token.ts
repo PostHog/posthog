@@ -135,7 +135,9 @@ async function routeToken(
 
     if (grantType === 'authorization_code' && code) {
         const route = await getCodeRoute(kv, code)
-        if (route) {
+        // A route is only trusted for the client whose flow recorded it, so a callback replayed
+        // with another flow's nonce cannot steer someone else's code to the other region.
+        if (route && route.client_id === clientId) {
             const proxyCallbackUrl = `${new URL(request.url).origin}/oauth/callback/`
             const response = await proxyWithMapping(rebuild(), kv, clientId, route.region, {
                 from: route.redirect_uri,
