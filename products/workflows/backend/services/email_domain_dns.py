@@ -33,25 +33,16 @@ MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
-_URI_LOCAL = r"(?:[a-z0-9_~'*+$()-]|%[0-9a-f]{2})+"
-_URI_QCHARS = r"(?:[a-z0-9._~'*+$():@-]|%[0-9a-f]{2})"
-_DMARC_URI = re.compile(
-    rf"mailto:{_URI_LOCAL}(?:\.{_URI_LOCAL})*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
-    rf"(?:\?{_URI_QCHARS}+={_URI_QCHARS}*(?:&{_URI_QCHARS}+={_URI_QCHARS}*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
-    re.IGNORECASE,
-)
 _DMARC_TEXT = re.compile(r"[\t\r\n\x20-\x7e]*")
-_DMARC_URI_TAGS = frozenset({"rua", "ruf"})
-_DMARC_TAG_VALUES = {
+_DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
+_DMARC_SHOWN_TAGS = {
     name: re.compile(pattern, re.IGNORECASE)
     for name, pattern in {
         "p": _DMARC_REQUEST,
         "sp": _DMARC_REQUEST,
+        "pct": r"100|0?[0-9]?[0-9]",
         "adkim": r"[rs]",
         "aspf": r"[rs]",
-        "pct": r"100|0?[0-9]?[0-9]",
-        "fo": r"[01ds](?:\s*:\s*[01ds])*",
-        "rf": r"afrf",
     }.items()
 }
 
@@ -229,37 +220,24 @@ def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
 
 def _policy_in_force(policy: str) -> str | None:
     specs = [spec.strip(" \t\r\n") for spec in policy.split(";")[1:]]
-    if not _DMARC_TEXT.fullmatch(policy) or any("\r" in spec or "\n" in spec for spec in specs):
-        return None
-    fields = [spec.partition("=") for spec in specs if spec]
-    if any(not name.strip(" \t") for name, _, _ in fields):
-        return None
+    if specs and not specs[-1]:
+        specs.pop()
+    fields = [spec.partition("=") for spec in specs]
     tags = [(name.strip(" \t").lower(), value.strip(" \t")) for name, _, value in fields]
     names = ["v", *(name for name, _ in tags)]
-    if len(names) != len(set(names)):
+    if (
+        not _DMARC_TEXT.fullmatch(policy)
+        or any("\r" in spec or "\n" in spec or not separator for spec, (_, separator, _) in zip(specs, fields))
+        or not all(_DMARC_TAG_NAME.fullmatch(name) for name, _ in tags)
+        or len(names) != len(set(names))
+    ):
         return None
-    valid = {name: checked for name, value in tags if (checked := _valid_tag_value(name, value))}
-    if not tags or tags[0][0] != "p" or "p" not in valid or ("sp" in names and "sp" not in valid):
+    shown = {
+        name: value for name, value in tags if name in _DMARC_SHOWN_TAGS and _DMARC_SHOWN_TAGS[name].fullmatch(value)
+    }
+    if not tags or tags[0][0] != "p" or "p" not in shown or ("sp" in names and "sp" not in shown):
         return None
-    return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in valid.items())])
-
-
-def _valid_tag_value(name: str, value: str) -> str | None:
-    if name in _DMARC_URI_TAGS:
-        return ",".join(uri for uri in (part.strip() for part in value.split(",")) if _is_report_uri(uri)) or None
-    if name == "ri":
-        digits = value.lstrip("0")
-        return value if re.fullmatch(r"[0-9]+", value) and len(digits) <= 10 and int(digits or 0) < 2**32 else None
-    known = _DMARC_TAG_VALUES.get(name)
-    return value if known is not None and known.fullmatch(value) else None
-
-
-def _is_report_uri(uri: str) -> bool:
-    match = _DMARC_URI.fullmatch(uri)
-    if match is None:
-        return False
-    size = (match["size"] or "").lstrip("0")
-    return len(size) <= 20 and int(size or 0) < 2**64
+    return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in shown.items())])
 
 
 def _is_spf(answer: str) -> bool:
