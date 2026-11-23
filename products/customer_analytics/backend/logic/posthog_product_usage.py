@@ -6,6 +6,7 @@ REPLAY_WATCH_MS = 10000
 REPLAY_WATCH_EVENT = "recording viewed summary"
 PAGE_EVENTS = ("$pageview", "$pageleave")
 STAFF_EMAIL_PATTERN = "%@posthog.com"
+AGENT_EVENT = "$mcp_tool_call"
 
 
 @frozen
@@ -363,4 +364,74 @@ PRODUCT_GROUPINGS: tuple[ProductGrouping, ...] = (
             ),
         ),
     ),
+)
+
+# Prompt tools carry the Experiments category to group them in the MCP tool list, but they are AI observability.
+AGENT_TOOL_PREFIX_PRODUCTS: dict[str, str] = {"llma-": "llm"}
+
+# Substrings of the effective MCP tool name, checked in order. The first match wins, so narrow rules come first.
+AGENT_TOOL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("dwh", ("execute-sql", "read-data-schema", "data-warehouse", "external-data", "warehouse", "saved-quer")),
+    ("replay", ("session-recording", "recording", "vision-")),
+    ("flags", ("feature-flag", "early-access")),
+    ("exp", ("experiment",)),
+    ("errors", ("error-tracking",)),
+    ("surveys", ("survey",)),
+    ("llm", ("llma", "llm-", "prompt", "evaluation")),
+    ("logs", ("logs-", "query-logs")),
+    ("tracing", ("apm-", "-apm")),
+    ("workflows", ("workflow", "broadcast")),
+    ("pipelines", ("batch-export", "cdp-function", "hog-function")),
+    ("endpoints", ("endpoint",)),
+    ("web", ("web-analytics", "heatmap")),
+    ("mcpa", ("mcp-analytics", "mcp-tool")),
+    ("customers", ("account-", "customer-")),
+    (
+        "pa",
+        ("insight", "dashboard", "cohort", "query-", "event-definition", "property-definition", "notebook", "persons-"),
+    ),
+)
+
+AGENT_CATEGORY_PRODUCTS: dict[str, str] = {
+    "SQL": "dwh",
+    "Data warehouse": "dwh",
+    "Warehouse sources": "dwh",
+    "Data schema": "dwh",
+    "Data catalog": "semantic",
+    "Product analytics": "pa",
+    "Insights & analytics": "pa",
+    "Dashboards": "pa",
+    "Query wrappers": "pa",
+    "Notebooks": "pa",
+    "Cohorts": "pa",
+    "Persons": "pa",
+    "Actions": "pa",
+    "Events & properties": "pa",
+    "Annotations": "pa",
+    "Feature flags": "flags",
+    "Early access features": "flags",
+    "Experiments": "exp",
+    "Error tracking": "errors",
+    "Error tracking alerts": "errors",
+    "Surveys": "surveys",
+    "AI observability": "llm",
+    "Session replays": "replay",
+    "Replay vision": "replay",
+    "Logs": "logs",
+    "Tracing": "tracing",
+    "Metrics": "tracing",
+    "Workflows": "workflows",
+    "Messaging": "workflows",
+    "Data pipelines": "pipelines",
+    "Functions": "pipelines",
+    "Endpoints": "endpoints",
+    "Web analytics": "web",
+    "Customer analytics": "customers",
+    "MCP analytics": "mcpa",
+    "Signals": "sd",
+}
+
+AGENT_PRODUCT_KEYS: frozenset[str] = frozenset(
+    {*AGENT_TOOL_PREFIX_PRODUCTS.values(), *AGENT_CATEGORY_PRODUCTS.values()}
+    | {product for product, _fragments in AGENT_TOOL_RULES}
 )

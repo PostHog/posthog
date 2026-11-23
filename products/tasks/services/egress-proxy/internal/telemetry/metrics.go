@@ -37,7 +37,7 @@ func boundedLabel(value string, allowed ...string) string {
 }
 
 func (m *Metrics) Request(outcome string, duration time.Duration) {
-	outcome = boundedLabel(outcome, "allowed", "denied", "unavailable", "invalid_request", "not_found", "audit_unavailable", "canceled", "completed")
+	outcome = boundedLabel(outcome, "allowed", "denied", "unavailable", "invalid_request", "not_found", "audit_unavailable", "rate_limited", "canceled", "completed")
 	m.requests.WithLabelValues(outcome).Inc()
 	m.duration.WithLabelValues(outcome).Observe(duration.Seconds())
 }
