@@ -20,6 +20,8 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
 )
 from products.tasks.backend.logic.services.sandbox_config import (
+    agent_egress_enrollment_enabled,
+    agent_egress_enrollment_environment,
     agent_egress_staging_environment,
     agent_egress_staging_probe_enabled,
 )
@@ -125,7 +127,8 @@ class ModalEgressProbe:
         if (
             not ((settings.DEBUG or settings.TEST) and str(settings.SANDBOX_PROVIDER).upper() == "MODAL_DOCKER")
             and not agent_egress_staging_probe_enabled()
-            and not (cleanup and agent_egress_staging_environment())
+            and not agent_egress_enrollment_enabled()
+            and not (cleanup and (agent_egress_staging_environment() or agent_egress_enrollment_environment()))
         ):
             raise RuntimeError("Egress probes require the local MODAL_DOCKER provider")
         sandbox_class = get_sandbox_class_for_run_backend("modal")
