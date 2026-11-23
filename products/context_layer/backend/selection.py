@@ -200,7 +200,11 @@ def selection_flag(run: TaskRun, actor: User) -> FlagDecision:
         return FlagDecision()
     if result is None or result.variant not in ("shadow", "control", "treatment"):
         return FlagDecision()
-    return FlagDecision(mode=result.variant, model=payload_model(result.payload))
+    # Only the default model is cleared for customer data, so a payload picks the model for PostHog's own orgs only.
+    internal = str(run.team.organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
+    return FlagDecision(
+        mode=result.variant, model=payload_model(result.payload) if internal else DEFAULT_DECISION_MODEL
+    )
 
 
 def payload_model(payload: object) -> str:

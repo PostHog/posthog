@@ -341,7 +341,8 @@ class TestSelection(SimpleTestCase):
     ) -> None:
         self.flag.return_value = flag_result(mode, {"model": "test/decision-model"})
         self.selector.admit = Mock(return_value=admitted)
-        result = self.selector.prepare(time.monotonic() + 60)
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.run_record.team.organization_id)]):
+            result = self.selector.prepare(time.monotonic() + 60)
         selects = mode in ("shadow", "treatment")
         self.assertEqual(result.mode, mode)
         self.assertEqual(bool(result.context), inject)
@@ -361,23 +362,27 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("object", {"model": "openai/gpt-6-luna"}, "shadow", "openai/gpt-6-luna"),
-            ("json_text", '{"model": "openai/gpt-6-luna"}', "shadow", "openai/gpt-6-luna"),
-            ("no_payload", None, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
-            ("no_model_key", {"other": 1}, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
-            ("model_not_text", {"model": 5}, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
-            ("not_json", "{", "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
-            ("flag_service_down", RuntimeError("down"), "disabled", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("object", {"model": "openai/gpt-6-luna"}, True, "shadow", "openai/gpt-6-luna"),
+            ("json_text", '{"model": "openai/gpt-6-luna"}', True, "shadow", "openai/gpt-6-luna"),
+            ("customer_org", {"model": "openai/gpt-6-luna"}, False, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("no_payload", None, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("no_model_key", {"other": 1}, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("model_not_text", {"model": 5}, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("not_json", "{", True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("flag_service_down", RuntimeError("down"), True, "disabled", settings.HOGQL_PROMPT_JEV_MODEL),
         ]
     )
     def test_one_flag_evaluation_gives_the_mode_and_the_decision_model(
-        self, name: str, payload: object, mode: str, model: str
+        self, name: str, payload: object, internal: bool, mode: str, model: str
     ) -> None:
         if isinstance(payload, Exception):
             self.flag.side_effect = payload
         else:
             self.flag.return_value = flag_result("shadow", payload)
-        self.assertEqual(selection_flag(self.run_record, self.selector.actor), FlagDecision(mode=mode, model=model))
+        internal_orgs = [str(self.run_record.team.organization_id)] if internal else []
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=internal_orgs):
+            decision = selection_flag(self.run_record, self.selector.actor)
+        self.assertEqual(decision, FlagDecision(mode=mode, model=model))
         self.assertEqual(self.flag.call_count, 1)
 
     @parameterized.expand([("pilot@example.com", "shadow"), ("other@example.com", "disabled")])
