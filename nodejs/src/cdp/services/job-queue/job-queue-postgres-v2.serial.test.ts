@@ -437,6 +437,21 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                 '1000',
             ],
             ['a send whose only file is empty', withFiles({}, [{ ...invoice, sizeBytes: 0 }]), '0'],
+            [
+                'a send whose files come with its email queue parameters',
+                {
+                    queueParameters: {
+                        type: 'email' as const,
+                        to: { email: 'test@example.com', name: 'Test User' },
+                        from: { integrationId: 1 },
+                        subject: 'Your invoice',
+                        text: 'Attached',
+                        html: '<p>Attached</p>',
+                        attachments: [invoice, logo],
+                    },
+                },
+                '1000',
+            ],
             ['a send without files', {}, null],
         ])('is stored on the row of %s when it is queued', async (_name, invocation, stored) => {
             const queue = await startQueue()
