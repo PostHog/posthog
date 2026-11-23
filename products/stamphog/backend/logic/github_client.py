@@ -12,6 +12,7 @@ just supplies its own ``Authorization`` header and the installation id as the bu
 import time
 import base64
 import binascii
+from collections.abc import Iterator, Sequence
 from dataclasses import field
 from datetime import datetime, timedelta
 from typing import Any
@@ -95,6 +96,11 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_a
     match, because it cannot be undone.
     """
     return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=allow_any_bot)
+
+
+def _with_marker(body: str, marker: str) -> str:
+    """``body`` with ``marker`` first, so the comment can be found again but the marker stays invisible."""
+    return body if body.startswith(marker) else f"{marker}\n{body}"
 
 
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
@@ -1683,29 +1689,19 @@ class StamphogGitHubClient:
         survives round-trips but stays invisible in the rendered comment. Returns the
         created/updated comment object.
         """
-        marked_body = body if body.startswith(marker) else f"{marker}\n{body}"
         existing_id = self._find_sticky_comment_id(repo, number, marker=marker, allow_any_bot=True)
-        if existing_id is not None:
-            path = f"/repos/{repo}/issues/comments/{existing_id}"
-            response = self._request(
-                "PATCH",
-                path,
-                endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
-                json_body={"body": marked_body},
-            )
-            if response.status_code != 200:
-                raise StamphogGitHubError(
-                    f"Failed to update sticky comment on {repo}#{number}: {response.text[:200]}",
-                    status_code=response.status_code,
-                )
-            return self._json(response, path)
+        if existing_id is None:
+            return self.create_marked_comment(repo, number, body, marker=marker)
+        return self.update_marked_comment(repo, number, existing_id, body, marker=marker)
 
+    def create_marked_comment(self, repo: str, number: int, body: str, *, marker: str) -> dict:
+        """Post a comment that starts with ``marker``. Returns the created comment object."""
         path = f"/repos/{repo}/issues/{number}/comments"
         response = self._request(
             "POST",
             path,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json_body={"body": marked_body},
+            json_body={"body": _with_marker(body, marker)},
         )
         if response.status_code != 201:
             raise StamphogGitHubError(
@@ -1713,6 +1709,35 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
             )
         return self._json(response, path)
+
+    def update_marked_comment(self, repo: str, number: int, comment_id: int, body: str, *, marker: str) -> dict:
+        """Replace the body of comment ``comment_id``, keeping ``marker`` first. Returns the updated comment object."""
+        path = f"/repos/{repo}/issues/comments/{comment_id}"
+        response = self._request(
+            "PATCH",
+            path,
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+            json_body={"body": _with_marker(body, marker)},
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to update sticky comment on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        return self._json(response, path)
+
+    def delete_comment(self, repo: str, number: int, comment_id: int) -> None:
+        """Delete comment ``comment_id``. A comment that is already gone counts as deleted."""
+        response = self._request(
+            "DELETE",
+            f"/repos/{repo}/issues/comments/{comment_id}",
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        )
+        if response.status_code not in (204, 404):
+            raise StamphogGitHubError(
+                f"Failed to delete comment on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
 
     def delete_sticky_comment(self, repo: str, number: int, *, marker: str) -> bool:
         """Delete this App's comment carrying ``marker``. Returns whether there was one to delete.
@@ -1722,16 +1747,7 @@ class StamphogGitHubClient:
         existing_id = self._find_sticky_comment_id(repo, number, marker=marker)
         if existing_id is None:
             return False
-        response = self._request(
-            "DELETE",
-            f"/repos/{repo}/issues/comments/{existing_id}",
-            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
-        )
-        if response.status_code not in (204, 404):
-            raise StamphogGitHubError(
-                f"Failed to delete comment on {repo}#{number}: {response.text[:200]}",
-                status_code=response.status_code,
-            )
+        self.delete_comment(repo, number, existing_id)
         return True
 
     def _post_requested_reviewers(self, repo: str, number: int, body: dict[str, list[str]]) -> int:
@@ -1878,16 +1894,8 @@ class StamphogGitHubClient:
         logger.warning("stamphog_github_team_lookup_page_cap", org=org, login=login, pages=_MAX_PAGES)
         return sorted(slugs)
 
-    def _find_sticky_comment_id(
-        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = False
-    ) -> int | None:
-        """Return the id of the App's own comment carrying ``marker``, or ``None`` if there isn't one.
-
-        Matching on the marker alone would let a user plant the (source-visible) marker and have the App
-        PATCH their comment; candidates are filtered to this App's bot identity (see
-        _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
-        """
-        expected_login = expected_app_bot_login()
+    def _marked_comments(self, repo: str, number: int, marker: str) -> Iterator[dict]:
+        """The PR's issue comments whose body carries ``marker``, read page by page."""
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
@@ -1904,13 +1912,40 @@ class StamphogGitHubClient:
             if not isinstance(comments, list):
                 raise StamphogGitHubError(f"Unexpected comments payload for {repo}#{number}")
             for comment in comments:
-                if not (isinstance(comment, dict) and marker in (comment.get("body") or "")):
-                    continue
-                if not _is_own_sticky_comment(comment, expected_login, allow_any_bot=allow_any_bot):
-                    continue
-                comment_id = comment.get("id")
-                if isinstance(comment_id, int):
-                    return comment_id
+                if isinstance(comment, dict) and marker in (comment.get("body") or ""):
+                    yield comment
             if len(comments) < _PER_PAGE:
-                break
+                return
+
+    def _find_sticky_comment_id(
+        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = False
+    ) -> int | None:
+        """Return the id of the App's own comment carrying ``marker``, or ``None`` if there isn't one.
+
+        Matching on the marker alone would let a user plant the (source-visible) marker and have the App
+        PATCH their comment; candidates are filtered to this App's bot identity (see
+        _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
+        """
+        expected_login = expected_app_bot_login()
+        for comment in self._marked_comments(repo, number, marker):
+            if not _is_own_sticky_comment(comment, expected_login, allow_any_bot=allow_any_bot):
+                continue
+            comment_id = comment.get("id")
+            if isinstance(comment_id, int):
+                return comment_id
+        return None
+
+    def find_marked_comment(
+        self, repo: str, number: int, *, marker: str, bot_logins: Sequence[str | None]
+    ) -> dict | None:
+        """The first comment carrying ``marker`` that one of ``bot_logins`` posted, or None.
+
+        Matches the exact login only, never "any Bot", so a None login (an unset App slug) matches nothing.
+        """
+        for comment in self._marked_comments(repo, number, marker):
+            user = comment.get("user") or {}
+            if not any(_is_own_bot_actor(user, login, allow_any_bot=False) for login in bot_logins if login):
+                continue
+            if isinstance(comment.get("id"), int):
+                return comment
         return None
