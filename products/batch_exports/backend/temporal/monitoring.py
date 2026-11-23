@@ -13,10 +13,12 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from products.batch_exports.backend.temporal.pipeline.query_ranges import exports_feature_flag_called_events
 from products.batch_exports.backend.temporal.sql.events import (
     EVENT_COUNT_BY_INTERVAL,
     build_event_count_by_interval_query,

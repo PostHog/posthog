@@ -20,7 +20,10 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
@@ -46,10 +49,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
-from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    exports_feature_flag_called_events,
-    use_distributed_events_recent_table,
-)
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
