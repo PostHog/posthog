@@ -1323,7 +1323,7 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
 }
 
 /**
- * Validate CDC prerequisites against a live Postgres connection.
+ * Validate CDC prerequisites against a live connection to the source database.
  *
  * Used by the source wizard to surface ✅/❌ checks before source creation,
  * and by the self-managed setup popup to verify user-created publications.

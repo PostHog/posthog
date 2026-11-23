@@ -24481,6 +24481,7 @@ export namespace Schemas {
 
     export const CDCEngine = {
       Postgres: 'postgres',
+      Mysql: 'mysql',
     } as const;
 
     export interface CICardSummary {
