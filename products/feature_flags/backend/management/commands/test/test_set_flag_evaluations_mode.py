@@ -420,6 +420,32 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertFalse(self._keeps_events_writes(only_turned_on))
         self.assertEqual(self._stored_mode(from_read), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
+    def test_a_restore_uses_the_first_record_of_an_organization_that_the_file_lists_twice(self) -> None:
+        # A rerun appends to the same file, so a later record can describe a state the run itself did not start from.
+        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0", f"{self.organization.id} 1 0")
+
+        self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)
+
+    @parameterized.expand(
+        [
+            ("an_exclude_file", ("--exclude-organization-ids-file", "ids")),
+            ("kept_writes", ("--keep-writing-flag-calls-to-events",)),
+            ("a_changed_ids_file", ("--write-changed-ids", "ids")),
+        ]
+    )
+    def test_a_restore_refuses_an_option_it_would_ignore(self, _name: str, extra_args: tuple[str, ...]) -> None:
+        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0")
+        args = [changed_ids_file if arg == "ids" else arg for arg in extra_args]
+
+        with self.assertRaises(CommandError):
+            self._run("--restore-from-changed-ids-file", changed_ids_file, *args)
+
+        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+
     def test_a_restore_refuses_a_file_without_the_previous_settings(self) -> None:
         changed_ids_file = self._ids_file(self.organization.id)
 

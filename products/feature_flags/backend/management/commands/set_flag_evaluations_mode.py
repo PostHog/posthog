@@ -94,7 +94,8 @@ def _read_changed_ids_file(path: Path) -> dict[UUID, FlagEvaluationsConfig]:
                 f"{path}:{line_number}: {text!r} is not `<organization id> <mode> <0|1>`. "
                 "Only a file that a run wrote with --write-changed-ids records the previous settings."
             ) from error
-        configs[organization_id] = FlagEvaluationsConfig(mode=mode, keeps_events_writes=kept == "1")
+        # A rerun appends to the same file, so the first record of an organization is the one from before any run.
+        configs.setdefault(organization_id, FlagEvaluationsConfig(mode=mode, keeps_events_writes=kept == "1"))
     return configs
 
 
@@ -218,6 +219,17 @@ class Command(BaseCommand):
         if (restore_path := options["restore_from_changed_ids_file"]) is not None:
             if options["mode"] is not None:
                 raise CommandError("--restore-from-changed-ids-file takes each organization's mode from the file")
+            ignored = [
+                flag
+                for flag, set_ in (
+                    ("--exclude-organization-ids-file", options["exclude_organization_ids_file"] is not None),
+                    ("--keep-writing-flag-calls-to-events", options["keep_writing_flag_calls_to_events"]),
+                    ("--write-changed-ids", options["write_changed_ids"] is not None),
+                )
+                if set_
+            ]
+            if ignored:
+                raise CommandError(f"--restore-from-changed-ids-file does not use {', '.join(ignored)}")
             self._restore(
                 restore_path, dry_run=options["dry_run"], skip_unknown=options["skip_unknown_organization_ids"]
             )
