@@ -16,6 +16,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     nudge_stamphog_activity,
     post_status_comment_activity,
+    prior_deep_review_activity,
     publish_review_activity,
     record_turn_marker_activity,
     remove_review_reaction_activity,
@@ -61,6 +62,7 @@ WORKFLOWS = (
 
 ACTIVITIES = (
     review_resolution_running_activity,
+    prior_deep_review_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
     resolve_acting_user_activity,

@@ -252,6 +252,7 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
     FinishedStandardAutomaticTurn,
+    ReviewPRWorkflowInputs,
     SilentStamphogRequest,
 )
 from products.signals.backend.facade.report_artefacts import (
@@ -898,6 +899,25 @@ async def validate_github_integration_activity(input: ValidateIntegrationInput) 
         )
 
 
+def _prior_deep_review(input: ReviewPRWorkflowInputs) -> str | None:
+    report_id = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(repository__iexact=input.repository, pr_number=input.pr_number)
+        .values_list("id", flat=True)
+        .first()
+    )
+    if report_id is not None and turn_recorded_in_mode(input.team_id, str(report_id), REVIEW_MODE_FULL):
+        return str(report_id)
+    return None
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def prior_deep_review_activity(input: ReviewPRWorkflowInputs) -> str | None:
+    return await database_sync_to_async(_prior_deep_review, thread_sensitive=False)(input)
+
+
 def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     """Fetch the review target from GitHub, open/refresh the report, and snapshot this turn's inputs + diff.
 
@@ -977,12 +997,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             .exists()
         )
     if input.trigger_source == TRIGGER_AUTOMATIC and input.review_mode == REVIEW_MODE_FULL:
-        # The PR queue serializes turns. Two triggers can both arrive before either sees a Deep marker.
-        already_completed = (
-            already_completed
-            or full_review_published(report)
-            or turn_recorded_in_mode(input.team_id, str(report_id), REVIEW_MODE_FULL)
-        )
+        already_completed = already_completed or full_review_published(report)
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1

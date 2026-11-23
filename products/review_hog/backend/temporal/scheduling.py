@@ -11,6 +11,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.client import async_connect
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.temporal.activities import prior_deep_review_activity
 from products.review_hog.backend.temporal.types import (
     HUMAN_REVIEW_VERDICT,
     TRIGGER_AUTOMATIC,
@@ -182,6 +183,31 @@ class ReviewPRQueueWorkflow:
         ):
             await request_silent_stamphog(request, request.requested_head_sha)
 
+    async def _run_turn(self, request: ReviewPRWorkflowInputs) -> str:
+        # Check once in the parent. A retry of the child must be able to finish after writing its marker.
+        if (
+            request.trigger_source == TRIGGER_AUTOMATIC
+            and request.review_mode == REVIEW_MODE_FULL
+            and request.pr_number is not None
+            and workflow.patched("reviewhog-check-prior-deep-before-child")
+        ):
+            prior_report = await workflow.execute_activity(
+                prior_deep_review_activity,
+                request,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=1)),
+            )
+            if prior_report is not None:
+                return prior_report
+        return await workflow.execute_child_workflow(
+            "review-pr",
+            request,
+            id=f"{workflow.info().workflow_id}/turn",
+            result_type=str,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
     @workflow.run
     async def run(self, inputs: ReviewPRQueueInputs) -> str:
         result = ""
@@ -199,14 +225,7 @@ class ReviewPRQueueWorkflow:
             if workflow.patched(STAMPHOG_REPORT_AFTER_TURN_PATCH):
                 request = replace(request, answered_by_queue=True)
             try:
-                result = await workflow.execute_child_workflow(
-                    "review-pr",
-                    request,
-                    id=f"{workflow.info().workflow_id}/turn",
-                    result_type=str,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
+                result = await self._run_turn(request)
                 await self._answer_ready_event(request, turn_succeeded=True)
             except ChildWorkflowError:
                 await self._answer_ready_event(request, turn_succeeded=False)

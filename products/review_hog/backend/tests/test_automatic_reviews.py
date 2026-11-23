@@ -34,6 +34,7 @@ from products.review_hog.backend.models import (
     ReviewReportArtefact,
     ReviewRepository,
     ReviewRepositoryPerson,
+    ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
@@ -726,7 +727,11 @@ class TestStamphogHandoffTask(BaseTest):
             team=self.team, installation_id=_INSTALLATION_ID, scope=ReviewInstallationClaim.Scope.SELECTED
         )
         self.repository = ReviewRepository.objects.for_team(self.team.id).create(
-            team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
+            team=self.team,
+            installation_id=_INSTALLATION_ID,
+            github_repo_id=_REPO_ID,
+            full_name="PostHog/posthog",
+            selected=True,
         )
         self.enterContext(patch(_BUSY, return_value=False))
         self.enterContext(patch(_HEAD_STATUS, return_value=None))
@@ -783,6 +788,7 @@ class TestStamphogHandoffTask(BaseTest):
             ("switch_off", False, True, "flash", False),
             ("other_project", True, False, "flash", False),
             ("author_opted_out", True, True, "off", False),
+            ("opted_out_before_rename", True, True, "flash", False),
         ]
     )
     def test_published_human_verdict_obeys_repository_and_author_settings(
@@ -793,6 +799,15 @@ class TestStamphogHandoffTask(BaseTest):
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": preference}
         )
+        if _name == "opted_out_before_rename":
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=self.user,
+                installation_id=_INSTALLATION_ID,
+                github_repo_id=_REPO_ID,
+                full_name="PostHog/old-name",
+                mode=ReviewUserRepositoryChoice.Mode.OFF,
+            )
         verdict = replace(
             self._finished("octocat", request_external_review=False),
             team_id=self.team.id if same_project else self.team.id + 1,
@@ -813,24 +828,40 @@ class TestStamphogHandoffTask(BaseTest):
                 trigger_action="human_review_verdict",
                 requested_head_sha=_HEAD_SHA,
                 installation_id=_INSTALLATION_ID,
+                github_repo_id=_REPO_ID,
             )
         else:
             self.start.assert_not_called()
 
-    def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
-        # A Standard request after a published Deep review is dropped, so the handoff would do nothing.
-        ReviewReport.objects.for_team(self.team.id).create(
-            team=self.team,
-            repository="posthog/posthog",
-            pr_number=42,
-            head_branch="feature",
-            base_branch="master",
-            published_heads_by_mode={"full": _HEAD_SHA},
+    @parameterized.expand(
+        [
+            ("prior_deep", True, [("stamphog", "full")]),
+            ("first_deep", False, [("stamphog", "flash"), ("automatic", "full")]),
+        ]
+    )
+    def test_a_human_verdict_preserves_the_inbox_handoff(
+        self, _name: str, prior_deep: bool, expected: list[tuple[str, str]]
+    ) -> None:
+        self.repository.deep_review_gated_prs = True
+        self.repository.save()
+        ReviewProjectSettings.objects.for_team(self.team.id).create(
+            team=self.team, bot_prs=ReviewProjectSettings.BotPullRequests.RUN
         )
+        if prior_deep:
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="posthog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                published_heads_by_mode={"full": "older-head"},
+            )
+        verdict = replace(self._finished("posthog[bot]"), team_id=self.team.id, published_human_verdict=True)
+        with patch(_HANDOFF_QUEUE, side_effect=process_stamphog_handoff.run):
+            queue_stamphog_handoff(verdict)
 
-        self._run()
-
-        assert self.start.call_args.kwargs["review_mode"] == "full"
+        assert [(c.kwargs["trigger_source"], c.kwargs["review_mode"]) for c in self.start.call_args_list] == expected
+        assert all(c.kwargs["requested_head_sha"] == _HEAD_SHA for c in self.start.call_args_list)
 
     @parameterized.expand(
         [

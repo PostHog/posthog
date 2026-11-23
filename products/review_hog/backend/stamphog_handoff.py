@@ -67,14 +67,32 @@ class StamphogHandoff:
     # Stamphog reviews only same-repository pull requests, so the head branch is in the base repository.
     head_branch: str
 
-    def _start_deep(self, owner: RepositoryOwner) -> bool:
+    def start(self, *, verdict_team_id: int | None = None, inbox_handoff: bool = True) -> None:
+        owner = RepositoryOwnership.find_by_name(self.repository)
+        if owner is None:
+            _observe("repository_not_added")
+            return
+        # An automatic request can still skip in the worker. Deliver the Inbox handoff before
+        # the automatic request can make the head appear pending.
+        inbox_mode = self._start_inbox(owner) if inbox_handoff else None
+        if (
+            inbox_mode != REVIEW_MODE_FULL
+            and owner.team_id == verdict_team_id
+            and owner.row is not None
+            and owner.row.deep_review_gated_prs
+        ):
+            self._start_deep(owner, github_repo_id=owner.row.github_repo_id)
+
+    def _start_deep(self, owner: RepositoryOwner, *, github_repo_id: int | None) -> None:
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import HUMAN_REVIEW_VERDICT, TRIGGER_AUTOMATIC  # noqa: PLC0415
 
-        ref = RepositoryRef(installation_id=owner.installation_id, github_repo_id=None, full_name=self.repository)
+        ref = RepositoryRef(
+            installation_id=owner.installation_id, github_repo_id=github_repo_id, full_name=self.repository
+        )
         dispatch = plan_automatic_review(ref, owner, author_login=self.author_login)
         if dispatch.run_as_user_id is None:
-            return False
+            return
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=owner.team_id,
@@ -87,10 +105,10 @@ class StamphogHandoff:
             trigger_action=HUMAN_REVIEW_VERDICT,
             requested_head_sha=self.head_sha,
             installation_id=owner.installation_id,
+            github_repo_id=github_repo_id,
         )
-        return True
 
-    def start(self, *, verdict_team_id: int | None = None, inbox_handoff: bool = True) -> None:
+    def _start_inbox(self, owner: RepositoryOwner) -> str | None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
         from products.review_hog.backend.temporal.client import (  # noqa: PLC0415
             start_review_pr_workflow,
@@ -102,42 +120,29 @@ class StamphogHandoff:
             review_pr_workflow_id,
         )
 
-        owner = RepositoryOwnership.find_by_name(self.repository)
-        if owner is None:
-            _observe("repository_not_added")
-            return
         team_id = owner.team_id
-        if (
-            team_id == verdict_team_id
-            and owner.row is not None
-            and owner.row.deep_review_gated_prs
-            and self._start_deep(owner)
-        ):
-            return
-        if not inbox_handoff:
-            return
         if not IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id):
             _observe("integration_missing")
-            return
+            return None
         # A lookup that fails raises, so the task retries instead of reading an outage as "no review".
         status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
         if status is not None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED):
             _observe("head_already_reviewed")
-            return
+            return None
         pr_owner = PullRequestOwnerResolver.resolve(
             team_id, repository=self.repository, author_login=self.author_login, head_branch=self.head_branch
         )
         run_user_id = pr_owner.user_id or connector_user_id(team_id=team_id, installation_id=owner.installation_id)
         if run_user_id is None:
             _observe("no_run_user")
-            return
+            return None
         github_owner, _, github_repo = self.repository.partition("/")
         # The busy-guard (CONTEXT.md): a review waits until this PR's resolution run is done.
         if workflow_running(
             resolve_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         ):
             _observe("resolution_running")
-            return
+            return None
         # Probed before the start: a same-id start joins the running turn, whose inputs keep the
         # original trigger, so the handoff's tier lift has to be written here.
         joins_running_review = workflow_running(
@@ -158,3 +163,4 @@ class StamphogHandoff:
         if joins_running_review and review_mode == REVIEW_MODE_FULL:
             lift_review_tier_for_joined_trigger(team_id=team_id, repository=self.repository, pr_number=self.pr_number)
         _observe("started")
+        return review_mode

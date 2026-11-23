@@ -7,7 +7,8 @@ from parameterized import parameterized
 
 from posthog.ownership.paths import PathOwnership
 
-from products.review_hog.backend.models import ReviewReport, ReviewRepository
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewRepository
+from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
     DEFAULT_REVIEW_ARM,
@@ -17,8 +18,9 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
-from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
+from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist, _prior_deep_review
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI, ReviewPRWorkflowInputs
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.signals.backend.models import SignalReport
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -47,6 +49,7 @@ class TestFetchDecidesTheTier(BaseTest):
     @parameterized.expand(
         [
             ("after_standard", "sha1", False, True, None, False),
+            ("retry_after_marker", "sha1", False, True, None, False),
             ("new_head", "older", False, True, None, True),
             ("returned_to_draft", "sha1", True, True, None, True),
             ("switch_turned_off", "sha1", False, False, None, True),
@@ -89,6 +92,25 @@ class TestFetchDecidesTheTier(BaseTest):
         ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
             automatic_reviewed_head_sha="sha1", published_heads_by_mode=published, published_head_sha="sha1"
         )
+        if _name == "retry_after_marker":
+            queued = ReviewPRWorkflowInputs(
+                team_id=self.team.id, user_id=self.user.id, owner="O", repo="R", pr_number=9
+            )
+            assert _prior_deep_review(queued) is None
+            ReviewReportArtefact.add_turn_marker(
+                team_id=self.team.id,
+                report_id=first.report_id,
+                content=TurnMarkerArtefact(
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FULL,
+                    reviewhog_version="v",
+                    reviewhog_fingerprint="f",
+                    publishes=True,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            assert _prior_deep_review(queued) == first.report_id
 
         meta = _fetch_and_persist(replace(request, review_mode=REVIEW_MODE_FULL, refused_head_sha=refused_head))
         assert (meta.already_completed or meta.skip_verdict_review or meta.already_published) is skip
