@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTabs, Lin
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -151,6 +152,15 @@ export function PlatformAlertsScene(): JSX.Element {
     } = useValues(platformAlertsLogic)
     const { loadConfigurations, setPage, setActiveTab, toggleExpanded } = useActions(platformAlertsLogic)
     const columns = useMemo(() => listColumns(expandedIds, toggleExpanded), [expandedIds, toggleExpanded])
+    // The table's own pagination counts its rows, and an open alert adds a row for each group.
+    const paginationState = usePagination(configurationsPage?.results ?? [], {
+        controlled: true,
+        pageSize: PLATFORM_ALERTS_PAGE_SIZE,
+        currentPage: page,
+        entryCount: configurationsPage?.count ?? 0,
+        onForward: configurationsPage?.next ? () => setPage(page + 1) : undefined,
+        onBackward: page > 1 ? () => setPage(page - 1) : undefined,
+    })
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
@@ -176,15 +186,8 @@ export function PlatformAlertsScene(): JSX.Element {
                 rowKey={({ configuration, group }) => group?.id ?? configuration.id}
                 rowClassName={({ group }) => (group ? 'bg-surface-secondary' : null)}
                 emptyState="No alert configurations on the platform for this project yet."
-                pagination={{
-                    controlled: true,
-                    pageSize: PLATFORM_ALERTS_PAGE_SIZE,
-                    currentPage: page,
-                    entryCount: configurationsPage?.count ?? 0,
-                    onForward: configurationsPage?.next ? () => setPage(page + 1) : undefined,
-                    onBackward: page > 1 ? () => setPage(page - 1) : undefined,
-                }}
             />
+            <PaginationControl {...paginationState} nouns={['alert', 'alerts']} bordered />
         </div>
     )
 
