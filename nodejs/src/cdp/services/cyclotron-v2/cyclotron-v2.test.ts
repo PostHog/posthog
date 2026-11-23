@@ -128,6 +128,7 @@ interface RawJobRow {
     action_id: string | null
     cancel_requested_at: string | Date | null
     dequeue_seq: string | null
+    file_bytes: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -1095,7 +1096,13 @@ describe('Cyclotron V2', () => {
                 async (release, terminalStatus) => {
                     const id = uuidv7()
                     // First insert + drive to terminal state via the worker.
-                    await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                    await manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('v1'),
+                        fileBytes: 700,
+                    })
                     const worker = createWorker()
                     const jobs = await dequeueOneBatch(worker)
                     await jobs[0][release]()
@@ -1109,11 +1116,13 @@ describe('Cyclotron V2', () => {
                         teamId: 1,
                         queueName: QUEUE,
                         state: Buffer.from('v2'),
+                        fileBytes: 300,
                         overwriteExisting: true,
                     })
                     const row = await queryJob(id)
                     expect(row.status).toBe('available')
                     expect(row.state).toEqual(Buffer.from('v2'))
+                    expect(row.file_bytes).toBe('300')
                     expect(row.lock_id).toBeNull()
                     expect(row.last_heartbeat).toBeNull()
                     // transition_count bumps so the janitor's poison-pill guard

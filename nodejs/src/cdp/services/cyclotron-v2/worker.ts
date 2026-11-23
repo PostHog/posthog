@@ -821,9 +821,9 @@ export class CyclotronV2Worker {
                          scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
                          dequeue_seq = COALESCE($4, dequeue_seq),
                          state = COALESCE($5, state),
-                         file_bytes = COALESCE($6, file_bytes)
+                         file_bytes = CASE WHEN $7 THEN $6::bigint ELSE file_bytes END
                      WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null]
+                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null, fileBytes !== undefined]
                 )
             }),
 
