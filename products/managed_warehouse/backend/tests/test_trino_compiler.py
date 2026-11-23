@@ -670,7 +670,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
         data_imports_schema="imports_production",
     )
     database = mock.Mock()
-    database.has_table.return_value = True
+    database.has_table.side_effect = lambda name: name != "orders_model_before_rename"
 
     with mock.patch(
         "products.managed_warehouse.backend.team_state.data_imports_table_naming_version",

@@ -74,16 +74,15 @@ def build_trino_table_locators(
         .select_related("table")
     )
     model_table_names = get_data_modeling_table_names(team_id, [saved_query.id for saved_query in materialized_models])
-    model_locators = {
+    visible_model_locators = {
         saved_query: (catalog_name, model_schema, model_table_names[saved_query.id])
         for saved_query in materialized_models
+        if database.has_table(saved_query.name)
     }
-    for saved_query, model_locator in model_locators.items():
-        if database.has_table(saved_query.name):
-            locators[saved_query.name] = model_locator
-    for saved_query, model_locator in model_locators.items():
-        if database.has_table(saved_query.table.name):
-            locators.setdefault(saved_query.table.name, model_locator)
+    for saved_query, model_locator in visible_model_locators.items():
+        locators[saved_query.name] = model_locator
+    for saved_query, model_locator in visible_model_locators.items():
+        locators.setdefault(saved_query.table.name, model_locator)
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)
     for table in list_ducklake_imported_tables(team_id, naming_version):
