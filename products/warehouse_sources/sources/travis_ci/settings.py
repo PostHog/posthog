@@ -16,8 +16,14 @@ class TravisCIEndpointConfig:
     # Iterate every accessible repository and query ``path`` once per repo.
     fan_out_over_repositories: bool = False
     # Yield the rows nested under this key of each collection item (e.g. a build's ``jobs``)
-    # instead of the items themselves, tagged with the parent item's id as ``build_id``.
+    # instead of the items themselves, tagged with the parent item's id as ``parent_id_key``.
     embedded_collection_key: Optional[str] = None
+    parent_id_key: str = "build_id"
+    # Send ``limit`` and follow ``@pagination``. Unpaginated collections (caches) take no limit.
+    paginated: bool = True
+    # Skip repositories that answer 403 instead of failing the sync. Only for endpoints that need
+    # more than read access (caches need push access), so a valid token still hits them.
+    skip_forbidden_repositories: bool = False
     # Extra query params sent on the first page request (``@pagination.next`` hrefs carry
     # them forward on subsequent pages).
     extra_params: dict[str, str] = field(default_factory=dict)
@@ -40,6 +46,13 @@ TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
         path="/repos",
         collection_key="repositories",
         # Repositories expose no creation timestamp, so no partitioning or incremental sync.
+    ),
+    "organizations": TravisCIEndpointConfig(
+        name="organizations",
+        path="/orgs",
+        collection_key="organizations",
+        # The organizations the token's user is a member of. No timestamps, so full refresh only.
+        extra_params={"sort_by": "id"},
     ),
     "builds": TravisCIEndpointConfig(
         name="builds",
@@ -121,6 +134,26 @@ TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
         ],
         partition_key="created_at",
     ),
+    "messages": TravisCIEndpointConfig(
+        name="messages",
+        path="/repo/{repository_id}/requests",
+        collection_key="requests",
+        fan_out_over_repositories=True,
+        # Requests embed their travis-yml config messages, so messages ride the requests
+        # pagination instead of one ``/request/{id}/messages`` call per request.
+        embedded_collection_key="messages",
+        parent_id_key="request_id",
+        incremental_fields=[
+            {
+                "label": "request_id",
+                "type": IncrementalFieldType.Integer,
+                "field": "request_id",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+        # Messages expose no timestamp, so no partitioning.
+        should_sync_default=False,
+    ),
     "crons": TravisCIEndpointConfig(
         name="crons",
         path="/repo/{repository_id}/crons",
@@ -139,6 +172,17 @@ TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
         primary_keys=["repository_id", "name"],
         # Full refresh only, and it re-walks every repo's branch list each sync — off by
         # default to avoid the API cost for users who don't need it.
+        should_sync_default=False,
+    ),
+    "caches": TravisCIEndpointConfig(
+        name="caches",
+        path="/repo/{repository_id}/caches",
+        collection_key="caches",
+        fan_out_over_repositories=True,
+        paginated=False,
+        skip_forbidden_repositories=True,
+        # Caches carry no id; a cache name is unique within a repository branch.
+        primary_keys=["repository_id", "branch", "name"],
         should_sync_default=False,
     ),
 }

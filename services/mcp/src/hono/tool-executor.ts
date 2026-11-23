@@ -46,6 +46,7 @@ import {
     markNoncanonicalMetricRun,
     missingToolScopeError,
     parseExecCallInnerArgs,
+    isReadOnlyDefinition,
     parseExecCallInnerToolName,
     repairArgumentNesting,
     UNRECOGNIZED_EXEC_TOKEN,
@@ -54,6 +55,7 @@ import {
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME, isExecDispatcher } from '@/tools/exec-names'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -116,8 +118,8 @@ interface ExecMetricState {
  * Whether a direct `tools/call` response should drop `structuredContent` and leave the
  * formatted table in the text channel to stand alone.
  *
- * CLI-mode clients read `content[].text`, so for them the structured copy only adds
- * tokens. A render-ui host in single-exec mode is the exception, because there
+ * Clients that prefer formatted text read `content[].text`, so for them the structured
+ * copy only adds tokens. A render-ui host in single-exec mode is the exception, because there
  * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
  * both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
@@ -133,12 +135,12 @@ interface ExecMetricState {
  * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
-    isCliModeEnabled: boolean
+    prefersFormattedText: boolean
     useSingleExec: boolean
     renderUiEnabled: boolean
 }): boolean {
     const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
-    return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+    return args.prefersFormattedText && !isRenderUiHostInSingleExec
 }
 
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
@@ -215,7 +217,7 @@ export class ToolExecutor {
             const renderUiEntry = state.renderUiEnabled
                 ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
                 : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            return [...this.instructionsBuilder.buildExecToolEntries(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -237,8 +239,14 @@ export class ToolExecutor {
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
         if (state.useSingleExec) {
-            if (toolName === 'exec') {
+            if (toolName === EXEC_TOOL_NAME) {
                 return this.instructionsBuilder.buildExecToolEntry(state)
+            }
+            if (toolName === EXEC_READ_TOOL_NAME) {
+                return this.instructionsBuilder.buildExecReadToolEntry(state)
+            }
+            if (toolName === EXEC_WRITE_TOOL_NAME) {
+                return this.instructionsBuilder.buildExecWriteToolEntry()
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
                 return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
@@ -270,6 +278,7 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const missingSavedSelection = carriedContextHandle && state.suppliedHandleHadNoSavedSelection === true
         const carriedContextSessionKey = carriedContextHandle
             ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
             : undefined
@@ -299,7 +308,7 @@ export class ToolExecutor {
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
-            toolName === 'exec' && typeof args.command === 'string'
+            isExecDispatcher(toolName) && typeof args.command === 'string'
                 ? parseExecCallInnerToolName(args.command)
                 : toolName
         const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
@@ -323,9 +332,51 @@ export class ToolExecutor {
             return invitation
         }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        const delivered = this.deliverConversationHandle(result, preparedCall)
+        const warnAboutDefault =
+            !isContextSwitch && !callState.requestContext.projectId && (!carriedContextHandle || missingSavedSelection)
+        const resultWithProjectContext = warnAboutDefault
+            ? await this.appendDefaultProjectWarning(result, callState, missingSavedSelection)
+            : result
+        const delivered = this.deliverConversationHandle(resultWithProjectContext, preparedCall)
         await hooks?.afterExecute(callState, delivered)
         return delivered
+    }
+
+    private async appendDefaultProjectWarning(
+        result: unknown,
+        state: ResolvedState,
+        missingSavedSelection: boolean
+    ): Promise<unknown> {
+        if (typeof result !== 'object' || result === null || !('content' in result) || !Array.isArray(result.content)) {
+            return result
+        }
+
+        try {
+            const projectId = await state.context.stateManager.getProjectId()
+            const usesTransportSession = Boolean(state.requestContext.mcpSessionId)
+            const handle = usesTransportSession ? '`Mcp-Session-Id`' : '`conversation_id`'
+            const reason = missingSavedSelection
+                ? `No saved project selection was found for this ${handle}.`
+                : 'This request carried no usable `conversation_id` or MCP session.'
+            const switchAgain = usesTransportSession
+                ? 'Call `switch-project` in this MCP session to select a different project. To use a conversation’s saved selection, send its `conversation_id` without the session header.'
+                : 'To select a different project again, call `switch-project` with this `conversation_id`.'
+            const recovery = missingSavedSelection
+                ? switchAgain
+                : 'To use a project you switched to, pass the `conversation_id` from that conversation on subsequent calls.'
+            return {
+                ...result,
+                content: [
+                    ...result.content,
+                    {
+                        type: 'text',
+                        text: `${reason} Tools that rely on the active project use the default project (ID ${projectId}). ${recovery}`,
+                    },
+                ],
+            }
+        } catch {
+            return result
+        }
     }
 
     // The agent can only echo a handle it has been given. One exit for every dispatch path,
@@ -347,11 +398,13 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        if (toolName === 'exec') {
-            if (state.viaMcpStore) {
-                return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
+        if (isExecDispatcher(toolName)) {
+            if (state.viaMcpStore || isUnlistedExecDispatcher(toolName, state)) {
+                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, state, analyticsMeta, {
+                refuseWrites: toolName === EXEC_READ_TOOL_NAME,
+            })
         }
 
         // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
@@ -561,7 +614,7 @@ export class ToolExecutor {
                     params: validation.data,
                     includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
-                        isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
+                        prefersFormattedText: state.clientProfile.prefersFormattedText(),
                         useSingleExec: state.useSingleExec,
                         renderUiEnabled: state.renderUiEnabled,
                     }),
@@ -693,7 +746,8 @@ export class ToolExecutor {
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta?: ToolCallAnalyticsMeta,
+        { refuseWrites = false }: { refuseWrites?: boolean } = {}
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
@@ -705,7 +759,7 @@ export class ToolExecutor {
             skillLookupMissKind: undefined,
             resultEmpty: false,
         }
-        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
+        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta, refuseWrites)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
 
@@ -786,7 +840,7 @@ export class ToolExecutor {
                       toolMeta: resolved._meta,
                       toolName: 'exec',
                       params: validation.data,
-                      suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                      suppressStructuredContentForFormattedResults: state.clientProfile.prefersFormattedText(),
                       distinctId: undefined,
                   })
 
@@ -926,7 +980,8 @@ export class ToolExecutor {
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta: ToolCallAnalyticsMeta | undefined,
+        refuseWrites: boolean
     ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
@@ -1014,6 +1069,7 @@ export class ToolExecutor {
                 // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
                 supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
                 metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
+                refuseWrites,
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1182,17 +1238,25 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 
 // Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,
 // so a step-up client that replays the call after re-consent repeats nothing.
+// A split connection lists `exec-read` and `exec-write` in place of `exec`; others never list `exec-write`.
+function isUnlistedExecDispatcher(toolName: string, state: ResolvedState): boolean {
+    return state.splitWrites ? toolName === EXEC_TOOL_NAME : toolName === EXEC_WRITE_TOOL_NAME
+}
+
 function challengeStepUpForGatedTool(toolName: string, args: Record<string, unknown>, state: ResolvedState): void {
-    if (!state.supportsStepUp || state.viaMcpStore) {
+    if (!state.supportsStepUp || state.viaMcpStore || isUnlistedExecDispatcher(toolName, state)) {
         return
     }
     const targetToolName =
-        toolName === 'exec' && typeof args.command === 'string' ? parseExecCallInnerToolName(args.command) : toolName
+        isExecDispatcher(toolName) && typeof args.command === 'string'
+            ? parseExecCallInnerToolName(args.command)
+            : toolName
     if (!targetToolName || state.allTools.some((tool) => tool.name === targetToolName)) {
         return
     }
     const scopeGatedTool = state.findScopeGatedTool(targetToolName)
-    if (scopeGatedTool) {
+    const refusedOnExec = toolName === EXEC_READ_TOOL_NAME && !isReadOnlyDefinition(targetToolName)
+    if (scopeGatedTool && !refusedOnExec) {
         challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
     }
 }

@@ -85,7 +85,7 @@ export interface sidePanelLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     defaultTab: SidePanelTab
     deprecatedTabs: SidePanelTab[]
     enabledTabs: SidePanelTab[]
@@ -111,7 +111,11 @@ export interface sidePanelLogicActions {
 export interface sidePanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isAccessControlSettings: (
-            location: { hash: string; pathname: string; search: string },
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
             featureFlags: FeatureFlagsSet
         ) => boolean
         enabledTabs: (
@@ -119,7 +123,7 @@ export interface sidePanelLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             scenePanelIsPresent: boolean,
             isCloudOrDev: boolean | undefined,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
             isAccessControlSettings: boolean,
             featureFlags: FeatureFlagsSet
         ) => SidePanelTab[]

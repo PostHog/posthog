@@ -11,6 +11,11 @@ ENDPOINTS = (
     "ScheduleRecipients",
     "DocumentPermissions",
     "UserAttributes",
+    "AiConversations",
+    "Labels",
+    "UserModelRoles",
+    "UserGroupModelRoles",
+    "FolderPermissions",
 )
 
 # Only Documents exposes anything close to a timestamp cursor (`sortField=updatedAt`, no
@@ -43,6 +48,14 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "DocumentPermissions": ["documentId", "principalId", "accessSource"],
     # System-defined attributes return an empty `id`; `name` is unique within the organization.
     "UserAttributes": ["name"],
+    "AiConversations": ["id"],
+    # Label names are unique (case-insensitively) within the organization; labels have no id.
+    "Labels": ["name"],
+    # A user gets one row per model for each source of a role: a direct grant, each group it
+    # belongs to, and the connection's base role.
+    "UserModelRoles": ["userId", "modelId", "connectionId", "roleSource", "sourceUserGroupId"],
+    "UserGroupModelRoles": ["userGroupId", "modelId", "connectionId"],
+    "FolderPermissions": ["folderId", "principalId"],
 }
 
 # A stable field to partition on — never the incremental cursor (`updatedAt` changes on every
@@ -60,13 +73,18 @@ PARTITION_KEYS: dict[str, str | None] = {
     "ScheduleRecipients": None,
     "DocumentPermissions": None,
     "UserAttributes": None,
+    "AiConversations": "createdAt",
+    "Labels": None,
+    "UserModelRoles": None,
+    "UserGroupModelRoles": None,
+    "FolderPermissions": None,
 }
 
 DEFAULT_PAGE_SIZE = 100
 
 # SCIM users/groups endpoints require an Organization API key (Personal Access Tokens are
-# explicitly documented as unsupported for them).
-SCIM_ENDPOINTS = frozenset({"Users", "UserGroups"})
+# explicitly documented as unsupported for them). The model-role tables fan out over them.
+SCIM_ENDPOINTS = frozenset({"Users", "UserGroups", "UserModelRoles", "UserGroupModelRoles"})
 
 # Child endpoints fetched once per parent row. The parent's sort is pinned to a field that rarely
 # changes so cursor pagination doesn't skip rows edited mid-walk (Documents otherwise sorts by
@@ -89,6 +107,34 @@ FANOUT_ENDPOINTS: dict[str, DependentEndpointConfig] = {
         parent_params={"sortField": "name", "sortDirection": "asc"},
         # The access list needs Manager permission on each document, so a key that can view a
         # document but not manage it gets a 403 for that document only.
+        child_response_actions=[
+            {"status_code": 403, "action": "ignore"},
+            {"status_code": 404, "action": "ignore"},
+        ],
+    ),
+    "UserModelRoles": DependentEndpointConfig(
+        parent_name="Users",
+        resolve_param="userId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "userId"},
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    ),
+    "UserGroupModelRoles": DependentEndpointConfig(
+        parent_name="UserGroups",
+        resolve_param="userGroupId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "userGroupId"},
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    ),
+    "FolderPermissions": DependentEndpointConfig(
+        parent_name="Folders",
+        resolve_param="folderId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "folderId"},
+        # Listing every grant on a folder needs Manager permission on it, so other folders 403.
         child_response_actions=[
             {"status_code": 403, "action": "ignore"},
             {"status_code": 404, "action": "ignore"},

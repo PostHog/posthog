@@ -116,15 +116,15 @@ class HogQLTableNotSupportedError(Exception):
 class CustomSchemaWithoutQueryError(Exception):
     """A custom schema stored without its HogQL query, so a run on the native events table cannot recompile it.
 
-    A schema is stored without its query when the user who saved it had restricted properties. Its stored fields
-    read the legacy String `properties`, so they cannot run on the native table either.
+    Older saves by a user with restricted properties stored the schema without its query. Its stored fields read the
+    legacy String `properties`, so they cannot run on the native table either. Saving the export again stores the
+    query and the restrictions it needs.
     """
 
     def __init__(self) -> None:
         super().__init__(
             "This export can't read the new events table because its fields were saved without their query. "
-            "This happens when the person who saved the export has restricted properties. "
-            "Ask someone without restricted properties to save the export again, or contact support."
+            "Save the export again to fix this, or contact support."
         )
 
 
@@ -837,6 +837,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
 
     if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
         query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
+    if record_batch_size_bytes := settings.BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES:
+        query_settings["output_format_arrow_record_batch_size_bytes"] = str(record_batch_size_bytes)
 
     clickhouse_url = None
     # 5 min batch exports should query a single node, which is known to have zero replication lag

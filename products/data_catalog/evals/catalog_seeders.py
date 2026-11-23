@@ -45,13 +45,16 @@ from products.data_catalog.evals.catalog_synthesizer import (
     DEALS_TABLE_DESCRIPTION,
     DEALS_V3_TABLE,
     DEALS_V3_TABLE_DESCRIPTION,
+    FILES_PAGE_ACTIONS_METRIC,
     LOCAL_AMOUNT_DESCRIPTION,
     LOCAL_AMOUNT_ROWS,
     LOCAL_AMOUNT_TABLE,
     MRR_METRIC,
+    NEW_USER_DOWNLOAD_ADOPTION_METRIC,
     NOISE_METRICS,
     OPERATIONS_NOISE_METRICS,
     PAYING_CUSTOMERS_METRIC,
+    POWER_DOWNLOADERS_METRIC,
     USD_AMOUNT_DESCRIPTION,
     USD_AMOUNT_ROWS,
     USD_AMOUNT_TABLE,
@@ -95,7 +98,9 @@ assert tuple(_AMOUNT_COLUMN_TYPES) == AMOUNT_COLUMNS
 assert tuple(_ACCOUNTS_COLUMN_TYPES) == ACCOUNTS_COLUMNS
 
 
-def _install(context: CustomPromptSandboxContext, metrics: Iterable[CatalogMetric]) -> list[dict[str, str]]:
+def _install(
+    context: CustomPromptSandboxContext, metrics: Iterable[CatalogMetric], *, approve: bool = True
+) -> list[dict[str, str]]:
     team, user = team_and_user(context)
     installed = []
     for spec in metrics:
@@ -109,8 +114,9 @@ def _install(context: CustomPromptSandboxContext, metrics: Iterable[CatalogMetri
             definition=spec.definition,
             overwrite=True,
         )
-        approve_metric(metric, user)
-        installed.append({"name": spec.name, "status": "approved"})
+        if approve:
+            approve_metric(metric, user)
+        installed.append({"name": spec.name, "status": "approved" if approve else "proposed"})
     return installed
 
 
@@ -129,6 +135,14 @@ def seed_catalog_with_account_engagement(context: CustomPromptSandboxContext) ->
     return _catalog(context, ACCOUNT_ENGAGEMENT_METRIC)
 
 
+def seed_catalog_with_files_page_actions(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, FILES_PAGE_ACTIONS_METRIC)
+
+
+def seed_catalog_with_power_downloaders(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, POWER_DOWNLOADERS_METRIC)
+
+
 def _require_paid_bills(context: CustomPromptSandboxContext) -> None:
     require_warehouse_tables(*team_and_user(context), names=(_PAYING_CUSTOMERS_TABLE,))
 
@@ -139,6 +153,15 @@ def seed_catalog_for_board_update(context: CustomPromptSandboxContext) -> dict[s
     return _catalog(
         context, MRR_METRIC, PAYING_CUSTOMERS_METRIC, ACCOUNT_ENGAGEMENT_METRIC, noise=OPERATIONS_NOISE_METRICS
     )
+
+
+def seed_catalog_with_proposed_download_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    proposed = _install(context, [NEW_USER_DOWNLOAD_ADOPTION_METRIC], approve=False)
+    return {"catalog": {**_catalog(context)["catalog"], "proposed": [metric["name"] for metric in proposed]}}
+
+
+def seed_catalog_noise_only(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context)
 
 
 def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

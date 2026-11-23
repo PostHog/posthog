@@ -247,6 +247,36 @@ class TestInstantly:
                 {},
                 [{"stats": {"verified": 7, "invalid": 2}, "total_leads": 9, "lead_list_id": "c-1"}],
             ),
+            (
+                "campaign_sending_status",
+                "/api/v2/campaigns",
+                "/api/v2/campaigns/c-1/sending-status",
+                [
+                    {
+                        "diagnostics": {"campaign_id": "c-1", "status": "daily_limit_met", "leads_status": {"ok": 1}},
+                        "summary": {"status": "daily_limit_met"},
+                    }
+                ],
+                {},
+                # The diagnostics members become columns; summary stays one JSON column.
+                [
+                    {
+                        "campaign_id": "c-1",
+                        "status": "daily_limit_met",
+                        "leads_status": {"ok": 1},
+                        "summary": {"status": "daily_limit_met"},
+                    }
+                ],
+            ),
+            (
+                "campaign_sending_status",
+                "/api/v2/campaigns",
+                "/api/v2/campaigns/c-1/sending-status",
+                # The API returns null for both fields when it has no status data yet.
+                [{"diagnostics": None, "summary": None}],
+                {},
+                [{"diagnostics": None, "summary": None, "campaign_id": "c-1"}],
+            ),
         ],
     )
     def test_fanout_scopes_each_request_to_one_parent(
@@ -272,6 +302,40 @@ class TestInstantly:
         assert response.supports_resume is False
         # A parent without an id is skipped rather than sent as an unscoped request.
         assert client.calls == [(parent_path, {"limit": 100}), (child_path, expected_params)]
+
+    def test_account_campaign_mappings_fan_out_over_account_emails_in_path(self):
+        client = _FakeClient(
+            {
+                "/api/v2/accounts": [[{"email": "sender+a@example.com"}, {"id": "no-email"}]],
+                "/api/v2/account-campaign-mappings/sender%2Ba%40example.com": [
+                    [{"campaign_id": "c-1", "campaign_name": "Launch", "status": 1}],
+                    [{"campaign_id": "c-2", "campaign_name": "Follow-up", "status": 2}],
+                ],
+            }
+        )
+
+        with mock.patch(f"{MODULE}._make_client", return_value=client):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_campaign_mappings",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            pages = list(items)
+
+        # Mapping rows carry no account, so each row gets the email for the composite key.
+        assert pages == [
+            [{"campaign_id": "c-1", "campaign_name": "Launch", "status": 1, "email": "sender+a@example.com"}],
+            [{"campaign_id": "c-2", "campaign_name": "Follow-up", "status": 2, "email": "sender+a@example.com"}],
+        ]
+        assert response.primary_keys == ["email", "campaign_id"]
+        assert client.calls == [
+            ("/api/v2/accounts", {"limit": 100}),
+            ("/api/v2/account-campaign-mappings/sender%2Ba%40example.com", {"limit": 100}),
+        ]
 
     def test_account_warmup_analytics_batches_account_emails_and_flattens_stats(self):
         accounts = [{"email": f"sender{i}@example.com"} for i in range(101)] + [{"name": "no email"}]
@@ -386,6 +450,15 @@ class TestInstantly:
             ("account_warmup_analytics", "https://api.instantly.ai/api/v2/accounts", {"limit": 1}),
             # Verification stats need a real lead list id in the path; /lead-lists checks the same scope.
             ("lead_list_verification_stats", "https://api.instantly.ai/api/v2/lead-lists", {"limit": 1}),
+            ("account_campaign_mappings", "https://api.instantly.ai/api/v2/accounts", {"limit": 1}),
+            ("campaign_sending_status", "https://api.instantly.ai/api/v2/campaigns", {"limit": 1}),
+            # Billing endpoints take no query params, so the analytics window must not be sent.
+            ("workspace_plan_details", "https://api.instantly.ai/api/v2/workspace-billing/plan-details", None),
+            (
+                "workspace_subscriptions",
+                "https://api.instantly.ai/api/v2/workspace-billing/subscription-details",
+                None,
+            ),
         ],
     )
     def test_probe_sends_required_params(self, endpoint, expected_url, expected_params):
@@ -395,7 +468,7 @@ class TestInstantly:
 
         session.post.assert_not_called()
         assert session.get.call_args.args[0] == expected_url
-        assert session.get.call_args.kwargs["params"] == expected_params
+        assert session.get.call_args.kwargs.get("params") == expected_params
 
     @pytest.mark.parametrize(
         "endpoint,expected_primary_keys,expected_partition_mode,expected_sort_mode",

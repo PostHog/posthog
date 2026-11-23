@@ -473,6 +473,7 @@ rules:
                               |AnomalyScoringDueInsight
                               |PushTokenImport
                               |SignalScratchpad
+                              |SignalScratchpadRevision
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
@@ -1020,6 +1021,7 @@ rules:
                         |AnomalyScoringDueInsight
                         |PushTokenImport
                         |SignalScratchpad
+                        |SignalScratchpadRevision
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
@@ -1509,6 +1511,7 @@ rules:
                               |OrganizationIPRestrictions
                               |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1595,6 +1598,7 @@ rules:
                         |OrganizationIPRestrictions
                         |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite

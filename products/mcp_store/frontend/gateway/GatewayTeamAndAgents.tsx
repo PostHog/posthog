@@ -10,15 +10,47 @@ import { GatewayMemberSummaryApi, MCPGatewayServerApi, MCPServiceAccountApi } fr
 import { toProfileUser } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
-const MEMBER_PREVIEW_LIMIT = 10
+export const MEMBER_PREVIEW_LIMIT = 10
 
-function memberDisplayName(member: GatewayMemberSummaryApi): string {
+export function memberDisplayName(member: GatewayMemberSummaryApi): string {
     return [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email
 }
 
-function agentToolCount(account: MCPServiceAccountApi, servers: MCPGatewayServerApi[]): number {
+export function agentToolCount(account: MCPServiceAccountApi, servers: MCPGatewayServerApi[]): number {
     const serverIds = new Set(account.server_ids)
     return servers.filter((server) => serverIds.has(server.id)).reduce((total, server) => total + server.tool_count, 0)
+}
+
+export function filterGatewayMembers(
+    members: GatewayMemberSummaryApi[],
+    memberSearch: string
+): GatewayMemberSummaryApi[] {
+    const normalizedMemberSearch = memberSearch.trim().toLowerCase()
+    return normalizedMemberSearch
+        ? members.filter((member) => {
+              const name = memberDisplayName(member).toLowerCase()
+              return (
+                  name.includes(normalizedMemberSearch) ||
+                  member.user.email.toLowerCase().includes(normalizedMemberSearch)
+              )
+          })
+        : members
+}
+
+export function openGatewayAgent(id: string, onOpenAgent?: (id: string) => void): void {
+    if (onOpenAgent) {
+        onOpenAgent(id)
+    } else {
+        router.actions.push(urls.mcpGatewayAgent(id))
+    }
+}
+
+export function openGatewayMember(id: number, onOpenMember?: (id: number) => void): void {
+    if (onOpenMember) {
+        onOpenMember(id)
+    } else {
+        router.actions.push(urls.mcpGatewayMember(id))
+    }
 }
 
 interface gatewayTeamAndAgentsLogicValues {
@@ -33,7 +65,7 @@ interface gatewayTeamAndAgentsLogicActions {
 
 type gatewayTeamAndAgentsLogicType = MakeLogicType<gatewayTeamAndAgentsLogicValues, gatewayTeamAndAgentsLogicActions>
 
-const gatewayTeamAndAgentsLogic = kea<gatewayTeamAndAgentsLogicType>([
+export const gatewayTeamAndAgentsLogic = kea<gatewayTeamAndAgentsLogicType>([
     path(['products', 'mcp_store', 'frontend', 'gateway', 'gatewayTeamAndAgentsLogic']),
     actions({
         setMemberSearch: (memberSearch: string) => ({ memberSearch }),
@@ -70,31 +102,10 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
     const { toggleAccountStatus } = useActions(mcpGatewayLogic)
     const { memberSearch, membersExpanded } = useValues(gatewayTeamAndAgentsLogic)
     const { setMemberSearch, toggleMembersExpanded } = useActions(gatewayTeamAndAgentsLogic)
-    const normalizedMemberSearch = memberSearch.trim().toLowerCase()
-    const filteredMembers = normalizedMemberSearch
-        ? members.filter((member) => {
-              const name = memberDisplayName(member).toLowerCase()
-              return (
-                  name.includes(normalizedMemberSearch) ||
-                  member.user.email.toLowerCase().includes(normalizedMemberSearch)
-              )
-          })
-        : members
+    const filteredMembers = filterGatewayMembers(members, memberSearch)
     const displayedMembers = membersExpanded ? filteredMembers : filteredMembers.slice(0, MEMBER_PREVIEW_LIMIT)
-    const openAgent = (id: string): void => {
-        if (onOpenAgent) {
-            onOpenAgent(id)
-        } else {
-            router.actions.push(urls.mcpGatewayAgent(id))
-        }
-    }
-    const openMember = (id: number): void => {
-        if (onOpenMember) {
-            onOpenMember(id)
-        } else {
-            router.actions.push(urls.mcpGatewayMember(id))
-        }
-    }
+    const openAgent = (id: string): void => openGatewayAgent(id, onOpenAgent)
+    const openMember = (id: number): void => openGatewayMember(id, onOpenMember)
 
     return (
         <div className="flex flex-col gap-6 min-w-0">
