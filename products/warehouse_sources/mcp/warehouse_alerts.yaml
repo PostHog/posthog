@@ -27,8 +27,9 @@ tools:
             pagerduty_region; PagerDuty opens an incident when the alert fires and resolves it when the alert resolves.
             email: email_user_ids, the user IDs of the project members to email; each send skips a member who cannot
             view the project or warehouse sources, or who turned off data pipeline error emails, and typed email
-            addresses are refused. event_kinds lists the transitions to send, firing and resolved; it defaults to both. Ask the user
-            which channel they want before you call this, because a wrong guess sends alerts to the wrong place.
+            addresses are refused. event_kinds lists the transitions to send, firing and resolved; it defaults to both.
+            Ask the user which channel they want before you call this, because a wrong guess sends alerts to the wrong
+            place.
     warehouse-alerts-destinations-delete:
         operation: warehouse_alerts_destinations_delete_create
         enabled: true
@@ -48,6 +49,6 @@ tools:
         title: List where a sync failure alert notifies
         description: >
             List the notification destinations of a warehouse sync failure alert: Slack channels, webhooks, Microsoft
-            Teams, Discord, PagerDuty, and project members by email. The id is the alert ID from platform-alerts-list or platform-alerts-create,
-            not a source ID. Secrets are redacted: webhook URLs show only scheme and host, and PagerDuty keys show only
-            the last four characters. An alert with no destinations notifies nobody.
+            Teams, Discord, PagerDuty, and project members by email. The id is the alert ID from platform-alerts-list or
+            platform-alerts-create, not a source ID. Secrets are redacted: webhook URLs show only scheme and host, and
+            PagerDuty keys show only the last four characters. An alert with no destinations notifies nobody.
