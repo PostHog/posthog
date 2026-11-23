@@ -814,6 +814,7 @@ class TestAbuseRules(SimpleTestCase):
             ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
             ("internal_tld_host", post_to("https://billing.corp/x"), False),
             ("loopback_dns_name", post_to("http://localtest.me/x"), False),
+            ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
             ("address_in_the_host_name", post_to("https://10-0-0-1.example.com/x"), False),
             ("public_address_host", post_to("https://203.0.113.7/x"), False),
             ("userinfo_before_the_host", post_to("https://169.254.169.254@api.example.com/x"), False),
@@ -959,6 +960,48 @@ class TestAbuseRules(SimpleTestCase):
                 "constant_field_index",
                 content(hog="let a := []\na.1000000000 := 1\nfetch(inputs.url, {'body': a})"),
                 False,
+            ),
+            (
+                "function_with_a_request_recursing_through_a_parameter",
+                content(hog="fun g(h, n) {\n  fetch(inputs.url)\n  if (n > 0) {\n    h(h, n - 1)\n  }\n}\ng(g, 50)"),
+                False,
+            ),
+            (
+                "factory_result_called_from_a_loop",
+                content(
+                    hog="fun getSender() {\n  return inputs.sender\n}\nfor (let x in [1, 2]) {\n  getSender()(x)\n}"
+                ),
+                False,
+            ),
+            (
+                "callback_builtin_called_with_params",
+                content(hog="fun send(x) {\n  return fetch(inputs.url)\n}\narrayMap(send, range(50))(x -> x)"),
+                False,
+            ),
+            (
+                "upvalues_rewired_through_a_closure",
+                content(
+                    hog="fun good(x) {\n  return x\n}\nfun send(x) {\n  return good(x)\n}\n"
+                    "let w := () -> good(1)\nlet holder := 0\nfun setter(f) {\n  holder := f\n}\n"
+                    "setter.upvalues[1] := w.upvalues[1]\nsetter(inputs.sender)\n"
+                    "for (let i in [1, 2]) {\n  send(i)\n}"
+                ),
+                False,
+            ),
+            (
+                "replacement_with_the_match",
+                content(hog="fetch(inputs.url, {'body': replaceAll(inputs.text, 'ab', '$&$&')})"),
+                False,
+            ),
+            (
+                "replace_one_with_a_token",
+                content(hog="fetch(inputs.url, {'body': replaceOne(inputs.text, 'z', '$`')})"),
+                False,
+            ),
+            (
+                "replace_one_with_a_constant",
+                content(hog="fetch(inputs.url, {'body': replaceOne(inputs.text, 'z', 'y')})"),
+                True,
             ),
             (
                 "request_in_a_for_initializer",

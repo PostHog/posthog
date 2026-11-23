@@ -164,18 +164,29 @@ _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFEREN
 # These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
 _AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
 # The VM charges a builtin's result to the memory cap only after it builds it. Most builtins grow their input by a small
-# constant factor at most, but `replaceAll` multiplies it by the ratio of replacement to search length,
-# `arrayStringConcat` copies its separator once per element, and an indented `jsonStringify` repeats the indent once per
-# level on every line. Any of them can pass the cap in one step.
+# constant factor at most, but `replaceAll` multiplies it by the ratio of replacement to search length, `replaceOne`
+# and `replaceAll` expand the tokens below, `arrayStringConcat` copies its separator once per element, and an indented
+# `jsonStringify` repeats the indent once per level on every line. Any of them can pass the cap in one step.
 _MAX_REPLACEMENT_GROWTH = 8
-# JavaScript's `replaceAll` replaces these with the input before or after each match, which grows the input by its square.
-_WHOLE_INPUT_TOKENS = ("$`", "$'")
-_UNCAPPED_BUILTINS = frozenset({"replaceAll", "arrayStringConcat", "jsonStringify", "sleep"})
+# JavaScript replaces these with the input before or after the match, or with the match itself.
+_REPLACEMENT_TOKENS = ("$`", "$'", "$&")
+_UNCAPPED_BUILTINS = frozenset({"replaceAll", "replaceOne", "arrayStringConcat", "jsonStringify", "sleep"})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
-    {"localtest.me", "lvh.me", "vcap.me", "nip.io", "sslip.io", "xip.io", "traefik.me", "local.gd", "localhost.direct"}
+    {
+        "localtest.me",
+        "lvh.me",
+        "vcap.me",
+        "nip.io",
+        "sslip.io",
+        "xip.io",
+        "traefik.me",
+        "local.gd",
+        "localhost.direct",
+        "rbndr.us",
+    }
 )
-_EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])")
+_EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])|(?:^|\.)[0-9a-f]{8}(?:\.|$)")
 # A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
 _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
 # A URL part that could name a host on its own, such as a redirect target in the query string.
@@ -412,6 +423,7 @@ class _Binding:
     # Assigned, or used other than by a direct call. A value can be aliased and have its upvalues swapped, as in
     # `let alias := send` and `alias.upvalues[1] := ...`, so a call to it can run anything.
     rebound: bool = False
+    escaped: bool = False
     # Declared with a dict literal and never replaced as a whole, so a write through a computed key cannot grow an
     # array.
     holds_dict: bool = False
@@ -447,22 +459,27 @@ class _LocalCall:
 class _CallGraph:
     """Which declared functions can send a request, and which of them run again and again."""
 
+    declared: list[_Binding] = field(default_factory=list)
     sends: set[_Binding] = field(default_factory=set)
     calls: list[_LocalCall] = field(default_factory=list)
     keyed_writes: list[_Binding | None] = field(default_factory=list)
+    # The targets of writes into a container. A write into anything but a dict literal can reach a closure's `upvalues`,
+    # which points it at another closure's variables, so after one no local call is known.
+    container_writes: list[_Binding | None] = field(default_factory=list)
 
     def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool, uncapped_step: bool) -> _Requests:
         """A call to a static function runs its body, which this walk checked. A call to any other local can run
         anything, because the local can hold a closure from an input or have its upvalues swapped."""
+        rewires = not all(map(_is_dict, self.container_writes))
         sends = set(self.sends)
         # Every call to a declared function is an edge, so recursion shows as a cycle even when the call can also run
         # something else.
         edges: dict[_Binding, set[_Binding]] = {}
-        repeated: set[_Binding] = set()
+        repeated = {function for function in self.declared if function.escaped}
         for call in self.calls:
             if call.caller is not None and call.callee.declares_function:
                 edges.setdefault(call.caller, set()).add(call.callee)
-            if not call.callee.is_static_function:
+            if rewires or not call.callee.is_static_function:
                 other_call = True
                 fans_out |= call.repeats
                 if call.caller is not None:
@@ -475,7 +492,7 @@ class _CallGraph:
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
             fans_out=fans_out or bool(repeated & sends) or _has_cycle(sends, edges),
-            uncapped_step=uncapped_step or not all(_is_dict(target) for target in self.keyed_writes),
+            uncapped_step=uncapped_step or any(rewires or not _is_dict(target) for target in self.keyed_writes),
         )
 
 
@@ -567,6 +584,8 @@ class _HogCodeVisitor(TraversingVisitor):
     def _declare(self, name: str, *, declares_function: bool = False) -> _Binding:
         binding = _Binding(name=name, declares_function=declares_function)
         self._scopes[-1][name] = binding
+        if declares_function:
+            self._graph.declared.append(binding)
         return binding
 
     @contextmanager
@@ -628,9 +647,11 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
-        for name, _error_type, handler in node.catches:
-            with self._scope([name] if name else []):
-                self.visit(handler)
+        # The compiler declares `e` and `type` for every catch block.
+        with self._scope(["e", "type"]):
+            for name, _error_type, handler in node.catches:
+                with self._scope([name] if name else []):
+                    self.visit(handler)
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
@@ -646,6 +667,18 @@ class _HogCodeVisitor(TraversingVisitor):
         if (name := _base_name(node.left)) is not None and (binding := self._local(name)) is not None:
             binding.rebound = True
             binding.replaced |= isinstance(node.left, ast.Field) and len(node.left.chain) == 1
+        match node.left:
+            case ast.Field(chain=[_]):
+                pass
+            case (
+                ast.ArrayAccess(array=ast.Field(chain=[str(name)]))
+                | ast.TupleAccess(tuple=ast.Field(chain=[str(name)]))
+            ):
+                self._graph.container_writes.append(self._local(name))
+            case ast.Field(chain=[str(name), _]):
+                self._graph.container_writes.append(self._local(name))
+            case _:
+                self._graph.container_writes.append(None)
         # `a[1000000000] := 1` makes a sparse array whose holes the memory cap does not count, and a builtin that walks
         # it, such as `jsonStringify`, runs past both caps in one step.
         match node.left:
@@ -688,16 +721,21 @@ class _HogCodeVisitor(TraversingVisitor):
             self.calls_out = True
             frame = self._frames[-1]
             self._graph.calls.append(_LocalCall(caller=frame.function, repeats=frame.repeats, callee=callee))
+            if node.params is not None:
+                # `f(params)(args)` calls whatever `f(params)` returns.
+                self._sends()
             return
         if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
             self._sends(url)
         elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
             self._sends()
-        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
+        # `f(params)(args)` passes `params` to the builtin.
+        builtin_args = node.args if node.params is None else node.params
+        if node.name in _CALLBACK_FUNCTIONS and builtin_args and not isinstance(builtin_args[0], ast.Lambda):
             # The builtin calls the value once per element.
             self._sends()
             self._fans_out = True
-        if node.name in _UNCAPPED_BUILTINS and not _bounded_growth(node.name, node.args):
+        if node.name in _UNCAPPED_BUILTINS and not _bounded_growth(node.name, builtin_args):
             self._uncapped_step = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
@@ -711,6 +749,7 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_field(node)
         if (binding := self._local(str(node.chain[0]))) is not None:
             binding.rebound = True
+            binding.escaped = True
             return
         if len(node.chain) != 1:
             return
@@ -769,6 +808,11 @@ def _small_constant_index(index: ast.Expr) -> bool:
 def _bounded_growth(name: str, args: list[ast.Expr]) -> bool:
     if name == "replaceAll":
         return _bounded_replacement(args)
+    if name == "replaceOne":
+        match args:
+            case [_, _, ast.Constant(value=str(replacement))]:
+                return not _has_replacement_token(replacement)
+        return False
     if name == "arrayStringConcat":
         return _short_separator(args)
     if name == "jsonStringify":
@@ -788,9 +832,12 @@ def _short_separator(args: list[ast.Expr]) -> bool:
 def _bounded_replacement(args: list[ast.Expr]) -> bool:
     match args:
         case [_, ast.Constant(value=str(search)), ast.Constant(value=str(replacement))] if search:
-            grows_by_input = any(token in replacement for token in _WHOLE_INPUT_TOKENS)
-            return not grows_by_input and len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
+            return not _has_replacement_token(replacement) and len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
     return False
+
+
+def _has_replacement_token(replacement: str) -> bool:
+    return any(token in replacement for token in _REPLACEMENT_TOKENS)
 
 
 def _is_empty_string(expr: ast.Expr) -> bool:
