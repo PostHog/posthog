@@ -34,6 +34,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.type_system import parse_clickhouse_type
 from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
@@ -543,8 +544,8 @@ async def hogql_table(
 
     probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
 
+    to_utc: tuple[str, tuple[ast.Constant, ...]] = ("toTimeZone", (ast.Constant(value="UTC"),))
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
-        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
         "Nullable(Nothing)": ("toNullableString", ()),
         "FIXED_SIZE_BINARY": ("toString", ()),
         "JSON": ("toString", ()),
@@ -565,19 +566,19 @@ async def hogql_table(
             element = element[element.index("(") + 1 : -1].strip()
         return element.split("(", 1)[0]
 
-    def _needs_conversion(ch_type: str) -> bool:
-        target = _conversion_target(ch_type).lower()
-        return any(uat.lower() in target for uat in arrow_type_conversion)
-
-    get_call_tuple = lambda ch_type: next(
-        iter(
-            [
-                call_tuple
-                for uat, call_tuple in arrow_type_conversion.items()
-                if uat.lower() in _conversion_target(ch_type).lower()
-            ]
+    def _conversion_call(ch_type: str) -> tuple[str, tuple[ast.Constant, ...]] | None:
+        target = _conversion_target(ch_type)
+        # toTimeZone accepts only a DateTime, so a DateTime inside a Tuple or Map must not select it.
+        # The Arrow transform converts those by their element types instead.
+        parsed = parse_clickhouse_type(ch_type)
+        if parsed.family == "array" and parsed.item_type is not None:
+            parsed = parsed.item_type
+        if parsed.family == "datetime":
+            return to_utc
+        return next(
+            (call for uat, call in arrow_type_conversion.items() if uat.lower() in target.lower()),
+            None,
         )
-    )
 
     try:
         described_columns = rename_described_columns(
@@ -609,10 +610,7 @@ async def hogql_table(
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     for column in described_columns:
-        if _needs_conversion(column.ch_type):
-            query_typings.append((column.name, column.ch_type, get_call_tuple(column.ch_type)))
-        else:
-            query_typings.append((column.name, column.ch_type, None))
+        query_typings.append((column.name, column.ch_type, _conversion_call(column.ch_type)))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     # The guard and the type wrapper both re-select the output by name through HogQL, which keeps one

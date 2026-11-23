@@ -7,6 +7,7 @@ than 128 bits reaches values nested in a list, a struct or a map, and where Delt
 refuse strings that are not valid UTF-8.
 """
 
+import datetime as dt
 import tracemalloc
 from collections.abc import Callable, Sequence
 from decimal import Decimal
@@ -24,6 +25,7 @@ from products.data_modeling.backend.temporal.activities.arrow_batch_transforms i
     UnstorableDecimalError,
     UnstorableIntegerError,
     _replace_invalid_utf8,
+    _transform_date_and_datetimes,
     _transform_unsigned_integers,
     _transform_unsupported_decimals,
 )
@@ -191,6 +193,112 @@ def test_a_value_too_large_for_delta_names_its_column(
 
     with pytest.raises(error, match='Column "hash_id"'):
         transform(batch)
+
+
+INSTANT = dt.datetime(2024, 6, 1, 12, 34, 56, tzinfo=dt.UTC)
+INSTANT_SECONDS = int(INSTANT.timestamp())
+INSTANT_NS = INSTANT_SECONDS * 10**9 + 123456789
+TODAY = dt.date(2024, 6, 1)
+
+
+@pytest.mark.parametrize(
+    "column,ch_type,expected",
+    [
+        pytest.param(pa.array([INSTANT_SECONDS], pa.uint32()), "DateTime('UTC')", [INSTANT], id="datetime"),
+        pytest.param(
+            pa.array([INSTANT_SECONDS, None], pa.uint32()),
+            "Nullable(DateTime('UTC'))",
+            [INSTANT, None],
+            id="nullable_datetime",
+        ),
+        pytest.param(
+            pa.array([INSTANT_NS // 10**6], pa.timestamp("ms", tz="UTC")),
+            "DateTime64(3, 'UTC')",
+            [INSTANT.replace(microsecond=123000)],
+            id="datetime64_3",
+        ),
+        pytest.param(
+            pa.array([INSTANT_NS], pa.timestamp("ns", tz="UTC")),
+            "DateTime64(9, 'UTC')",
+            [INSTANT.replace(microsecond=123456)],
+            id="datetime64_9_keeps_whole_microseconds",
+        ),
+        pytest.param(
+            pa.array([[INSTANT_SECONDS, None]], pa.list_(pa.uint32())),
+            "Array(Nullable(DateTime('UTC')))",
+            [[INSTANT, None]],
+            id="array_datetime",
+        ),
+        pytest.param(
+            pa.array([[INSTANT_NS // 10**6]], pa.list_(pa.timestamp("ms", tz="UTC"))),
+            "Array(DateTime64(3, 'UTC'))",
+            [[INSTANT.replace(microsecond=123000)]],
+            id="array_datetime64_3",
+        ),
+        pytest.param(
+            pa.array([[INSTANT_NS // 10**3]], pa.list_(pa.timestamp("us", tz="UTC"))),
+            "Array(DateTime64(6, 'UTC'))",
+            [[INSTANT.replace(microsecond=123456)]],
+            id="array_datetime64_6",
+        ),
+        pytest.param(
+            pa.array([[INSTANT_NS]], pa.list_(pa.timestamp("ns", tz="UTC"))),
+            "Array(DateTime64(9, 'UTC'))",
+            [[INSTANT.replace(microsecond=123456)]],
+            id="array_datetime64_9",
+        ),
+        pytest.param(
+            pa.array([[[INSTANT_SECONDS]]], pa.list_(pa.list_(pa.uint32()))),
+            "Array(Array(DateTime('UTC')))",
+            [[[INSTANT]]],
+            id="nested_array_datetime",
+        ),
+        pytest.param(
+            pa.array([[[TODAY]]], pa.list_(pa.list_(pa.date32()))),
+            "Array(Array(Date))",
+            [[[TODAY]]],
+            id="nested_array_date",
+        ),
+        pytest.param(
+            pa.array([[("k", TODAY)]], pa.map_(pa.string(), pa.date32())),
+            "Map(String, Date)",
+            [[("k", TODAY)]],
+            id="map_date",
+        ),
+        pytest.param(
+            pa.array([[("k", INSTANT_SECONDS)]], pa.map_(pa.string(), pa.uint32())),
+            "Map(String, DateTime('UTC'))",
+            [[("k", INSTANT)]],
+            id="map_datetime",
+        ),
+        pytest.param(
+            pa.array([{"a": 1, "b": INSTANT_SECONDS}], pa.struct([("a", pa.uint32()), ("b", pa.uint32())])),
+            "Tuple(a UInt32, b DateTime('UTC'))",
+            [{"a": 1, "b": INSTANT}],
+            id="tuple_datetime",
+        ),
+        pytest.param(
+            pa.array([{"updated_count": 1}], pa.struct([("updated_count", pa.uint8())])),
+            "Tuple(updated_count UInt8)",
+            [{"updated_count": 1}],
+            id="tuple_field_named_like_a_date",
+        ),
+        pytest.param(
+            pa.array(["candidate"], pa.string()),
+            "Enum8('candidate' = 1, 'other' = 2)",
+            ["candidate"],
+            id="enum_label_named_like_a_date",
+        ),
+    ],
+)
+def test_dates_and_times_are_stored_as_the_values_clickhouse_sent(
+    tmp_path: Path, column: pa.Array, ch_type: str, expected: list
+) -> None:
+    batch = pa.RecordBatch.from_arrays([column], names=["c"])
+
+    transformed = _transform_unsigned_integers(_transform_date_and_datetimes(batch, [("c", ch_type)]))
+
+    assert _stored(tmp_path, transformed) == expected
 
 
 def _strings(values: Sequence[bytes | None], *, large: bool = False) -> pa.Array:

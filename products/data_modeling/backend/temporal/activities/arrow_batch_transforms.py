@@ -7,6 +7,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from temporalio.exceptions import ApplicationError
 
+from posthog.hogql.type_system import RuntimeType, parse_clickhouse_type
+
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 
 
@@ -21,57 +23,92 @@ class UnstorableIntegerError(NonReportableError):
         self.column = column
 
 
+def _converted_dates_and_times(array: pa.Array, ch_type: RuntimeType) -> pa.Array:
+    """Convert the dates and times in `array`, at any depth, to the types Delta Lake stores.
+
+    Arrow carries the unit of a DateTime64 value, and a Date arrives as date32, so the Arrow type
+    decides most leaves. A DateTime arrives as an integer count of seconds, which only its
+    ClickHouse type tells apart from a plain integer.
+    """
+    arrow_type = array.type
+    if pa.types.is_timestamp(arrow_type):
+        # A DateTime64(7..9) arrives in nanoseconds, finer than the microseconds a Delta timestamp
+        # holds. The cast drops the digits past the microsecond, as a ClickHouse cast to DateTime64(6) does.
+        return pc.cast(array, pa.timestamp("us", tz="UTC"), safe=arrow_type.unit != "ns")
+
+    family = ch_type.family
+    if array.offset and (
+        pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type) or pa.types.is_map(arrow_type)
+    ):
+        # Rebuilding from the offsets of a sliced list with nulls is not implemented in Arrow; a copy starts at zero.
+        array = pa.concat_arrays([array])
+    if (
+        (pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type))
+        and family == "array"
+        and ch_type.item_type is not None
+    ):
+        list_array = typing.cast(pa.ListArray, array)
+        original_values = list_array.values
+        values = _converted_dates_and_times(original_values, ch_type.item_type)
+        if values is original_values:
+            return array
+        list_type = pa.large_list if pa.types.is_large_list(arrow_type) else pa.list_
+        return type(list_array).from_arrays(
+            list_array.offsets,
+            values,
+            type=list_type(arrow_type.value_field.with_type(values.type)),
+            mask=list_array.is_null(),
+        )
+
+    if pa.types.is_struct(arrow_type) and family == "tuple" and len(ch_type.item_types) == arrow_type.num_fields:
+        struct_array = typing.cast(pa.StructArray, array)
+        children = [struct_array.field(index) for index in range(arrow_type.num_fields)]
+        converted = [
+            _converted_dates_and_times(child, item_type) for child, item_type in zip(children, ch_type.item_types)
+        ]
+        if all(new is old for new, old in zip(converted, children)):
+            return array
+        return pa.StructArray.from_arrays(
+            converted,
+            fields=[field.with_type(child.type) for field, child in zip(arrow_type, converted)],
+            mask=struct_array.is_null(),
+        )
+
+    if (
+        pa.types.is_map(arrow_type)
+        and family == "map"
+        and ch_type.key_type is not None
+        and ch_type.value_type is not None
+    ):
+        map_array = typing.cast(pa.MapArray, array)
+        original_keys, original_items = map_array.keys, map_array.items
+        keys = _converted_dates_and_times(original_keys, ch_type.key_type)
+        items = _converted_dates_and_times(original_items, ch_type.value_type)
+        if keys is original_keys and items is original_items:
+            return array
+        return pa.MapArray.from_arrays(map_array.offsets, keys, items, mask=map_array.is_null())  # type: ignore[call-overload]
+
+    if pa.types.is_integer(arrow_type):
+        # Only a DateTime arrives as an integer; a DateTime64 always arrives as a timestamp.
+        if family == "datetime":
+            seconds = pc.cast(pc.cast(array, pa.int64()), pa.timestamp("s"))
+            return pc.cast(seconds, pa.timestamp("us", tz="UTC"))
+        if family == "date":
+            return pc.cast(pc.cast(array, pa.int32()), pa.date32())
+
+    return array
+
+
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
     """Transform date/datetimes from ClickHouse UInt representations back to proper types."""
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
-    for column_name, type in types:
+    for column_name, ch_type in types:
         field = batch.schema.field(column_name)
-        column = batch.column(column_name)
-
-        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
-            new_columns.append(column)
-            new_fields.append(field)
-            continue
-
-        # Handle array/list types (e.g., Array(DateTime))
-        if pa.types.is_list(field.type):
-            if "datetime" in type.lower():
-                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
-                list_type = pa.list_(list_element_type)
-                list_field = field.with_type(list_type)
-                list_int64 = pc.cast(column, pa.list_(pa.int64()))
-                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
-                list_column = pc.cast(list_timestamp_s, list_type)
-            else:
-                list_element_type = pa.date32()
-                list_type = pa.list_(list_element_type)
-                list_field = field.with_type(list_type)
-                list_int32 = pc.cast(column, pa.list_(pa.int32()))
-                list_column = pc.cast(list_int32, list_type)
-
-            new_fields.append(list_field)
-            new_columns.append(list_column)
-            continue
-
-        # Handle scalar types
-        if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
-            new_column = pc.cast(column, new_field.type)
-        elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
-            int64_col = pc.cast(column, pa.int64())
-            seconds_col = pc.cast(int64_col, pa.timestamp("s"))
-            new_column = pc.cast(seconds_col, new_field.type)
-        else:
-            new_field = field.with_type(pa.date32())
-            int32_col = pc.cast(column, pa.int32())
-            new_column = pc.cast(int32_col, new_field.type)
-
-        new_fields.append(new_field)
-        new_columns.append(new_column)
+        column = _converted_dates_and_times(batch.column(column_name), parse_clickhouse_type(ch_type))
+        new_columns.append(column)
+        new_fields.append(field.with_type(column.type))
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None

@@ -2403,9 +2403,12 @@ class TestHogqlTableModifiers:
             ("Array(String)", None),
             ("Array(Tuple(uuid String))", None),
             ("Array(Array(UUID))", None),
+            ("Nullable(DateTime('UTC'))", "toTimeZone(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Tuple(a UInt32, b DateTime('UTC'))", None),
+            ("Map(String, DateTime('UTC'))", None),
         ],
     )
-    async def test_applies_arrow_conversions_to_array_elements(
+    async def test_applies_arrow_conversions_by_column_type(
         self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
@@ -2423,6 +2426,7 @@ class TestHogqlTableModifiers:
         assert client.arrow_query is not None
         if expected_conversion is None:
             assert "arrayMap(" not in client.arrow_query
+            assert "toTimeZone(" not in client.arrow_query
         else:
             assert expected_conversion in client.arrow_query
 
