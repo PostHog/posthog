@@ -60,6 +60,19 @@ export const Disabled: Story = {
     ),
 } satisfies Story
 
+export const DisabledReason: Story = {
+    render: () => (
+        <Field data-disabled>
+            <FieldLabel htmlFor="email-managed">Email</FieldLabel>
+            <Input
+                id="email-managed"
+                defaultValue="hedgehog@example.com"
+                disabledReason="Your identity provider manages this email"
+            />
+        </Field>
+    ),
+} satisfies Story
+
 export const Invalid: Story = {
     render: () => (
         <Field data-invalid>

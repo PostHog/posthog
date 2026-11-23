@@ -24,6 +24,7 @@ rules:
       owners: team-workflows
     - match:
           - '/entitlements/'
+          - '/temporal/entitlement_reactions/'
           - '/models/organization_entitlement_applied_state.py'
       owners: team-billing
     - match: '/heatmaps/'
@@ -87,6 +88,10 @@ rules:
           - '/taxonomic_search_intent/test_*.py'
       owners: platform-ux
     - match:
+          - '/quota_redis.py'
+          - '/quota_migration.py'
+          - '/test/test_quota_migration.py'
+          - '/test/test_quota_redis.py'
           - '/usage_ingestion/test_*.py'
       owners: team-billing
     - match:

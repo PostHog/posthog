@@ -10,13 +10,15 @@
             <h1 class="m-0 text-[22px] font-extrabold">{{ tool.title }}</h1>
             {% if tool.description %}<p class="m-0 mt-1 text-muted-foreground">{{ tool.description }}</p>{% endif %}
         </div>
-        <div class="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground"
-             title="Owned by {{ tool.owner.name }}">
-            {{ tool.owner.name }}
-            <img class="size-[22px]"
-                 src="/static/admin-console/crests/{{ tool.owner.crest }}.svg"
-                 alt="" />
-        </div>
+        {% if tool.owner %}
+            <div class="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                 title="Owned by {{ tool.owner.name }}">
+                {{ tool.owner.name }}
+                <img class="size-[22px]"
+                     src="/static/admin-console/crests/{{ tool.owner.crest }}.svg"
+                     alt="" />
+            </div>
+        {% endif %}
     </div>
     {% if operations %}
         <section class="quill-card group/card flex flex-col mb-4 max-w-3xl"

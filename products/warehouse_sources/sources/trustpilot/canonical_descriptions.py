@@ -129,4 +129,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "comments": "Comments in the conversation: id, creation time, author and content.",
         },
     },
+    "business_unit_categories": {
+        "description": "Trustpilot categories the connected business unit is listed in, with its ranking in each category. One row per category, replaced on every sync.",
+        "docs_url": "https://developers.trustpilot.com/business-units-api/",
+        "columns": {
+            "categoryId": "Unique identifier of the category, for example pet_store.",
+            "displayName": "Display name of the category.",
+            "name": "Name of the category.",
+            "isPrimary": "Whether this is the primary category of the business unit.",
+            "ranking": "Ranking of the business unit in the category: its position and the number of ranked business units.",
+            "source": "Where the category assignment came from, for example the business.",
+            "relevance": "Relevance of the category to the business unit.",
+        },
+    },
+    "review_likes": {
+        "description": "Consumers who liked each service review. One row per like, read for each synced service review that has at least one like.",
+        "docs_url": "https://developers.trustpilot.com/service-reviews-api/",
+        "columns": {
+            "review_id": "Identifier of the service review that was liked.",
+            "consumer_id": "Identifier of the consumer who liked the review.",
+            "consumer_display_name": "Display name of the consumer who liked the review.",
+        },
+    },
 }

@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
+from django.utils.connection import ConnectionProxy
 
 from prometheus_client import Counter
 from redis.exceptions import RedisError
@@ -167,7 +168,17 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
     return hash_key_value(key_with_source[0]) if key_with_source is not None else None
 
 
+THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
+    DRF_UNITS_PER_REQUEST = 1
+    reads_history_from_primary = False
+    primary_cache = ConnectionProxy(caches, THROTTLE_HISTORY_CACHE_ALIAS)
+    units_to_check: int | None = None
+    units_to_charge = 0
+    retry_wait = 0.0
+
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -211,6 +222,55 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
+    def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.units_to_check = units
+        try:
+            return self.allow_request(request, view)
+        finally:
+            self.units_to_check = None
+
+    def charge_units(self) -> None:
+        if not self.units_to_charge:
+            return
+        try:
+            self.cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
+        except Exception as e:
+            capture_exception(e)
+
+    def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.key = None
+        num_requests, duration = self.num_requests, self.duration
+        if num_requests is None or duration is None:
+            return True
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+        history = self.primary_cache.get(self.key, [])
+        self.now = self.timer()
+        self.history = [hit for hit in history if hit > self.now - duration]
+        self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
+        if len(self.history) + units > num_requests:
+            return False
+        self.units_to_charge = units
+        return True
+
+    def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
+        expiries_needed = len(self.history) + units - num_requests
+        if expiries_needed <= 0:
+            return 0.0
+        if expiries_needed > len(self.history):
+            return float(duration)
+        return self.history[-expiries_needed] + duration - self.now
+
+    def _would_allow(self, request: "Request", view: "APIView") -> bool:
+        if self.units_to_check is not None:
+            return self._has_room_for_units(request, view, self.units_to_check)
+        if not self.reads_history_from_primary:
+            return SimpleRateThrottle.allow_request(self, request, view)
+        if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
+            return False
+        return self.key is None or self.throttle_success()
+
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -224,7 +284,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
+            request_would_be_allowed = self._would_allow(request, view)
             if request_would_be_allowed:
                 return True
 
@@ -630,6 +690,21 @@ class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
     def get_cache_key(self, request, view):
         team_id = request.successful_authenticator.project_secret_api_key.team_id
         return self.cache_format % {"scope": self.scope, "ident": f"psak-team:{team_id}"}
+
+
+def reserve_units(
+    throttles: Sequence[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle],
+    request: "Request",
+    view: "APIView",
+    units: int,
+) -> None:
+    if units < 1:
+        return
+    admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
+    if not all(admitted):
+        raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))
+    for throttle in throttles:
+        throttle.charge_units()
 
 
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
+import { IconApps, IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 
 import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,8 +40,10 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const { preparePrint, prepareImage } = useActions(notebookExportLogic({ shortId }))
     const logic = notebookLogic({ shortId })
-    const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
-    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
+    const { notebook, showHistory, isLocalOnly, content, showVariables, canEditNotebook } = useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory, saveNotebookNow } =
+        useActions(logic)
     const { isMarkdownExpanded, showKernelInfo, isJupyterMode } = useValues(notebookSettingsLogic)
     const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
         useActions(notebookSettingsLogic)
@@ -110,6 +112,21 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                 )}
             </SceneMenuBarMenu>
             <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                {featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] &&
+                    canEditNotebook &&
+                    !isLocalOnly &&
+                    !notebook?.is_template && (
+                        <SceneMenuBarItem
+                            onClick={() => {
+                                saveNotebookNow()
+                                router.actions.push(urls.notebook(shortId), { view: 'builder' })
+                            }}
+                            data-attr="notebook-menubar-app-builder"
+                        >
+                            <IconApps />
+                            App builder
+                        </SceneMenuBarItem>
+                    )}
                 <SceneMenuBarItem onClick={() => duplicateNotebook()} data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}>
                     <IconCopy />
                     Duplicate

@@ -5,10 +5,12 @@ import { LemonBanner, LemonButton, LemonMenu, LemonSwitch, LemonTable, LemonTag 
 
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type { WorkloadProvidersResponseApi, WorkloadTrustPolicyApi } from '~/generated/core/api.schemas'
 
+import { QuillWorkloadTrustPolicies } from './QuillWorkloadTrustPolicies'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 import { WorkloadTrustPolicyModal } from './WorkloadTrustPolicyModal'
 
@@ -32,8 +34,13 @@ export function WorkloadTrustPolicies(): JSX.Element {
         useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, deletePolicy, setPolicyEnabled, loadPolicies, loadProviders } =
         useActions(workloadTrustPoliciesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const createDisabledReason = getCreateDisabledReason(providers, providersLoadFailed, policiesLoading)
+
+    if (todayRailNav) {
+        return <QuillWorkloadTrustPolicies createDisabledReason={createDisabledReason} />
+    }
 
     // Policies hand out tokens that act as the organization owner, so the section asks for a recent login.
     return (

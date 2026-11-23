@@ -50,6 +50,7 @@ import {
     visibleDurationRange,
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
+import type { TracingDateRangeSource } from './sparklineSelection'
 import { resolveTraceLookupRange } from './traceLinks'
 import { traceRows } from './traceRows'
 import {
@@ -60,6 +61,7 @@ import {
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
+import type { TracingChartType } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 // The default filter group editor state nests an empty AND group inside an outer AND group, so a
@@ -211,18 +213,18 @@ export interface tracingDataLogicActions {
     refreshWindowAnchor: () => {
         value: true
     } // tracingFiltersLogic
-    setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
-        chartType: import('./tracingFiltersLogic').TracingChartType
+    setChartType: (chartType: TracingChartType) => {
+        chartType: TracingChartType
     } // tracingFiltersLogic
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
     setDateRange: (
         dateRange: DateRange,
-        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source?: TracingDateRangeSource | undefined
     ) => {
         dateRange: DateRange
-        source: import('./sparklineSelection').TracingDateRangeSource | undefined
+        source: TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -366,18 +368,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[],
+        rawLatencyHeatmap: LatencyHeatmapRow[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[]
+        rawLatencyHeatmap: LatencyHeatmapRow[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -478,18 +472,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[],
+        rawSparklineData: SparklineRow[],
         payload?: any
     ) => {
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[]
+        rawSparklineData: SparklineRow[]
         payload?: any
     }
     handleFilterChange: (
