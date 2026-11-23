@@ -2,8 +2,10 @@ import logging
 import ipaddress
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 import dns.rdata
+import tldextract
 import dns.resolver
 import dns.exception
 from dns.rdtypes.ANY.CNAME import CNAME
@@ -28,6 +30,7 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 
 @frozen
@@ -60,6 +63,30 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
     from_zone = _published_with(authoritative, records) if authoritative else PublishedRecords(records=frozenset())
     from_public = _published_with(_system_resolver(), [record for record in records if record not in from_zone.records])
     return PublishedRecords(records=from_zone.records | from_public.records, unanswered=from_public.unanswered)
+
+
+# Receivers look up a domain's own DMARC record first, then its organizational domain's (RFC 7489, 6.6.3).
+def dmarc_hostnames(domain: str) -> tuple[str, ...]:
+    return tuple(f"_dmarc.{name}" for name in dict.fromkeys((domain, _organizational_domain(domain))))
+
+
+def find_dmarc_record_in_force(
+    domain: str, record: EmailDomainStatusRecord, published: PublishedRecords
+) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    organizational_domain = _organizational_domain(domain)
+    if organizational_domain == domain or record in published.records or record in published.unanswered:
+        return record, published
+    inherited = replace(record, hostname=f"_dmarc.{organizational_domain}")
+    found = find_published_records(organizational_domain, [inherited])
+    if inherited in found.records:
+        return inherited, replace(published, records=published.records | {inherited})
+    if found.unanswered:
+        return record, replace(published, unanswered=published.unanswered | {record})
+    return record, published
+
+
+def _organizational_domain(domain: str) -> str:
+    return _DOMAIN_PARTS(domain).top_domain_under_public_suffix or domain
 
 
 def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:

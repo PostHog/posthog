@@ -38,6 +38,7 @@ SIGNING_UNAVAILABLE = (
 )
 DISCOVERY_RECORD = f"_domainconnect.{ROOT_DOMAIN}"
 DMARC_LOOKUP = dns_operation(f"_dmarc.{DOMAIN}", "TXT")
+ORGANIZATIONAL_DMARC_LOOKUP = dns_operation(f"_dmarc.{ROOT_DOMAIN}", "TXT")
 
 
 @override_settings(DOMAIN_CONNECT_PRIVATE_KEY=domain_connect_signing_key_pem(), CLOUD_DEPLOYMENT="US")
@@ -141,14 +142,23 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         assert self.world.ses.writes == writes_before
         capture_exception.assert_not_called()
 
-    def test_approved_setup_keeps_an_existing_dmarc_record(self) -> None:
+    @parameterized.expand(
+        [
+            ("at_the_sender_domain", f"_dmarc.{DOMAIN}"),
+            ("inherited_from_the_organizational_domain", f"_dmarc.{ROOT_DOMAIN}"),
+        ]
+    )
+    def test_approved_setup_keeps_an_existing_dmarc_record(self, _name: str, existing_at: str) -> None:
         existing_dmarc = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
-        self.world.dns.publish_txt(f"_dmarc.{DOMAIN}", existing_dmarc)
+        self.world.dns.publish_txt(existing_at, existing_dmarc)
         sender = self.create_sender(f"hello@{DOMAIN}")
 
         self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
 
-        assert self.world.dns.txt_values(f"_dmarc.{DOMAIN}") == [existing_dmarc]
+        dmarc_names = (f"_dmarc.{DOMAIN}", f"_dmarc.{ROOT_DOMAIN}")
+        assert {name: self.world.dns.txt_values(name) for name in dmarc_names} == {
+            name: [existing_dmarc] if name == existing_at else [] for name in dmarc_names
+        }
         assert self.status_body(sender)["status"] == "verified"
 
     @parameterized.expand(
@@ -156,6 +166,10 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
             ("dmarc_lookup_times_out", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.TIMEOUT)),
             ("dmarc_lookup_fails", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.SERVFAIL)),
             ("dmarc_record_is_not_utf8", lambda world: world.dns.publish(f"_dmarc.{DOMAIN}", "TXT", '"\\255"')),
+            (
+                "organizational_dmarc_lookup_times_out",
+                lambda world: world.faults.inject(ORGANIZATIONAL_DMARC_LOOKUP, DnsFault.TIMEOUT),
+            ),
         ]
     )
     def test_approved_setup_leaves_dmarc_alone_when_an_existing_record_cannot_be_ruled_out(

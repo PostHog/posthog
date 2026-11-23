@@ -609,6 +609,34 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
 
         assert (body["status"], record_statuses(body)["dmarc"]) == ("verified", ["verified"])
 
+    @parameterized.expand(
+        [
+            ("subdomain", DOMAIN, ROOT_DOMAIN),
+            ("subdomain_under_a_multi_label_suffix", "send.example.co.uk", "example.co.uk"),
+            ("non_dmarc_txt_at_the_subdomain", DOMAIN, ROOT_DOMAIN, "google-site-verification=abc123"),
+        ]
+    )
+    def test_subdomain_inherits_the_dmarc_record_of_its_organizational_domain(
+        self, _name: str, domain: str, organizational_domain: str, subdomain_txt: str | None = None
+    ) -> None:
+        if organizational_domain != ROOT_DOMAIN:
+            self.world.dns.add_zone(organizational_domain)
+        inherited_dmarc = "v=DMARC1; p=quarantine; rua=mailto:reports@example.net"
+        self.world.dns.publish_txt(f"_dmarc.{organizational_domain}", inherited_dmarc)
+        if subdomain_txt:
+            self.world.dns.publish_txt(f"_dmarc.{domain}", subdomain_txt)
+        sender = self.create_sender(f"hello@{domain}")
+        self.publish(self.records_to_publish(sender, domain=domain), *ALL_KINDS[:-1])
+
+        body = self.status_body(sender)
+
+        assert body["status"] == "verified"
+        assert [(record["hostname"], record["status"]) for record in body["records"] if record["kind"] == "dmarc"] == [
+            (f"_dmarc.{organizational_domain}", "verified")
+        ]
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+        assert self.is_verified(sender)
+
     @parameterized.expand([(DnsFault.TIMEOUT,), (DnsFault.SERVFAIL,)])
     def test_public_resolver_confirms_a_record_the_zone_nameservers_cannot_answer(self, fault: DnsFault) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")

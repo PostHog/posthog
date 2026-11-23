@@ -35,7 +35,12 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordStatus,
     EmailDomainSetupStatus,
 )
-from products.workflows.backend.services.email_domain_dns import find_published_records
+from products.workflows.backend.services.email_domain_dns import (
+    PublishedRecords,
+    dmarc_hostnames,
+    find_dmarc_record_in_force,
+    find_published_records,
+)
 from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
 if TYPE_CHECKING:
@@ -321,6 +326,46 @@ def _legacy_dns_record(record: EmailDomainStatusRecord) -> EmailDomainDnsRecord:
     if record.priority is not None:
         legacy["priority"] = record.priority
     return legacy
+
+
+def _with_dmarc_record_in_force(
+    domain: str, records: Sequence[EmailDomainStatusRecord], published: PublishedRecords
+) -> tuple[tuple[EmailDomainStatusRecord, ...], PublishedRecords]:
+    dmarc = next(record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC)
+    in_force, published = find_dmarc_record_in_force(domain, dmarc, published)
+    return tuple(in_force if record == dmarc else record for record in records), published
+
+
+@frozen
+class _DmarcRecord:
+    hostname: str
+    value: str
+
+
+def _find_dmarc_record(domain: str) -> _DmarcRecord | None:
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = 5  # seconds — keep the request path responsive
+    for hostname in dmarc_hostnames(domain):
+        try:
+            value = _dmarc_value(resolver.resolve(hostname, "TXT"))
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            continue
+        except (dns.resolver.NoNameservers, dns.resolver.Timeout):
+            return None
+        except Exception:
+            logger.exception("Unexpected error during DMARC lookup for %s", hostname)
+            return None
+        if value is not None:
+            return _DmarcRecord(hostname=hostname, value=value)
+    return None
+
+
+def _dmarc_value(answers: Iterable[Any]) -> str | None:
+    for rdata in answers:
+        txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
+        if txt_value.lower().startswith("v=dmarc1"):
+            return txt_value
+    return None
 
 
 _UNKNOWN = "Unknown"
@@ -794,32 +839,11 @@ class SESProvider:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
-        dmarc_status = "Pending"
-        dmarc_record_value: str | None = None
-        if not refuses_lookups:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.lifetime = 5  # seconds — keep the request path responsive
-                answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
-                for rdata in answers:
-                    txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                    if txt_value.strip().lower().startswith("v=dmarc1"):
-                        dmarc_status = "Success"
-                        dmarc_record_value = txt_value.strip()
-                        break
-            except (
-                dns.resolver.NXDOMAIN,
-                dns.resolver.NoAnswer,
-                dns.resolver.NoNameservers,
-                dns.resolver.Timeout,
-            ):
-                pass  # No DMARC record found — fall back to "Pending" status
-            except Exception:
-                logger.exception("Unexpected error during DMARC lookup for %s", domain)
+        dmarc_record = None if refuses_lookups else _find_dmarc_record(domain)
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
-        if identity.is_ready(dmarc_published=dmarc_status == "Success"):
+        if identity.is_ready(dmarc_published=dmarc_record is not None):
             overall = "success"
         elif "Failed" in identity.statuses:
             overall = "failed"
@@ -871,12 +895,12 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
-        if dmarc_status == "Success":
+        if dmarc_record:
             for r in dns_records:
                 if r["type"] == "dmarc":
                     r["status"] = "success"
-                    if dmarc_record_value:
-                        r["recordValue"] = dmarc_record_value
+                    r["recordHostname"] = dmarc_record.hostname
+                    r["recordValue"] = dmarc_record.value
 
         return {
             "status": overall,
@@ -905,7 +929,7 @@ class SESProvider:
             dkim_tokens=identity.dkim_tokens,
             ses_region=self._ses_region,
         )
-        published = find_published_records(domain, records)
+        records, published = _with_dmarc_record_in_force(domain, records, find_published_records(domain, records))
         dmarc_published = any(record.kind == EmailDomainSetupRecordKind.DMARC for record in published.records)
         is_ready = (
             identity.is_ready(dmarc_published=dmarc_published)

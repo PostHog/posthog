@@ -403,11 +403,18 @@ def _txt_value(rdata: TXTBase) -> str:
     return "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
 
 
+# A subdomain without a DMARC record of its own is covered by its organizational domain's record
+# (RFC 7489, 6.6.3), so publishing one on the subdomain would override that policy and its reports.
 def _dmarc_absence_confirmed(domain: str) -> bool:
     if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
         # Same answer as a lookup that failed: absence is not confirmed, so no caller claims it.
         return False
+    organizational_domain = extract_root_domain_and_host(domain).root_domain
+    return all(_no_dmarc_record_at(name) for name in dict.fromkeys((domain, organizational_domain)))
+
+
+def _no_dmarc_record_at(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
         return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
