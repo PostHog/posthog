@@ -48,10 +48,13 @@ class TestInvestigationAPI(APIBaseTest):
         updated = self.client.patch(url, {"revision": 1, "document": edited}, format="json")
         self.assertEqual(updated.status_code, 200, updated.data)
         self.assertEqual(updated.data["revision"], 2)
-        stale_payloads: list[dict[str, object]] = [{"document": document()}, {"deleted": True}]
+        stale_payloads: list[dict[str, object]] = [
+            {"revision": 1, "document": document()},
+            {"revision": 1, "deleted": True},
+        ]
         for payload in stale_payloads:
             stale = self.client.patch(url, payload, format="json")
-            self.assertEqual(stale.status_code, 409)
+            self.assertEqual(stale.status_code, 409, stale.data)
         retrieved = self.client.get(url)
         self.assertEqual(retrieved.data["document"], edited)
         self.assertEqual(self.client.get(self.url, {"search": ""}).data["count"], 1)
