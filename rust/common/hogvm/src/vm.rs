@@ -31,6 +31,9 @@ use crate::{
 // while still bounding native recursion well within a worker thread's stack.
 pub const MAX_JSON_SERDE_DEPTH: usize = 256;
 
+/// The text that one membership test may read from the items of a list that holds no container.
+const MAX_MEMBERSHIP_COMPARE_BYTES: usize = 1 << 26;
+
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
 pub enum StepOutcome {
@@ -1141,6 +1144,15 @@ impl<'a> HogVM<'a> {
                 return Ok((x == y).into());
             }
         }
+        let container = |v: &HogLiteral| {
+            matches!(
+                v,
+                HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+            )
+        };
+        if container(a.deref(&self.heap)?) && container(b.deref(&self.heap)?) {
+            assert_repeats_fit(&self.heap, a, MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
+        }
         Ok(self.values_equal(a, b)?.into())
     }
 
@@ -1154,13 +1166,49 @@ impl<'a> HogVM<'a> {
         Ok(*a.equals(b, &self.heap)?.try_as::<bool>()?)
     }
 
-    fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
-        // Each element that is a container costs a compare of its whole length, and the heap charges a repeated one as a pointer.
-        if let HogLiteral::Array(items) | HogLiteral::Tuple(items) = haystack.deref(&self.heap)? {
-            if items.iter().any(|item| matches!(item, HogValue::Ref(_))) {
-                assert_repeats_fit(&self.heap, haystack, MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
-            }
+    /// For every membership test. The heap charges a repeated container and a shared string as a pointer, and the test reads each in full.
+    pub(crate) fn assert_membership_fits(
+        &self,
+        haystack: &HogValue,
+        needle: &HogValue,
+    ) -> Result<(), VmError> {
+        let (HogLiteral::Array(items) | HogLiteral::Tuple(items)) = haystack.deref(&self.heap)?
+        else {
+            return Ok(());
+        };
+        if items.iter().any(|item| matches!(item, HogValue::Ref(_))) {
+            return assert_repeats_fit(&self.heap, haystack, MAX_JSON_SERDE_DEPTH, Cycles::Allowed);
         }
+        let needle = needle.deref(&self.heap)?;
+        let compared = items.iter().fold(0usize, |bytes, item| {
+            let read = match (item, needle) {
+                (HogValue::Lit(HogLiteral::String(a)), HogLiteral::String(b)) => {
+                    if a.len() == b.len() {
+                        a.len()
+                    } else {
+                        0
+                    }
+                }
+                (
+                    HogValue::Lit(HogLiteral::String(a)),
+                    HogLiteral::Number(_) | HogLiteral::Boolean(_),
+                ) => a.len(),
+                (
+                    HogValue::Lit(HogLiteral::Number(_) | HogLiteral::Boolean(_)),
+                    HogLiteral::String(b),
+                ) => b.len(),
+                _ => 0,
+            };
+            bytes.saturating_add(read)
+        });
+        if compared > MAX_MEMBERSHIP_COMPARE_BYTES {
+            return Err(VmError::OutOfResource("membership compare".to_string()));
+        }
+        Ok(())
+    }
+
+    fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        self.assert_membership_fits(haystack, needle)?;
         if !self.context.boolean_text_equality {
             return haystack.contains(needle, &self.heap);
         }

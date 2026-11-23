@@ -176,7 +176,11 @@ impl<'a> RepeatMeasure<'a> {
         let result = match lit {
             // The heap charges a shared string as a pointer, so its limit does not bound the text.
             HogLiteral::String(HogStr::Shared(s)) => self.count_always(s.len()),
-            HogLiteral::String(HogStr::Owned(s)) => self.count(s.len()),
+            HogLiteral::String(HogStr::Owned(s)) => match value {
+                // The heap charges the second reference to a string as a pointer.
+                HogValue::Ref(ptr) if !self.seen.insert(*ptr) => self.count_always(s.len()),
+                _ => self.count(s.len()),
+            },
             HogLiteral::Array(items) | HogLiteral::Tuple(items) => {
                 items.iter().try_for_each(|item| self.walk(item, depth + 1))
             }
@@ -222,7 +226,12 @@ fn print_value(
 
     let lit = value.deref(heap)?;
     let container_ptr = match value {
-        HogValue::Ref(ptr) if matches!(lit, HogLiteral::Array(_) | HogLiteral::Object(_)) => {
+        HogValue::Ref(ptr)
+            if matches!(
+                lit,
+                HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+            ) =>
+        {
             Some(*ptr)
         }
         _ => None,

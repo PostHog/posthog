@@ -190,18 +190,69 @@ fn limits_do_not_refuse_what_fits() {
     assert_eq!(replaced.unwrap(), json!(""));
 }
 
-// let a := range(2000); let h := range(2000); for i in 1..=2000: h[i] := a; let b := range(2000); b[2000] := -1; return b in h
-const MEMBERSHIP_OVER_ONE_ARRAY_MANY_TIMES: &str = r#"["_H", 1, 33, 2000, 2, "range", 1, 33, 2000, 2, "range", 1, 33, 1, 33, 2000, 36, 2, 16, 40, 16, 36, 1, 36, 2, 36, 0, 46, 33, 1, 36, 2, 6, 37, 2, 39, -23, 35, 33, 2000, 2, "range", 1, 36, 2, 33, 2000, 33, -1, 46, 36, 1, 36, 2, 21, 38, 35, 35, 35]"#;
+// let a := range(2000); let h := range(2000); for i in 1..=2000: h[i] := a; let b := range(2000); b[2000] := -1; return <test of b in h>
+const ONE_ARRAY_MANY_TIMES: &str = r#"["_H", 1, 33, 2000, 2, "range", 1, 33, 2000, 2, "range", 1, 33, 1, 33, 2000, 36, 2, 16, 40, 16, 36, 1, 36, 2, 36, 0, 46, 33, 1, 36, 2, 6, 37, 2, 39, -23, 35, 33, 2000, 2, "range", 1, 36, 2, 33, 2000, 33, -1, 46, "#;
 
 #[test]
 fn membership_stops_on_a_list_that_holds_one_array_many_times() {
-    let context =
-        context(MEMBERSHIP_OVER_ONE_ARRAY_MANY_TIMES, json!({})).with_max_steps(1_000_000);
+    // b in h, has(h, b), indexOf(h, b), in(b, h)
+    for test in [
+        r#"36, 1, 36, 2, 21"#,
+        r#"36, 1, 36, 2, 2, "has", 2"#,
+        r#"36, 1, 36, 2, 2, "indexOf", 2"#,
+        r#"36, 2, 36, 1, 2, "in", 2"#,
+    ] {
+        let bytecode = format!("{ONE_ARRAY_MANY_TIMES}{test}, 38, 35, 35, 35]");
+        let context = context(&bytecode, json!({})).with_max_steps(1_000_000);
+        let error = sync_execute(&context, false).unwrap_err().error;
+        assert!(
+            matches!(error, hogvm::VmError::OutOfResource(_)),
+            "{test}: {error:?}"
+        );
+    }
+}
+
+// let a := []; let b := []; 100 times: a := arrayPushBack(a, '<A>'); b := arrayPushBack(b, '<B>'); if (inputs.eq) { return a == b }; return '<C>' in a
+const ONE_LITERAL_MANY_TIMES: &str = r#"["_H", 1, 43, 0, 43, 0, 33, 0, 33, 100, 36, 2, 15, 40, 27, 36, 0, 32, "ZZA", 2, "arrayPushBack", 2, 37, 0, 36, 1, 32, "ZZB", 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -34, 35, 32, "eq", 32, "inputs", 1, 2, 40, 6, 36, 1, 36, 0, 11, 38, 36, 0, 32, "ZZC", 21, 38, 35, 35]"#;
+
+#[test]
+fn a_test_against_one_long_literal_many_times_stops() {
+    let text = "z".repeat(1024 * 1024);
+    let bytecode = ONE_LITERAL_MANY_TIMES
+        .replace("ZZA", &text)
+        .replace("ZZB", &text)
+        .replace("ZZC", &format!("{}y", &text[1..]));
+    for equality in [false, true] {
+        let context =
+            context(&bytecode, json!({"inputs": {"eq": equality}})).with_max_steps(1_000_000);
+        let error = sync_execute(&context, false).unwrap_err().error;
+        assert!(
+            matches!(error, hogvm::VmError::OutOfResource(_)),
+            "{equality}: {error:?}"
+        );
+    }
+}
+
+// let s := 'x'; 20 times: s := concat(s, s); let a := []; 64 times: a := arrayPushBack(a, s); return length(jsonStringify(a))
+const ONE_BUILT_STRING_MANY_TIMES: &str = r#"["_H", 1, 32, "x", 33, 0, 33, 20, 36, 1, 15, 40, 18, 36, 0, 36, 0, 2, "concat", 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -25, 35, 43, 0, 33, 0, 33, 64, 36, 2, 15, 40, 18, 36, 1, 36, 0, 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -25, 35, 36, 1, 2, "jsonStringify", 1, 2, "length", 1, 38, 35, 35]"#;
+
+#[test]
+fn many_references_to_one_built_string_print_inside_the_heap_limit() {
+    let context = context(ONE_BUILT_STRING_MANY_TIMES, json!({})).with_max_steps(1_000_000);
     let error = sync_execute(&context, false).unwrap_err().error;
     assert!(
         matches!(error, hogvm::VmError::OutOfResource(_)),
         "{error:?}"
     );
+}
+
+// let a := [null]; let t := (a, a); a[1] := t; return [jsonStringify(t), toString(t)]
+const TUPLE_THAT_HOLDS_ITSELF: &str = r#"["_H", 1, 31, 43, 1, 36, 0, 36, 0, 44, 2, 36, 0, 33, 1, 36, 1, 46, 36, 1, 2, "jsonStringify", 1, 36, 1, 2, "toString", 1, 43, 2, 38, 35, 35]"#;
+
+#[test]
+fn a_tuple_that_holds_itself_prints_null_where_it_repeats() {
+    let printed = sync_execute(&context(TUPLE_THAT_HOLDS_ITSELF, json!({})), false).unwrap();
+    assert_eq!(printed, json!(["[[null], [null]]", "([null], [null])"]));
 }
 
 // let a := []; 3000 times: a := arrayPushBack(a, null); return length(a)

@@ -302,6 +302,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 // haystack (string, object, null, …) is never a member, yielding false.
                 assert_argc(&args, 2, "has")?;
                 let needle = &args[1];
+                vm.assert_membership_fits(&args[0], needle)?;
                 match args[0].deref(&vm.heap)? {
                     HogLiteral::Array(vals) => {
                         for val in vals.iter() {
@@ -321,6 +322,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 2, "indexOf")?;
                 let haystack = &args[0].deref(&vm.heap)?;
                 let needle = &args[1];
+                vm.assert_membership_fits(&args[0], needle)?;
                 match haystack {
                     HogLiteral::Array(vals) => {
                         for (i, val) in vals.iter().enumerate() {
@@ -1546,6 +1548,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 // `in(val, arr)` — array/tuple membership only (the function form, like `has`).
                 assert_argc(&args, 2, "in")?;
                 let needle = &args[0];
+                vm.assert_membership_fits(&args[1], needle)?;
                 match args[1].deref(&vm.heap)? {
                     HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                         for val in vals.iter() {
@@ -2088,7 +2091,12 @@ fn json_stringify(
     }
     let lit = value.deref(heap)?;
     let container_ptr = match value {
-        HogValue::Ref(ptr) if matches!(lit, HogLiteral::Array(_) | HogLiteral::Object(_)) => {
+        HogValue::Ref(ptr)
+            if matches!(
+                lit,
+                HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+            ) =>
+        {
             Some(*ptr)
         }
         _ => None,
