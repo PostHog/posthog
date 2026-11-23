@@ -54,8 +54,12 @@ function createManager(overrides?: Record<string, unknown>): CyclotronV2Manager 
     })
 }
 
-function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): CyclotronV2Worker {
-    return new CyclotronV2Worker({
+function createWorker(
+    queueName = QUEUE,
+    overrides?: Record<string, unknown>,
+    Worker: typeof CyclotronV2Worker = CyclotronV2Worker
+): CyclotronV2Worker {
+    return new Worker({
         pool: { dbUrl: DB_URL },
         queueName,
         batchMaxSize: 100,
@@ -3886,8 +3890,16 @@ describe('Cyclotron V2', () => {
         ])('Worker: fairDequeue ordering, %s claim', (_label, boundedFairDequeue) => {
             // The email queue is intrinsically fair-dequeued — the worker derives
             // it from the queue name, so an EMAIL_QUEUE worker is already fair.
-            const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
-                createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides })
+            const createFairWorker = (
+                overrides?: Record<string, unknown>,
+                Worker?: typeof CyclotronV2Worker
+            ): CyclotronV2Worker => createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides }, Worker)
+
+            class FilesPollOnly extends CyclotronV2Worker {
+                protected override runConsumerLoop(): Promise<void> {
+                    return Promise.resolve()
+                }
+            }
 
             it.each([
                 {
@@ -3917,33 +3929,51 @@ describe('Cyclotron V2', () => {
                     },
                 },
                 {
-                    label: 'a lower-sequence row with files waits for its own poll',
+                    label: 'the plain poll passes a lower-sequence row with files and an earlier-scheduled plain row',
                     seed: async (): Promise<string> => {
                         await manager.bulkCreateJobs([{ teamId: 200, queueName: EMAIL_QUEUE, fileBytes: 1000 }])
                         const [plain] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE }])
+                        await manager.bulkCreateJobs([
+                            { teamId: 300, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 3_600_000) },
+                        ])
                         return plain
                     },
                     overrides: { sendsWithFiles: { room: () => 0, stalled: () => false } },
                 },
                 {
-                    label: 'the poll for sends with files passes a parked lower-sequence row with files',
+                    label: 'the poll for sends with files passes a parked lower-sequence row with files, a lower-sequence plain row and an earlier-scheduled row with files',
                     seed: async (): Promise<string> => {
-                        const later = new Date(Date.now() + 3_600_000)
                         await manager.bulkCreateJobs([
-                            { teamId: 200, queueName: EMAIL_QUEUE, fileBytes: 1000, scheduled: later },
-                            { teamId: 300, queueName: EMAIL_QUEUE, scheduled: later },
+                            {
+                                teamId: 200,
+                                queueName: EMAIL_QUEUE,
+                                fileBytes: 1000,
+                                scheduled: new Date(Date.now() + 3_600_000),
+                            },
+                        ])
+                        await manager.bulkCreateJobs([
+                            { teamId: 300, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 7_200_000) },
                         ])
                         const [due] = await manager.bulkCreateJobs([
                             { teamId: 100, queueName: EMAIL_QUEUE, fileBytes: 1000 },
                         ])
+                        await manager.bulkCreateJobs([
+                            {
+                                teamId: 400,
+                                queueName: EMAIL_QUEUE,
+                                fileBytes: 1000,
+                                scheduled: new Date(Date.now() - 3_600_000),
+                            },
+                        ])
                         return due
                     },
                     overrides: { sendsWithFiles: { room: () => 1, stalled: () => false } },
+                    Worker: FilesPollOnly,
                 },
-            ])('claims the lowest-sequence due row when $label', async ({ seed, overrides }) => {
+            ])('claims the lowest-sequence due row when $label', async ({ seed, overrides, Worker }) => {
                 const expected = await seed()
 
-                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }))
+                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }, Worker))
 
                 expect(jobs.map((j) => j.id)).toEqual([expected])
             })
