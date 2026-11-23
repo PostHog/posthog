@@ -1,10 +1,6 @@
 import { IntegrationType } from '~/types'
 
-import {
-    isDeliverableEmailSender,
-    isVerifiedEmailSender,
-    resolveDefaultEmailSender,
-} from '../../Channels/defaultEmailSender'
+import { isDeliverableEmailSender, isVerifiedEmailSender } from '../../Channels/defaultEmailSender'
 
 export type SendingDomain =
     | { status: 'none' }
@@ -36,9 +32,8 @@ export function sendingDomainOf(
 ): SendingDomain {
     const verified = integrations.filter(isVerifiedEmailSender)
     const deliverable = verified.filter(isDeliverableEmailSender)
-    const defaultSender = resolveDefaultEmailSender(integrations, defaultIntegrationId)
     const sender =
-        deliverable.find((integration) => integration.id === defaultSender?.integrationId) ??
+        deliverable.find((integration) => integration.id === defaultIntegrationId) ??
         deliverable[0] ??
         verified.find((integration) => integration.id === defaultIntegrationId) ??
         verified[0]
