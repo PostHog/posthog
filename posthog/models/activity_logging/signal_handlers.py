@@ -745,11 +745,16 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    # Staff change an organization they are not a member of, for example when they deactivate it for abuse.
-    # The organization can read its own log, so it must not learn which staff member acted or from where.
-    # A new organization has no members until its creator joins, so a create never counts as outside.
-    acted_from_outside = (
-        user is not None and activity != "created" and not after_update.memberships.filter(user_id=user.id).exists()
+    # Staff deactivate an organization they are not a member of when it abuses PostHog. The organization can
+    # read its own log, so that one row must not name the staff member or where they acted from. Every other
+    # change by staff stays attributed, and the console audit log keeps who deactivated it.
+    deactivated_from_outside = (
+        activity == "updated"
+        and user is not None
+        and before_update is not None
+        and before_update.is_active is not False
+        and after_update.is_active is False
+        and not after_update.memberships.filter(user_id=user.id).exists()
     )
     log_activity(
         organization_id=after_update.id,
@@ -763,7 +768,7 @@ def handle_organization_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
         ),
-        external_actor=acted_from_outside,
+        external_actor=deactivated_from_outside,
     )
 
 
