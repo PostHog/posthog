@@ -293,8 +293,7 @@ describe('EmailTrackingService', () => {
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
             ])('tags the anchors in %s', (_name, body, tagged) => {
-                const out = sesTrack(`<body>${body}</body>`)
-                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+                expect(sesTrack(`<body>${body}</body>`)).toBe(`<body>${tagged}</body>`)
             })
 
             it.each([
@@ -332,9 +331,7 @@ describe('EmailTrackingService', () => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
                 const out = addTrackingToEmail(`<body>${anchor}</body>`, inv, signer, false, 'ses')
-                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${translated}`)
-                // Opting links out of click tracking keeps the open pixel.
-                expect(out).toMatch(/<img src="[^"]*\/public\/m\/pixel\?[^"]+"[^>]*><\/body>$/)
+                expect(out).toBe(`<body>${translated}</body>`)
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {

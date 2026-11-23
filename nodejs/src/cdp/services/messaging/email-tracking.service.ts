@@ -51,7 +51,8 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
  * `ses` leaves hrefs pointing at their real destination and instead annotates each anchor with the
  * attributes SES reads when it rewrites links for its own click tracking. SES is the sole click
  * source on this path, so wrapping the href as well would only bury the destination inside a
- * per-send URL that the Click event then reports verbatim.
+ * per-send URL that the Click event then reports verbatim. SES also adds its own open pixel, and
+ * the pixel handler records nothing in production, so this mode adds no pixel of ours.
  */
 export type EmailTrackingMode = 'redirect' | 'ses'
 
@@ -212,8 +213,6 @@ const isJavascriptHref = (href: string): boolean => {
     return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
-export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
-
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -230,7 +229,6 @@ export const addTrackingToEmail = (
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
     const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
-    const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor with an href, including ones that turn out to be opted
     // out or unsafe, so the index stays tied to document position instead of shifting with how
@@ -278,9 +276,11 @@ export const addTrackingToEmail = (
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
-
-    return html
+    if (mode === 'ses') {
+        return html
+    }
+    const pixelUrl = signer.pixelUrl(trackingInvocation, isTest)
+    return html.replace('</body>', `<img src="${pixelUrl}" style="display: none;" /></body>`)
 }
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
