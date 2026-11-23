@@ -233,12 +233,14 @@ def sends_only_transactional_email(actions: object) -> bool:
     )
 
 
-def _transactional_by_flow(*, team_id: int, flow_ids: list[str]) -> dict[str, bool]:
+def _transactional_by_flow(*, team_ids: list[int], flow_ids: list[str]) -> dict[str, bool]:
     if not flow_ids:
         return {}
     return {
         str(flow_id): sends_only_transactional_email(actions)
-        for flow_id, actions in HogFlow.objects.filter(team_id=team_id, id__in=flow_ids).values_list("id", "actions")
+        for flow_id, actions in HogFlow.objects.filter(team_id__in=team_ids, id__in=flow_ids).values_list(
+            "id", "actions"
+        )
     }
 
 
@@ -540,18 +542,19 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
             if counts_by_team
             else {}
         )
+        transactional_by_flow.update(
+            _transactional_by_flow(
+                team_ids=sorted(counts_by_team),
+                flow_ids=[
+                    flow_id
+                    for counts_by_flow, _ in counts_by_team.values()
+                    for flow_id in counts_by_flow
+                    if flow_id in flows_by_id and flow_id not in transactional_by_flow
+                ],
+            )
+        )
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
             earlier_by_flow = earlier_by_team.get(team_id, ({}, {}))[0]
-            transactional_by_flow.update(
-                _transactional_by_flow(
-                    team_id=team_id,
-                    flow_ids=[
-                        flow_id
-                        for flow_id in counts_by_flow
-                        if flow_id in flows_by_id and flow_id not in transactional_by_flow
-                    ],
-                )
-            )
             judged: dict[str, tuple[HogFlow, JudgedCounts]] = {}
             for flow_id, counts in counts_by_flow.items():
                 flow = flows_by_id.get(flow_id)
