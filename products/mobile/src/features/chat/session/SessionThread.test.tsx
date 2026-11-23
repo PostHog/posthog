@@ -183,6 +183,7 @@ describe('SessionThread', () => {
 
     test('opens pasted web links and keeps the original sent message available to copy', async () => {
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        open.mockClear()
         const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
         const review = 'https://example.com/pull/123?tab=files#diff'
         const guide = 'https://example.com/wiki/Example_(page)'
