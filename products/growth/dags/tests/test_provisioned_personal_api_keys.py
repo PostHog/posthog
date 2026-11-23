@@ -90,9 +90,11 @@ class TestTagProvisionedPersonalAPIKeys(TestCase):
             scoped_teams=scoped_teams,
         )
 
-    def _run(self, *, dry_run: bool) -> dict:
+    def _run(self, *, dry_run: bool, key_ids: list[str] | None = None) -> dict:
         context = dagster.build_op_context()
-        tag_provisioned_personal_api_keys(context, TagProvisionedPersonalAPIKeysConfig(dry_run=dry_run))
+        tag_provisioned_personal_api_keys(
+            context, TagProvisionedPersonalAPIKeysConfig(dry_run=dry_run, key_ids=key_ids or [])
+        )
 
         metadata = context.get_output_metadata("result")
         assert metadata is not None
@@ -122,3 +124,15 @@ class TestTagProvisionedPersonalAPIKeys(TestCase):
         assert not PersonalAPIKey.objects.filter(
             id__in=[key.id for key in untouched], provisioned_by__isnull=False
         ).exists()
+
+    def test_tags_only_the_listed_keys_when_given_key_ids(self) -> None:
+        listed = self._key(self.member, f"Stripe - {TEAM_NAME}", [self.team.id])
+        unlisted = self._key(self.member, TEAM_NAME, [self.team.id])
+
+        metadata = self._run(dry_run=False, key_ids=[listed.id])
+
+        assert metadata["tagged_total"] == 1
+        listed.refresh_from_db()
+        unlisted.refresh_from_db()
+        assert listed.provisioned_by_id == self.stripe_app.id
+        assert unlisted.provisioned_by_id is None

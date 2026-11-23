@@ -4,8 +4,10 @@ Keys minted before `PersonalAPIKey.provisioned_by` existed carry no link to the 
 partner's rotate, remove, and revoke paths cannot find them. This job sets `provisioned_by` on the
 existing keys that match what the provisioning mint produces. It never deletes a key.
 
-Run it from the Dagster UI with `dry_run: true` (the default) first, check the logged counts and
-ambiguous keys, then run it again with `dry_run: false`.
+Run it from the Dagster UI with `dry_run: true` (the default) first. Check every matched key it
+logs, the counts, and the ambiguous keys, then run it again with `dry_run: false`, passing the
+checked keys in `key_ids` to tag only those. The match is a label heuristic, so a key a user
+labeled with a provisioned project's name also matches.
 """
 
 from collections import defaultdict
@@ -100,6 +102,8 @@ def _user_organization_pairs(user_ids: Collection[int], organization_ids: Collec
 
 class TagProvisionedPersonalAPIKeysConfig(dagster.Config):
     dry_run: bool = True
+    # Restricts the run to keys an operator checked in a dry run. Empty means every key.
+    key_ids: list[str] = []
 
 
 @dagster.op
@@ -126,6 +130,8 @@ def tag_provisioned_personal_api_keys(
     unlinked_single_team_keys = PersonalAPIKey.objects.filter(
         provisioned_by__isnull=True, scoped_teams__len=1
     ).order_by("id")
+    if config.key_ids:
+        unlinked_single_team_keys = unlinked_single_team_keys.filter(id__in=config.key_ids)
     last_id = ""
     while batch := list(
         unlinked_single_team_keys.filter(id__gt=last_id).values_list("id", "user_id", "label", "scoped_teams")[
@@ -154,7 +160,9 @@ def tag_provisioned_personal_api_keys(
             if len(app_ids) > 1:
                 ambiguous_keys.append((key_id, team_id, sorted(str(app_id) for app_id in app_ids)))
             elif app_ids:
-                key_ids_per_app[next(iter(app_ids))].append(key_id)
+                app_id = next(iter(app_ids))
+                key_ids_per_app[app_id].append(key_id)
+                context.log.info(f"Matched personal API key {key_id} ({label!r}) on team {team_id} to app {app_id}")
 
         for app_id, key_ids in key_ids_per_app.items():
             if config.dry_run:
