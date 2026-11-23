@@ -259,12 +259,55 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+// Node names the failed system call on a network error. A failed DNS lookup or TCP connect means no request byte
+// reached SES. When a host has several addresses, Node tries each and raises an AggregateError of the failures.
+// A connection that closes during the TLS handshake carries no system call, and Node marks it with this message.
+// The request is written only after the handshake, so no request byte reached SES either.
+const TLS_HANDSHAKE_RESET = 'Client network socket disconnected before secure TLS connection was established'
+
+const failedBeforeTheConnectionOpened = (error: unknown): boolean => {
+    const { syscall, code, message, errors } = (error ?? {}) as {
+        syscall?: string
+        code?: string
+        message?: string
+        errors?: unknown
+    }
+    if (Array.isArray(errors)) {
+        return errors.length > 0 && errors.every(failedBeforeTheConnectionOpened)
+    }
+    return (
+        syscall === 'getaddrinfo' ||
+        syscall === 'connect' ||
+        (code === 'ECONNRESET' && syscall === undefined && message === TLS_HANDSHAKE_RESET)
+    )
+}
+
+class SesMayHaveSentError extends Error {
+    constructor() {
+        super('The connection to SES dropped before SES answered. It may have sent the email, so it is not sent again.')
+        this.name = 'SesMayHaveSentError'
+    }
+}
+
+function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand, retryOnlyRefusedAttempts: boolean): () => boolean {
     let attemptsSesMayHaveAccepted = 0
     command.middlewareStack.add(
         (next) => async (args) => {
+            // The SDK retries a dropped connection on its own. SES can take an attempt whose connection then drops,
+            // so a retry after it can deliver a second copy.
+            if (retryOnlyRefusedAttempts && attemptsSesMayHaveAccepted > 0) {
+                throw new SesMayHaveSentError()
+            }
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
+            let httpAnswer
+            try {
+                httpAnswer = await next(args)
+            } catch (error) {
+                if (failedBeforeTheConnectionOpened(error)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                throw error
+            }
             if (sesRefused(httpAnswer.response)) {
                 attemptsSesMayHaveAccepted--
             }
@@ -1813,7 +1856,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command, deadline !== undefined)
         const sendStartedAt = performance.now()
         try {
             const response = deadline

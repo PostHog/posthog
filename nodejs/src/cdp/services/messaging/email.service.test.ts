@@ -1,9 +1,12 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
+import http from 'node:http'
+import net, { AddressInfo, LookupFunction } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import { v5 as uuidv5 } from 'uuid'
@@ -2860,27 +2863,30 @@ describe('EmailService', () => {
 
             it.each([
                 [
-                    'SES receives the request and does not answer',
+                    'SES receives the request and does not answer past the deadline',
                     () => {
                         ses.failWith('no-answer')
                     },
+                    0,
                 ],
                 [
-                    'SES answers 200 and its body stalls',
+                    'SES answers 200 and its body stalls past the deadline',
                     () => {
                         ses.failWith('stalled-body')
                     },
+                    0,
                 ],
                 [
-                    'the connection drops after the request went out and the SDK is still backing off',
+                    'the connection drops after the request went out and the SDK is still backing off past the deadline',
                     (emailService: EmailService) => {
                         ses.failWith('drop-connection')
                         emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
+                    0,
                 ],
             ])(
-                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
-                async (_name, fault) => {
+                'when %s, fails the send without a retry, because SES may have sent it',
+                async (_name, fault, deliveries) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     fault(emailService)
 
@@ -2890,13 +2896,116 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient),
+                        delivered: deliveredTo(ses, recipient).length,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: [],
+                        delivered: deliveries,
                     })
+                }
+            )
+
+            const portNobodyListensOn = async (): Promise<number> => {
+                const server = net.createServer()
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                const { port } = server.address() as AddressInfo
+                await new Promise((resolve) => server.close(resolve))
+                return port
+            }
+
+            const refusedOn =
+                (addresses: string[]) =>
+                async (_transport: any, request: any, options: any): Promise<unknown> => {
+                    const lookup: LookupFunction = (_hostname, lookupOptions, answer) =>
+                        lookupOptions.all
+                            ? answer(
+                                  null,
+                                  addresses.map((address) => ({ address, family: 4 }))
+                              )
+                            : answer(null, addresses[0], 4)
+                    const handler = new NodeHttpHandler({ httpAgent: new http.Agent({ lookup }) })
+                    return await handler.handle(
+                        { ...request, hostname: 'email.ses.example.com', port: await portNobodyListensOn() },
+                        options
+                    )
+                }
+
+            const closedDuringTheTlsHandshake = async (
+                _transport: any,
+                request: any,
+                options: any
+            ): Promise<unknown> => {
+                const server = net.createServer((socket) => socket.destroy())
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                const { port } = server.address() as AddressInfo
+                try {
+                    return await new NodeHttpHandler().handle(
+                        { ...request, protocol: 'https:', hostname: '127.0.0.1', port },
+                        options
+                    )
+                } finally {
+                    await new Promise((resolve) => server.close(resolve))
+                }
+            }
+
+            it.each([
+                [
+                    'SES refuses the connection before the request goes out',
+                    refusedOn(['127.0.0.1']),
+                    { finished: true, error: undefined, delivered: 1 },
+                ],
+                [
+                    'each address of SES refuses the connection before the request goes out',
+                    refusedOn(['127.0.0.1', '127.0.0.2']),
+                    { finished: true, error: undefined, delivered: 1 },
+                ],
+                [
+                    'SES closes the connection during the TLS handshake before the request goes out',
+                    closedDuringTheTlsHandshake,
+                    { finished: true, error: undefined, delivered: 1 },
+                ],
+                [
+                    'SES takes the email and the connection drops before its answer arrives',
+                    async (transport: any, request: any, options: any) => {
+                        await transport.handle(request, options)
+                        throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' })
+                    },
+                    {
+                        finished: true,
+                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        delivered: 1,
+                    },
+                ],
+            ])(
+                'when %s on the first attempt and the SDK retries at once, delivers the email once',
+                async (_name, firstAttempt, expected) => {
+                    const emailService = sender()
+                    const transport = sesClientFor(ses).config.requestHandler
+                    let attempts = 0
+                    emailService.sesV2Client = sesClientFor(ses, {
+                        retryStrategy: oneRetryAfter(0),
+                        requestHandler: {
+                            handle: (request: any, options: any) =>
+                                ++attempts === 1
+                                    ? firstAttempt(transport, request, options)
+                                    : transport.handle(request, options),
+                        },
+                    })
+                    const deadlines = jest
+                        .spyOn(AbortSignal, 'timeout')
+                        .mockImplementation(() => new AbortController().signal)
+                    try {
+                        const result = await emailService.executeSendEmail(invocation)
+
+                        expect({
+                            finished: result.finished,
+                            error: result.error,
+                            delivered: deliveredTo(ses, recipient).length,
+                        }).toEqual(expected)
+                    } finally {
+                        deadlines.mockRestore()
+                    }
                 }
             )
 
