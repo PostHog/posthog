@@ -110,9 +110,13 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 )
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
-# Used in internal stage to cap Arrow record batch size
+# Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+# Each Arrow file can buffer small chunks independently. Zero (default) leaves batching to ClickHouse.
+BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES", 0, type_cast=int
 )
 
 BATCH_EXPORT_PARQUET_MAX_BUFFERED_ARROW_BYTES: int = get_from_env(

@@ -3,11 +3,8 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
-import { router } from 'kea-router'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
-import { App } from 'scenes/App'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { getAvailableProductFeatures } from '~/mocks/features'
@@ -15,6 +12,8 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { HedgehogConfig } from '~/types'
 
 import { SettingSectionId } from '../types'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -28,6 +27,7 @@ const meta: Meta<StoryProps> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        testOptions: SETTINGS_STORY_TEST_OPTIONS,
     },
     decorators: [
         mswDecorator({
@@ -69,14 +69,7 @@ const meta: Meta<StoryProps> = {
             },
         }),
     ],
-    render: ({ sectionId }) => {
-        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
-        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
-        // can race and capture the homepage frame instead.
-        router.actions.push(urls.settings(sectionId))
-
-        return <App />
-    },
+    render: ({ sectionId }: StoryProps) => <SettingsStoryApp sectionId={sectionId} />,
 }
 export default meta
 
@@ -85,6 +78,8 @@ export default meta
 export const SettingsUserProfile: Story = {
     args: { sectionId: 'user-profile' },
 }
+
+export const SettingsUserProfileQuill: Story = withTodayRailNav(SettingsUserProfile)
 
 const HEDGEHOG_AVATAR_CONFIG: HedgehogConfig = {
     version: 2,
@@ -199,6 +194,8 @@ export const SettingsUserApiKeys: Story = {
     args: { sectionId: 'user-api-keys' },
 }
 
+export const SettingsUserApiKeysQuill: Story = withTodayRailNav(SettingsUserApiKeys)
+
 export const SettingsUserApiKeysCreateModal: Story = {
     args: { sectionId: 'user-api-keys' },
     play: async ({ canvasElement }) => {
@@ -215,13 +212,19 @@ export const SettingsUserNotifications: Story = {
     args: { sectionId: 'user-notifications' },
 }
 
+export const SettingsUserNotificationsQuill: Story = withTodayRailNav(SettingsUserNotifications)
+
 export const SettingsUserCustomization: Story = {
     args: { sectionId: 'user-customization' },
 }
 
+export const SettingsUserCustomizationQuill: Story = withTodayRailNav(SettingsUserCustomization)
+
 export const SettingsUserDangerZone: Story = {
     args: { sectionId: 'user-danger-zone' },
 }
+
+export const SettingsUserDangerZoneQuill: Story = withTodayRailNav(SettingsUserDangerZone)
 
 export const SettingsUserRemindersModal: Story = {
     args: { sectionId: 'user-reminders' },

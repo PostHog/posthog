@@ -27,7 +27,9 @@ HELLOBATON_ENDPOINTS: dict[str, HellobatonEndpointConfig] = {
     "custom_field_options": HellobatonEndpointConfig(name="custom_field_options", path="/custom_field_options/"),
     "custom_field_values": HellobatonEndpointConfig(name="custom_field_values", path="/custom_field_values/"),
     "departments": HellobatonEndpointConfig(name="departments", path="/departments/"),
+    "external_tasks": HellobatonEndpointConfig(name="external_tasks", path="/external_tasks/"),
     "milestones": HellobatonEndpointConfig(name="milestones", path="/milestones/"),
+    "milestone_feedback": HellobatonEndpointConfig(name="milestone_feedback", path="/milestone_feedback/"),
     "phases": HellobatonEndpointConfig(name="phases", path="/phases/"),
     "projects": HellobatonEndpointConfig(name="projects", path="/projects/"),
     "project_attachments": HellobatonEndpointConfig(name="project_attachments", path="/project_attachments/"),
@@ -42,9 +44,17 @@ HELLOBATON_ENDPOINTS: dict[str, HellobatonEndpointConfig] = {
     ),
     # Templates carry no non-null created/modified timestamp, so there's no stable partition key.
     "templates": HellobatonEndpointConfig(name="templates", path="/templates/", partition_key=None),
+    # Template rollups carry only `last_used`, which moves every time the template is used.
+    "template_aggregates": HellobatonEndpointConfig(
+        name="template_aggregates", path="/template_aggregates/", partition_key=None
+    ),
     # Time entries have no `created` field; `reference_date` is the stable non-null date they cover.
     "time_entries": HellobatonEndpointConfig(
         name="time_entries", path="/time_entries/", partition_key="reference_date"
+    ),
+    # Time entry rollups carry no timestamp at all.
+    "time_entry_aggregates": HellobatonEndpointConfig(
+        name="time_entry_aggregates", path="/time_entry_aggregates/", partition_key=None
     ),
     "users": HellobatonEndpointConfig(name="users", path="/users/"),
 }

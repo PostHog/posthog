@@ -1,11 +1,12 @@
 import json
 from collections.abc import Iterable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response
@@ -184,6 +185,7 @@ def test_catalog_rows_keep_unique_keys(
         (200, "task_runs", True, None, "executions"),
         (200, "execution_metrics", True, None, "executions"),
         (200, "flow_revisions", True, None, "flows"),
+        (200, "task_outputs", True, None, "executions"),
         (401, None, False, "Kestra rejected", "flows"),
         (401, "executions", False, "Kestra rejected", "executions"),
         (403, None, True, None, "flows"),
@@ -208,6 +210,24 @@ def test_credential_probe(
     assert request.headers["Authorization"] == "Bearer test-token"
     assert parse_qs(urlsplit(request.url or "").query) == {"page": ["1"], "size": ["1"]}
     assert urlsplit(request.url or "").path == f"/api/v1/main/{probed}/search"
+
+
+@pytest.mark.parametrize(
+    "status,schema,valid",
+    [(200, "daily_execution_statistics", True), (403, "daily_execution_statistics", False), (403, None, True)],
+)
+def test_usage_probe_reads_the_usage_endpoint(
+    config: KestraSourceConfig, status: int, schema: str | None, valid: bool
+) -> None:
+    body = {"flows": {"count": 1}, "executions": {"dailyExecutionsCount": []}}
+    with patch("requests.sessions.Session.send", return_value=response(body, status)) as send:
+        success, _ = validate_credentials(config, 1, schema)
+    assert success == valid
+    request = send.call_args.args[0]
+    expected = ("/api/v1/main/usages/all", {"days": ["1"]}) if schema else ("/api/v1/main/flows/search", None)
+    assert urlsplit(request.url or "").path == expected[0]
+    if expected[1]:
+        assert parse_qs(urlsplit(request.url or "").query) == expected[1]
 
 
 @pytest.mark.parametrize("status", [400, 404])
@@ -507,3 +527,78 @@ def test_logs_stop_on_a_repeated_cursor(config: KestraSourceConfig) -> None:
     )
     assert isinstance(result.raised, ValueError)
     assert "same log cursor" in str(result.raised)
+
+
+def test_task_outputs_fan_out_over_task_runs_with_outputs(config: KestraSourceConfig) -> None:
+    script = route(
+        {
+            "/api/v1/main/executions/search": [
+                page(
+                    [
+                        {"id": "run-1", "state": {"startDate": "2026-01-02T00:00:00Z"}},
+                        {"id": "gone", "state": {"startDate": "2026-01-03T00:00:00Z"}},
+                    ],
+                    2,
+                )
+            ],
+            "/api/v1/main/outputs/tasks/run-1": [
+                ScriptedResponse(
+                    json=[
+                        {"taskId": "extract", "taskRunId": "tr-1", "inline": True},
+                        {"taskId": "each", "taskRunId": "tr-2", "value": "a", "iteration": 2, "inline": False},
+                        {"taskId": "pruned", "taskRunId": "tr-3", "inline": True},
+                    ]
+                )
+            ],
+            "/api/v1/main/outputs/tasks/gone": [ScriptedResponse(status=404, json={"message": "Not found"})],
+            "/api/v1/main/outputs/tasks/run-1/tr-1": [ScriptedResponse(json={"rows": 3, "uri": "kestra:///x.ion"})],
+            "/api/v1/main/outputs/tasks/run-1/tr-2": [ScriptedResponse(json={"value": "other", "rows": [1, 2]})],
+            "/api/v1/main/outputs/tasks/run-1/tr-3": [ScriptedResponse(status=404, json={})],
+        }
+    )
+    result = SourceDriver(KestraSource(), config).run("task_outputs", script, incremental_field="execution_start_date")
+    assert result.raised is None
+    started = datetime(2026, 1, 2, tzinfo=UTC)
+    assert result.rows == [
+        {
+            "executionId": "run-1",
+            "execution_start_date": started,
+            "taskId": "extract",
+            "taskRunId": "tr-1",
+            "value": None,
+            "iteration": None,
+            "inline": True,
+            "outputs": {"rows": 3, "uri": "kestra:///x.ion"},
+        },
+        {
+            "executionId": "run-1",
+            "execution_start_date": started,
+            "taskId": "each",
+            "taskRunId": "tr-2",
+            "value": "a",
+            "iteration": 2,
+            "inline": False,
+            "outputs": {"value": "other", "rows": [1, 2]},
+        },
+    ]
+    assert result.response is not None and result.response.sort_mode == "asc"
+
+
+@pytest.mark.parametrize("offset", ["Z", "+02:00", ""])
+@time_machine.travel(datetime(2026, 3, 10, 12, 0, tzinfo=UTC), tick=False)
+def test_daily_statistics_drop_the_partial_first_day(config: KestraSourceConfig, offset: str) -> None:
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    days = [today - timedelta(days=30), today - timedelta(days=29), today]
+    rows = [
+        {"startDate": day.strftime("%Y-%m-%dT%H:%M:%S") + offset, "executionCounts": {"SUCCESS": index}}
+        for index, day in enumerate(days)
+    ]
+    result = SourceDriver(KestraSource(), config).run(
+        "daily_execution_statistics",
+        [ScriptedResponse(json={"flows": {"count": 2}, "executions": {"dailyExecutionsCount": rows}})],
+        incremental_field="start_date",
+    )
+    assert result.raised is None
+    assert result.params("days") == ["30"]
+    assert [row["executionCounts"]["SUCCESS"] for row in result.rows] == [1, 2]
+    assert result.rows[-1]["start_date"].tzinfo is not None

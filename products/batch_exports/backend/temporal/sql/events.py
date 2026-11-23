@@ -419,6 +419,8 @@ SETTINGS
 #   fields are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
+# `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
+# here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
     "properties": json_document_sql(
         "events.properties",

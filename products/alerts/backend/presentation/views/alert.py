@@ -1,7 +1,7 @@
 import copy
 import json
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
@@ -123,6 +123,7 @@ from products.alerts.backend.facade.contracts import (
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
+    active_alert_destination_counts,
     build_insight_alert_pagerduty_configs,
     build_insight_alert_slack_config,
     build_insight_alert_url_config,
@@ -156,6 +157,7 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_views,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
+    queue_delivery_test,
     set_native_subscribers,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
@@ -180,8 +182,10 @@ from products.alerts.backend.models.alert import (
 from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
+    lock_source_configuration,
     record_source_destination,
     redact_destination_data as redact_platform_destination_data,
+    standalone_destination_counts,
     validate_destination_data as validate_platform_destination_data,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -198,6 +202,13 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertCreateRefused,
+    SourceKind,
+    StoredAlertDestination,
+)
+from products.alerts_platform.backend.facade.delivery import (
+    delivery_test_destination_ids,
+    has_legacy_webhook_body,
+    keeps_legacy_webhook_body,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
@@ -804,6 +815,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         read_only=True,
         help_text="Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty.",
     )
+    destination_count = serializers.SerializerMethodField(
+        help_text=(
+            "How many active notification destinations the alert sends to, such as Slack channels and webhooks, "
+            "each counted once. Subscribed users are not included."
+        )
+    )
     insight_short_id = serializers.CharField(
         source="insight.short_id",
         read_only=True,
@@ -894,6 +911,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_insight_display_name(self, obj: AlertConfiguration) -> str:
         return obj.insight.name or obj.insight.derived_name or "Untitled insight"
 
+    @extend_schema_field(serializers.IntegerField())
+    def get_destination_count(self, obj: AlertConfiguration) -> int:
+        shown = getattr(obj, "destination_count", None)
+        if shown is None:
+            _show_destination_counts([obj])
+            shown = obj.destination_count  # type: ignore[attr-defined]
+        return shown
+
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_llm_detector_available(self, obj: AlertConfiguration) -> bool | None:
         # One flag evaluation per alert is fine on the alert detail view, and nowhere else: not on
@@ -923,6 +948,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "insight_display_name",
             "llm_detector_available",
             "pagerduty_available",
+            "destination_count",
             "name",
             "subscribed_users",
             "threshold",
@@ -1656,7 +1682,9 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class AlertTestDeliveryResponseSerializer(serializers.Serializer):
-    destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
+    destination_count = serializers.IntegerField(
+        help_text="Number of active destinations queued for test delivery or sent a test message."
+    )
     email_recipient_count = serializers.IntegerField(help_text="Number of subscribed users sent a test email.")
     failed_delivery_channels = serializers.ListField(
         child=serializers.ChoiceField(choices=("email", "destination")),
@@ -1792,6 +1820,24 @@ class AlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertCreatedDestinationResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The new destination's ID, the `id` that listing the alert's destinations shows. Delete the "
+            "destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, "
+            "in which case `hog_function_ids` identifies the destination."
+        ),
+    )
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text=(
+            "HogFunction IDs of the new destination. Empty when the alerts platform checks the alert, since the "
+            "platform sends the destination's message itself until someone customizes it."
+        ),
+    )
+
+
 class AlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1805,7 +1851,10 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-        help_text="Destination IDs from the destinations list, to delete with their HogFunctions.",
+        help_text=(
+            "Destination IDs from the destinations list or from creating the destination, to delete with their "
+            "HogFunctions."
+        ),
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -1888,7 +1937,7 @@ class AlertDestinationListItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=DestinationType.choices, help_text="Notification destination type.")
     enabled = serializers.BooleanField(help_text="Whether the destination sends.")
     hears_firing = serializers.BooleanField(
-        help_text="Whether the destination's HogFunctions hear the firing event, which a test delivery sends."
+        help_text="Whether a test delivery reaches the destination, through its HogFunctions or natively."
     )
     message_customized = serializers.BooleanField(
         help_text="Whether someone edited the destination's message, so it no longer sends the standard one."
@@ -1967,6 +2016,23 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
     for alert in alerts:
         if alert.id in user_ids:
             alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
+
+
+def _show_destination_counts(alerts: list[AlertConfiguration]) -> None:
+    """Shows each alert's destination count, in place, in one read for the page. A destination counts once:
+    its live HogFunctions, or else its platform row, by the rule delivery and a test delivery follow."""
+    if not alerts:
+        return
+    team_id = alerts[0].team_id
+    hog_function_counts = active_alert_destination_counts(
+        team_id=team_id,
+        alert_ids=[str(alert.id) for alert in alerts],
+        # A PagerDuty destination is two functions, one per incident event, so it counts once.
+        allowed_event_ids=(*INSIGHT_ALERT_EVENT_IDS, INSIGHT_ALERT_INCIDENT_OPENED_EVENT),
+    )
+    row_counts = standalone_destination_counts(team_id=team_id, public_ids=[alert.id for alert in alerts])
+    for alert in alerts:
+        alert.destination_count = hog_function_counts.get(str(alert.id), 0) + row_counts.get(alert.id, 0)  # type: ignore[attr-defined]
 
 
 def _show_copy_settings(alerts: list[AlertConfiguration]) -> None:
@@ -2482,6 +2548,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         alerts = [loaded[key.id] for key in listed if key.id in loaded]
         _show_platform_status(alerts, now=timezone.now())
         _show_platform_subscribers(alerts)
+        _show_destination_counts(alerts)
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
@@ -2594,8 +2661,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id=str(alert.id),
             allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
         )
+        # The rows the platform sends natively, which no HogFunction stands behind.
+        row_count = len(delivery_test_destination_ids(team_id=alert.team_id, public_id=alert.id))
         email_targets = _subscriber_emails(alert)
-        if destination_count == 0 and not email_targets:
+        if destination_count == 0 and row_count == 0 and not email_targets:
             return Response(
                 {"detail": "Add an email recipient or active destination before sending a test."},
                 status=status.HTTP_409_CONFLICT,
@@ -2628,6 +2697,23 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             successful_destination_count = destination_count
         elif destination_count:
             failed_delivery_channels.append("destination")
+        if row_count:
+            try:
+                queue_delivery_test(
+                    team_id=alert.team_id,
+                    alert_id=alert.id,
+                    alert_name=alert.name or "",
+                    insight_short_id=alert.insight.short_id,
+                )
+            except Exception as error:
+                capture_exception(
+                    error,
+                    additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "destination"},
+                )
+                if "destination" not in failed_delivery_channels:
+                    failed_delivery_channels.append("destination")
+            else:
+                successful_destination_count += row_count
 
         if successful_email_count == 0 and successful_destination_count == 0:
             detail = (
@@ -2662,10 +2748,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=AlertCreateDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Send this alert to a Slack channel as well as by email. The workspace must already be "
-            "connected to the project. The returned IDs identify the destination."
+            "connected to the project. The returned `id` identifies the destination."
         ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", pagination_class=None)
@@ -2674,12 +2760,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         responses={200: AlertDestinationListItemSerializer(many=True)},
@@ -2707,6 +2788,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
             hog_function_ids=[i for destination in destinations for i in destination.hog_function_ids],
         )
+        tested_rows = delivery_test_destination_ids(team_id=self.team_id, public_id=alert.id)
         return Response(
             AlertDestinationListItemSerializer(
                 [
@@ -2714,7 +2796,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "id": destination.destination_id,
                         "hog_function_ids": list(destination.hog_function_ids),
                         "enabled": destination.enabled,
-                        "hears_firing": not hearing_firing.isdisjoint(destination.hog_function_ids),
+                        "hears_firing": not hearing_firing.isdisjoint(destination.hog_function_ids)
+                        or destination.destination_id in tested_rows,
                         "message_customized": not customized.isdisjoint(destination.hog_function_ids),
                         **redact_platform_destination_data(redact_destination_data(destination.data)),
                     }
@@ -2726,10 +2809,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=AlertCreateUrlDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. "
-            "The returned IDs identify the destination."
+            "The returned `id` identifies the destination."
         ),
     )
     @action(
@@ -2743,19 +2826,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertCreateUrlDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         request=AlertCreatePagerDutyDestinationSerializer,
-        responses={201: AlertDestinationResponseSerializer},
+        responses={201: AlertCreatedDestinationResponseSerializer},
         description=(
             "Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. "
-            "Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination."
+            "Only an alert whose pagerduty_available is true can take one. The returned `id` identifies the destination."
         ),
     )
     # The routing key is a target the caller supplies, so an alert-only token cannot add one. A sandboxed agent
@@ -2775,12 +2853,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not alert.platform_owned:
             raise ValidationError({"type": "PagerDuty isn't available for this alert yet."})
         data = cast(AlertDestinationData, serializer.validated_data)
-        return self._create_destination(
-            request,
-            alert,
-            data,
-            _insight_destination_configs(alert.id, alert.name, data),
-        )
+        return self._create_destination(request, alert, data)
 
     @extend_schema(
         parameters=[AlertPagerDutyAvailabilityQuerySerializer],
@@ -2798,47 +2871,63 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(AlertPagerDutyAvailabilitySerializer({"available": available}).data)
 
-    def _create_destination(
-        self,
-        request: Request,
-        alert: AlertConfiguration,
-        data: AlertDestinationData,
-        configs: Sequence[AlertDestinationConfig],
-    ) -> Response:
+    def _create_destination(self, request: Request, alert: AlertConfiguration, data: AlertDestinationData) -> Response:
         user = cast(User, request.user)
-        # A PagerDuty destination is two functions, one per incident event, so it counts once.
-        existing = count_active_alert_destinations(
-            team_id=self.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=(*INSIGHT_ALERT_EVENT_IDS, INSIGHT_ALERT_INCIDENT_OPENED_EVENT),
-        )
-        if existing >= MAX_DESTINATIONS_PER_ALERT:
-            raise ValidationError(
-                f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+
+        def record(hog_function_ids: tuple[uuid.UUID, ...]) -> StoredAlertDestination | None:
+            return record_source_destination(
+                team_id=alert.team_id,
+                public_id=alert.id,
+                data=data,
+                event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
+                hog_function_ids=hog_function_ids,
+                hog_function_groups=list_alert_destination_groups(
+                    team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+                ),
+                # A rollback that lands after `alert` was read would leave a row nothing sends.
+                only_while_platform_owned=not hog_function_ids,
             )
 
+        # A native PagerDuty incident differs from the stock HogFunction's (its key, source and details), and
+        # native delivery has no insight legacy webhook body, so these keep HogFunctions until they match.
+        sends_from_a_row = (
+            alert.platform_owned
+            and data["type"] != DestinationType.PAGERDUTY
+            and not (
+                data["type"] == DestinationType.WEBHOOK
+                and keeps_legacy_webhook_body(alert.team) is not False
+                and not has_legacy_webhook_body(SourceKind.INSIGHT)
+            )
+        )
+        hog_function_ids: tuple[uuid.UUID, ...] = ()
         try:
             with transaction.atomic():
-                hog_function_ids = create_alert_destination_hog_functions(
-                    list(configs),
-                    team_id=alert.team_id,
-                    created_by_id=user.id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                # Counted under the alert's lock, so two adds at once cannot both pass the cap: its insight row when it
+                # has one, else its platform copy. Counted as the alert's `destination_count` is, so a destination reset
+                # to send from its row still counts.
+                list(
+                    AlertConfiguration.objects.select_for_update(no_key=True)
+                    .filter(team_id=alert.team_id, id=alert.id)
+                    .values_list("id", flat=True)
                 )
-                # The HogFunctions send while they exist. Rollback to the insight stack reads only them.
-                record_source_destination(
-                    team_id=alert.team_id,
-                    public_id=alert.id,
-                    data=data,
-                    event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
-                    hog_function_ids=hog_function_ids,
-                    hog_function_groups=list_alert_destination_groups(
+                lock_source_configuration(team_id=alert.team_id, public_id=alert.id)
+                _show_destination_counts([alert])
+                if alert.destination_count >= MAX_DESTINATIONS_PER_ALERT:  # type: ignore[attr-defined]
+                    raise ValidationError(
+                        f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+                    )
+                # A platform alert's destination gets HogFunctions only once someone customizes its message.
+                stored = record(()) if sends_from_a_row else None
+                # Only the platform sends a row, so an alert it doesn't check sends through HogFunctions.
+                if stored is None:
+                    hog_function_ids = create_alert_destination_hog_functions(
+                        _insight_destination_configs(alert.id, alert.name, data),
                         team_id=alert.team_id,
+                        created_by_id=user.id,
                         alert_id=str(alert.id),
                         allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
-                    ),
-                )
+                    )
+                    stored = record(hog_function_ids)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
@@ -2848,7 +2937,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             actor_id=user.id,
             was_impersonated=is_impersonated(request),
             action="created",
-            destination_types=dict.fromkeys(hog_function_ids, data["type"]),
+            # A destination with no HogFunctions is logged by its row's id.
+            destination_types=dict.fromkeys(
+                hog_function_ids or ([stored.id] if stored is not None else []), data["type"]
+            ),
         )
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
@@ -2860,7 +2952,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "type": _analytics_destination_type(data["type"]),
             },
         )
-        response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
+        response = AlertCreatedDestinationResponseSerializer(
+            {"id": stored.id if stored is not None else None, "hog_function_ids": list(hog_function_ids)}
+        )
         return Response(response.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -2923,7 +3017,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             properties={
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
-                "count": len(hog_function_ids) + len(remaining),
+                "count": len(logged),
                 "team_id": alert.team_id,
                 # One destination is removed per request from the alert page; a mixed request names no type.
                 "type": _analytics_destination_type(types.pop()) if len(types := set(logged.values())) == 1 else None,
@@ -3130,6 +3224,7 @@ _ALERTS_SHOWN: Final = "alerts_shown"
 def _show_alerts(alerts: list[AlertConfiguration]) -> None:
     _show_platform_status(alerts, now=timezone.now())
     _show_platform_subscribers(alerts)
+    _show_destination_counts(alerts)
 
 
 class _ShownAlertsSerializer(serializers.ListSerializer):

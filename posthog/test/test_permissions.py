@@ -27,7 +27,6 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
-    TeamSecretTokenAuthentication,
 )
 from posthog.constants import AvailableFeature
 from posthog.exceptions import InsufficientScope
@@ -276,17 +275,6 @@ class TestAccessControlPermission(BaseTest):
         # Should have permission to create
         assert self.permission.has_permission(request, view) is True
 
-    def test_has_permission_with_team_secret_token_authentication(self):
-        """Test that has_permission returns True when authenticated via team secret token"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        request = self._create_mock_request()
-        request.successful_authenticator = TeamSecretTokenAuthentication()
-        view = self._create_real_view(action="list")
-
-        # Should have permission when authenticated via team secret token
-        assert self.permission.has_permission(request, view) is True
-
 
 class TestExtractOrganizationForRef(BaseTest):
     @parameterized.expand([("view_serves_the_ref_team", True), ("view_serves_another_team", False)])
@@ -298,203 +286,6 @@ class TestExtractOrganizationForRef(BaseTest):
         view = Mock(team_id=self.team.id, organization=self.organization)
 
         assert extract_organization(ref, view) == ref_team.organization
-
-
-class TestTeamSecretTokenPermission(BaseTest):
-    """Direct unit tests for TeamSecretTokenPermission.has_permission method"""
-
-    def setUp(self):
-        super().setUp()
-        from posthog.permissions import TeamSecretTokenPermission
-
-        self.permission = TeamSecretTokenPermission()
-
-    def _create_mock_request(self, authenticator_class=None, view_name="featureflag-local-evaluation", user=None):
-        """Helper to create a mock request with specified authenticator and view name"""
-        request = Mock()
-
-        # Mock the authenticator
-        mock_authenticator = Mock()
-        if authenticator_class:
-            mock_authenticator.__class__ = authenticator_class
-        request.successful_authenticator = mock_authenticator
-
-        # Mock resolver_match with view_name
-        request.resolver_match = Mock()
-        request.resolver_match.view_name = view_name
-
-        # Set user if provided
-        if user:
-            request.user = user
-
-        return request
-
-    def _create_mock_view(self, team=None, raise_exception=None):
-        """Helper to create a mock view with specified team or exception"""
-        view = Mock()
-
-        if raise_exception:
-            # Configure the mock to raise the exception when team is accessed
-            view.team = Mock(side_effect=raise_exception)
-        else:
-            view.team = team
-
-        return view
-
-    def _create_mock_team(self, team_id=1):
-        """Helper to create a mock team with specified ID"""
-        team = Mock()
-        team.id = team_id
-        return team
-
-    def _create_mock_user(self, team):
-        """Helper to create a mock user with specified team"""
-        user = Mock()
-        user.team = team
-        return user
-
-    def test_has_permission_with_non_team_secret_token_authenticator(self):
-        """Should return True when not using TeamSecretTokenAuthentication"""
-        from posthog.auth import PersonalAPIKeyAuthentication
-
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view()
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_with_team_secret_token_authenticator_disallowed_endpoint(self):
-        """Should return False for disallowed endpoints"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        request = self._create_mock_request(
-            authenticator_class=TeamSecretTokenAuthentication, view_name="some-other-endpoint"
-        )
-        view = self._create_mock_view()
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertFalse(result)
-
-    @parameterized.expand(
-        [
-            ("featureflag-local-evaluation",),
-            ("project_feature_flags-remote-config",),
-            ("project_feature_flags-local-evaluation",),
-        ]
-    )
-    def test_has_permission_to_team_secret_token_secured_endpoints(self, endpoint_name):
-        """Should allow project_feature_flags endpoints with matching teams"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        team = self._create_mock_team(team_id=1)
-        user = self._create_mock_user(team)
-
-        request = self._create_mock_request(
-            authenticator_class=TeamSecretTokenAuthentication,
-            view_name=endpoint_name,
-            user=user,
-        )
-        view = self._create_mock_view(team=team)
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_unknown_endpoint(self):
-        """Should reject unknown endpoints"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        request = self._create_mock_request(
-            authenticator_class=TeamSecretTokenAuthentication, view_name="unknown-endpoint"
-        )
-        view = self._create_mock_view()
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertFalse(result)
-
-    def test_has_permission_matching_teams(self):
-        """Should return True when authenticated team matches resolved team"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        team = self._create_mock_team(team_id=1)
-        user = self._create_mock_user(team)
-
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication, user=user)
-        view = self._create_mock_view(team=team)
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_mismatched_teams(self):
-        """Should return False when authenticated team doesn't match resolved team"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        team1 = self._create_mock_team(team_id=1)
-        team2 = self._create_mock_team(team_id=2)
-        user = self._create_mock_user(team1)
-
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication, user=user)
-        view = self._create_mock_view(team=team2)
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertFalse(result)
-
-    def test_has_permission_view_team_resolution_fails_with_team_does_not_exist(self):
-        """Should return True when view.team raises Team.DoesNotExist"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        team = self._create_mock_team(team_id=1)
-        user = self._create_mock_user(team)
-
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication, user=user)
-
-        # Create a view class that raises Team.DoesNotExist when team is accessed
-        class MockView:
-            @property
-            def team(self):
-                raise Team.DoesNotExist("Team not found")
-
-        view = MockView()
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_view_missing_team_attribute(self):
-        """Should return True when view.team raises AttributeError"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        team = self._create_mock_team(team_id=1)
-        user = self._create_mock_user(team)
-
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication, user=user)
-
-        # Create a view class that raises AttributeError when team is accessed
-        class MockView:
-            @property
-            def team(self):
-                raise AttributeError("'view' object has no attribute 'team'")
-
-        view = MockView()
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_no_view_name(self):
-        """Should handle missing view_name gracefully"""
-        from posthog.auth import TeamSecretTokenAuthentication
-
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication, view_name=None)
-        view = self._create_mock_view()
-
-        result = self.permission.has_permission(request, view)
-
-        # None is not in the allowed endpoints tuple, so this should return False
-        self.assertFalse(result)
 
 
 class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
@@ -626,6 +417,7 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
             ("project_denied", {"team_id": 1}, None, [2], [], True, False),
             ("organization_denied", {"team_id": 1}, None, [], ["other"], True, False),
             ("policy_denied", {"team_id": 1}, None, [], [], False, False),
+            ("effective_admin", {"team_id": 1}, None, [], [], False, True, OrganizationMembership.Level.ADMIN),
             ("allowed", {"team_id": 1}, None, [1], None, True, True),
             ("current_team_denied", {}, "team_id", [2], [], True, False),
         ]
@@ -639,6 +431,7 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
         scoped_organizations: list[str] | None,
         keys_allowed: bool,
         expected: bool,
+        effective_level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> None:
         organization = Organization(
             id=uuid4(),
@@ -660,9 +453,14 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
             team=SimpleNamespace(id=1, organization=organization),
             organization=organization,
         )
-        with patch(
-            "posthog.permissions.get_cached_organization_membership",
-            return_value=OrganizationMembership(level=OrganizationMembership.Level.MEMBER),
+        with (
+            patch(
+                "posthog.permissions.get_cached_organization_membership",
+                return_value=OrganizationMembership(level=OrganizationMembership.Level.MEMBER),
+            ),
+            patch.object(
+                OrganizationMembership, "effective_level", new_callable=PropertyMock, return_value=effective_level
+            ),
         ):
             if expected:
                 assert APIScopePermission().has_permission(request, view)
@@ -780,15 +578,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         team = Mock()
         team.id = team_id
         return team
-
-    def test_has_permission_with_team_secret_token_authenticator(self):
-        """Should return True when using TeamSecretTokenAuthentication"""
-        request = self._create_mock_request(authenticator_class=TeamSecretTokenAuthentication)
-        view = self._create_mock_view()
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
 
     def test_has_permission_with_project_secret_api_key_matching_team(self):
         request = self._create_mock_request(
@@ -1824,7 +1613,6 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         [
             ("session", SessionAuthentication),
             ("jwt", JwtAuthentication),
-            ("team_secret_token", TeamSecretTokenAuthentication),
             ("none", None),
         ]
     )

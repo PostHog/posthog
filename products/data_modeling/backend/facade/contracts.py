@@ -126,11 +126,21 @@ class SuspensionMarker:
 
 
 @dataclass(frozen=True)
+class PlanFloorClamp:
+    """A DAG run slowed a saved query's refresh cadence to the fastest one its organization's plan allows."""
+
+    previous_target: timedelta | None
+    plan_floor: timedelta
+    at: datetime
+
+
+@dataclass(frozen=True)
 class SavedQueryNodeState:
     """What a saved query's DAG nodes record about its schedule."""
 
     declared_target: timedelta | None
     suspended: dict[str, SuspensionMarker]
+    plan_clamp: PlanFloorClamp | None
 
 
 @dataclass(frozen=True)
@@ -173,6 +183,23 @@ class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
 
 class MaterializationAlreadyRunningError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class SkippedRunNode:
+    """A node that a manual run selected but left out, and the reason it gives the caller."""
+
+    node_id: str
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class StartedNodeRun:
+    """The nodes a manual run started, and the selected nodes it left out."""
+
+    node_ids: list[str]
+    skipped: list[SkippedRunNode]
 
 
 class MaterializationRanRecentlyError(Exception):
@@ -383,6 +410,7 @@ class SavedQueryFrequencyBounds:
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
     pinned: bool
+    floor_pinned: bool  # an upstream view held at its pinned cadence sets the floor, not a source sync
 
 
 def _nameless_refusal(view_name: str) -> str:

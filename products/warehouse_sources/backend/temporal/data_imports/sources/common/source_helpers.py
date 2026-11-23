@@ -11,6 +11,7 @@ import requests
 import botocore.exceptions
 from requests.auth import AuthBase
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
@@ -23,6 +24,7 @@ _UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (
     requests.Timeout,
     requests.exceptions.ChunkedEncodingError,
     RESTClientRetryableError,
+    RetryableHTTPError,
     # The object store sources (S3, R2, GCS) probe through boto3/s3fs rather than requests, so a
     # connection-level failure reaching them raises botocore's own exception family instead. SSLError
     # is a ConnectionError subclass: it's included here because a handshake failure before any

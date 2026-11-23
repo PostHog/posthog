@@ -1,9 +1,11 @@
+import './radio-group.css'
+
 import { Radio as RadioPrimitive } from '@base-ui/react/radio'
 import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './radio-group.css'
+import { useDisabledControl } from './disabled-reason'
 import { cn } from './lib/utils'
 
 const radioIndicatorVariants = cva('quill-radio-indicator', {
@@ -85,14 +87,27 @@ const radioGroupItemIndicatorVariants = cva('quill-radio__indicator', {
 
 const RadioGroupItem = React.forwardRef<
     React.ComponentRef<typeof RadioPrimitive.Root>,
-    RadioPrimitive.Root.Props & VariantProps<typeof radioGroupItemVariants>
->(function RadioGroupItem({ className, size = 'default', ...props }, ref) {
-    return (
+    Omit<RadioPrimitive.Root.Props, 'children'> &
+        VariantProps<typeof radioGroupItemVariants> & {
+            /** Disables the item and says why in a tooltip. */
+            disabledReason?: React.ReactNode
+            /** The label. It wraps the radio, so the label also selects it and shows the disabled reason. */
+            children?: React.ReactNode
+        }
+>(function RadioGroupItem({ className, size = 'default', disabled, disabledReason, children, ...props }, ref) {
+    const { rootProps, wrap } = useDisabledControl({
+        disabled,
+        disabledReason,
+        label: children,
+        ariaDescribedBy: props['aria-describedby'],
+    })
+    return wrap(
         <RadioPrimitive.Root
             ref={ref}
             data-slot="radio-group-item"
             className={cn(radioGroupItemVariants({ size }), className)}
             {...props}
+            {...rootProps}
         >
             <RadioPrimitive.Indicator
                 data-slot="radio-group-indicator"

@@ -3,13 +3,15 @@
 ``state`` is uppercased because the webhook path can land a lowercase verdict.
 """
 
+from products.engineering_analytics.backend.logic.bots import bot_handle_expr
+
 APPROVED_STATE = "APPROVED"
 CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED"
 
 
 def build_query(table_name: str) -> str:
     return f"""
-        SELECT id, pr_number, reviewer_login, state, submitted_at
+        SELECT id, pr_number, reviewer_login, {bot_handle_expr("reviewer_login")} AS reviewer_is_bot, state, submitted_at
         FROM (
             SELECT
                 id,

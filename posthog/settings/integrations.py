@@ -32,6 +32,13 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 MESSAGING_RESEND_API_URL = get_from_env("MESSAGING_RESEND_API_URL", "https://api.resend.com")
+MESSAGING_POSTMARK_API_URL = get_from_env("MESSAGING_POSTMARK_API_URL", "https://api.postmarkapp.com")
+MESSAGING_SENDGRID_API_URL = get_from_env("MESSAGING_SENDGRID_API_URL", "https://api.sendgrid.com")
+MESSAGING_SENDGRID_EU_API_URL = get_from_env("MESSAGING_SENDGRID_EU_API_URL", "https://api.eu.sendgrid.com")
+MESSAGING_MAILGUN_US_API_URL = get_from_env("MESSAGING_MAILGUN_US_API_URL", "https://api.mailgun.net")
+MESSAGING_MAILGUN_EU_API_URL = get_from_env("MESSAGING_MAILGUN_EU_API_URL", "https://api.eu.mailgun.net")
+# `{dc}` is the data center from the end of the customer's key, such as us21.
+MESSAGING_MAILCHIMP_API_URL = get_from_env("MESSAGING_MAILCHIMP_API_URL", "https://{dc}.api.mailchimp.com")
 
 # Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
 # ES256 JWT this app signs per token request with the private key whose public half was registered
@@ -188,6 +195,9 @@ STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 # WorkOS Radar (bot/fraud detection for auth flows)
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
 WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str_to_bool)
+# Public WorkOS client ID. The login page loads the Radar browser script with it, and the
+# script's token lets Radar link device signals to the attempt.
+WORKOS_RADAR_CLIENT_ID = get_from_env("WORKOS_RADAR_CLIENT_ID", "")
 
 # Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")

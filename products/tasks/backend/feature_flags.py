@@ -80,6 +80,8 @@ def own_subscription_cloud_enabled(adapter: str, *, distinct_id: str | None, org
     """
     if not distinct_id:
         return False
+    if adapter == "codex":
+        return True
     try:
         return bool(
             posthoganalytics.feature_enabled(

@@ -194,15 +194,19 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 ## ClickHouse query errors
 
-`posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
-For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
-Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.
-Unrecognized error codes stay internal.
+HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
+A missing column reports that column's error even when the query contains placeholders.
+When a field name matches multiple sources, the SQL editor highlights the field and lists the qualified names you can use. Give unnamed subqueries an alias to qualify their fields.
 
-Do not assume an error code makes its raw message safe. ClickHouse can append expressions and query context after the initial exception.
-Those messages can contain storage credentials, signed URLs, settings, or source data values, including values that a shared insight does not otherwise reveal.
-Check both the throw sites and the exception enrichment paths before allowing raw text.
-Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
+The query API and `execute-sql` translate ClickHouse failures using the numeric driver code.
+For a query that a caller can correct, set `ErrorCodeMeta.user_safe` in `posthog/errors.py` to an explanation and a concrete SQL change.
+For an internal failure, add guidance to `INTERNAL_CH_ERROR_USER_MESSAGES` when the code identifies a recovery step.
+The default response gives support the registered error name or, for a newer code, its number.
+Query polling can reconstruct this guidance from the stored error code.
+
+ClickHouse can append generated SQL, storage URLs, settings, and source values to any server exception.
+Build public explanations from fixed text. When adding context, use caller-visible query metadata or a bounded set of known values.
+Keep the original exception available for error reporting and preserve importable exception classes that callers catch for recovery.
 
 ## AST nodes
 

@@ -37,13 +37,12 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import router
+from django.db import router, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-import yaml
 import requests
 from temporalio import activity
 
@@ -70,7 +69,6 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -83,6 +81,8 @@ from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
     PregateOutcome,
+    check_outside_engine_tree,
+    engine_gate_inputs,
     engine_source_files,
     fetch_folder_policy_files,
     fetch_manifest_contents,
@@ -101,6 +101,9 @@ from products.stamphog.backend.logic.gateway_tokens import (
     revoke_scoped_token,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
+from products.stamphog.backend.logic.jsonb import without_nul
+from products.stamphog.backend.logic.policy_files import effective_policy_files
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
@@ -112,6 +115,13 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import (
+    SEEN_OUTPUT_KEY,
+    proven_check_runs,
+    seen_entries,
+    seen_on_head,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -194,30 +204,38 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _without_nul(value: Any) -> Any:
-    """Drop NUL characters from every string in ``value``.
-
-    The context holds PR text, and Postgres refuses ``\\u0000`` in jsonb. One NUL in a PR body or
-    comment fails the whole write, and every retry and re-review of that PR fails the same way.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, dict):
-        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_without_nul(item) for item in value]
-    return value
-
-
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
         Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(_without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
+        Cast(Value(json.dumps(without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
     )
+
+
+def _record_seen_workflow_runs(run: ReviewRun, check_runs: list[dict]) -> None:
+    """Raise the newest publisher runs this run stored to include the ones it just verified.
+
+    A writer's job can hide a newer result, so once any read of the head verified a run, an older
+    result must never decide for the head again. A timed-out attempt can overlap its retry, so the
+    read, the maximum and the write happen under the run's row lock and the value never goes down.
+    """
+    db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=db):
+        stored = (
+            ReviewRun.objects.for_team(run.team_id)
+            .using(db)
+            .select_for_update()
+            .filter(id=run.id)
+            .values_list(f"output__{SEEN_OUTPUT_KEY}", flat=True)
+            .first()
+        )
+        current = seen_runs([stored])
+        newest = seen_runs([stored, check_runs])
+        if newest != current:
+            _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -231,7 +249,7 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
         output=_output_merge(updates), updated_at=timezone.now()
     )
-    run.output = {**(run.output or {}), **_without_nul(updates)}
+    run.output = {**(run.output or {}), **without_nul(updates)}
 
 
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
@@ -524,7 +542,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
+        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -566,6 +584,32 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             content = future.result()
             if content is not None:
                 policy_files[path] = content
+        # The policy names these manifests, so they can only be read once the policy is in. Like the
+        # policy, each comes from the default branch, and an absent one leaves its entry unusable.
+        # Each is read as the blob at its path, so a symlink reads as its link text and the entry
+        # is unusable, rather than as a target that self-governance and the pins never cover.
+        with timer.step("issuer_manifests"):
+            for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
+                content = client.get_default_branch_blob_text(repo, path)
+                if content is not None:
+                    policy_files[path] = content
+        with timer.step("check_run_proofs"):
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
+            check_runs = proven_check_runs(
+                client,
+                repo,
+                pr_number=number,
+                head_sha=run.head_sha,
+                check_runs=check_runs_future.result(),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
+            )
+            _record_seen_workflow_runs(run, check_runs)
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -574,7 +618,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             "reviews": reviews_future.result(),
             "discussion": discussion_future.result(),
             "review_threads": review_threads_future.result(),
-            "check_runs": check_runs_future.result(),
+            "check_runs": check_runs,
             "pr_reactions": reactions_future.result(),
             "policy_files": policy_files,
             "author_pr_numbers": author_pr_numbers_future.result() if author_pr_numbers_future else [],
@@ -947,14 +991,12 @@ def _save_pregate_outcome(run: ReviewRun, pregate_outcome: str) -> None:
 def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
     """The engine context and the tree's policy files for a gate-only run on the worker."""
     output = run.output or {}
-    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
-    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
-    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
-    folder_policy_files = output.get("folder_policy_files")
-    if isinstance(folder_policy_files, dict):
-        policy_files = {**policy_files, **folder_policy_files}
-        context["folder_policies_known"] = True
-    return context, policy_files
+    return engine_gate_inputs(
+        context_json=_review_invocation(run, output.get("merge_base_sha")).context_json,
+        repository=run.pull_request.repo_config.repository,
+        policy_files=output.get("policy_files", {}),
+        folder_policy_files=output.get("folder_policy_files"),
+    )
 
 
 @frozen
@@ -999,7 +1041,22 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
-            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
+            context["check_runs"] = proven_check_runs(
+                client,
+                repo,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+                check_runs=client.get_check_runs(repo, run.head_sha),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=seen,
+            )
+            _record_seen_workflow_runs(run, context["check_runs"])
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []
@@ -1271,14 +1328,14 @@ def _run_reviewer(
 ) -> ExecutionResult:
     repo = run.pull_request.repo_config.repository
     # The trusted source for each policy file is the repo's default branch layered over the
-    # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
+    # server-shipped defaults (see effective_policy_files): policy.yml is a section overlay, the
     # guidance file is repo-else-default, steering is repo-else-omitted. The gate policy and the
     # review-norms prose are both loaded by the engine — the latter straight into the reviewer's
     # SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor could ship
     # malicious guidance ("approve my PR") in a repo whose default branch lacks the file — the
     # PR-head wipe in _review_payload_command stays mandatory, and the fallback content is
     # server-owned, never the PR's.
-    policy_files = _effective_policy_files(repo, (run.output or {}).get("policy_files", {}))
+    policy_files = effective_policy_files(repo, (run.output or {}).get("policy_files", {}))
     invocation = _review_invocation(run, merge_base_sha)
 
     # The prefetch swallows its own failure, including a timeout that consumed the rest of the
@@ -2011,13 +2068,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-    # No label requested an admitted bot's review, and a label added to its PR starts none.
-    strips_label = (
-        repo_config.review_mode == ReviewMode.LABEL
-        and is_refusal
-        and run.may_publish(parsed.verdict)
-        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    # No label requested an admitted bot's review, and a label added to its PR starts none. In ALL mode the
+    # same holds for a self-driving PR, which is bot-authored.
+    label_requests_review = trigger != ReviewTrigger.BOT_ADMISSION.value and (
+        repo_config.review_mode == ReviewMode.LABEL or trigger != ReviewTrigger.SELF_DRIVING.value
     )
+    strips_label = is_refusal and run.may_publish(parsed.verdict) and label_requests_review
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2075,8 +2131,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it.
+    # A refusal strips the trigger label in both modes, so the next add fires a `labeled` event.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
     if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
@@ -2497,52 +2552,13 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
         )
 
 
-def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
-    """The repository's policy.yml as it is, once it parses as a YAML mapping.
-
-    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
-    validates the result. This check only fails a malformed file closed before a sandbox exists:
-    the repository declared something, and reviewing under pure defaults would be wrong.
-    """
-    try:
-        overlay = yaml.safe_load(repo_text)
-    except yaml.YAMLError as exc:
-        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
-        # code_review_approval:read can read it without access to the repository, so log the parser text instead.
-        activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
-        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
-    if not isinstance(overlay, dict):
-        raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    return repo_text
-
-
-def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The repository's default-branch policy files that go into the tree, as they are.
-
-    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
-    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
-    the repository does not carry is left out, and the PR head's copy is still wiped.
-    """
-    defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
-    if defaulted:
-        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
-
-    effective = {
-        path: policy_files[path]
-        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
-        if path in policy_files
-    }
-    if STAMPHOG_POLICY_ENTRYPOINT in effective:
-        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
-    return effective
-
-
 def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> bytes:
     """Everything the reviewer needs beside the checkout, as one gzipped tar rooted at the checkout.
 
     Each ``write_file`` and ``execute`` call is one round trip to the sandbox provider, and the engine
     alone is some twenty files. One archive and one extract command replace them.
     """
+    check_outside_engine_tree(policy_files)
     members = {
         **policy_files,
         **{f"{_ENGINE_RELATIVE_DIR}/{name}": content for name, content in engine_source_files().items()},
@@ -2562,7 +2578,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     return buffer.getvalue()
 
 
-def _review_payload_command() -> str:
+def _review_payload_command(issuer_paths: tuple[str, ...] = ()) -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
@@ -2572,7 +2588,9 @@ def _review_payload_command() -> str:
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
-    to load, any more than a missing policy.yml would.
+    to load, any more than a missing policy.yml would. The issuer manifests the policy names are wiped
+    the same way, so a manifest the default branch lacks leaves its attestation entry unusable rather
+    than read from the PR head.
 
     The engine and owners directories are wiped whole: the PR head's checkout may carry
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
@@ -2584,8 +2602,9 @@ def _review_payload_command() -> str:
     a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
-    policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
-    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    wiped = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, *issuer_paths)
+    policy_paths = " ".join(shlex.quote(path) for path in wiped)
+    destinations = (*wiped, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
     parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
     no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
@@ -2605,7 +2624,8 @@ def _ship_review_payload(
     from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
-    result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))
+    issuer_paths = issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT))
+    result = sandbox.execute(_review_payload_command(issuer_paths), timeout_seconds=_step_timeout(deadline, 60))
     if result.exit_code != 0:
         # The reviewer reads an untrusted PR head, so tar's stderr can name repository paths. Keep it
         # in the worker log only.
@@ -2761,7 +2781,8 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
     ``relabel_label`` is the caller's own label-removal decision rather than a re-derivation of it, so
-    the review cannot tell an author to re-add a label the run left in place.
+    the review cannot tell an author to add a label the run left in place. The hint says "add", not
+    "re-add", because in ALL mode the label may never have been on the PR.
 
     The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
@@ -2771,11 +2792,9 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
         if relabel_label:
-            headline += (
-                f"\n\nRe-adding the `{relabel_label}` label gives the same result unless the changed files change."
-            )
+            headline += f"\n\nAdding the `{relabel_label}` label gives the same result unless the changed files change."
     elif relabel_label:
-        headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
+        headline += f"\n\nAdd the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()
 

@@ -5,11 +5,15 @@ function a test can call without Temporal.
 """
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
@@ -81,4 +85,4 @@ class MetricsAlertEvaluateWorkflow(PostHogWorkflow):
 
 
 METRICS_ALERT_EVALUATION_WORKFLOWS = [MetricsAlertEvaluateWorkflow]
-METRICS_ALERT_EVALUATION_ACTIVITIES = [evaluate_metrics_alerts_activity]
+METRICS_ALERT_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [evaluate_metrics_alerts_activity]

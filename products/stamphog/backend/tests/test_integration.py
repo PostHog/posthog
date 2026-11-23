@@ -5,6 +5,7 @@ import threading
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -15,14 +16,17 @@ from django.utils import timezone
 import requests
 from celery.exceptions import Retry
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
-from products.stamphog.backend.facade.contracts import StamphogGitHubError
+from products.stamphog.backend.facade.api import check_approval_gates
+from products.stamphog.backend.facade.contracts import ApprovalGateCheck, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
@@ -34,7 +38,8 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
-from products.stamphog.backend.logic import gateway_tokens
+from products.stamphog.backend.logic import approval_gates, gateway_tokens
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -42,11 +47,12 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
+from products.stamphog.backend.logic.policy_files import checked_repo_policy_yaml
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
+from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_head
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
-    PendingCheck,
     pending_attestation_checks,
     process_inbox_pr_review,
     request_manual_review,
@@ -61,6 +67,8 @@ from products.stamphog.backend.temporal.activities import (
     ReviewSandboxInput,
     StamphogReviewInput,
     _attest_gates,
+    _merge_run_output,
+    _record_seen_workflow_runs,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -719,6 +727,253 @@ def test_pregate_only_trusts_a_file_list_the_sandbox_would_match(
     assert pregate_skip_reason(pr, files, "sha-run") == expect
 
 
+_GATE_CHECK_PR = 120
+_GATE_CHECK_HEAD = "sha-gate-check"
+_GATE_CHECK_AUTHOR = "devex-dev"
+_EXEMPT_INFRA_POLICY = "version: 1\ndeny:\n    infra_cicd:\n        exempt_author_teams: ['team-infra']\n"
+_GATE_CHECK_BOT_PR = {
+    "user": {"login": "renovate[bot]", "type": "Bot", "id": 29139614},
+    "head": {"sha": _GATE_CHECK_HEAD, "ref": "renovate/deps", "repo": {"full_name": REPO}},
+}
+_ADMITS_RENOVATE_POLICY = "version: 1\nbot_authors:\n    - {name: renovate, login: 'renovate[bot]', id: 29139614}\n"
+_CHANGES_REQUESTED = {
+    "user": {"login": "maintainer"},
+    "state": "CHANGES_REQUESTED",
+    "author_association": "MEMBER",
+    "commit_id": _GATE_CHECK_HEAD,
+    "body": "Hold this until the rollout plan is agreed.",
+}
+_NEEDS_HUMAN_FOR_DENY = ApprovalGateCheck(needs_human=True, failed_gates=("deny-list", "tier"))
+_NO_HUMAN_NEEDED = ApprovalGateCheck(needs_human=False, failed_gates=())
+
+
+@frozen
+class _GateCheckScenario:
+    files: list[dict]
+    expect: ApprovalGateCheck | None
+    pr_changes: dict[str, Any] | None = None
+    policy: str = _MIGRATION_RISK_POLICY
+    reviews: tuple[dict, ...] = ()
+    check_runs: tuple[dict, ...] = ()
+    # None makes the team lookup fail.
+    author_teams: tuple[str, ...] | None = ()
+    config_changes: dict[str, Any] | None = None
+    asked_repository: str = REPO
+    check_runs_unreadable: bool = False
+    check_runs_late: bool = False
+    shed_batch: bool = False
+    engine_breaks: bool = False
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        pytest.param(
+            _GateCheckScenario(
+                files=[_big_api_file("lib/big.py", 1300)],
+                expect=ApprovalGateCheck(needs_human=True, failed_gates=("size",)),
+            ),
+            id="size",
+        ),
+        # A deny is the only thing that makes the tier T2-never, so the two gates fail together.
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], expect=_NEEDS_HUMAN_FOR_DENY),
+            id="deny-list-and-tier",
+        ),
+        pytest.param(_GateCheckScenario(files=_pr_files(), expect=_NO_HUMAN_NEEDED), id="every-gate-passes"),
+        pytest.param(
+            _GateCheckScenario(files=[_big_api_file("src/deep/big.py", 1300)], expect=_NO_HUMAN_NEEDED),
+            id="size-lifted-by-a-folder-file",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), pr_changes={"mergeable_state": "dirty"}, expect=_NO_HUMAN_NEEDED),
+            id="only-a-prerequisite-fails",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("posthog/migrations/0999_add_col.py")], expect=_NO_HUMAN_NEEDED),
+            id="pending-attestation",
+        ),
+        # The author or the reviewer clears the requested changes, and the check can still lift the deny.
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file("posthog/migrations/0999_add_col.py")],
+                reviews=(_CHANGES_REQUESTED,),
+                expect=_NO_HUMAN_NEEDED,
+            ),
+            id="pending-attestation-after-changes-requested",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file("posthog/migrations/0999_add_col.py"), _api_file("package.json")],
+                expect=None,
+            ),
+            id="pending-attestation-beside-a-manifest",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file(_MIGRATION)],
+                check_runs=({**_migration_risk_check([_MIGRATION]), "conclusion": "failure"},),
+                expect=_NEEDS_HUMAN_FOR_DENY,
+            ),
+            id="attestation-check-failed",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file("terraform/main.tf")],
+                policy=_EXEMPT_INFRA_POLICY,
+                author_teams=("team-infra",),
+                expect=_NO_HUMAN_NEEDED,
+            ),
+            id="author-on-an-exempt-team",
+        ),
+        # No deny category exempts a team, so the failed lookup changes no gate.
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], author_teams=None, expect=_NEEDS_HUMAN_FOR_DENY),
+            id="author-teams-unreadable",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file("terraform/main.tf")], policy=_EXEMPT_INFRA_POLICY, author_teams=None, expect=None
+            ),
+            id="author-teams-unreadable-under-a-team-exemption",
+        ),
+        # The manifest scripts scan needs git, and in the sandbox it can still add a deny.
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("package.json")], expect=None),
+            id="dependency-manifest-without-its-lockfile",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_big_api_file("lib/big.py", 1300)],
+                pr_changes=_GATE_CHECK_BOT_PR,
+                policy=_ADMITS_RENOVATE_POLICY,
+                expect=ApprovalGateCheck(needs_human=True, failed_gates=("size",)),
+            ),
+            id="bot-the-policy-admits",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_big_api_file("lib/big.py", 1300)], pr_changes=_GATE_CHECK_BOT_PR, expect=None),
+            id="bot-the-policy-does-not-admit",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[{**_api_file("src/new.py"), "status": "renamed", "previous_filename": "src/old.py"}],
+                expect=None,
+            ),
+            id="renamed-file",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), pr_changes={"changed_files": 3000}, expect=None),
+            id="file-list-truncated",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=_pr_files(), pr_changes={"head": {"sha": "sha-newer", "ref": "feat/pr-120"}}, expect=None
+            ),
+            id="head-moved",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_big_api_file("sym/big.py", 1300)], expect=None),
+            id="folder-file-unreadable",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], check_runs_unreadable=True, expect=None),
+            id="github-error",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], check_runs_late=True, expect=None),
+            id="read-past-the-deadline",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], shed_batch=True, expect=None),
+            id="reads-shed-by-the-egress-limiter",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], engine_breaks=True, expect=None),
+            id="engine-error",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), asked_repository=REPO.upper(), expect=_NO_HUMAN_NEEDED),
+            id="repository-name-in-another-case",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), config_changes={"repository": "acme/other"}, expect=None),
+            id="no-repo-config",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), config_changes={"enabled": False}, expect=None),
+            id="repo-config-disabled",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), config_changes={"installation_id": ""}, expect=None),
+            id="repo-config-not-bound-to-an-installation",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=_pr_files(), config_changes={"connected_by_user_id": None}, expect=None),
+            id="repo-config-without-a-connecting-user",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_approval_gate_check_answers_with_the_engine_pre_check(
+    team, stamphog_chain: StamphogChain, scenario: _GateCheckScenario
+) -> None:
+    # The engine's pre-check runs in a real child process, on the context the check reads through the GitHub fake.
+    repo_config = _repo_config(team.id)
+    if scenario.config_changes:
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(**scenario.config_changes)
+    recorder = stamphog_chain.recorder
+    pr_object = {
+        **_pr_object(_GATE_CHECK_PR, _GATE_CHECK_AUTHOR, _GATE_CHECK_HEAD),
+        "changed_files": len(scenario.files),
+        **(scenario.pr_changes or {}),
+    }
+    recorder.register_pr(REPO, _GATE_CHECK_PR, pr_object, scenario.files)
+    recorder.pr_reviews[(REPO, _GATE_CHECK_PR)] = list(scenario.reviews)
+    recorder.check_runs[(REPO, _GATE_CHECK_HEAD)] = list(scenario.check_runs)
+    recorder.policy_files[".stamphog/policy.yml"] = scenario.policy
+    recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
+    recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
+    if scenario.author_teams is None:
+        recorder.team_lookup_refused = True
+    else:
+        recorder.teams_by_login[_GATE_CHECK_AUTHOR] = list(scenario.author_teams)
+    recorder.shed_batch = scenario.shed_batch
+    release_check_runs = threading.Event()
+
+    def check_runs_after_release(*_args: Any, **_kwargs: Any) -> list[dict]:
+        release_check_runs.wait(timeout=10)
+        return []
+
+    try:
+        with (
+            patch.object(StamphogGitHubClient, "get_check_runs", side_effect=_UNREADABLE)
+            if scenario.check_runs_unreadable
+            else nullcontext(),
+            patch.object(StamphogGitHubClient, "get_check_runs", side_effect=check_runs_after_release)
+            if scenario.check_runs_late
+            else nullcontext(),
+            patch.object(approval_gates, "_READ_DEADLINE_SECONDS", 0) if scenario.check_runs_late else nullcontext(),
+            patch.object(approval_gates, "run_engine_pregate", side_effect=EnginePregateError("exited with code 1"))
+            if scenario.engine_breaks
+            else nullcontext(),
+        ):
+            answer = check_approval_gates(
+                team_id=team.id,
+                repository=scenario.asked_repository,
+                pr_number=_GATE_CHECK_PR,
+                head_sha=_GATE_CHECK_HEAD,
+            )
+    finally:
+        release_check_runs.set()
+
+    assert answer == scenario.expect
+    assert recorder.github_writes == []
+    # No read can start without the installation token, so only its mint may skip the sheddable lane.
+    read_lanes = {priority for path, priority in recorder.request_priorities if not path.endswith("/access_tokens")}
+    assert read_lanes <= {Priority.BATCH}
+
+
 @pytest.mark.parametrize("teardown", ["raises", "hangs"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_teardown_does_not_hold_up_a_completed_review(
@@ -837,7 +1092,7 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
     # PyYAML names the bad tag on its first line, and run.error keeps that line. Anyone with
     # code_review_approval:read can read it without access to the repository the policy file comes from.
     with pytest.raises(RuntimeError) as raised:
-        activities._checked_repo_policy_yaml("acme/widgets", "!a-private-internal-tag {}\n")
+        checked_repo_policy_yaml("acme/widgets", "!a-private-internal-tag {}\n")
 
     assert "a-private-internal-tag" not in str(raised.value)
     assert ".stamphog/policy.yml" in str(raised.value)
@@ -2326,6 +2581,26 @@ def _check_run(conclusion: str, *, status: str = "completed") -> dict:
         pytest.param(
             GATED,
             "WAIT",
+            [
+                {
+                    **_CHECK,
+                    "app_id": None,
+                    "name": "migration_risk",
+                    "workflow": ".github/workflows/migration-risk.yml",
+                    "job": "publish",
+                    "events": ["pull_request_target"],
+                }
+            ],
+            [{**_check_run("success"), "app": {"id": 15368}}],
+            0,
+            None,
+            False,
+            0,
+            id="workflow-entry-unsigned-check",
+        ),
+        pytest.param(
+            GATED,
+            "WAIT",
             [_CHECK, {**_CHECK, "check": "Other"}],
             [_check_run("success")],
             0,
@@ -2406,6 +2681,49 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
     assert new_runs.count() == (0 if newer_run else expected_starts)
     assert start.call_count == expected_starts
     assert all(run.output.get("attestation_check_wake") for run in new_runs)
+
+
+def _verified(run_id: int, run_attempt: int = 1) -> dict:
+    return {
+        "name": "Dependency proof",
+        "stamphog_workflow_proof": "dependency_proof",
+        "stamphog_workflow_run": [run_id, run_attempt],
+    }
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_newest_verified_publisher_run_of_a_head_survives_retries_and_other_heads(team) -> None:
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=131, author_login="renovate[bot]"
+    )
+    other = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=132, author_login="renovate[bot]"
+    )
+    runs = {
+        key: ReviewRun.objects.for_team(team.id).create(team_id=team.id, pull_request=owner, head_sha=head_sha)
+        for key, owner, head_sha in [
+            ("review", pull_request, "sha131"),
+            ("older_head", pull_request, "sha131-older"),
+            ("other_pr", other, "sha131"),
+        ]
+    }
+
+    def record(key: str, check_runs: list[dict]) -> None:
+        _record_seen_workflow_runs(runs[key], check_runs)
+
+    record("review", [_verified(76), {"name": "Migration risk", "app": {"id": 1}}])
+    # The posting-time check of the same run verified a newer run, which only that read saw.
+    record("review", [_verified(77, 2)])
+    # A writer then hid run 77. A retry of the context fetch verifies only run 76 and rewrites check_runs.
+    record("review", [_verified(76)])
+    _merge_run_output(runs["review"], {"check_runs": [_verified(76)]})
+    # Another head, or another pull request, says nothing about this head.
+    record("older_head", [_verified(90)])
+    record("other_pr", [_verified(91)])
+
+    seen = seen_on_head(team.id, repo_config_id=repo_config.id, pr_number=131, head_sha="sha131")
+    assert seen == {"dependency_proof": RunOrder(run_id=77, run_attempt=2)}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3017,17 +3335,12 @@ def _refused_engine_output() -> str:
     return json.dumps(payload)
 
 
-@pytest.mark.parametrize(
-    "review_mode,expect_strip",
-    [(ReviewMode.LABEL, True), (ReviewMode.ALL, False)],
-    ids=["label_mode_strips_trigger_label", "all_mode_leaves_labels_alone"],
-)
+@pytest.mark.parametrize("review_mode", [ReviewMode.LABEL, ReviewMode.ALL], ids=["label_mode", "all_mode"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_refused_verdict_strips_trigger_label_only_in_label_mode(
-    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode, expect_strip: bool
+def test_refused_verdict_strips_trigger_label(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode
 ) -> None:
-    # Action parity: in label-triggered mode a refusal removes the trigger label so the author
-    # explicitly re-requests the next review; in ALL mode labels are never touched.
+    # A refusal removes the trigger label in both modes, so the author requests the next review by adding it.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -3048,11 +3361,11 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
-    label_removals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_label"]
-    if expect_strip:
-        assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
-    else:
-        assert label_removals == []
+    writes = stamphog_chain.recorder.github_writes
+    label_removals = [w for w in writes if w["kind"] == "remove_label"]
+    assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
+    (review,) = [w for w in writes if w["kind"] == "comment_review"]
+    assert "Add the `stamphog` label to request another review once you have addressed this." in review["body"]["body"]
 
     # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
     # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
@@ -3061,12 +3374,12 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
 
 @pytest.mark.parametrize(
-    "review_mode,inbox_review,expect_handoff",
+    "review_mode,inbox_review,expect_handoff,expect_strip",
     [
-        (ReviewMode.ALL, {"trigger": "inbox"}, True),
-        (ReviewMode.LABEL, {"trigger": "inbox"}, True),
-        (ReviewMode.ALL, None, False),
-        (ReviewMode.LABEL, None, False),
+        (ReviewMode.ALL, {"trigger": "inbox"}, True, False),
+        (ReviewMode.LABEL, {"trigger": "inbox"}, True, True),
+        (ReviewMode.ALL, None, False, True),
+        (ReviewMode.LABEL, None, False, True),
     ],
     ids=[
         "self_driving_in_all_mode_hands_off",
@@ -3083,6 +3396,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     review_mode: ReviewMode,
     inbox_review: dict | None,
     expect_handoff: bool,
+    expect_strip: bool,
 ) -> None:
     # A self-driving PR has no author to read the refusal, so ReviewHog's deeper review is the next
     # step; a human PR's author decides that for themselves. Inbox provenance outranks the repo's
@@ -3113,6 +3427,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     assert run.verdict == ReviewVerdict.REFUSED
     requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
     assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
+    assert bool([w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_label"]) is expect_strip
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3603,14 +3918,14 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
 @pytest.mark.parametrize(
     "engine_output, trigger, expect_hint",
     [
-        pytest.param(_refused_engine_output(), "label", "Re-add the `stamphog` label", id="reviewer-refusal"),
+        pytest.param(_refused_engine_output(), "label", "Add the `stamphog` label", id="reviewer-refusal"),
         # A re-review of the same files refuses again, so the review must not invite one.
         pytest.param(
             _path_denied_engine_output(["infra_cicd", "migrations"]), "label", "gives the same result", id="path-deny"
         ),
         # The Migration risk check lifts this deny with the files unchanged.
         pytest.param(
-            _path_denied_engine_output(["migrations"]), "label", "Re-add the `stamphog` label", id="migrations-only"
+            _path_denied_engine_output(["migrations"]), "label", "Add the `stamphog` label", id="migrations-only"
         ),
         # A label on an admitted bot's PR starts no review, so the review must not ask for one.
         pytest.param(_refused_engine_output(), "bot_admission", None, id="admitted-bot"),

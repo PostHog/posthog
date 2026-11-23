@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconChevronRight, IconDocument, IconGithub, IconGlobe, IconPencil, IconSupport } from '@posthog/icons'
+import { IconChevronRight, IconDocument, IconGithub, IconPencil, IconSupport } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { REFRESH_INTERVAL_OPTIONS } from '../../scenes/sources/businessKnowledgeLogic'
 import { CreateKnowledgeSourceModal } from '../CreateKnowledgeSourceModal/CreateKnowledgeSourceModal'
 import { type BusinessKnowledgeSetupSource, businessKnowledgeSetupCardLogic } from './businessKnowledgeSetupCardLogic'
+import { SetupWebsiteForm } from './SetupWebsiteForm'
 
 interface SetupSource {
     key: BusinessKnowledgeSetupSource
@@ -19,13 +20,7 @@ interface SetupSource {
     description: string
 }
 
-const SOURCES: SetupSource[] = [
-    {
-        key: 'url',
-        icon: <IconGlobe />,
-        title: 'Website',
-        description: 'Index a page, a sitemap, or a whole docs site, and refresh it on a schedule.',
-    },
+const OTHER_SOURCES: SetupSource[] = [
     {
         key: 'file',
         icon: <IconDocument />,
@@ -74,11 +69,17 @@ export function BusinessKnowledgeSetupCard({
                         {canConnectAgent ? '1. Add your knowledge' : 'Choose what your agents learn from'}
                     </span>
                     <span className="text-sm text-secondary">
-                        Pick a source to add it. You can add more sources later.
+                        Add one source to start. You can add more sources later.
                     </span>
                 </div>
-                <div className="flex flex-col gap-px border-t border-primary p-1">
-                    {SOURCES.map((source) => (
+                <div className="border-t border-primary">
+                    <SetupWebsiteForm mode={mode} preview={preview} />
+                </div>
+                <span className="border-t border-primary px-4 pb-1 pt-3 text-xs font-semibold text-secondary">
+                    Or add another source
+                </span>
+                <div className="flex flex-col gap-px p-1">
+                    {OTHER_SOURCES.map((source) => (
                         <LemonButton
                             key={source.key}
                             fullWidth

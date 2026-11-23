@@ -829,8 +829,6 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
-            'secret_api_token',
-            'secret_api_token_backup',
             'live_events_token',
             'heatmaps_screenshot_secret',
             'default_modifiers',
@@ -991,9 +989,6 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.live_events_columns !== undefined) {
             body['live_events_columns'] = params.live_events_columns
         }
-        if (params.recording_domains !== undefined) {
-            body['recording_domains'] = params.recording_domains
-        }
         if (params.inject_web_apps !== undefined) {
             body['inject_web_apps'] = params.inject_web_apps
         }
@@ -1088,8 +1083,6 @@ const projectSettingsUpdate = (): ToolBase<
         })
         const filtered = omitResponseFields(result, [
             'api_token',
-            'secret_api_token',
-            'secret_api_token_backup',
             'live_events_token',
             'heatmaps_screenshot_secret',
             'default_modifiers',

@@ -12,14 +12,14 @@ This product decides which PRs are reviewed, runs the engine in a sandbox, and p
 A repository either reviews every PR or waits for its trigger label, depending on its review mode.
 The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 
-| Verdict  | Where it lands                             | Trigger label in label mode |
-| -------- | ------------------------------------------ | --------------------------- |
-| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept                        |
-| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed                     |
-| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
-| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
-| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
-| Gated    | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| Verdict  | Where it lands                             | Trigger label |
+| -------- | ------------------------------------------ | ------------- |
+| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept          |
+| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed       |
+| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed       |
+| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries |
+| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries |
+| Gated    | A GitHub comment review by `stamphog[bot]` | Removed       |
 
 Gated means a deterministic gate denied the PR before any review, such as the deny-list or the size ceiling.
 The engine reports it as `REFUSED`; the product stores the run as gated with the verdict `WAIT`, and still removes the trigger label because a human has to take it from here.
@@ -30,11 +30,13 @@ Every other verdict is posted once per run as a comment review on the same surfa
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
 The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
-So the label can be re-applied once the feedback is addressed.
+Of the verdicts only a substantive non-approval removes the trigger label, in both modes.
+So the label can be added again once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
+In all-PRs mode every push is reviewed, and adding the label asks for another review of the same commit under the rules of a direct request (below), with no 10-minute window.
+When it starts nothing, stamphog removes the label again and says why in its status comment.
 `WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
 Stamphog checks again every two minutes for up to an hour, and reviews the PR again once that check has reported.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
@@ -47,6 +49,10 @@ Retrieving one run also returns the reviewer's reasoning, the same text stamphog
 A project member can also ask for a review directly, by creating a review run (`POST code_review/approvals/runs/`, or the `code-review-approvals-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
+A request for a commit that auto-approval already reviewed returns that review, with one exception.
+After a refusal, a request reviews the same commit again when people changed what the reviewer reads: they edited the title or description, answered in the discussion or a review, or resolved or reopened a review thread.
+Comments from bots don't count, and evidence that a review of the commit already saw starts no new review.
+A commit gets at most three of these reviews. After that, push a change to get another review.
 A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when a pinned attestation vouches for every file in it.
 
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
@@ -61,7 +67,7 @@ The silent trigger skips the review mode and nothing else, so the same PRs are r
 A silent run never answers a visible request: adding the trigger label or asking for a review while a silent run is in flight supersedes it with a normal review.
 A visible request always gets its own run.
 When the latest run of the head already withheld a refusal or an escalation, that run first reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
-If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed in label mode.
+If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed.
 If anything changed, or the check fails, the same run reviews the PR normally.
 A stored WAIT is never reused, and an approval is never posted this way, because a silent approval was already posted.
 The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdict_reused`.
@@ -71,7 +77,7 @@ The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdic
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
 3. Add each repository you want reviewed from the **Add a repository** search (`POST code_review/approvals/repositories/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
-4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
+4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request, and the trigger label there asks for another review of the same commit. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
 The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
@@ -169,8 +175,9 @@ Exception files use the same default-branch trust boundary as the rest of `polic
 A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
 A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
 Every other gate stays, and one more applies.
-An attestation that lists `publisher_files` must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
-A check without `publisher_files` proves nothing for a bot, because its marker does not name the PR it proved.
+An attestation that pins its publisher must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
+An entry pins its publisher through an `issuer` manifest, the file in which the publisher lists the default-branch paths it runs from, or through a `publisher_files` list in the policy.
+A check that pins neither proves nothing for a bot, because its marker does not name the PR it proved.
 That proof is also the PR's independent assurance, because a bot has no reviewer and no owning team.
 Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch.
 Anyone who can post a check run as that App can approve the bot's PRs.
@@ -208,13 +215,20 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
-Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A diff too large for one call's input cap is split by owner over at most `MAX_CUT_CALLS` calls, smallest parts first.
+An owner that fits in none of them is requested.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and a failed call requests every owner it asked about.
 A comment names the cut owners and why.
 
 `routing_mode` on the repo config decides when routing runs:
 
 - `off` (the default): never.
 - `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too. Each head routes once, so a draft marked ready right after it opened is not routed twice.
+  - When every changed path, the old path of a rename included, matches the `paths` of a policy `attestations` entry that pins its publisher, the head waits for the checks of those entries instead. A Celery task polls the checks every 2 minutes, and the safety net routes the head in full after 30 minutes.
+  - When every check has reported, the engine verifies the proof with its own rules (`review_local.py --attestation-proof`). If the proof covers every changed path and the PR keeps a reviewer, the run has scope `attested`: it requests only the pinned owners (sensitive paths and owners of additions), skips the cut step, posts no comment, and logs every other owner as `not_requested` with reason `attested`. The PR keeps a reviewer when it has a pending review request that no routing made (for example one the author's bot made), or a stamphog approval that stands over the head. A proven PR with neither keeps polling while stamphog's review of the head can still approve it, because stamphog reviews an admitted bot's PR again only after its proof reports.
+  - Anything else routes in full: a failed or neutral check, a check with no proof ("Nothing to attest"), a proof that leaves a path out, a stale publisher, partial ownership data, or the safety net. A check that succeeds after the head was routed removes no request.
+  - A proof covers only the head and base it names. A push to a PR that waits for its checks or that had an attested run makes the new head wait for its own checks the same way, with a new poll and safety net, whether or not the push dismissed an approval. A pushed head that no attestation covers routes in full. A base retarget routes an attested head in full when the proof no longer covers the retargeted diff.
+  - After an attested run, a verdict on the live head that is not an approval and that stamphog does not review again, or an approval retraction on the same head that starts no review, routes the live head in full unless the PR still keeps a reviewer.
 - `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, a bot the policy does not name, an untrusted author, or label mode without the trigger label and with the clean-review switch off), routing runs at once, like `always`. Otherwise the head waits for the verdict:
   - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody. The cut step still judges every owner, so the run log shows who full routing would have asked: an owner the model kept is `not_requested`, an owner it cut is `cut` with the reason. The comment names no cuts.
   - With the clean-review switch on, a head waits for the silent review that a clean PostHog Review run starts. A verdict the silent review withholds from the PR still routes, like a visible one, and the routing comment never names the verdict. A withheld WAIT routes in full, because nothing reviews the head again.
@@ -238,7 +252,7 @@ Routing only adds review requests, so a second assigner that requests every owne
 In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
 Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
 
-The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted`, `attestation` or `safety_net`), scope (`full`, `pinned` or `attested`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
 `GET code_review/approvals/pull_requests/` and `code-review-approvals-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
@@ -276,6 +290,11 @@ When a gate refusal is certain to hold in the full review, stamphog posts it rig
 A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox review.
 Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
+
+PostHog Review can ask for the gate result of one PR head (`check_approval_gates` in `backend/facade/api.py`) to choose how deep its automatic review goes.
+The check reads the PR from GitHub and runs the same gate pre-check, with no LLM call.
+It never starts a review, creates no run, and writes nothing to GitHub.
+When the pre-check cannot settle the result, the check gives no answer, and PostHog Review keeps its default depth.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.

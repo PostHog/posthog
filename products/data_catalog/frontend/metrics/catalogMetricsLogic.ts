@@ -19,7 +19,7 @@ import {
     subjectKeyOf,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { itemsOnPage, pageCountFor } from '../catalogPagination'
+import { CATALOG_LAYER_PAGE_SIZE, CATALOG_PAGE_SIZE, itemsOnPage, pageCountFor } from '../catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from '../catalogSort'
 import {
     CheckCounts,
@@ -31,13 +31,31 @@ import {
 } from '../catalogTableRows'
 import { metricDisplayName } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { metricsLogic } from '../metricsLogic'
+import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
+import type { MetricsFilters } from '../metricsLogic'
 
 export type MetricsSortColumn = 'name' | 'status' | 'checks' | 'owner' | 'updated'
 export type MetricsSort = ColumnSort<MetricsSortColumn>
+/** `all` is the one list of the layout without usage data. The layout with usage data shows `proposed` and `approved` as two lists. */
+export type MetricsListKey = 'all' | 'proposed' | 'approved'
+
+export interface MetricsListPage {
+    metrics: DataCatalogMetricApi[]
+    total: number
+    currentPage: number
+    pageCount: number
+    pageSize: number
+}
 
 export const DEFAULT_METRICS_SORT: MetricsSort = { column: 'status', direction: 'asc' }
 export const DEFAULT_METRIC_CHECKS_FILTER: ChecksFilter = 'any'
+
+const LIST_PAGE_SIZES: Record<MetricsListKey, number> = {
+    all: CATALOG_PAGE_SIZE,
+    proposed: CATALOG_LAYER_PAGE_SIZE,
+    approved: CATALOG_LAYER_PAGE_SIZE,
+}
+const FIRST_PAGES: Record<MetricsListKey, number> = { all: 1, proposed: 1, approved: 1 }
 
 const STATUS_RANK: Record<string, number> = { proposed: 0, approved: 1 }
 
@@ -47,6 +65,18 @@ export function metricUpdatedAt(metric: DataCatalogMetricApi): string {
 
 export function metricOwnerName(metric: DataCatalogMetricApi, ownerNameByEmail: Record<string, string>): string | null {
     return metric.owner ? (ownerNameByEmail[metric.owner] ?? metric.owner) : null
+}
+
+function listPage(metrics: DataCatalogMetricApi[], page: number, pageSize: number): MetricsListPage {
+    const pageCount = pageCountFor(metrics.length, pageSize)
+    const currentPage = Math.min(page, pageCount)
+    return {
+        metrics: itemsOnPage(metrics, currentPage, pageSize),
+        total: metrics.length,
+        currentPage,
+        pageCount,
+        pageSize,
+    }
 }
 
 function metricSortGetters(
@@ -69,15 +99,16 @@ export interface catalogMetricsLogicValues {
         [k: string]: DataQualitySubjectHealthApi
     } // dataQualityOverviewLogic
     meFirstMembers: OrganizationMemberType[] // membersLogic
+    filters: MetricsFilters // metricsLogic
     metrics: DataCatalogMetricApi[] // metricsLogic
     checkCountsByMetricId: Record<string, CheckCounts | null>
     checkGroupByMetricId: Record<string, SubjectGroup>
     checksFilter: ChecksFilter
-    currentPage: number
+    filtersActive: boolean
+    listPages: Record<MetricsListKey, MetricsListPage>
+    metricLists: Record<MetricsListKey, DataCatalogMetricApi[]>
     ownerNameByEmail: Record<string, string>
-    page: number
-    pageCount: number
-    pageMetrics: DataCatalogMetricApi[]
+    pages: Record<MetricsListKey, number>
     selectedMetricIds: string[]
     sort: MetricsSort | null
     visibleMetrics: DataCatalogMetricApi[]
@@ -88,8 +119,8 @@ export interface catalogMetricsLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
-    setFilters: (filters: Partial<import('../metricsLogic').MetricsFilters>) => {
-        filters: Partial<import('../metricsLogic').MetricsFilters>
+    setFilters: (filters: Partial<MetricsFilters>) => {
+        filters: Partial<MetricsFilters>
     } // metricsLogic
     clearMetricSelection: () => {
         value: true
@@ -107,7 +138,11 @@ export interface catalogMetricsLogicActions {
         metricIds: string[]
         selected: boolean
     }
-    setPage: (page: number) => {
+    setPage: (
+        list: MetricsListKey,
+        page: number
+    ) => {
+        list: MetricsListKey
         page: number
     }
     toggleMetricSelected: (metricId: string) => {
@@ -142,9 +177,12 @@ export interface catalogMetricsLogicMeta {
             checksFilter: ChecksFilter,
             sort: MetricsSort | null
         ) => DataCatalogMetricApi[]
-        pageCount: (visibleMetrics: DataCatalogMetricApi[]) => number
-        currentPage: (page: number, pageCount: number) => number
-        pageMetrics: (visibleMetrics: DataCatalogMetricApi[], currentPage: number) => DataCatalogMetricApi[]
+        filtersActive: (filters: MetricsFilters, checksFilter: ChecksFilter) => boolean
+        metricLists: (visibleMetrics: DataCatalogMetricApi[]) => Record<MetricsListKey, DataCatalogMetricApi[]>
+        listPages: (
+            metricLists: Record<MetricsListKey, DataCatalogMetricApi[]>,
+            pages: Record<MetricsListKey, number>
+        ) => Record<MetricsListKey, MetricsListPage>
     }
 }
 
@@ -160,7 +198,7 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
     connect(() => ({
         values: [
             metricsLogic,
-            ['metrics'],
+            ['metrics', 'filters'],
             dataQualityOverviewLogic,
             ['checks', 'healthBySubjectKey'],
             membersLogic,
@@ -171,7 +209,7 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
     actions({
         toggleSort: (column: MetricsSortColumn) => ({ column }),
         setChecksFilter: (checks: ChecksFilter) => ({ checks }),
-        setPage: (page: number) => ({ page }),
+        setPage: (list: MetricsListKey, page: number) => ({ list, page }),
         openMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         toggleMetricSelected: (metricId: string) => ({ metricId }),
         setMetricsSelected: (metricIds: string[], selected: boolean) => ({ metricIds, selected }),
@@ -200,13 +238,13 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
                 clearMetricSelection: () => [],
             },
         ],
-        page: [
-            1,
+        pages: [
+            FIRST_PAGES,
             {
-                setPage: (_, { page }) => page,
-                setFilters: () => 1,
-                setChecksFilter: () => 1,
-                toggleSort: () => 1,
+                setPage: (state, { list, page }) => ({ ...state, [list]: page }),
+                setFilters: () => FIRST_PAGES,
+                setChecksFilter: () => FIRST_PAGES,
+                toggleSort: () => FIRST_PAGES,
             },
         ],
     }),
@@ -259,18 +297,34 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
                     metricDisplayName
                 ),
         ],
-        pageCount: [
+        // The search is not a filter here. It has its own field, and the filter menu does not clear it.
+        filtersActive: [
+            (s) => [s.filters, s.checksFilter],
+            (filters: MetricsFilters, checksFilter: ChecksFilter): boolean =>
+                filters.status !== DEFAULT_METRICS_FILTERS.status ||
+                filters.createdBy !== null ||
+                filters.owner !== null ||
+                checksFilter !== DEFAULT_METRIC_CHECKS_FILTER,
+        ],
+        metricLists: [
             (s) => [s.visibleMetrics],
-            (visibleMetrics: DataCatalogMetricApi[]): number => pageCountFor(visibleMetrics.length),
+            (visibleMetrics: DataCatalogMetricApi[]): Record<MetricsListKey, DataCatalogMetricApi[]> => ({
+                all: visibleMetrics,
+                proposed: visibleMetrics.filter((metric) => metric.status === 'proposed'),
+                // The second list takes each status that is not proposed, so no metric is absent from the two lists.
+                approved: visibleMetrics.filter((metric) => metric.status !== 'proposed'),
+            }),
         ],
-        currentPage: [
-            (s) => [s.page, s.pageCount],
-            (page: number, pageCount: number): number => Math.min(page, pageCount),
-        ],
-        pageMetrics: [
-            (s) => [s.visibleMetrics, s.currentPage],
-            (visibleMetrics: DataCatalogMetricApi[], currentPage: number): DataCatalogMetricApi[] =>
-                itemsOnPage(visibleMetrics, currentPage),
+        listPages: [
+            (s) => [s.metricLists, s.pages],
+            (
+                metricLists: Record<MetricsListKey, DataCatalogMetricApi[]>,
+                pages: Record<MetricsListKey, number>
+            ): Record<MetricsListKey, MetricsListPage> => ({
+                all: listPage(metricLists.all, pages.all, LIST_PAGE_SIZES.all),
+                proposed: listPage(metricLists.proposed, pages.proposed, LIST_PAGE_SIZES.proposed),
+                approved: listPage(metricLists.approved, pages.approved, LIST_PAGE_SIZES.approved),
+            }),
         ],
     }),
     listeners({

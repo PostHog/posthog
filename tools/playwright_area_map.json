@@ -39,7 +39,12 @@
         ".agents/**",
         ".semgrep/**",
         ".github/workflows/**",
-        "common/storybook/**"
+        "common/storybook/**",
+        "products/messaging/backend/tests/**",
+        "products/messaging/backend/**/test_*.py",
+        "products/messaging/backend/test_*.py",
+        "products/messaging/backend/**/conftest.py",
+        "products/messaging/backend/conftest.py"
     ],
     "force_full": [
         "playwright/utils/**",
@@ -151,7 +156,8 @@
         "products/experiments/backend/**": ["playwright/e2e/experiments/"],
         "products/surveys/backend/**": ["products/surveys/frontend/e2e/"],
         "products/annotations/backend/**": ["playwright/e2e/annotations.spec.ts"],
-        "products/early_access_features/backend/**": ["playwright/e2e/early-access-management.spec.ts"]
+        "products/early_access_features/backend/**": ["playwright/e2e/early-access-management.spec.ts"],
+        "products/messaging/backend/**": ["products/messaging/frontend/e2e/"]
     },
     "scenes_smoke_only": ["groups", "integrations", "max", "web-analytics"],
     "products": {
@@ -277,7 +283,10 @@
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts",
             "playwright/e2e/webhook-secret-headers.spec.ts"
         ],
-        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
+        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"],
+        "products/messaging/frontend/e2e/**": ["products/messaging/frontend/e2e/"],
+        "products/messaging/backend/templates/message_preferences/**": ["products/messaging/frontend/e2e/"],
+        "frontend/public/message-preferences.css": ["products/messaging/frontend/e2e/"]
     },
     "full_suite_only": [
         "playwright/e2e/oauth-mcp-consent.spec.ts",

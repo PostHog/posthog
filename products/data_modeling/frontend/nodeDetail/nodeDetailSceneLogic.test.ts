@@ -56,6 +56,7 @@ describe('nodeDetailSceneLogic', () => {
     }
 
     beforeEach(() => {
+        localStorage.clear()
         node = buildNode('view')
         savedQuery = { id: SAVED_QUERY_ID, name: 'orders', columns: [], is_materialized: false }
         useMocks({
@@ -189,20 +190,50 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual('lineage')
     })
 
-    it('keeps the current model in its lineage when its type is hidden', async () => {
+    it.each([
+        { typeFilter: ['table'] as DataModelingNodeType[], searchTerm: '', visible: ['source', NODE_ID] },
+        { typeFilter: undefined, searchTerm: ' REV ', visible: ['revenue', NODE_ID] },
+        { typeFilter: ['table'] as DataModelingNodeType[], searchTerm: 'rev', visible: [NODE_ID] },
+    ])(
+        'keeps the current model in its lineage with type filter $typeFilter and search "$searchTerm"',
+        async ({ typeFilter, searchTerm, visible }) => {
+            await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
+            logic.actions.loadLineageGraphSuccess({
+                currentNodeId: NODE_ID,
+                nodes: [
+                    buildNode('table', { id: 'source', name: 'raw_orders' }),
+                    node,
+                    buildNode('metric', { id: 'revenue', name: 'monthly_revenue' }),
+                ],
+                edges: [
+                    { id: 'e1', source_id: 'source', target_id: NODE_ID },
+                    { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
+                ],
+            })
+
+            if (typeFilter) {
+                logic.actions.setLineageTypeFilter(typeFilter)
+            }
+            const visibleBeforeDebounce = logic.values.lineageVisibleNodeIds
+
+            await expectLogic(logic, () => {
+                logic.actions.setLineageSearchTerm(searchTerm)
+                expect(logic.values.lineageVisibleNodeIds).toBe(visibleBeforeDebounce)
+            }).toDispatchActions(['setLineageDebouncedSearchTerm'])
+
+            expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(visible))
+            expect(logic.values.lineageIsFiltered).toBe(true)
+        }
+    )
+
+    it('remembers the lineage type filter when another model opens', async () => {
         await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
-        logic.actions.loadLineageGraphSuccess({
-            currentNodeId: NODE_ID,
-            nodes: [buildNode('table', { id: 'source' }), node, buildNode('metric', { id: 'revenue' })],
-            edges: [
-                { id: 'e1', source_id: 'source', target_id: NODE_ID },
-                { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
-            ],
-        })
+        logic.actions.setLineageTypeFilter(['table', 'view'])
+        logic.unmount()
 
-        logic.actions.setLineageTypeFilter(['table'])
+        await mountScene(urls.nodeDetail('node-2', 'lineage'), 'node-2')
 
-        expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(['source', NODE_ID]))
+        expect(logic.values.lineageTypeFilter).toEqual(['table', 'view'])
     })
 
     it('replaces a backing-resource URL with the canonical node URL', async () => {
