@@ -24,6 +24,7 @@ from posthog.models import Team, User
 
 from products.ai_observability.backend.logic.instrumentation.signal_queries import (
     event_declines_session,
+    identified_generation_person,
     sdk_generation_identified,
 )
 
@@ -34,7 +35,6 @@ from .trace_expression_queries import (
     trace_cost,
     trace_errored,
     trace_latency,
-    trace_person_id,
     trace_session_id,
 )
 from .trace_metrics import NO_TRACES, BucketSize, MetricKey, PeriodTotals, bucket_starts, previous_window
@@ -51,7 +51,7 @@ _TOTALS = {
     "errored": "countIf(has_error)",
     "cost": "sum(ifNull(trace_cost, 0))",
     "sessions": "uniqIf(trace_session_id, isNotNull(trace_session_id))",
-    "users": "uniqIf(trace_person_id, trace_identified_generations > 0)",
+    "users": "uniqIf(trace_user_id, isNotNull(trace_user_id))",
     "p50_latency_s": "quantile(0.5)(trace_latency_s)",
     "p95_latency_s": "quantile(0.95)(trace_latency_s)",
     "p99_latency_s": "quantile(0.99)(trace_latency_s)",
@@ -91,7 +91,7 @@ def _per_trace_values() -> dict[str, ast.Expr]:
         "has_error": trace_errored(EVENTS_COLUMNS, grouped),
         "trace_session_id": trace_session_id(EVENTS_COLUMNS, grouped),
         "trace_session_declines": ast.Call(name="countIf", args=[event_declines_session(EVENTS_COLUMNS)]),
-        "trace_person_id": trace_person_id(EVENTS_COLUMNS, grouped),
+        "trace_user_id": identified_generation_person(EVENTS_COLUMNS, grouped),
         "trace_identified_generations": ast.Call(name="countIf", args=[sdk_generation_identified(EVENTS_COLUMNS)]),
         "trace_non_otel_generations": parse_expr(
             "countIf(event = '$ai_generation' AND NOT {otel})", placeholders={"otel": event_is_otel(EVENTS_COLUMNS)}
