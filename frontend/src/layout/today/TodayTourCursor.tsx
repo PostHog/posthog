@@ -32,7 +32,7 @@ function travelMs(from: TodayTourPoint, to: TodayTourPoint): number {
 
 function targetSelector(step: TodayTourStep): string {
     if (step.pane === 'settings') {
-        return '[data-attr="today-settings"]'
+        return '[data-attr="new-account-menu-button"]'
     }
     return `[data-attr="today-rail-${step.pane}"]`
 }

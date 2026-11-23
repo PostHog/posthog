@@ -14,7 +14,7 @@ import {
     sidepanelTicketsLogic,
 } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
-import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
+import { TodayHelpSupportItem } from './TodayHelpSupportItem'
 import { TodaySupportPanel } from './TodaySupportPanel'
 import { TodayTopBarPanelTabs } from './TodayTopBarPanelTabs'
 
@@ -44,7 +44,7 @@ describe('support ticket fetching', () => {
         unmount()
     })
 
-    it('shows the open ticket count in the More menu once loaded, without polling', async () => {
+    it('shows the open ticket count in the account menu once loaded, without polling', async () => {
         getTickets.mockResolvedValue({
             results: [
                 { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
@@ -54,7 +54,7 @@ describe('support ticket fetching', () => {
         const { findByText, queryByText, unmount } = render(
             <DropdownMenu open>
                 <DropdownMenuContent>
-                    <TodayMoreMenuSupportItem />
+                    <TodayHelpSupportItem />
                 </DropdownMenuContent>
             </DropdownMenu>
         )

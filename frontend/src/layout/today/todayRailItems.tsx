@@ -46,8 +46,6 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 
-export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
-
 export function todaySidebarShortcutLabel(): string {
     return isMac() ? '⌘B' : 'Ctrl+B'
 }

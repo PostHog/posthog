@@ -29,7 +29,7 @@ export function TodayPhoneMoreSheet(): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
-    const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
+    const { statusSeverity, statusText, healthSeverity, healthText, helpSeverity, helpLabel } =
         useValues(todayRailStatusLogic)
     const { switchAvailable, switchLabel } = useValues(navSwitchLogic)
     const { switchNav } = useActions(navSwitchLogic)
@@ -54,8 +54,8 @@ export function TodayPhoneMoreSheet(): JSX.Element {
                 }
                 active={isHelpMenuOpen || phoneMorePanes.includes(activePane)}
                 dataAttr="help-menu-button"
-                severity={moreSeverity}
-                aria-label={moreLabel}
+                severity={helpSeverity}
+                aria-label={helpLabel('More')}
                 aria-haspopup="dialog"
                 onClick={() => setHelpMenuOpen(true)}
             />

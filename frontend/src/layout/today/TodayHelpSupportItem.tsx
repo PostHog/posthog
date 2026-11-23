@@ -8,10 +8,10 @@ import { todayContextPanelLogic } from './todayContextPanelLogic'
 import { TodaySupportTicketsSummary } from './TodaySupportTicketsSummary'
 
 /**
- * The "More" menu's entry for the support panel, with the person's open ticket count.
+ * The help items' entry for the support panel, with the person's open ticket count.
  * The menu mounts this only while it is open, so it loads tickets once per opening and does not poll.
  */
-export function TodayMoreMenuSupportItem(): JSX.Element {
+export function TodayHelpSupportItem(): JSX.Element {
     const { activeTab, docked, floatingOpen } = useValues(todayContextPanelLogic)
     const { togglePanelTab } = useActions(todayContextPanelLogic)
 

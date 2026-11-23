@@ -1,5 +1,7 @@
 import { router } from 'kea-router'
 
+import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -270,6 +272,21 @@ describe('todayShellLogic', () => {
             expect(logic.values.activePane).toBe(enabled ? 'data' : 'products')
         }
     )
+
+    test.each([
+        [true, true, false],
+        [false, false, true],
+    ])('with today-rail-nav %s, the help shortcut opens the account menu: %s', (enabled, accountOpen, helpOpen) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        todayShellLogic().mount()
+        newAccountMenuLogic.mount()
+
+        helpMenuLogic.actions.setHelpMenuOpen(true)
+
+        expect(newAccountMenuLogic.values.isAccountMenuOpen).toBe(accountOpen)
+        expect(helpMenuLogic.values.isHelpMenuOpen).toBe(helpOpen)
+    })
 
     test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }

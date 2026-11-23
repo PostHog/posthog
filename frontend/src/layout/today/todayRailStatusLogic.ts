@@ -34,8 +34,8 @@ export interface todayRailStatusLogicValues {
     billingText: string | null
     healthSeverity: TodayRailSeverity
     healthText: string | null
-    moreLabel: string
-    moreSeverity: TodayRailSeverity
+    helpLabel: (menu: string) => string
+    helpSeverity: TodayRailSeverity
     orgProblems: string[]
     orgSeverity: TodayRailSeverity
     statusSeverity: TodayRailSeverity
@@ -53,13 +53,13 @@ export interface todayRailStatusLogicMeta {
             unsnoozedCount: number,
             snoozedCount: number
         ) => string | null
-        moreSeverity: (statusSeverity: TodayRailSeverity, healthSeverity: TodayRailSeverity) => TodayRailSeverity
-        moreLabel: (
+        helpSeverity: (statusSeverity: TodayRailSeverity, healthSeverity: TodayRailSeverity) => TodayRailSeverity
+        helpLabel: (
             statusSeverity: TodayRailSeverity,
             statusText: string | null,
             healthSeverity: TodayRailSeverity,
             healthText: string | null
-        ) => string
+        ) => (menu: string) => string
         billingSeverity: (effectiveBillingAlert: BillingAlertConfig | null) => TodayRailSeverity
         billingText: (effectiveBillingAlert: BillingAlertConfig | null) => string | null
         orgSeverity: (billingSeverity: TodayRailSeverity, pendingInvitesLabel: string | null) => TodayRailSeverity
@@ -116,22 +116,24 @@ export const todayRailStatusLogic = kea<todayRailStatusLogicType>([
             (healthSummary: HealthIssueSummary | null, unsnoozedCount: number, snoozedCount: number): string | null =>
                 healthSummary ? healthSummaryLabel(unsnoozedCount, snoozedCount) : null,
         ],
-        moreSeverity: [
+        // The account menu on the rail and the phone's More sheet both hold the status and health items.
+        helpSeverity: [
             (s) => [s.statusSeverity, s.healthSeverity],
             (statusSeverity: TodayRailSeverity, healthSeverity: TodayRailSeverity): TodayRailSeverity =>
                 worstSeverity(statusSeverity, healthSeverity),
         ],
-        moreLabel: [
+        helpLabel: [
             (s) => [s.statusSeverity, s.statusText, s.healthSeverity, s.healthText],
             (
                 statusSeverity: TodayRailSeverity,
                 statusText: string | null,
                 healthSeverity: TodayRailSeverity,
                 healthText: string | null
-            ): string =>
-                ['More', statusSeverity !== 'ok' && statusText, healthSeverity !== 'ok' && healthText]
-                    .filter(Boolean)
-                    .join(', '),
+            ): ((menu: string) => string) =>
+                (menu) =>
+                    [menu, statusSeverity !== 'ok' && statusText, healthSeverity !== 'ok' && healthText]
+                        .filter(Boolean)
+                        .join(', '),
         ],
         billingSeverity: [
             (s) => [s.effectiveBillingAlert],
