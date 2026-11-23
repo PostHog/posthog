@@ -1085,7 +1085,6 @@ class TestRemoteConfigRaceCondition(_RemoteConfigBase):
 
     @parameterized.expand(
         [
-            # name, stored config, stored build started after this sync's build, sync stores its config
             ("stored_config_is_current", None, False, False),
             ("stored_config_is_stale", "stale", False, True),
             ("stored_config_comes_from_a_later_build", "later", True, False),

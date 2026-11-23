@@ -466,16 +466,15 @@ class RemoteConfig(UUIDTModel):
             build_started_at = _database_now()
             config = self.build_config(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
             written = self._store_unless_superseded(config, build_started_at, force=force)
-            # From here on, self.config is the stored config. It differs from the built config
-            # when a sync that started later already stored its own, and writing the built config
-            # to the cache would then put the older one back.
-            config = self.config
+            stored_config = self.config
 
             if not (written or force):
                 # Content is unchanged: skip S3 + CDN purge, but still re-stamp the Redis
                 # TTL and expiry entry so an unchanged team's cache never silently expires.
                 try:
-                    RemoteConfig.get_hypercache().set_cache_value_redis_only(self.team, config, track_expiry=True)
+                    RemoteConfig.get_hypercache().set_cache_value_redis_only(
+                        self.team, stored_config, track_expiry=True
+                    )
                 except Exception as e:
                     logger.exception(f"Failed to refresh hypercache TTL for team {self.team_id}")
                     capture_exception(e)
@@ -488,7 +487,7 @@ class RemoteConfig(UUIDTModel):
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
                 # instead of rebuilding via load_fn.
-                cache_written = RemoteConfig.get_hypercache().update_cache(self.team, data=config)
+                cache_written = RemoteConfig.get_hypercache().update_cache(self.team, data=stored_config)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
