@@ -64,7 +64,7 @@ The main poll then skips rows with `file_bytes` set, and the second poll dequeue
 A worker with no room spends no SES tokens on them, and a plain send never waits behind them.
 Each poll has its own email indexes, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_plain_fair_dequeue` for plain sends and `idx_cyclotron_jobs_email_files_fair_dequeue` for sends with files, so a backlog of one kind of send does not slow the poll for the other.
 Check that all three indexes are valid (`pg_index.indisvalid`) before turning the gate on: an interrupted `CREATE INDEX CONCURRENTLY` leaves an invalid index that a retry with `IF NOT EXISTS` does not rebuild.
-Turn the gate on only once the email jobs queued before the `file_bytes` writers deployed have run.
+Turn the gate on only once the email jobs queued before the `file_bytes` writers deployed have run, and the intake consumer has read past every message produced before then.
 Such a job has files but no `file_bytes`, so the main poll claims it and can take a slot the files poll already spent a token on.
 A delayed workflow step keeps such a job queued for as long as its delay.
 
