@@ -2,6 +2,7 @@ import os
 import re
 import json
 import uuid
+import base64
 import smtplib
 import datetime
 from hashlib import sha256
@@ -26,6 +27,7 @@ import jwt
 import responses
 import redis.exceptions as redis_exceptions
 from cryptography.hazmat.primitives.asymmetric import rsa
+from onelogin.saml2.utils import OneLogin_Saml2_Utils
 from parameterized import parameterized
 from requests import Response, Timeout
 from rest_framework import status
@@ -63,7 +65,7 @@ from ee.models.license import License
 
 SAML_MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
-        "wantAttributeStatement": False,  # already present in settings
+        **settings.SOCIAL_AUTH_SAML_SECURITY_CONFIG,
         "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
     },
     "SITE_URL": "http://localhost:8000",  # http://localhost:8010 is now the default, but fixtures use 8000
@@ -2950,6 +2952,43 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
+
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
+    def test_saml_login_accepts_repeated_attribute_names(self):
+        # Some IdPs send a multi-valued attribute as separate elements with the same name. The values
+        # merge into one list, and the email mapping keeps the first value.
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        initiate = self.client.get("/login/saml/?email=engineering@posthog.com")
+        relay_state = parse_qs(urlparse(initiate.headers["Location"]).query)["RelayState"][0]
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            document = base64.b64decode(f.read()).decode()
+        match = re.search(r'<saml2:Attribute Name="email".*?</saml2:Attribute>', document)
+        assert match is not None
+        email_attribute = match.group(0)
+        repeated_email_attribute = email_attribute.replace("engineering@posthog.com", "other@posthog.com")
+        document = document.replace(email_attribute, email_attribute + repeated_email_attribute)
+        saml_response = base64.b64encode(document.encode()).decode()
+
+        # The edit invalidates the fixture's signature, which this test does not exercise
+        with (
+            patch.object(OneLogin_Saml2_Utils, "validate_sign", return_value=True),
+            enable_code_sending() as sent,
+        ):
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": relay_state},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/")
+        self.assertFalse(sent.called)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     def test_relay_state_parses_when_redis_is_unavailable(self):
         # A Redis outage must not turn a SAML callback into a 500: the legacy payload needs no cache,
