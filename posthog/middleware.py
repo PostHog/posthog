@@ -1244,17 +1244,22 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
-# `next` ends up in the `/login` page URL, which analytics record. An OAuth callback holds a one-time
-# credential in its query string, and the callback endpoint itself reports no analytics.
+# `next` ends up in the `/login` page URL, which analytics record. A page of the app reports its own URL
+# anyway, so only a credential on a URL that reports no analytics is new there: the query string of an
+# OAuth callback, and the path of a server-rendered page.
 _NO_RETURN_QUERY_PARAMS = frozenset({"code", "token"})
+_NO_RETURN_PATH_PREFIXES = ("/messaging-preferences/", "/canvas-artifacts/")
 
 
 def session_expired_login_url(request: HttpRequest) -> str:
     params = {"message": SESSION_EXPIRED_MESSAGE}
     next_url = request.get_full_path()
+    holds_credential = request.path.startswith(_NO_RETURN_PATH_PREFIXES) or not _NO_RETURN_QUERY_PARAMS.isdisjoint(
+        request.GET
+    )
     # The session is already destroyed, so `next` is the only record of the page the person opened.
     # A form post is not a page to return to, and login lands on `/` without a `next`.
-    if request.method == "GET" and next_url != "/" and _NO_RETURN_QUERY_PARAMS.isdisjoint(request.GET):
+    if request.method == "GET" and next_url != "/" and not holds_credential:
         params["next"] = next_url
     return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
 
