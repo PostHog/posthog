@@ -23,7 +23,7 @@ function FooterItem({ item, refreshedAt }: { item: TileFooterItem; refreshedAt?:
             )
         case 'link':
             return (
-                <Link to={item.url} className="shrink-0" data-attr="dashboard-v2-tile-footer-link">
+                <Link to={item.url} className="min-w-0 truncate" data-attr="dashboard-v2-tile-footer-link">
                     {item.label}
                 </Link>
             )
