@@ -92,6 +92,7 @@ describe('broadcastWizardLogic', () => {
     let patchedSubjects: string[]
     let patchedTracking: unknown[]
     let patchedNames: string[]
+    let patchedSenders: unknown[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
     let failPatches: number
@@ -100,6 +101,7 @@ describe('broadcastWizardLogic', () => {
         patchedSubjects = []
         patchedTracking = []
         patchedNames = []
+        patchedSenders = []
         holdPatch = null
         onPatchStarted = null
         failPatches = 0
@@ -142,6 +144,7 @@ describe('broadcastWizardLogic', () => {
                         return [500, { detail: 'Simulated outage' }]
                     }
                     patchedSubjects.push(subject)
+                    patchedSenders.push(emailConfig.inputs.email.value.from)
                     patchedTracking.push(emailConfig.tracking_enabled)
                     onPatchStarted?.()
                     if (holdPatch) {
@@ -1413,6 +1416,37 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.email.from).toEqual({ integrationId: 1 })
         expect(logic.values.stepValidationErrors.content).not.toContain('Choose an email sender')
         expect(createDraft).not.toHaveBeenCalled()
+    })
+
+    it('saves a new broadcast draft from the sender that can send when the project default stopped', async () => {
+        logic.unmount()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'email', config: { verified: true, ses_sending_status: 'failed' } },
+                        { id: 2, kind: 'email', config: { verified: true } },
+                    ],
+                    count: 2,
+                },
+            },
+        })
+        initKeaTests()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { default_email_integration_id: 1 },
+        } as any)
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Spring sale' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(patchedSenders.at(-1)).toEqual({ integrationId: 2 })
     })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
