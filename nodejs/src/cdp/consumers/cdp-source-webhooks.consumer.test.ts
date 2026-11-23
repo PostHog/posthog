@@ -549,6 +549,38 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.status).toEqual(404)
             })
 
+            it.each([
+                ['source webhook', () => hogFunction.id],
+                ['workflow webhook', () => hogFlow.id],
+            ])('answers 404 for a %s of a deactivated organization', async (_name, webhookId) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                    [team.organization_id],
+                    'deactivateOrganization'
+                )
+                hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = true
+                const gatedApi = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue,
+                })
+                const gatedApp = setupExpressApp()
+                gatedApp.use('/', gatedApi.router())
+                const gatedServer = gatedApp.listen(0, () => {})
+
+                try {
+                    const res = await supertest(gatedApp)
+                        .post(`/public/webhooks/${webhookId()}`)
+                        .set('Content-Type', 'application/json')
+                        .send({ event: 'my-event', distinct_id: 'test-distinct-id' })
+
+                    expect(res.status).toEqual(404)
+                    expect(getQueuedHogFlowIds()).toEqual([])
+                } finally {
+                    gatedServer.close()
+                }
+            })
+
             it('should invoke a workflow with the parsed inputs', async () => {
                 const res = await doPostRequest({
                     webhookId: hogFlow.id,
