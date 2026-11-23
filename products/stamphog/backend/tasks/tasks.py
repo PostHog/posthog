@@ -64,6 +64,7 @@ from products.stamphog.backend.logic.installations import (
     reviewable_repo_configs,
 )
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import ROUTING_SAFETY_NET_SECONDS, RoutingBusy
@@ -1605,6 +1606,53 @@ _UNPUBLISHED_SILENT_RUN = Q(
     output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}, verdict_posted_at__isnull=True
 )
 
+EVIDENCE_RERUN_OUTPUT_KEY = "evidence_rerun_of"
+_EVIDENCE_RERUNS_PER_HEAD = 3
+_DELIVERED_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+
+
+def _covering_run(runs_at_head: QuerySet[ReviewRun], *, visible: bool) -> ReviewRun | None:
+    """The newest run that covers the head. A silent run covers a visible request only once its verdict is posted."""
+    covering = runs_at_head.exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+    if visible:
+        covering = covering.exclude(_UNPUBLISHED_SILENT_RUN)
+    return covering.order_by("-created_at").first()
+
+
+def _may_rerun_on_evidence(runs_at_head: QuerySet[ReviewRun], covering: ReviewRun) -> bool:
+    """Whether new evidence may review the head again: the covering run is a refusal or an escalation that
+    the PR saw, and the head has an evidence re-run left. A gate denial is stored as a GATED WAIT, so it
+    never qualifies. A silent run's withheld verdict has its own path."""
+    if covering.status != ReviewRunStatus.COMPLETED or covering.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return False
+    if covering.is_silent:
+        return False
+    # A re-run that failed or was superseded reviewed nothing, so it does not use up the cap.
+    used = (
+        runs_at_head.filter(output__has_key=EVIDENCE_RERUN_OUTPUT_KEY)
+        .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        .count()
+    )
+    return used < _EVIDENCE_RERUNS_PER_HEAD
+
+
+def _reviewed_evidence(runs_at_head: QuerySet[ReviewRun], base_ref: str) -> set[str]:
+    """The evidence fingerprints that finished reviews of this head and base saw, from the context each
+    run stored. Reads only the fields the fingerprint covers, never the files or the patches."""
+    rows = runs_at_head.filter(status__in=_DELIVERED_STATUSES).values(
+        "output__pr", "output__reviews", "output__discussion", "output__review_threads"
+    )
+    return {
+        evidence_fingerprint(
+            row["output__pr"],
+            reviews=row["output__reviews"],
+            discussion=row["output__discussion"],
+            review_threads=row["output__review_threads"],
+        )
+        for row in rows
+        if isinstance(row["output__pr"], dict) and (row["output__pr"].get("base") or {}).get("ref") == base_ref
+    }
+
 
 @frozen
 class _HeadQueueResult:
@@ -1622,6 +1670,7 @@ def _queue_review_at_head(
     *,
     output: dict[str, Any],
     revisit_wait: bool = False,
+    evidence: str | None = None,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1634,6 +1683,10 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run.
+
+    ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
+    this head is a delivered refusal, the head is reviewed again only for evidence that no finished
+    review of this head saw, and at most ``_EVIDENCE_RERUNS_PER_HEAD`` times.
 
     The request's stamped trigger decides how a silent run counts. A silent run covers only another
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
@@ -1656,16 +1709,10 @@ def _queue_review_at_head(
         ):
             return _HeadQueueResult(run=None, created=False)
         # Dedupe repeat requests against the current head; the row lock serializes races.
-        covering_runs = (
-            ReviewRun.objects.for_team(team_id)
-            .using(run_write_db)
-            .select_for_update()
-            .filter(pull_request=pr_obj, head_sha=head_sha)
-            .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        runs_at_head = (
+            ReviewRun.objects.for_team(team_id).using(run_write_db).filter(pull_request=pr_obj, head_sha=head_sha)
         )
-        if visible:
-            covering_runs = covering_runs.exclude(_UNPUBLISHED_SILENT_RUN)
-        existing = covering_runs.order_by("-created_at").first()
+        existing = _covering_run(runs_at_head.select_for_update(), visible=visible)
         # Only the newest run counts. An older verdict at this head, from before the WAIT, does not
         # cover it either, because the WAIT replaced that verdict.
         if (
@@ -1679,6 +1726,14 @@ def _queue_review_at_head(
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
         if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
+            existing = None
+        if (
+            existing is not None
+            and evidence is not None
+            and _may_rerun_on_evidence(runs_at_head, existing)
+            and evidence not in _reviewed_evidence(runs_at_head, (pr.get("base") or {}).get("ref") or "")
+        ):
+            output = {**output, EVIDENCE_RERUN_OUTPUT_KEY: str(existing.id)}
             existing = None
         if existing is not None:
             if existing.status == ReviewRunStatus.QUEUED:
@@ -1872,6 +1927,33 @@ class QueuedReview:
     created: bool
 
 
+def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
+    """The evidence fingerprint of ``pr`` as it is now, when the run that covers its current head for a
+    visible request is a delivered refusal and the head has an evidence re-run left. None otherwise,
+    which saves the reads. Raises on a GitHub error.
+
+    ``_queue_review_at_head`` decides again under the row lock, so a run that lands in between is
+    handled there."""
+    runs_at_head = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr["number"], head_sha=pr["head"]["sha"])
+    )
+    covering = _covering_run(runs_at_head, visible=True)
+    if covering is None or not _may_rerun_on_evidence(runs_at_head, covering):
+        return None
+    repo = repo_config.repository
+    # BATCH, because these reads are optional: the egress limiter sheds them before the installation reserve
+    # that dismissals and verdicts need, and a shed read falls back to returning the covering run.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
+    return evidence_fingerprint(
+        pr,
+        reviews=client.get_pr_reviews(repo, pr["number"]),
+        discussion=client.get_pr_discussion(repo, pr["number"]),
+        review_threads=client.get_pr_review_threads(repo, pr["number"]),
+    )
+
+
 def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
     """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
 
@@ -1920,11 +2002,17 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
             "so auto-approval will not review it.",
         )
 
+    try:
+        evidence = _evidence_after_refusal(repo_config, pr)
+    except (StamphogGitHubError, GitHubEgressBudgetExhausted, *_GITHUB_ERRORS):
+        logger.warning("stamphog_manual_review_evidence_failed", repository=repo, pr_number=pr_number, exc_info=True)
+        evidence = None
     queued = _queue_review_at_head(
         repo_config,
         pr,
         pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
+        evidence=evidence,
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
@@ -1937,6 +2025,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         pr_number=pr_number,
         review_run_id=str(queued.run.id),
         created=queued.created,
+        evidence_rerun=queued.created and EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
         team_id=team_id,
     )
     return QueuedReview(run=queued.run, created=queued.created)

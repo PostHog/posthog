@@ -135,6 +135,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             adTable=tables.get("ad"),
+            keywordTable=tables.get("keyword"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
             campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
             searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),
