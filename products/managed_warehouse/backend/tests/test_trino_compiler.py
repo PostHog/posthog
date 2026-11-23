@@ -627,7 +627,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     organization = Organization.objects.create(name="trino-locators")
     team = Team.objects.create(organization=organization)
     model_table = DataWarehouseTable.objects.create(
-        name="orders_model",
+        name="orders_model_before_rename",
         format="Parquet",
         team=team,
         url_pattern="https://bucket.s3.amazonaws.com/models/orders/*.parquet",
@@ -689,6 +689,11 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
         "groups": ("org_catalog", "posthog", "groups_production"),
         "raw_groups": ("org_catalog", "posthog", "groups_production"),
         "orders_model": (
+            "org_catalog",
+            f"posthog_data_modeling_team_{team.pk}",
+            f"model_{saved_query_id.hex}",
+        ),
+        "orders_model_before_rename": (
             "org_catalog",
             f"posthog_data_modeling_team_{team.pk}",
             f"model_{saved_query_id.hex}",

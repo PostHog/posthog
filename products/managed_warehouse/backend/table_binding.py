@@ -69,18 +69,21 @@ def build_trino_table_locators(
 
     model_schema = ducklake_data_modeling_schema(team_id)
     materialized_models = list(
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, is_materialized=True, table__isnull=False).exclude(
-            deleted=True
-        )
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, is_materialized=True, table__isnull=False)
+        .exclude(deleted=True)
+        .select_related("table")
     )
     model_table_names = get_data_modeling_table_names(team_id, [saved_query.id for saved_query in materialized_models])
-    for saved_query in materialized_models:
+    model_locators = {
+        saved_query: (catalog_name, model_schema, model_table_names[saved_query.id])
+        for saved_query in materialized_models
+    }
+    for saved_query, model_locator in model_locators.items():
         if database.has_table(saved_query.name):
-            locators[saved_query.name] = (
-                catalog_name,
-                model_schema,
-                model_table_names[saved_query.id],
-            )
+            locators[saved_query.name] = model_locator
+    for saved_query, model_locator in model_locators.items():
+        if database.has_table(saved_query.table.name):
+            locators.setdefault(saved_query.table.name, model_locator)
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)
     for table in list_ducklake_imported_tables(team_id, naming_version):
