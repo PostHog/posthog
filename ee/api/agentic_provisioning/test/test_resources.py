@@ -166,6 +166,7 @@ class TestProvisioningResources(ProvisioningTestBase):
     @parameterized.expand(
         [
             ("not_a_string", 123),
+            ("null", None),
             ("empty", ""),
             ("too_long", "x" * 201),
         ]
