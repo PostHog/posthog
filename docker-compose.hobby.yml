@@ -394,7 +394,8 @@ services:
                 condition: service_started
             personhog-router:
                 condition: service_started
-            # This service reads Django's tables at startup and exits when one is missing.
+            # This service reads Django's tables at startup and exits when one is missing. The gate
+            # only waits for tables a fresh install lacks; on an upgrade it passes at once.
             personhog-tables-ready:
                 condition: service_completed_successfully
 
@@ -470,7 +471,8 @@ services:
                 condition: service_started
             personhog-router:
                 condition: service_started
-            # This service reads Django's tables at startup and exits when one is missing.
+            # This service reads Django's tables at startup and exits when one is missing. The gate
+            # only waits for tables a fresh install lacks; on an upgrade it passes at once.
             personhog-tables-ready:
                 condition: service_completed_successfully
 

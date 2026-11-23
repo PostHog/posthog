@@ -961,7 +961,8 @@ runcmd:
 
     def check_node_image_age(self, max_age_days=HOBBY_NODE_IMAGE_MAX_AGE_DAYS):
         output = self.run_command_on_droplet(
-            "docker ps --format '{{.Image}}' | sort -u | xargs docker image inspect --format '{{index .RepoTags 0}} {{.Created}}'",
+            "for image in $(docker ps --format '{{.Image}}' | sort -u); do "
+            'echo "$image $(docker image inspect --format \'{{.Created}}\' "$image" 2>/dev/null)"; done',
             timeout=120,
         )
         if not output:
@@ -970,7 +971,10 @@ runcmd:
         now = datetime.datetime.now(datetime.UTC)
         ages: dict[str, int] = {}
         for line in output.strip().splitlines():
-            image, created = line.split()
+            fields = line.split()
+            if len(fields) != 2:
+                continue
+            image, created = fields
             if image.rsplit(":", 1)[0].rsplit("/", 1)[-1] != HOBBY_NODE_IMAGE_NAME:
                 continue
             # Docker prints nanoseconds, which datetime does not parse, so only the seconds are read.
@@ -1024,9 +1028,8 @@ runcmd:
         update_repo_cmd = f"cd /hobby/posthog && git fetch origin {new_sha} && git checkout {new_sha}"
         result = self.run_ssh_command(update_repo_cmd, timeout=120)
         if result["exit_code"] != 0:
-            print(f"⚠️ Failed to update repo checkout: {result['stderr']}")
-        else:
-            print("✅ Repo checkout updated")
+            raise RuntimeError(f"Failed to update repo checkout: {result['stderr']}")
+        print("✅ Repo checkout updated")
 
         # Update .env file with new image tag
         update_env_cmd = (
@@ -1075,9 +1078,8 @@ runcmd:
         )
         result = self.run_ssh_command(render_compose_cmd, timeout=30)
         if result["exit_code"] != 0:
-            print(f"⚠️ Failed to render docker-compose.yml, keeping the existing one: {result['stderr']}")
-        else:
-            print("✅ docker-compose.yml rendered")
+            raise RuntimeError(f"Failed to render docker-compose.yml: {result['stderr']}")
+        print("✅ docker-compose.yml rendered")
 
         # Update the baked-in image tags in docker-compose.yml.
         # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
