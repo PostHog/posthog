@@ -15,6 +15,14 @@ class Recommendation(ABC):
         regardless of batch size. Must return a meta for every requested team; teams
         omitted from the result are reverted to ready by the caller."""
 
+    def available_team_ids(self, team_ids: list[int]) -> list[int]:
+        """The teams that may see this recommendation and have it computed. Callers check this before they read or
+        write any row of this type, so a team outside a gate never sees a row stored while it was inside."""
+        return team_ids
+
+    def is_available(self, team_id: int) -> bool:
+        return team_id in self.available_team_ids([team_id])
+
     def compute(self, team: Team) -> dict[str, Any]:
         return self.compute_batch([team.id])[team.id]
 

@@ -1,6 +1,6 @@
 import type { ErrorTrackingRecommendationApi } from '../../../generated/api.schemas'
 
-export type ErrorTrackingBannerKey = 'source_maps' | 'alerts' | 'rate_limits'
+export type ErrorTrackingBannerKey = 'source_maps' | 'issue_summaries' | 'alerts' | 'rate_limits'
 
 /** `pending` means the first compute for this banner's check is still running. */
 export type BannerCandidateState = 'pending' | 'needed' | 'not_needed'

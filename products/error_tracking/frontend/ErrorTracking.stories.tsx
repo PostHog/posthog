@@ -812,6 +812,35 @@ export const ListPageWithRateLimitsBanner: Story = {
     ],
 }
 
+// A team with the issue summaries AI feature gets a banner while the setting is off
+export const ListPageWithIssueSummariesBanner: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'issue-summaries-recommendation',
+                                type: 'issue_summaries',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: { enabled: false },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 // With every check failing, the banners stack: source maps on top, the other two peeking out below
 export const ListPageWithStackedBanners: Story = {
     decorators: [
