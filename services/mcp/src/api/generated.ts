@@ -425,6 +425,21 @@ export namespace Schemas {
       error?: string;
     }
 
+    export interface AEOPageMover {
+      /** The cited URL on one of the project's own domains, as the engine returned it. */
+      url: string;
+      /** Answered checks in the current window that cite this URL. */
+      answers_citing: number;
+      /** Share (0-1) of the response's 'answers' that cite this URL. */
+      citation_rate: number;
+      /** Answered checks in the window before that cite this URL. */
+      previous_answers_citing: number;
+      /** Share (0-1) of the response's 'previous_answers' that cite this URL. */
+      previous_citation_rate: number;
+      /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+      change: number;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
@@ -765,6 +780,29 @@ export namespace Schemas {
       skipped: number;
     }
 
+    export interface AEOPromptMover {
+      /** Id of the prompt. Pass it to the prompt endpoints for its stats and checks. */
+      prompt_id: string;
+      /** The prompt's current text. */
+      prompt: string;
+      /** The prompt's current topic. Empty when it has none. */
+      topic: string;
+      /** Answered checks of the prompt in the current window. */
+      answers: number;
+      /** Of 'answers', the ones that name the brand. An answer that cites the site counts as a mention. */
+      mentioned: number;
+      /** Share (0-1) of 'answers' that name the brand. */
+      mention_rate: number;
+      /** Answered checks of the prompt in the window before. */
+      previous_answers: number;
+      /** Of 'previous_answers', the ones that name the brand. */
+      previous_mentioned: number;
+      /** Share (0-1) of 'previous_answers' that name the brand. */
+      previous_mention_rate: number;
+      /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+      change: number;
+    }
+
     export interface AEOPromptSearchWord {
       /** A word from the web searches, lower-cased, common English words left out. */
       word: string;
@@ -845,6 +883,72 @@ export namespace Schemas {
       engine: string;
     }
 
+    export interface AEOPromptSetEngineTopicCounts {
+      /** Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'. */
+      readonly mention_rate: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+      engine: string;
+      /** Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'. */
+      topic: string;
+      /** Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'. */
+      answers: number;
+      /** Of those answers, how many name the brand. A cited answer counts as a mention. */
+      mentioned: number;
+    }
+
+    /**
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     */
+    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
+
+
+    export const BrandedSegmentEnum = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export interface AEOPromptSetMovers {
+      /** Up to 5 prompts whose mention rate rose the most against the window before, largest gain first. */
+      prompt_gainers: AEOPromptMover[];
+      /** Up to 5 prompts whose mention rate fell the most against the window before, largest loss first. */
+      prompt_losers: AEOPromptMover[];
+      /** Up to 5 pages on the project's own domains whose citation rate rose the most, largest gain first. */
+      page_gainers: AEOPageMover[];
+      /** Up to 5 pages on the project's own domains whose citation rate fell the most, largest loss first. */
+      page_losers: AEOPageMover[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window, in the project's timezone. */
+      window_to: string;
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
+      /** Answered checks in the current window: the denominator of every page's 'citation_rate'. */
+      answers: number;
+      /** Answered checks in the window before: the denominator of every page's 'previous_citation_rate'. */
+      previous_answers: number;
+      /** The fewest answers a prompt needs in each window to be listed. The page lists are empty when either window has fewer answers in total. */
+      min_answers: number;
+    }
+
     export interface AEOPromptSetTopicCounts {
       /**
          * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
@@ -901,20 +1005,6 @@ export namespace Schemas {
       engines: string[];
     }
 
-    /**
-     * * `all` - All
-     * * `branded` - Branded
-     * * `non_branded` - Non-branded
-     */
-    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
-
-
-    export const BrandedSegmentEnum = {
-      All: 'all',
-      Branded: 'branded',
-      NonBranded: 'non_branded',
-    } as const;
-
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set from 'window_from' to 'window_to'. */
       current: AEOPromptSetCounts;
@@ -926,6 +1016,8 @@ export namespace Schemas {
       daily: AEOPromptDailyEngineStats[];
       /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
       topics: AEOPromptSetTopicCounts[];
+      /** The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero. */
+      engine_topics: AEOPromptSetEngineTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
       top_domains: AEOPromptSetDomain[];
       /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
@@ -122156,7 +122248,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -122170,6 +122262,8 @@ export namespace Schemas {
       team_ids: number[];
       /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
+      /** Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it. */
+      keep_writing_flag_calls_to_events?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
     }
@@ -122193,8 +122287,12 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes unless they are kept, and either way the events copy lacks the calls from before the writes stopped or were kept. */
       running_experiments_needing_flag_calls_in_events: number;
+      /** True when ingestion kept writing $feature_flag_called to events for the organization before the write. */
+      current_keeps_events_writes: boolean;
+      /** True when ingestion keeps writing $feature_flag_called to events for the organization after the write. */
+      target_keeps_events_writes: boolean;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -122238,7 +122336,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -137504,6 +137602,51 @@ export namespace Schemas {
 
 
     export const AeoPromptsCitationsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsMoversParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsMoversBranded;
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
+    };
+
+    export type AeoPromptsMoversBranded = typeof AeoPromptsMoversBranded[keyof typeof AeoPromptsMoversBranded];
+
+
+    export const AeoPromptsMoversBranded = {
       All: 'all',
       Branded: 'branded',
       NonBranded: 'non_branded',
