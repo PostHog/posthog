@@ -94,6 +94,11 @@ describe('workflowEmailPrefill', () => {
             '{% capture variables %}Hi{% endcapture %}{{ variables }}',
             '{% capture variables %}Hi{% endcapture %}{{ variables }}',
         ],
+        [
+            'an assignment of variables inside a raw block, which Liquid only prints',
+            '{% raw %}{% assign variables = 1 %}{% endraw %}{{ variables.name }}',
+            '{% raw %}{% assign variables = 1 %}{% endraw %}{{ event.properties.name }}',
+        ],
     ])('copies a template email with %s', (_, html, expected) => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',
@@ -101,6 +106,21 @@ describe('workflowEmailPrefill', () => {
         } as any)
 
         expect((workflow.actions[1].config as any).inputs.email.value.html).toBe(expected)
+    })
+
+    it('copies a template subject that reads variables when only its body assigns its own', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: {
+                templating: 'liquid',
+                email: { subject: 'Order {{ variables.id }}', html: '{% assign variables = 1 %}{{ variables }}' },
+            },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value).toMatchObject({
+            subject: 'Order {{ event.properties.id }}',
+            html: '{% assign variables = 1 %}{{ variables }}',
+        })
     })
 
     it('copies a template whose sender is a plain address as a step without a sender', () => {

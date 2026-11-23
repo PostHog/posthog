@@ -46,9 +46,13 @@ export function templatePrefilledWorkflow(
     template: Pick<MessageTemplateApi, 'name' | 'content'>
 ): HogFlow {
     const email = template.content?.email ?? {}
-    const { from, ...content } = someString(email, (text) => OWN_VARIABLES.test(text))
-        ? email
-        : withEventPropertiesForVariables(email)
+    // Liquid renders each field on its own, so a field that sets its own `variables` keeps its text and the others still read the event.
+    const { from, ...content } = Object.fromEntries(
+        Object.entries(email).map(([key, value]) => [
+            key,
+            someString(value, setsOwnVariables) ? value : withEventPropertiesForVariables(value),
+        ])
+    ) as typeof email
     const emailAction = emailStep(
         TEMPLATE_EMAIL_ACTION_ID,
         template.name,
@@ -67,7 +71,7 @@ const QUOTED = /('[^']*'|"[^"]*"|&quot;[\s\S]*?&quot;|&#x27;[\s\S]*?&#x27;|&#39;
 // Liquid prints a raw block as written and skips a comment block, so their tags are text, not expressions.
 const UNRENDERED_BLOCK =
     /(\{%-?\s*raw\s*-?%\}[\s\S]*?\{%-?\s*endraw\s*-?%\}|\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\})/
-// An email that sets `variables` itself reads its own value under that name, so it keeps its text.
+// A field that sets `variables` itself reads its own value under that name.
 const OWN_VARIABLES = /\{%-?\s*(?:assign|capture|for)\s+variables(?![\w-])/
 
 function withEventPropertiesInTag(tag: string): string {
@@ -94,6 +98,10 @@ function withEventPropertiesForVariables<T>(value: T): T {
         ) as T
     }
     return value
+}
+
+function setsOwnVariables(text: string): boolean {
+    return text.split(UNRENDERED_BLOCK).some((part, index) => index % 2 === 0 && OWN_VARIABLES.test(part))
 }
 
 function someString(value: unknown, predicate: (text: string) => boolean): boolean {
