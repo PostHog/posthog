@@ -177,14 +177,13 @@ describe('emailDomainStatusLogic', () => {
 
         const releasePoll = backend.hold('email_status')
         await jest.advanceTimersByTimeAsync(10_000)
+        backend.verifyDomain(DOMAIN)
         const releaseRecheck = backend.hold('email_status')
         logic.actions.recheck()
         await jest.advanceTimersByTimeAsync(0)
 
-        backend.verifyDomain(DOMAIN)
         releaseRecheck()
         await jest.advanceTimersByTimeAsync(0)
-        backend.sesReports(DOMAIN, 'pending')
         releasePoll()
         await jest.advanceTimersByTimeAsync(0)
 
