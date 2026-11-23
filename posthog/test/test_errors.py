@@ -52,9 +52,10 @@ class TestWrapClickhouseQueryError:
             "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
         )
 
-    def test_throw_if_preserves_the_message_and_drops_the_executing_expression(self) -> None:
+    @parameterized.expand([(": while executing",), (": While processing",), (". While processing",)])
+    def test_throw_if_preserves_the_message_and_drops_the_expression(self, separator: str) -> None:
         raw = ServerException(
-            "DB::Exception: Check the input date: while executing 'FUNCTION throwIf(private_value)'", code=395
+            f"DB::Exception: Check the input date{separator} expression (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)", code=395
         )
         assert str(wrap_clickhouse_query_error(raw)) == "Check the input date"
 

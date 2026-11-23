@@ -334,7 +334,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         elif name == "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
             # ClickHouse appends the executing SQL and row values after the explicit throwIf message.
             match = re.search(
-                r"DB::Exception:\s*([^\r\n]+?)(?::\s*while executing\b|\s*\(FUNCTION_THROW_IF_VALUE_IS_NON_ZERO\))",
+                r"DB::Exception:\s*([^\r\n]+?)(?:[:.]\s*while (?:executing|processing)\b|\s*\(FUNCTION_THROW_IF_VALUE_IS_NON_ZERO\))",
                 raw_message,
                 re.IGNORECASE,
             )

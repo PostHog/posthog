@@ -313,7 +313,7 @@ class TestMCPToolsAPI(APIBaseTest):
             (
                 UserAccessControlError("insight", "viewer"),
                 "permission",
-                "Tool failed: MaxToolAccessDeniedError: The user does not have viewer access to access insights. Suggest the user to contact their project admin to request access..",
+                "Tool failed: MaxToolAccessDeniedError: The user does not have viewer access to access insights. Suggest the user to contact their project admin to request access.",
             ),
             (
                 ClickHouseQueryTimeOut("Query timed out"),
