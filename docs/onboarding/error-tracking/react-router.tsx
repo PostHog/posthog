@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getReactRouterInstallSteps } from '../product-analytics/react-router'
 import { SDK_DEFAULTS_DATE } from '../product-analytics/_snippets/sdkDefaults'
+import { getReactRouterInstallSteps } from '../product-analytics/react-router'
 import { StepDefinition } from '../steps'
 
 export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
