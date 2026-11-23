@@ -35,7 +35,6 @@ import {
     CdpProducerName,
     MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -51,7 +50,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
-import { _fetch, fetch } from '~/common/utils/request'
+import { _fetch, fetch, internalFetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -76,7 +75,7 @@ import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
     const actual = jest.requireActual('~/common/utils/request')
-    return { ...actual, fetch: jest.fn(actual.fetch) }
+    return { ...actual, fetch: jest.fn(actual.fetch), internalFetch: jest.fn(actual.internalFetch) }
 })
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
@@ -904,7 +903,6 @@ async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
         cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
             [WARPSTREAM_INGESTION_PRODUCER]: discardingProducer,
             [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
-            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: discardingProducer,
             [WAREHOUSE_PRODUCER]: discardingProducer,
             [MSK_CDP_INTAKE_PRODUCER]: discardingProducer,
         }),
@@ -947,10 +945,13 @@ async function runToItsEnd(cdp: Cdp, invocation: CyclotronJobInvocation): Promis
     throw new Error(`Flow ${invocation.functionId} did not finish within ${MOST_LEGS_PER_RUN} legs`)
 }
 
+type UnitFate = 'delivered' | 'lost' | 'queued'
+
 async function startDeliveringRoles(
     cdp: Cdp,
     specs: RoleSpec[],
-    leaveOneJobRunning: boolean
+    leaveOneJobRunning: boolean,
+    fateOf: (unitId: string) => UnitFate
 ): Promise<DeliveringRoles> {
     const worker = specs.find(({ role }) => role === 'cdp-cyclotron-worker-email')!.env
     const [
@@ -971,6 +972,10 @@ async function startDeliveringRoles(
     let work = Promise.resolve()
 
     const deliver = async (event: RawClickHouseEvent): Promise<void> => {
+        const fate = fateOf(event.distinct_id)
+        if (fate === 'lost') {
+            return
+        }
         const team = await cdp.hub.teamManager.getTeam(event.team_id)
         if (!team) {
             throw new Error(`No team ${event.team_id}`)
@@ -989,6 +994,9 @@ async function startDeliveringRoles(
                     ),
                 cyclotronUrl
             )
+            if (fate === 'queued') {
+                continue
+            }
             await runToItsEnd(cdp, invocation)
             if (jobsToLeaveRunning > 0) {
                 jobsToLeaveRunning -= 1
@@ -1070,7 +1078,8 @@ describe('runner through seed, drive and judge', () => {
 
     const environmentOf = (
         delivering: 'none' | 'all' | 'all, leaving one job running',
-        roleUrl = 'http://127.0.0.1:1'
+        roleUrl = 'http://127.0.0.1:1',
+        fateOf: (unitId: string) => UnitFate = () => 'delivered'
     ): Environment => ({
         up: () => Promise.resolve(),
         async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
@@ -1082,7 +1091,8 @@ describe('runner through seed, drive and judge', () => {
                     : await startDeliveringRoles(
                           cdp,
                           roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), settings),
-                          delivering !== 'all'
+                          delivering !== 'all',
+                          fateOf
                       )
         },
         edgeUrl: () => edge.url,
@@ -1155,6 +1165,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            convergeWithin,
             settings = {},
         }: {
             replicas?: Profile['replicas']
@@ -1167,6 +1178,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            convergeWithin?: string
             settings?: Profile['settings']
         } = {}
     ): LoadedCard => {
@@ -1188,7 +1200,7 @@ describe('runner through seed, drive and judge', () => {
                 measure: measures,
                 bars,
                 valves,
-                convergeWithin: valves.length > 0 ? '8s' : '3s',
+                convergeWithin: convergeWithin ?? (valves.length > 0 ? '8s' : '3s'),
             })
         )
         writeFileSync(
@@ -1475,6 +1487,50 @@ describe('runner through seed, drive and judge', () => {
             ),
             units: { targetUnits: 4, offeredUnits: 4 },
         })
+    }, 30_000)
+
+    it('spreads the intake offers over every cdp-api replica the profile starts', async () => {
+        const received = [0, 0]
+        const intakes = await Promise.all(
+            received.map(async (_, replica) => {
+                const intake = http.createServer((request, response) => {
+                    received[replica] += 1
+                    request.resume()
+                    response.writeHead(202, { 'content-type': 'application/json' }).end('{"status":"queued"}')
+                })
+                await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+                return intake
+            })
+        )
+        const environment = environmentOf('none')
+        try {
+            const result = await createRunner(
+                {
+                    ...environment,
+                    roles: () =>
+                        environment.roles().map((handle) =>
+                            handle.name === 'cdp-api'
+                                ? {
+                                      ...handle,
+                                      url: `http://127.0.0.1:${(intakes[handle.replica].address() as AddressInfo).port}`,
+                                  }
+                                : handle
+                        ),
+                },
+                env
+            ).run(shortSmoke([], 'transactional_email', { replicas: { 'cdp-api': 2 } }), NEVER_ABORTED)
+            results.push(result)
+
+            expect({ received, offeredUnits: result.units?.offeredUnits }).toEqual({
+                received: [2, 2],
+                offeredUnits: 4,
+            })
+        } finally {
+            for (const intake of intakes) {
+                intake.closeAllConnections()
+                await new Promise((resolve) => intake.close(resolve))
+            }
+        }
     }, 30_000)
 
     it('samples every replica the profile starts, follows every sample live, and seeds flows that park as often as it asks', async () => {
@@ -2005,7 +2061,7 @@ describe('runner through seed, drive and judge', () => {
 
         expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
             status: 'failed',
-            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            statusReason: 'the ramp broke: the backlog did not drain within convergeWithin: 1 job stayed unfinished',
             ramp: {
                 end: 'broke',
                 sustainedScale: null,
@@ -2017,10 +2073,122 @@ describe('runner through seed, drive and judge', () => {
                     at: null,
                     part: null,
                 },
-                reason: 'the run did not converge, and no step can be blamed for it',
+                reason: 'the backlog did not drain within convergeWithin: 1 job stayed unfinished',
+                stop: {
+                    failure: 'backlog_undrained',
+                    scale: null,
+                    reason: 'the backlog did not drain within convergeWithin: 1 job stayed unfinished',
+                },
+                rates: [
+                    expect.objectContaining({ scale: 1, lost: null }),
+                    expect.objectContaining({ scale: 2, lost: null }),
+                ],
             },
         })
     }, 30_000)
+
+    const unitNumber = (unitId: string): number => Number(unitId.split('-').at(-1))
+    const ratesOf = ({ ramp }: RunResult): object[] =>
+        (ramp?.rates ?? []).map(({ scale, expected, lost }) => ({ scale, expected, lost }))
+
+    it.each<[string, { lost?: number[]; queued?: number[] }, object]>([
+        [
+            'runs a ramp that lost one delivery to its last step and records the step that lost it',
+            { lost: [30] },
+            {
+                status: 'failed',
+                statusReason: 'the ramp ran to its last step, but lost 1 of 60 deliveries (1.67%): 1 in the 10x step',
+                steps: [5, 10],
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+                rates: [
+                    { scale: 5, expected: 20, lost: 0 },
+                    { scale: 10, expected: 40, lost: 1 },
+                ],
+            },
+        ],
+        [
+            'names a step that lost more than 5% of its deliveries as the hard failure that ends the ramp',
+            { lost: [3, 6, 9] },
+            {
+                status: 'failed',
+                statusReason: expect.stringMatching(
+                    /^the ramp broke: 3 of 20 deliveries were lost in the 5x step \(15%\), over the 5% hard limit; lost 3 of 60/
+                ),
+                steps: [5, 10],
+                ramp: {
+                    end: 'broke',
+                    sustainedScale: null,
+                    stop: {
+                        failure: 'step_loss',
+                        scale: 5,
+                        reason: '3 of 20 deliveries were lost in the 5x step (15%), over the 5% hard limit',
+                    },
+                },
+                rates: [
+                    { scale: 5, expected: 20, lost: 3 },
+                    { scale: 10, expected: 40, lost: 0 },
+                ],
+            },
+        ],
+        [
+            'names the undrained backlog, not a step loss, when more than 5% of a step is still queued at the deadline',
+            { queued: [3, 6, 9] },
+            {
+                status: 'failed',
+                statusReason:
+                    'the ramp broke: the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                steps: [5, 10],
+                ramp: {
+                    end: 'broke',
+                    sustainedScale: null,
+                    stop: {
+                        failure: 'backlog_undrained',
+                        scale: null,
+                        reason: 'the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                    },
+                },
+                rates: [
+                    { scale: 5, expected: 20, lost: null },
+                    { scale: 10, expected: 40, lost: null },
+                ],
+            },
+        ],
+    ])(
+        '%s',
+        async (_story, { lost = [], queued = [] }, expected) => {
+            const fateOf = (unitId: string): UnitFate =>
+                lost.includes(unitNumber(unitId))
+                    ? 'lost'
+                    : queued.includes(unitNumber(unitId))
+                      ? 'queued'
+                      : 'delivered'
+            const result = await createRunner(environmentOf('all', undefined, fateOf), env, {
+                topologyWithinMs: 1000,
+                topologyEveryMs: 10,
+            }).run(
+                shortSmoke([], undefined, {
+                    ramp: [
+                        { scale: 5, for: '2s' },
+                        { scale: 10, for: '2s' },
+                    ],
+                    stopOnBreak: true,
+                    driveFor: '4s',
+                    convergeWithin: '15s',
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                steps: result.units?.steps.map(({ scale }) => scale),
+                ramp: result.ramp,
+                rates: ratesOf(result),
+            }).toMatchObject(expected)
+        },
+        60_000
+    )
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         const refusingIntake = http.createServer((_request, response) => {
@@ -2065,6 +2233,67 @@ describe('runner through seed, drive and judge', () => {
         } finally {
             refusingIntake.closeAllConnections()
             await new Promise((resolve) => refusingIntake.close(resolve))
+        }
+    }, 30_000)
+
+    it('ends a ramp whose intake fails mid-ramp as broke, with the step before it judged, when the judge cannot read the final state', async () => {
+        const intake = http.createServer((request, response) => {
+            let body = ''
+            request.on('data', (chunk) => (body += chunk))
+            request.on('end', () => {
+                response.writeHead(unitNumber(parseJSON(body).distinct_id) > 25 ? 429 : 200).end('{}')
+            })
+        })
+        await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+        const actual = jest.requireActual<{ internalFetch: typeof internalFetch }>('~/common/utils/request')
+        jest.mocked(internalFetch).mockImplementation((url, options) =>
+            url.includes('/_truth?') && !url.includes('limit=')
+                ? Promise.reject(
+                      Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+                  )
+                : actual.internalFetch(url, options)
+        )
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(intake.address() as AddressInfo).port}`),
+                env,
+                { topologyWithinMs: 1000, topologyEveryMs: 10 }
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 5, for: '2s' },
+                        { scale: 10, for: '2s' },
+                    ],
+                    stopOnBreak: true,
+                    driveFor: '4s',
+                    convergeWithin: '1s',
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [scorecard] = api.captured.map(({ properties }) => properties)
+            const [held, broke] = (scorecard?.ramp_steps ?? []) as { refused: number }[]
+            expect({ scorecard, refusedAtTheBreak: broke?.refused > 0 }).toEqual({
+                scorecard: expect.objectContaining({
+                    status: 'failed',
+                    status_reason:
+                        'the ramp broke: refused_at_intake broke at the 10x step; the judge could not read the final state: The operation was aborted due to timeout',
+                    ramp_end: 'broke',
+                    ramp_sustained_scale: 5,
+                    ramp_broke_scale: 10,
+                    ramp_broke_by: 'refused_at_intake',
+                    converged: false,
+                    invariants_failed: ['refused_at_intake'],
+                }),
+                refusedAtTheBreak: true,
+            })
+            expect(held).toMatchObject({ scale: 5, expected: 20, refused: 0, refused_rate: 0 })
+            expect(broke).toMatchObject({ scale: 10, refused_rate: expect.any(Number) })
+        } finally {
+            jest.mocked(internalFetch).mockImplementation(actual.internalFetch)
+            intake.closeAllConnections()
+            await new Promise((resolve) => intake.close(resolve))
         }
     }, 30_000)
 

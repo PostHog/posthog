@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.clevertap.settings import (
     EXPORT_ERROR,
     INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
+    REPORT_ERROR,
 )
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
@@ -91,6 +92,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
             caption=(
                 "Sync one event and its user profiles from the start date through yesterday (UTC). "
                 "Profiles include only users who performed this event. "
+                "Campaign and message report tables use the same date range. "
                 "CleverTap excludes some notification events from event exports."
             ),
             releaseStatus=ReleaseStatus.BETA,
@@ -196,6 +198,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
             PERMISSION_ERROR: PERMISSION_ERROR,
             CURSOR_ERROR: CURSOR_ERROR,
             EXPORT_ERROR: EXPORT_ERROR,
+            REPORT_ERROR: REPORT_ERROR,
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClevertapResumeConfig]:
@@ -207,4 +210,4 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
         resumable_source_manager: ResumableSourceManager[ClevertapResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        return clevertap_source(config, inputs.schema_name, inputs.team_id, inputs.job_id, resumable_source_manager)
+        return clevertap_source(config, inputs, resumable_source_manager)

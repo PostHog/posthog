@@ -88,6 +88,11 @@ SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUER
 # waiting for the full start_to_close_timeout to expire. Activities must
 # send heartbeats within this interval or Temporal will consider them failed
 # and retry on another worker.
+#
+# The SDK sends a heartbeat at most every
+# min(0.8 x heartbeat_timeout, TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS), and Temporal Cloud
+# bills each sent heartbeat as an action. Keep each timeout at 1.25 x that setting or more so
+# that the worker setting, not the timeout, controls the heartbeat rate.
 SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has long CH queries
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
@@ -106,7 +111,7 @@ FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
 FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
     seconds=360
 )  # 6 min total for fetch+format (2 attempts * 120s + backoff)
-FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
+FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT = timedelta(seconds=90)
 FETCH_AND_FORMAT_RETRY_POLICY = RetryPolicy(
     maximum_attempts=2,
     non_retryable_error_types=["ValueError", "TypeError"],
@@ -115,7 +120,7 @@ FETCH_AND_FORMAT_RETRY_POLICY = RetryPolicy(
 # Activity 2: Summarize + save (slow, I/O-bound LLM call - heartbeats work)
 SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=900)
 SUMMARIZE_AND_SAVE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total (2 attempts * 900s + backoff)
-SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
+SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT = timedelta(seconds=90)
 SUMMARIZE_AND_SAVE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=2,
     initial_interval=timedelta(seconds=15),

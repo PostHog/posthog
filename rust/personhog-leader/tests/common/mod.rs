@@ -950,6 +950,7 @@ pub fn test_handoff_handler_with_fill(
     fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
     cache: Arc<PartitionedCache>,
     fill: Option<personhog_leader::warming::FillConfig>,
+    schedule: personhog_leader::warming::FillSchedule,
     writer_group: &str,
 ) -> personhog_leader::coordination::LeaderHandoffHandler {
     handoff_handler_over(
@@ -960,8 +961,15 @@ pub fn test_handoff_handler_with_fill(
         cache,
         writer_group,
     )
-    .with_fill(fill)
+    .with_fill(fill, schedule)
 }
+
+/// One fill at a time, on the fastest pace, which no test fill waits on.
+pub const UNPACED_FILLS: personhog_leader::warming::FillSchedule =
+    personhog_leader::warming::FillSchedule {
+        offsets_per_sec: personhog_leader::warming::MAX_FILL_OFFSETS_PER_SEC,
+        concurrency: 1,
+    };
 
 fn handoff_handler_with(
     topic: &str,

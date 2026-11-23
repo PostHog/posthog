@@ -107,6 +107,20 @@ _WITH_A_SECOND_CONDITION = {
         },
     }
 }
+_WITH_AN_OVERRIDE_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+                "variant": "test",
+            },
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     until=datetime(2026, 10, 19, tzinfo=UTC),
@@ -784,6 +798,35 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
                 (timedelta(days=1), _WITH_A_SECOND_CONDITION),
             ),
+            (
+                "override_set_before_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
+            ),
+            (
+                "override_on_a_device_id_flag",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
+            ),
+            (
+                "custom_exposure_event",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -824,6 +867,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
+            exposure_criteria=experiment_fields.get("exposure_criteria", {}),
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -869,25 +913,49 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
-        # The condition set added after launch has no rollout percentage, which the flag service reads as 100.
+        # The added condition set has no rollout percentage, which the flag service reads as 100. It serves nobody,
+        # because the first set has no filters and a 100% rollout. On a flag that buckets by device ID, a request
+        # without a device ID skips the first set, so neither set's reach is known.
+        added_variant = {
+            "condition_added_after_launch": None,
+            "override_set_before_launch": "test",
+            "override_on_a_device_id_flag": "test",
+        }
+        by_device_id = _name == "override_on_a_device_id_flag"
         added_condition = (
-            [{"rollout_percentage": 100.0, "property_count": 1, "aggregation_group_type_index": None}]
-            if _name == "condition_added_after_launch"
+            [
+                {
+                    "rollout_percentage": 100.0,
+                    "property_count": 1,
+                    "aggregation_group_type_index": None,
+                    "variant": added_variant[_name],
+                    "reachable": None if by_device_id else False,
+                }
+            ]
+            if _name in added_variant
             else []
         )
+        counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
         self.assertEqual(
             health["setup"],
             {
                 "release_conditions": [
-                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None},
+                    {
+                        "rollout_percentage": 100.0,
+                        "property_count": 0,
+                        "aggregation_group_type_index": None,
+                        "variant": None,
+                        "reachable": None if by_device_id else True,
+                    },
                     *added_condition,
                 ],
                 "early_exit": False,
-                "bucketing_identifier": "distinct_id",
+                "bucketing_identifier": "device_id" if by_device_id else "distinct_id",
                 "aggregation_group_type_index": None,
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
+                "exposure": {"event": counted_event, "action": None, "activation": None},
             },
         )
         if _name == "condition_added_after_launch":

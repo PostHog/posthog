@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from requests import Response
+
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     JSONResponseCursorPaginator,
@@ -56,6 +58,23 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     # Todoist's unified v1 API wraps lists as {"results": [...], "next_cursor": "..."} and advances
     # via the `cursor` query param.
     return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+
+
+class _HasMoreCursorPaginator(JSONResponseCursorPaginator):
+    # Some v1 endpoints flag the last page with `has_more: false` and do not promise to drop the cursor.
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        body = response.json()
+        if isinstance(body, dict) and body.get("has_more") is False:
+            self._has_next_page = False
+
+
+def _list_paginator(config: TodoistEndpointConfig) -> Any:
+    if not config.paginated:
+        return "single_page"
+    if config.stop_on_has_more:
+        return _HasMoreCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+    return _cursor_paginator()
 
 
 def _parent_id_mapper(fan_out: TodoistFanOut) -> Any:
@@ -115,7 +134,7 @@ def _list_source(
     resumable_source_manager: ResumableSourceManager[TodoistResumeConfig],
     incremental_since: Optional[datetime],
 ) -> SourceResponse:
-    params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    params: dict[str, Any] = {"limit": config.page_limit or PAGE_LIMIT} if config.paginated else {}
     # Only the lower bound is sent: a cursor must be reused with the exact params that issued it,
     # and an upper bound of "now" would differ between the attempt that saved it and the resume.
     if config.incremental_param and incremental_since is not None:
@@ -135,7 +154,8 @@ def _list_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "results",
+                    "data_selector": config.data_selector,
+                    "paginator": _list_paginator(config),
                 },
             }
         ],

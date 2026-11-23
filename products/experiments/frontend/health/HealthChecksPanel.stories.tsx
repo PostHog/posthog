@@ -65,13 +65,36 @@ const FLAG_SETUP_CHECKS = [
 ]
 
 const SETUP: ExperimentHealthSetupApi = {
-    release_conditions: [{ rollout_percentage: 50, property_count: 1, aggregation_group_type_index: null }],
+    release_conditions: [
+        {
+            rollout_percentage: 100,
+            property_count: 1,
+            aggregation_group_type_index: null,
+            variant: 'test',
+            reachable: true,
+        },
+        {
+            rollout_percentage: 50,
+            property_count: 0,
+            aggregation_group_type_index: null,
+            variant: null,
+            reachable: true,
+        },
+        {
+            rollout_percentage: 0,
+            property_count: 1,
+            aggregation_group_type_index: null,
+            variant: null,
+            reachable: false,
+        },
+    ],
     early_exit: false,
     bucketing_identifier: 'distinct_id',
     aggregation_group_type_index: null,
     evaluation_runtime: 'all',
     evaluation_contexts: ['web-app'],
     ensure_experience_continuity: false,
+    exposure: { event: null, action: null, activation: null },
 }
 
 const meta: Meta<typeof HealthChecksPanel> = {
@@ -331,6 +354,7 @@ const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
             matched_count: 4277,
             traffic_since_at: '2026-10-27T12:00:00Z',
             flag_service_call_percentage: 92.4,
+            filters_test_accounts: true,
         },
         rows: [
             { variant: 'control', variant_matched_count: 2140, forced_count: 0, forced_percentage: 0 },

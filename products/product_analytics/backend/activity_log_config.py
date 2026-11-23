@@ -1,0 +1,22 @@
+FIELD_EXCLUSIONS = {
+    "Insight": [
+        "filters_hash",
+        "refreshing",
+        "dive_dashboard",
+        "type",
+        "funnel",
+        "layouts",
+        "color",
+        "order",
+        "result",
+        "dashboard",
+        "last_refresh",
+        "saved",
+        "is_sample",
+        "refresh_attempt",
+        "short_id",
+        "insightviewed",
+        "dashboardtile",
+        "explanations",
+    ],
+}

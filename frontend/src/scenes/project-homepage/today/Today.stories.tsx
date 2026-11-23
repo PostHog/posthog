@@ -1885,3 +1885,45 @@ export const HomeWhileSelfDrivingReviews: Story = {
         }),
     ],
 }
+
+const PHONE_PARAMETERS = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+        FEATURE_FLAGS.RELEASES_AREA,
+        FEATURE_FLAGS.MONITOR_AREA,
+        FEATURE_FLAGS.DATA_AREA,
+    ],
+    testOptions: { viewport: { width: 390, height: 844 } },
+}
+
+async function openPhoneMoreSheet(canvasElement: HTMLElement): Promise<HTMLElement> {
+    const more = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="help-menu-button"]')
+        if (!button) {
+            throw new Error('More tab not rendered yet')
+        }
+        return button
+    })
+    await userEvent.click(more)
+    return await within(document.body).findByText('Edit tabs')
+}
+
+export const PhoneTabBar: Story = { decorators: [keepNumbers([])], parameters: PHONE_PARAMETERS }
+
+export const PhoneMoreSheet: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await openPhoneMoreSheet(canvasElement)
+    },
+}
+
+export const PhoneEditTabs: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await openPhoneMoreSheet(canvasElement))
+        await within(document.body).findByText(/Choose up to/)
+    },
+}

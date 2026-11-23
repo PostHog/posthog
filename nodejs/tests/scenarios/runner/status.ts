@@ -3,9 +3,10 @@ import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
+import { atLeastOnce, bouncedSuppressed } from '../judge/invariants'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
-import type { Ramp } from '../judge/ramp'
+import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
@@ -186,8 +187,18 @@ function interruptionWithoutValve(
     return undefined
 }
 
+const unreadReasonOf = (unread: string): string => `the judge could not read the final state: ${unread}`
+
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
+
+const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name])
+
+export const judgedInvariantsOf = (
+    checked: InvariantResult[],
+    { unfinishedJobs }: Pick<Convergence, 'unfinishedJobs'>
+): InvariantResult[] =>
+    unfinishedJobs === null ? checked.filter(({ name }) => !CHECKS_OF_SETTLED_DELIVERIES.has(name)) : checked
 
 export function statusOf(verdict: Verdict): { status: Status; statusReason: string; restarts: RoleExit[] } {
     const { exits, timeline } = verdict
@@ -206,27 +217,49 @@ function withRamp(
     }
     return ramp.end === 'harness_limit'
         ? { status: 'invalid', statusReason: `the ramp hit a harness limit: ${ramp.reason}` }
-        : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
+        : {
+              status: 'failed',
+              statusReason: [
+                  `the ramp broke: ${ramp.reason}`,
+                  ...(ramp.stop && ramp.stop.reason !== ramp.reason ? [ramp.stop.reason] : []),
+              ].join('; '),
+          }
 }
 
 function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }
-    const { invariants, convergence } = verdict
-    const placesDeliveries = invariants.some(
-        ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
-    )
-    const ramped = withRamp(
+    const { invariants, convergence, ramp } = verdict
+    const failed = (name: string): boolean =>
+        invariants.some((invariant) => invariant.name === name && !invariant.passed)
+    const recorded = ratesReasonOf(ramp.rates ?? [], {
+        lost: failed('at_least_once'),
+        duplicates: failed('duplicate_sends'),
+    })
+    const { unread, ...read } = convergence
+    const rampJudgesConvergence =
+        convergence.unfinishedJobs !== 0 ||
+        invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
+    const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
             invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
-            convergence: placesDeliveries ? { ...convergence, converged: true } : convergence,
+            convergence: rampJudgesConvergence ? { ...read, converged: true } : read,
         }),
-        verdict.ramp
+        ramp
     )
-    const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    const ramped =
+        recorded.length === 0
+            ? unramped
+            : unramped.status === 'passed'
+              ? { status: 'failed' as const, statusReason: `the ramp ran to its last step, but ${recorded.join('; ')}` }
+              : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
+    const notJudged = [
+        ...verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
+        ...(unread === undefined ? [] : [unreadReasonOf(unread)]),
+    ]
     if (notJudged.length === 0) {
         return ramped
     }
@@ -234,6 +267,11 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
         ? { status: 'invalid', statusReason: notJudged.join('; ') }
         : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
 }
+
+const notConvergedOf = ({ converged, unfinishedJobs, unrecorded }: Convergence): string[] =>
+    converged || unfinishedJobs === null
+        ? []
+        : [`not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record`]
 
 function unrampedStatusOf({
     admissions,
@@ -284,13 +322,10 @@ function unrampedStatusOf({
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
+        ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
     ]
     const failures = [
-        ...(convergence.converged
-            ? []
-            : [
-                  `not converged: ${convergence.unfinishedJobs} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,
-              ]),
+        ...notConvergedOf(convergence),
         ...invariants
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),

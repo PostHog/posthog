@@ -478,7 +478,7 @@ class SelectViewType(BaseTableType):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class CTETableType(BaseTableType):
     name: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -495,6 +495,8 @@ class CTETableType(BaseTableType):
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, UnknownDatabaseField):
+            return self.select_query_type.resolve_column_constant_type(name, context)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -706,7 +708,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -729,7 +731,9 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        if not isinstance(self.table_type, BaseTableType):
+        if not isinstance(self.table_type, BaseTableType) or isinstance(
+            self.table_type, (CTETableType, CTETableAliasType)
+        ):
             return self.table_type.resolve_column_constant_type(self.name, context)
 
         table: Table = self.table_type.resolve_database_table(context)
@@ -1058,10 +1062,14 @@ class JsonSubcolumnAccess(Expr):
     This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
     `PropertyAccess` node stays dialect-neutral; this node exists so the ClickHouse printer can emit
     `events.properties.`foo`` rather than pretending `properties.foo` is one escaped column name.
+
+    `map_subcolumn` names a subcolumn of a Map path, such as `keys` or `key_<map key>`. It is one identifier segment
+    with the map key as stored, so a dot in the key does not separate path segments there.
     """
 
     expr: Expr
     keys: list[str]
+    map_subcolumn: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
