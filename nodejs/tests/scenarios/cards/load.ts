@@ -8,6 +8,7 @@ import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
@@ -166,7 +167,7 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-const ROLE_STOPPING_VALVES = ['role.kill', 'role.freeze']
+const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
 
 function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     if ((profile.replicas['cdp-api'] ?? 1) === 1) {

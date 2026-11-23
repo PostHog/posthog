@@ -689,6 +689,11 @@ describe('load', () => {
             },
         ],
         ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
+        [
+            'a kill valve on another role while the profile runs more than one cdp-api',
+            { ...card, valves: [emailWorkerKill] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+        ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
