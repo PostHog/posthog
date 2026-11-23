@@ -890,6 +890,7 @@ export async function handleSystemMessage(
           _meta: {
             claudeCode: {
               toolName: message.tool_name,
+              failureReason: "permission_denied",
               toolResponse: {
                 decisionReasonType: message.decision_reason_type,
                 decisionReason: message.decision_reason,
@@ -1373,7 +1374,10 @@ export async function handleUserAssistantMessage(
   // Pass the raw MCP tool result (contains content, structuredContent, _meta)
   // so it can be forwarded as-is to the renderer for MCP Apps
   const mcpToolUseResult =
-    message.type === "user" && message.tool_use_result != null
+    message.type === "user" &&
+    typeof message.tool_use_result === "object" &&
+    message.tool_use_result !== null &&
+    !Array.isArray(message.tool_use_result)
       ? (message.tool_use_result as Record<string, unknown>)
       : undefined;
 
