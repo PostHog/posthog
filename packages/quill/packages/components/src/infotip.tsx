@@ -7,10 +7,7 @@ type PopoverRootProps = React.ComponentProps<typeof Popover>
 type PopoverContentProps = React.ComponentProps<typeof PopoverContent>
 
 export interface InfotipProps {
-    /**
-     * Names the trigger and the popup for screen readers, for example "About average position". Say which
-     * value it explains, because a page often has several infotips and each needs a distinct name.
-     */
+    /** The screen reader name of the icon and the popup. Name the value, such as "About average position". */
     label: string
     /** The explanation. Keep it to short text, optionally with an inline link: it renders inside a `<p>`. */
     children: React.ReactNode
@@ -22,11 +19,6 @@ export interface InfotipProps {
     contentClassName?: string
 }
 
-/**
- * An info icon that explains the value next to it. Hover opens it, and a click keeps it open until
- * Escape or a click outside. Unlike a tooltip, the trigger is a real button, so keyboard, touch and
- * screen reader users reach the same text.
- */
 const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infotip(
     { label, children, side = 'top', align = 'center', delay = 100, className, contentClassName },
     ref
