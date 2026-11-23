@@ -1284,6 +1284,27 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
 
 
+@pytest.mark.parametrize(
+    "right_column, backing_column",
+    [("elements_chain_href", "elements_chain"), ("$session_id", "properties")],
+)
+def test_any_join_keeps_the_backing_column_of_a_lowered_event_field(right_column: str, backing_column: str) -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT r.{right_column} FROM events l LEFT ANY JOIN events r ON l.uuid = r.uuid"),
+        context,
+        "trino",
+    )
+
+    assert f'"__hogql_any_ranked_0"."{backing_column}"' in sql
+
+
 def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
     context = HogQLContext(
         database=Database(include_posthog_tables=True),
@@ -3153,6 +3174,16 @@ def test_lowers_left_any_join_by_deduplicating_the_right_relation() -> None:
     assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
     assert 'WHERE ("__hogql_any_ranked_0"."__hogql_any_row_0" = 1)' in sql
     assert ') AS "other" ON ("users"."user_id" = "other"."user_id")' in sql
+
+
+def test_lowers_any_join_that_reads_no_right_column() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT l.id FROM users l LEFT ANY JOIN users r ON 1 = 1"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "LEFT ANY JOIN" not in sql
 
 
 def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
