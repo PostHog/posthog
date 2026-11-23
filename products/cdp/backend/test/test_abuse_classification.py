@@ -741,6 +741,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == expected_requests
 
+    def test_a_queued_task_with_an_enabled_content_hash_still_scores_due_work(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(hog="print(event.event)")
+        events_before = len(self.captured_events())
+
+        classify_hog_function_for_abuse.delay(
+            team_id=self.team.id, hog_function_id=str(hog_function.id), enabled_content_hash="a" * 64
+        )
+
+        assert len(self.gateway.requests) == 2
+        [verdict] = self.captured_events()[events_before:]
+        assert verdict["properties"]["hog_function_id"] == str(hog_function.id)
+        assert "risk_score" in verdict["properties"]
+
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
         HogFunction.objects.filter(pk=hog_function.pk).update(
