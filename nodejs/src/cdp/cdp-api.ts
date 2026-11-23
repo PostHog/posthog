@@ -95,7 +95,6 @@ import {
     MessageBodies,
     MessageBodySizing,
     SendRefusal,
-    countUploadRequest,
 } from './services/messaging/attachment-uploads'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -1681,7 +1680,6 @@ export class CdpApi {
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {
-            countUploadRequest('not_configured')
             return res.status(503).json({
                 error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
             })
@@ -1695,7 +1693,6 @@ export class CdpApi {
                 ATTACHMENT_UPLOAD_TOKEN_CLAIMS
             )
         ) {
-            countUploadRequest('unauthorized')
             return
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
