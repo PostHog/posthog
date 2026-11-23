@@ -31,7 +31,7 @@ class MonitorPRBurstThrottle(UserRateThrottle):
 class MonitorPRRequestSerializer(serializers.Serializer):
     pr_url = serializers.URLField(
         max_length=500,
-        help_text="GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.",
+        help_text="GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.",
     )
     note = serializers.CharField(
         required=False,

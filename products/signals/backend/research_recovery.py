@@ -48,6 +48,7 @@ def recover_stuck_research_reports() -> int:
     started_before = timezone.now() - STUCK_RESEARCH_CUTOFF
     stale = list(
         SignalReport.objects.filter(status=SignalReport.Status.IN_PROGRESS, last_run_at__lt=started_before)
+        .exclude(scout_idempotency_key__startswith="monitor-pr:")
         .order_by("last_run_at")
         .values_list("team_id", "id")[:STUCK_RESEARCH_BATCH_SIZE]
     )

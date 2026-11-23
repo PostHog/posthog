@@ -34,13 +34,14 @@ class _FakeTemporal:
 
 
 class TestRecoverStuckResearchReports(BaseTest):
-    def _in_progress_report(self, started_ago: timedelta) -> SignalReport:
+    def _in_progress_report(self, started_ago: timedelta, *, scout_idempotency_key: str | None = None) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.IN_PROGRESS,
             signal_count=3,
             run_count=2,
             last_run_at=timezone.now() - started_ago,
+            scout_idempotency_key=scout_idempotency_key,
         )
 
     def _sweep(self, temporal: _FakeTemporal) -> int:
@@ -54,32 +55,50 @@ class TestRecoverStuckResearchReports(BaseTest):
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
                 None,
                 SignalReport.Status.CANDIDATE,
+                None,
             ),
             (
                 "stale_timed_out",
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
                 WorkflowExecutionStatus.TIMED_OUT,
                 SignalReport.Status.CANDIDATE,
+                None,
             ),
             (
                 "stale_terminated",
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
                 WorkflowExecutionStatus.TERMINATED,
                 SignalReport.Status.CANDIDATE,
+                None,
             ),
             (
                 "stale_still_running",
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
                 WorkflowExecutionStatus.RUNNING,
                 SignalReport.Status.IN_PROGRESS,
+                None,
             ),
             (
                 "stale_temporal_unavailable",
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
                 RPCStatusCode.UNAVAILABLE,
                 SignalReport.Status.IN_PROGRESS,
+                None,
             ),
-            ("not_stale", STUCK_RESEARCH_CUTOFF - timedelta(minutes=1), None, SignalReport.Status.IN_PROGRESS),
+            (
+                "not_stale",
+                STUCK_RESEARCH_CUTOFF - timedelta(minutes=1),
+                None,
+                SignalReport.Status.IN_PROGRESS,
+                None,
+            ),
+            (
+                "monitor_pr_report_ignored",
+                STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
+                None,
+                SignalReport.Status.IN_PROGRESS,
+                "monitor-pr:1:abc",
+            ),
         ]
     )
     def test_sweep_moves_only_stale_reports_without_a_running_workflow(
@@ -88,8 +107,9 @@ class TestRecoverStuckResearchReports(BaseTest):
         started_ago: timedelta,
         workflow_status: WorkflowExecutionStatus | RPCStatusCode | None,
         expected_status: SignalReport.Status,
+        scout_idempotency_key: str | None,
     ) -> None:
-        report = self._in_progress_report(started_ago)
+        report = self._in_progress_report(started_ago, scout_idempotency_key=scout_idempotency_key)
         workflows = {}
         if workflow_status is not None:
             workflows[SignalReportSummaryWorkflow.workflow_id_for(self.team.id, str(report.id))] = workflow_status

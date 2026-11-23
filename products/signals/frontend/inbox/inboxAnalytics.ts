@@ -276,7 +276,6 @@ export type InboxPanelName =
     | 'triage'
     | 'onboarding'
     | 'monitoring'
-    | 'prs'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'

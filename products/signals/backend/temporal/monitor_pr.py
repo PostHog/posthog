@@ -1,11 +1,12 @@
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 
 from django.conf import settings
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError
 
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
@@ -38,42 +39,44 @@ async def refresh_monitored_pr_activity(inputs: MonitorPRInput) -> bool:
 class MonitorPRWorkflow:
     @workflow.run
     async def run(self, inputs: MonitorPRInput) -> None:
-        try:
-            await workflow.execute_activity(
-                research_monitored_pr_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=40),
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        except ActivityError:
-            await workflow.execute_activity(
-                fail_monitored_pr_activity, inputs, start_to_close_timeout=timedelta(minutes=1)
-            )
-            raise
+        if not inputs.poll_only:
+            try:
+                await workflow.execute_activity(
+                    research_monitored_pr_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=40),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                await workflow.execute_activity(
+                    fail_monitored_pr_activity, inputs, start_to_close_timeout=timedelta(minutes=1)
+                )
+                raise
         while await workflow.execute_activity(
             refresh_monitored_pr_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(initial_interval=timedelta(minutes=1), maximum_interval=timedelta(minutes=30)),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(minutes=1),
+                maximum_interval=timedelta(minutes=30),
+                non_retryable_error_types=["InvalidPullRequest"],
+            ),
         ):
             await workflow.sleep(timedelta(minutes=30))
             if workflow.info().is_continue_as_new_suggested():
-                workflow.continue_as_new(inputs)
+                workflow.continue_as_new(replace(inputs, poll_only=True))
 
 
 async def start_pr_monitoring(inputs: MonitorPRInput) -> None:
     async with asyncio.timeout(5):
         client = await async_connect()
-        try:
-            await client.start_workflow(
-                MonitorPRWorkflow.run,
-                inputs,
-                id=f"signals-monitor-pr-{inputs.team_id}-{inputs.report_id}",
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                rpc_timeout=timedelta(seconds=5),
-            )
-        except WorkflowAlreadyStartedError:
-            pass
+        await client.start_workflow(
+            MonitorPRWorkflow.run,
+            inputs,
+            id=f"signals-monitor-pr-{inputs.team_id}-{inputs.report_id}",
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            rpc_timeout=timedelta(seconds=5),
+        )

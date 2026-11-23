@@ -7,30 +7,28 @@ import { pullRequestsLogic } from '../../logics/pullRequestsLogic'
 export function MonitorPullRequest(): JSX.Element | null {
     const { selectedPR, note, monitoringRequestLoading, monitorError } = useValues(pullRequestsLogic)
     const { setNote, monitorPR } = useActions(pullRequestsLogic)
+
     if (!selectedPR || selectedPR.report) {
         return null
     }
     if (selectedPR.state === 'closed') {
         return (
-            <div className="p-5">
-                <LemonBanner type="info">
-                    This PR was closed without merging, so its impact cannot be monitored.
-                </LemonBanner>
-            </div>
+            <LemonBanner type="info">
+                This pull request was closed without merging, so its impact cannot be monitored.
+            </LemonBanner>
         )
     }
     return (
-        <div className="p-5 border-b border-primary flex flex-col gap-3">
-            <div>
-                <h3 className="text-sm font-semibold mb-1">Monitor this PR's impact</h3>
-                <p className="text-secondary mb-0">
-                    An agent will inspect the PR, choose a key metric, and create a report assigned to you. Monitoring
-                    begins after merge.
-                </p>
-            </div>
+        <div className="flex flex-col gap-2.5">
+            <p className="m-0 text-xs text-secondary">
+                An agent will inspect this pull request, choose a key metric, and create a report for you.{' '}
+                {selectedPR.state === 'merged'
+                    ? 'Monitoring starts from its merge time.'
+                    : 'Monitoring starts once it merges.'}
+            </p>
             <label className="flex flex-col gap-1">
-                <span className="text-sm font-medium">
-                    What should we watch? <span className="font-normal text-secondary">(optional)</span>
+                <span className="text-xs font-medium text-secondary">
+                    What should we watch? <span className="font-normal text-tertiary">(optional)</span>
                 </span>
                 <LemonTextArea
                     value={note}
@@ -41,10 +39,12 @@ export function MonitorPullRequest(): JSX.Element | null {
                     disabled={monitoringRequestLoading}
                 />
             </label>
-            {monitorError && <LemonBanner type="error">{monitorError}</LemonBanner>}
+            {monitorError ? <LemonBanner type="error">{monitorError}</LemonBanner> : null}
             <LemonButton
                 className="self-start"
+                size="small"
                 type="primary"
+                data-attr="inbox-pr-monitor-submit"
                 onClick={() => monitorPR()}
                 loading={monitoringRequestLoading}
             >

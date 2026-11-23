@@ -1,110 +1,126 @@
-import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    IconCheckCircle,
+    IconCircleDashed,
+    IconDocument,
+    IconExternal,
+    IconSpinner,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type { PRBrowserOverviewApi } from 'products/signals/frontend/generated/api.schemas'
+import type { PRBrowserOverviewApi, PullRequestCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { capturePRAction } from '../../logics/pullRequestsLogic'
 import { safeHttpUrl } from '../../utils/reportPresentation'
+import { DetailSection } from '../detail/DetailSection'
+
+function checkStatusMeta(check: PullRequestCheckApi): { icon: JSX.Element; label: string; className: string } {
+    if (check.status !== 'completed') {
+        return {
+            icon: <IconSpinner className="animate-spin motion-reduce:animate-none" />,
+            label: check.status === 'queued' ? 'Queued' : 'Running',
+            className: 'text-warning',
+        }
+    }
+    switch (check.conclusion) {
+        case 'success':
+            return { icon: <IconCheckCircle />, label: 'Passed', className: 'text-success' }
+        case 'failure':
+        case 'timed_out':
+        case 'action_required':
+        case 'startup_failure':
+            return { icon: <IconWarning />, label: 'Failed', className: 'text-danger' }
+        case 'cancelled':
+            return { icon: <IconX />, label: 'Cancelled', className: 'text-muted' }
+        default:
+            return { icon: <IconCircleDashed />, label: 'Skipped', className: 'text-tertiary' }
+    }
+}
 
 export function PullRequestOverview({ overview }: { overview: PRBrowserOverviewApi }): JSX.Element {
-    const pr = overview.pull_request
     return (
-        <div className="p-5 flex flex-col gap-6 min-w-0">
-            <div className="flex flex-wrap gap-2 items-center text-sm text-secondary">
-                <span>
-                    Opened by <strong>{pr.author}</strong>
-                </span>
-                <TZLabel time={pr.created_at} />
-                <span>
-                    · Updated <TZLabel time={pr.updated_at} />
-                </span>
-                <LemonButton
-                    className="ml-auto"
-                    type="secondary"
-                    size="small"
-                    to={pr.url}
-                    targetBlank
-                    icon={<IconExternal />}
-                    onClick={() => capturePRAction('open_github')}
-                >
-                    Open in GitHub
-                </LemonButton>
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
-                <span className="break-all">
-                    <code>{overview.head_branch}</code> → <code>{overview.base_branch}</code>
-                </span>
-                <span>{overview.changed_files} files changed</span>
-                <span>
-                    <span className="text-success">+{overview.additions}</span>{' '}
-                    <span className="text-danger">−{overview.deletions}</span>
-                </span>
-            </div>
-            {overview.has_conflicts && <LemonBanner type="warning">This PR has merge conflicts.</LemonBanner>}
-            <section className="min-w-0">
-                <h3 className="text-sm font-semibold mb-3">Description</h3>
-                {overview.body ? (
-                    <LemonMarkdown
-                        disableImages="all"
-                        className="break-words [overflow-wrap:anywhere] [&_pre]:whitespace-pre-wrap [&_table]:block [&_table]:overflow-auto"
-                    >
-                        {overview.body}
-                    </LemonMarkdown>
-                ) : (
-                    <p className="text-secondary">No description provided.</p>
-                )}
-            </section>
-            <section className="min-w-0">
-                <h3 className="text-sm font-semibold mb-3">CI checks</h3>
-                {!overview.checks_available ? (
-                    <LemonBanner type="info">
-                        CI checks are unavailable. Check the GitHub integration's permissions, or view checks on GitHub.
-                    </LemonBanner>
-                ) : overview.checks.length === 0 ? (
-                    <p className="text-secondary">No checks reported for this PR.</p>
-                ) : (
-                    <ul className="list-none p-0 m-0 border border-primary rounded overflow-hidden">
-                        {overview.checks.map((check, index) => {
-                            const conclusion = check.conclusion ?? check.status
-                            const url = safeHttpUrl(check.url)
-                            return (
-                                <li
-                                    key={`${check.name}-${index}`}
-                                    className="flex flex-wrap gap-2 items-center p-3 border-b last:border-b-0 border-primary"
-                                >
-                                    <span className="flex-1 min-w-0 break-words">
+        <div className="flex min-w-0 flex-col">
+            {overview.has_conflicts ? (
+                <div className="border-b border-primary px-3.5 py-2.5">
+                    <LemonBanner type="warning">This pull request has merge conflicts.</LemonBanner>
+                </div>
+            ) : null}
+
+            <div className="border-b border-primary px-3.5 py-3">
+                <DetailSection icon={<IconCheckCircle />} title="CI checks" collapsible>
+                    {!overview.checks_available ? (
+                        <LemonBanner type="info">
+                            CI checks are unavailable. Check the GitHub integration's permissions, or view checks on
+                            GitHub.
+                        </LemonBanner>
+                    ) : overview.checks.length === 0 ? (
+                        <p className="m-0 text-xs text-secondary">No checks reported for this pull request.</p>
+                    ) : (
+                        <ul className="m-0 list-none divide-y divide-border overflow-hidden rounded border border-primary bg-surface-primary p-0">
+                            {overview.checks.map((check, index) => {
+                                const meta = checkStatusMeta(check)
+                                const url = safeHttpUrl(check.url)
+                                const content = (
+                                    <>
+                                        <span
+                                            aria-hidden
+                                            className={`flex shrink-0 items-center [&_svg]:size-3.5 ${meta.className}`}
+                                        >
+                                            {meta.icon}
+                                        </span>
+                                        <span
+                                            className="min-w-0 flex-1 truncate text-xs font-medium text-primary"
+                                            title={check.name}
+                                        >
+                                            {check.name}
+                                        </span>
+                                        <span className="shrink-0 text-[11px] text-tertiary">{meta.label}</span>
+                                        {url ? (
+                                            <IconExternal className="size-3 shrink-0 text-tertiary opacity-60 group-hover:opacity-100" />
+                                        ) : null}
+                                    </>
+                                )
+                                return (
+                                    <li key={`${check.name}-${index}`}>
                                         {url ? (
                                             <Link
                                                 to={url}
                                                 target="_blank"
                                                 onClick={() => capturePRAction('open_ci_check')}
+                                                className="group flex min-w-0 items-center gap-2 px-2.5 py-2 text-primary no-underline transition-colors hover:bg-fill-highlight-50 hover:text-primary"
                                             >
-                                                {check.name}
+                                                {content}
                                             </Link>
                                         ) : (
-                                            check.name
+                                            <span className="flex min-w-0 items-center gap-2 px-2.5 py-2">
+                                                {content}
+                                            </span>
                                         )}
-                                    </span>
-                                    <LemonTag
-                                        type={
-                                            conclusion === 'success'
-                                                ? 'success'
-                                                : ['failure', 'timed_out', 'action_required'].includes(conclusion)
-                                                  ? 'danger'
-                                                  : 'default'
-                                        }
-                                    >
-                                        {conclusion.replaceAll('_', ' ')}
-                                    </LemonTag>
-                                </li>
-                            )
-                        })}
-                    </ul>
-                )}
-            </section>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    )}
+                </DetailSection>
+            </div>
+
+            <div className="px-3.5 py-3">
+                <DetailSection icon={<IconDocument />} title="Description" collapsible>
+                    {overview.body ? (
+                        <LemonMarkdown
+                            disableImages="all"
+                            className="break-words text-xs [overflow-wrap:anywhere] [&_pre]:whitespace-pre-wrap [&_table]:block [&_table]:overflow-auto"
+                        >
+                            {overview.body}
+                        </LemonMarkdown>
+                    ) : (
+                        <p className="m-0 text-xs text-secondary">No description provided.</p>
+                    )}
+                </DetailSection>
+            </div>
         </div>
     )
 }

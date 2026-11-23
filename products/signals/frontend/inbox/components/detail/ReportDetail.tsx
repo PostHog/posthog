@@ -176,7 +176,6 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    embedded?: boolean
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
@@ -206,7 +205,6 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
-    embedded = false,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -651,18 +649,16 @@ export function InboxDetailFrame({
         <div className={DETAIL_PAGE_CLASS}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="-ml-4 flex items-center gap-1">
-                    {!embedded && (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconArrowLeft />}
-                            to={backOverride ?? urls.inbox('reports')}
-                            className="w-fit"
-                            data-attr="inbox-report-back"
-                        >
-                            {backLabel}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconArrowLeft />}
+                        to={backOverride ?? urls.inbox('reports')}
+                        className="w-fit"
+                        data-attr="inbox-report-back"
+                    >
+                        {backLabel}
+                    </LemonButton>
                     {railToggleButton}
                 </div>
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -743,7 +739,7 @@ function OpenPullRequestButton({
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
  * report. Runs keep their own `AgentRunDetail`.
  */
-export function ReportDetail({ report, embedded = false }: { report: SignalReport; embedded?: boolean }): JSX.Element {
+export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
 
@@ -775,7 +771,6 @@ export function ReportDetail({ report, embedded = false }: { report: SignalRepor
     return (
         <InboxDetailFrame
             report={report}
-            embedded={embedded}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (

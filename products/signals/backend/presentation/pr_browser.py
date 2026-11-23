@@ -13,6 +13,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models import User
 from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.facade.monitor_pr import REPORT_STATUS_CHOICES
@@ -133,6 +134,8 @@ class PRBrowserViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: PRBrowserPageSerializer, 503: PRBrowserUnavailableSerializer},
     )
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("Browse pull requests from a person’s session or API credential.")
         page = list_authored_prs(team=self.team, user=cast(User, request.user), **request.validated_query_data)
         return Response(PRBrowserPageSerializer(page).data)
 
@@ -142,5 +145,7 @@ class PRBrowserViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["GET"])
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("Browse pull requests from a person’s session or API credential.")
         overview = get_pr_overview(team=self.team, user=cast(User, request.user), **request.validated_query_data)
         return Response(PRBrowserOverviewSerializer(overview).data)

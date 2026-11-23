@@ -54,7 +54,7 @@ class PRMonitoringUnavailable(Exception):
         self.report_id = report_id
 
 
-def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = "") -> PRMonitoringRequestResult:
+def _ensure_pr_monitoring_permitted(team: Team, user: User) -> None:
     if (
         not team_pr_monitoring_enabled(team.id)
         or not team_report_monitoring_enabled(team.id)
@@ -68,20 +68,30 @@ def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = ""
     ).check_access_level_for_resource("task", "editor"):
         raise PermissionError("You need permission to start tasks in this project.")
 
+
+def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = "") -> PRMonitoringRequestResult:
+    team = team.parent_team or team
+    _ensure_pr_monitoring_permitted(team, user)
+
     key = monitor_key(user.id, pr_url)
-    report = SignalReport.objects.filter(team_id=team.id, scout_idempotency_key=key).first()
-    created = False
-    if report is None:
-        author = UserReportAuthor(
-            user_id=user.id,
-            user_distinct_id=user.distinct_id or str(user.uuid),
-            request_attribution=ArtefactAttribution.from_user(user.id),
-        )
-        if author.preflight_skip_reason(team):
-            raise PRMonitoringLimitExceeded(
-                "You've reached today's limit for reports.",
-                retry_after=max(1, int((user_report_limit_resets_at(team) - timezone.now()).total_seconds())),
+    report = (
+        SignalReport.objects.filter(team_id=team.id, scout_idempotency_key=key)
+        .exclude(status=SignalReport.Status.DELETED)
+        .first()
+    )
+    started = False
+    if report is None or report.status == SignalReport.Status.FAILED:
+        if report is None:
+            author = UserReportAuthor(
+                user_id=user.id,
+                user_distinct_id=user.distinct_id or str(user.uuid),
+                request_attribution=ArtefactAttribution.from_user(user.id),
             )
+            if author.preflight_skip_reason(team):
+                raise PRMonitoringLimitExceeded(
+                    "You've reached today's limit for reports.",
+                    retry_after=max(1, int((user_report_limit_resets_at(team) - timezone.now()).total_seconds())),
+                )
         gate = self_driving_quota_gate(team)
         if gate.limited and gate.enforced:
             raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.")
@@ -89,7 +99,7 @@ def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = ""
             pr = load_pull_request(team.id, pr_url)
         except (GitHubRateLimitError, EgressBudgetExhausted, GitHubIntegrationError) as error:
             raise PRMonitoringUnavailable("GitHub is temporarily unavailable. Try again shortly.") from error
-        report, created = prepare_monitoring(team=team, user=user, pr=pr, note=note)
+        report, started = prepare_monitoring(team=team, user=user, pr=pr, note=note)
 
     if report.status == SignalReport.Status.IN_PROGRESS:
         inputs = MonitorPRInput(
@@ -110,5 +120,5 @@ def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = ""
         report_id=report.id,
         report_url=build_bare_report_url(team.id, report.id),
         status=report.status,
-        idempotent_replay=not created,
+        idempotent_replay=not started,
     )

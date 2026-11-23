@@ -533,7 +533,7 @@ export const SignalsMonitorPrCreateBody = () => zod.object({
         .url()
         .max(signalsMonitorPrCreateBodyPrUrlMax)
         .describe(
-            'GitHub pull request URL. The project must have a GitHub integration with access to its repository. Open and merged PRs are supported, regardless of author.'
+            "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported."
         ),
     note: zod
         .string()
