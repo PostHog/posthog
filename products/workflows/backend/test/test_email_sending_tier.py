@@ -165,21 +165,32 @@ class TestEmailSendingTierDecision(SimpleTestCase):
     # its first real demotion.
     @parameterized.expand(
         [
-            ("a recent rate demotion holds further demotion", 1, 2, "demotion_cooldown"),
-            ("an expired cooldown lets new evidence demote", 8, 1, "rates_above_threshold"),
-            ("no prior rate demotion demotes immediately", None, 1, "rates_above_threshold"),
+            ("a recent rate demotion holds further demotion", 1, None, 2, "demotion_cooldown"),
+            ("an expired cooldown lets new evidence demote", 8, None, 1, "rates_above_threshold"),
+            ("a window starting after the demotion lets it demote", 8, timedelta(hours=1), 1, "rates_above_threshold"),
+            ("a window still holding the demotion's hour holds", 8, timedelta(0), 2, "demotion_cooldown"),
+            ("no prior rate demotion demotes immediately", None, None, 1, "rates_above_threshold"),
         ]
     )
     def test_the_demotion_cooldown_is_armed_by_rate_demotions_only(
-        self, _name: str, demoted_days_ago: int | None, expected_tier: int, expected_reason: str
+        self,
+        _name: str,
+        demoted_days_ago: int | None,
+        window_start_after_demotion: timedelta | None,
+        expected_tier: int,
+        expected_reason: str,
     ) -> None:
+        demoted_at = timezone.now() - timedelta(days=demoted_days_ago) if demoted_days_ago is not None else None
         decision = decide_tier(
             history=history(sent=10_000, complained=50),
             current_tier=2,
             # A fresh tier write (a promotion or a staff change) must not block the demotion.
             tier_updated_at=timezone.now() - timedelta(days=1),
-            last_rate_demotion_at=(
-                timezone.now() - timedelta(days=demoted_days_ago) if demoted_days_ago is not None else None
+            last_rate_demotion_at=demoted_at,
+            demotion_window_start=(
+                demoted_at + window_start_after_demotion
+                if demoted_at is not None and window_start_after_demotion is not None
+                else None
             ),
             suspended=False,
         )

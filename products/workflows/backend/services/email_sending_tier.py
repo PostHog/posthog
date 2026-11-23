@@ -198,6 +198,7 @@ def decide_tier(
     recent_history: Optional[TeamSendingHistory] = None,
     tenant_state: Optional[SesTenantState] = None,
     last_rate_demotion_at: Optional[datetime] = None,
+    demotion_window_start: Optional[datetime] = None,
     account_trust: Optional[AccountTrust] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
@@ -214,6 +215,11 @@ def decide_tier(
     `tenant_state` carries AWS's per-tenant verdict, which sees the FBL-correct complaint rate
     our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
     HIGH reputation impact demotes, and any non-clean impact blocks promotion.
+
+    `demotion_window_start` is where `recent_history` starts when the sweep cut it on a whole hour
+    (see build_sending_history_windows). The cooldown holds while that window still starts at or
+    before the last rate demotion: the sweep reads the window before it decides, so the cooldown can
+    end in between while the window still holds the demotion's hour.
 
     `account_trust` lifts an established paying account straight to its trusted floor (see
     trusted_floor_tier), skipping the dwell and the use bar. The backfill omits it.
@@ -254,7 +260,10 @@ def decide_tier(
         # cooldown at least as long as the demotion window, the evidence behind the last demotion
         # has aged out by the time demotions resume, so a second step needs new evidence.
         cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
-        if last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown:
+        if last_rate_demotion_at is not None and (
+            now - last_rate_demotion_at < cooldown
+            or (demotion_window_start is not None and demotion_window_start <= last_rate_demotion_at)
+        ):
             return TierDecision(
                 team_id=history.team_id,
                 previous_tier=current_tier,
@@ -379,6 +388,10 @@ class SendingHistoryWindows:
     recent: dict[int, TeamSendingHistory]
 
 
+def hour_aligned_window_start(recent_after: datetime) -> datetime:
+    return recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
 def build_sending_history_windows(
     *,
     after: datetime,
@@ -406,9 +419,8 @@ def build_sending_history_windows(
         if team_id not in recently_demoted_team_ids
     }
     if recently_demoted_team_ids:
-        recent_start = recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         since_demotion = _fetch_daily_metrics(
-            after=recent_start, before=before, team_ids=sorted(recently_demoted_team_ids)
+            after=hour_aligned_window_start(recent_after), before=before, team_ids=sorted(recently_demoted_team_ids)
         )
         recent.update({team_id: _history_from_daily(team_id, days) for team_id, days in since_demotion.items()})
     return SendingHistoryWindows(
@@ -546,11 +558,12 @@ def recompute_email_sending_tiers(
     )
     if team_ids is not None:
         recently_demoted = recently_demoted.filter(team_id__in=team_ids)
+    recently_demoted_team_ids = frozenset(recently_demoted.values_list("team_id", flat=True))
     windows = build_sending_history_windows(
         after=after,
         recent_after=recent_after,
         team_ids=team_ids,
-        recently_demoted_team_ids=frozenset(recently_demoted.values_list("team_id", flat=True)),
+        recently_demoted_team_ids=recently_demoted_team_ids,
     )
     histories = windows.window
 
@@ -622,6 +635,9 @@ def recompute_email_sending_tiers(
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
+            demotion_window_start=(
+                hour_aligned_window_start(recent_after) if team_id in recently_demoted_team_ids else None
+            ),
             account_trust=AccountTrust.from_organization(config.team.organization),
         )
         if only_reasons is not None and decision.reason not in only_reasons:
