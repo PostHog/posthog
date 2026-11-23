@@ -3395,10 +3395,6 @@ temporal-placement	salesforce_enrichment	posthog.temporal.salesforce_enrichment.
 temporal-placement	salesforce_enrichment	posthog.temporal.salesforce_enrichment.usage_workflow	1
 temporal-placement	salesforce_enrichment	posthog.temporal.salesforce_enrichment.workflow	1
 temporal-placement	session_replay	posthog.temporal.session_replay	1
-temporal-placement	session_replay	posthog.temporal.session_replay.copy_recording	1
-temporal-placement	session_replay	posthog.temporal.session_replay.copy_recording.activities	1
-temporal-placement	session_replay	posthog.temporal.session_replay.copy_recording.types	1
-temporal-placement	session_replay	posthog.temporal.session_replay.copy_recording.workflow	1
 temporal-placement	session_replay	posthog.temporal.session_replay.count_playlist_items	1
 temporal-placement	session_replay	posthog.temporal.session_replay.count_playlist_items.activities	1
 temporal-placement	session_replay	posthog.temporal.session_replay.count_playlist_items.counting_logic	1
@@ -3451,8 +3447,6 @@ temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_strip
 temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_usage_workflow	1
 temporal-placement	tests	posthog.temporal.tests.salesforce_enrichment.test_workflow	1
 temporal-placement	tests	posthog.temporal.tests.session_replay	1
-temporal-placement	tests	posthog.temporal.tests.session_replay.copy_recording	1
-temporal-placement	tests	posthog.temporal.tests.session_replay.copy_recording.test_activities	1
 temporal-placement	tests	posthog.temporal.tests.session_replay.count_playlist_items	1
 temporal-placement	tests	posthog.temporal.tests.session_replay.count_playlist_items.test_counting_logic	1
 temporal-placement	tests	posthog.temporal.tests.session_replay.count_playlist_items.test_expiry_helpers	1

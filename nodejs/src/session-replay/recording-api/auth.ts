@@ -11,10 +11,10 @@ import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, Reco
  *
  * Each route requires a team + operation scoped JWT (audience `posthog:recording_api`) minted by
  * an authorized service: the token's `team_id` must match the `:team_id` in the path and its `op`
- * must match the route (read, delete or write).
+ * must match the route (read or delete).
  */
 
-export type RecordingApiOp = 'read' | 'delete' | 'write'
+export type RecordingApiOp = 'read' | 'delete'
 
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30

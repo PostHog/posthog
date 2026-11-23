@@ -4,7 +4,7 @@ from typing import Literal
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
-RecordingApiOp = Literal["read", "delete", "write"]
+RecordingApiOp = Literal["read", "delete"]
 
 # Direct callers mint a fresh token per request, so a short lifetime suffices. The rasterizer
 # can't re-mint mid-render and reuses one relayed token across a whole render, so it passes a

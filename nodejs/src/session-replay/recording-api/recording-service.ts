@@ -3,7 +3,6 @@ import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { isCloud } from '~/common/utils/env-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
@@ -16,7 +15,6 @@ import {
     KeyStore,
     RecordingBlock,
     RecordingDecryptor,
-    RecordingEncryptor,
     SessionKey,
     SessionKeyDeletedError,
 } from './types'
@@ -46,12 +44,6 @@ export type GetBlockByRefResult = GetBlockResult | { ok: false; error: Exclude<B
 
 export type ListedBlock = RecordingBlock & { ref?: string }
 
-export type EncryptBlocksResult =
-    | { ok: true; blocks: Buffer[] }
-    | { ok: false; error: 'recording_exists' }
-    | { ok: false; error: 'key_unavailable' }
-    | RecordingDeletedResult
-
 export type DeleteRecordingResult =
     | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number; deletedBy: string }
     | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number; deletedBy: string }
@@ -80,43 +72,8 @@ export class RecordingService {
         private decryptor: RecordingDecryptor,
         private metadataStore?: SessionMetadataStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential },
-        private encryptor?: RecordingEncryptor
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential }
     ) {}
-
-    // Lets a caller write a copied recording without its own access to KMS or the key table.
-    async encryptBlocks(
-        sessionId: string,
-        teamId: number,
-        blocks: Buffer[],
-        retentionDays: number
-    ): Promise<EncryptBlocksResult> {
-        const encryptor = this.encryptor
-        if (!encryptor) {
-            throw new Error('Encryptor not initialized')
-        }
-        // Encrypting only for sessions with no stored recording keeps this route from touching ingested data,
-        // and stops a new key from breaking the plaintext blocks of a pre-encryption recording.
-        if (await this.recordingExists(sessionId, teamId)) {
-            return { ok: false, error: 'recording_exists' }
-        }
-        let sessionKey = await this.keyStore.getKey(sessionId, teamId)
-        if (sessionKey.sessionState === 'cleartext') {
-            sessionKey = await this.keyStore.generateKey(sessionId, teamId, retentionDays)
-        }
-        // A lost race on the conditional key write can read back no key, and encrypting with it returns plaintext.
-        if (sessionKey.sessionState === 'cleartext' && isCloud()) {
-            return { ok: false, error: 'key_unavailable' }
-        }
-        const deletion = deletionOf(sessionKey)
-        if (deletion) {
-            return deletion
-        }
-        return {
-            ok: true,
-            blocks: blocks.map((block) => encryptor.encryptBlockWithKey(sessionId, teamId, block, sessionKey).data),
-        }
-    }
 
     validateS3Key(key: string): boolean {
         const pattern = `^${this.s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`
@@ -246,43 +203,6 @@ export class RecordingService {
         }
     }
 
-    private async recordingExists(sessionId: string, teamId: number): Promise<boolean> {
-        if (!this.clickhouse) {
-            throw new Error('ClickHouse client not initialized')
-        }
-        const { client, credential } = this.clickhouse
-        // No retention or is_deleted filter: an expired or deleted recording still has blocks a new key would break.
-        const result = await client.query({
-            query: `/* team_id:${teamId} query_type:recording_api_recording_exists */ SELECT 1
-                FROM session_replay_events
-                PREWHERE team_id = {team_id:Int32} AND session_id = {session_id:String}
-                LIMIT 1
-            `,
-            query_params: { team_id: teamId, session_id: sessionId },
-            format: 'JSONEachRow',
-            auth: await credential.auth(),
-            clickhouse_settings: {
-                log_comment: JSON.stringify({
-                    team_id: teamId,
-                    product: 'replay',
-                    kind: 'node',
-                    query_type: 'recording_api_recording_exists',
-                    service_name: 'recording-api',
-                    container_hostname: process.env.HOSTNAME || 'unknown',
-                }),
-                max_execution_time: 30,
-                // The lookup has no date bound, so cap it to keep it from starving playback listings on the shared pool.
-                max_threads: 4,
-                max_bytes_to_read: '10000000000',
-            },
-        })
-        const rows = await result.json()
-        return rows.length > 0
-    }
-
-    // Reports a deletion the key store recorded before ClickHouse learns of it through Kafka, and names each block of an
-    // encrypted session with a ref the browser can fetch and cache. Cleartext sessions have no key to derive refs from.
-    // Call it only for a session that has blocks; a session without any has no key worth reading yet.
     async annotateBlocks(
         sessionId: string,
         teamId: number,

@@ -10,7 +10,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger, serializeError } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
+import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -23,7 +23,6 @@ import { RecordingApiMetrics } from './metrics'
 import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
     DeleteRecordingsBodySchema,
-    EncryptBlocksBodySchema,
     GetBlockQuerySchema,
     RecordingParamsSchema,
     ReplayBlockParamsSchema,
@@ -39,7 +38,6 @@ import {
     RecordingApiRole,
     RecordingBlock,
     RecordingDecryptor,
-    RecordingEncryptor,
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
@@ -67,7 +65,6 @@ export class RecordingApi {
     private s3Prefix: string | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
-    private encryptor: RecordingEncryptor | null = null
     private redisPool: RedisPool | null = null
     private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
@@ -207,9 +204,6 @@ export class RecordingApi {
         if (!this.outputs) {
             throw new Error('recording-api serving internal routes needs its Kafka outputs')
         }
-        this.encryptor = getBlockEncryptor(this.keyStore)
-        await this.encryptor.start()
-
         const metadataStore = new SessionMetadataStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
@@ -237,8 +231,7 @@ export class RecordingApi {
             this.decryptor,
             metadataStore,
             this.postgres,
-            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) },
-            this.encryptor
+            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) }
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -268,9 +261,6 @@ export class RecordingApi {
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
         }
-        if (this.servesInternalRoutes && !this.encryptor) {
-            uninitializedComponents.push('encryptor')
-        }
 
         if (uninitializedComponents.length > 0) {
             return new HealthCheckResultError('Components not initialized', {
@@ -293,8 +283,6 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        const encryptPath = '/api/projects/:team_id/recordings/:session_id/encrypt'
-
         if (this.servesPublicRoutes) {
             router.get(
                 '/replay-blocks/:team_id/:session_id/:viewer/:ref',
@@ -313,10 +301,6 @@ export class RecordingApi {
             })
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
-        const writeAuth = auth('write')
-
-        // Registered before the prefix middleware so its own write scope applies instead of the delete scope.
-        router.post(encryptPath, writeAuth, asyncHandler(this.encryptBlocks))
 
         // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
         // exempts, rather than on the recording routes alone. Anything under the prefix that this
@@ -633,58 +617,6 @@ export class RecordingApi {
             res.status(500).json({ error: 'Failed to fetch block' })
         } finally {
             this.publicBlockBytesInFlight -= admittedBytes
-        }
-    }
-
-    private encryptBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
-        const paramsResult = RecordingParamsSchema.safeParse(req.params)
-        if (!paramsResult.success) {
-            res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-
-        const bodyResult = EncryptBlocksBodySchema.safeParse(req.body)
-        if (!bodyResult.success) {
-            res.status(400).json({ error: bodyResult.error.issues[0].message })
-            return
-        }
-
-        if (!this.recordingService) {
-            res.status(503).json({ error: 'Service not initialized' })
-            return
-        }
-
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { blocks, retention_days: retentionDays } = bodyResult.data
-
-        try {
-            const result = await this.recordingService.encryptBlocks(
-                sessionId,
-                teamId,
-                blocks.map((b) => Buffer.from(b, 'base64')),
-                retentionDays
-            )
-            if (!result.ok) {
-                if (result.error === 'recording_exists') {
-                    res.status(409).json({ error: 'recording_exists' })
-                    return
-                }
-                if (result.error === 'key_unavailable') {
-                    res.status(503).json({ error: 'key_unavailable' })
-                    return
-                }
-                sendRecordingDeleted(res, result)
-                return
-            }
-            res.json({ blocks: result.blocks.map((b) => b.toString('base64')) })
-        } catch (error) {
-            logger.error('[RecordingApi] Error encrypting blocks', {
-                error: serializeError(error),
-                teamId,
-                sessionId,
-            })
-            captureException(error)
-            res.status(500).json({ error: 'Failed to encrypt blocks' })
         }
     }
 
