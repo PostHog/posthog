@@ -48,11 +48,20 @@ class TestDualWriteRollout(BaseTest):
         reset_caches()
         self.addCleanup(reset_caches)
 
-    def _flag(self, result: FeatureFlagResult | None = None, side_effect: Any = None) -> MagicMock:
+    def _flag(
+        self,
+        result: FeatureFlagResult | None = None,
+        side_effect: Any = None,
+        definitions: list[dict[str, Any]] | None = None,
+    ) -> MagicMock:
         mock = MagicMock(return_value=result, side_effect=side_effect)
-        patcher = patch.object(rollout.posthoganalytics, "get_feature_flag_result", mock)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (
+            ("get_feature_flag_result", mock),
+            ("feature_flag_definitions", MagicMock(return_value=definitions)),
+        ):
+            patcher = patch.object(rollout.posthoganalytics, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         return mock
 
     @parameterized.expand(
@@ -117,12 +126,33 @@ class TestDualWriteRollout(BaseTest):
 
     @parameterized.expand(
         [
-            ("raised_exception", RuntimeError("flag service down")),
-            ("no_result", None),
+            ("flag_missing", []),
+            ("flag_deleted", [{"key": DUAL_WRITE_FLAG, "active": True, "deleted": True}]),
+            ("flag_disabled", [{"key": DUAL_WRITE_FLAG, "active": False}]),
+            ("other_flags_only", [{"key": "another-flag", "active": True}]),
         ]
     )
-    def test_failed_evaluation_reads_off_and_is_not_cached(self, _name: str, failure: Exception | None) -> None:
-        evaluate = self._flag(side_effect=[failure, _flag_result({"kinds": ["slack"]})])
+    def test_undefined_flag_reads_off_and_is_cached(self, _name: str, definitions: list[dict[str, Any]]) -> None:
+        evaluate = self._flag(side_effect=[None, _flag_result({"kinds": ["slack"]})], definitions=definitions)
+        errors_before = _flag_errors()
+
+        with self.assertNoLogs(level="WARNING"):
+            assert dual_write_kinds(self.team.id) == frozenset()
+            assert dual_write_kinds(self.team.id) == frozenset()
+        assert evaluate.call_count == 1
+        assert _flag_errors() == errors_before
+
+    @parameterized.expand(
+        [
+            ("raised_exception", RuntimeError("flag service down"), [{"key": DUAL_WRITE_FLAG, "active": True}]),
+            ("no_result_for_active_flag", None, [{"key": DUAL_WRITE_FLAG, "active": True}]),
+            ("no_result_definitions_not_loaded", None, None),
+        ]
+    )
+    def test_failed_evaluation_reads_off_and_is_not_cached(
+        self, _name: str, failure: Exception | None, definitions: list[dict[str, Any]] | None
+    ) -> None:
+        evaluate = self._flag(side_effect=[failure, _flag_result({"kinds": ["slack"]})], definitions=definitions)
         errors_before = _flag_errors()
 
         with self.assertLogs(level="WARNING") as logs:

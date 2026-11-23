@@ -171,11 +171,17 @@ def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
         )
     except Exception as error:
         return _evaluation_failed(team, type(error).__name__)
-    # The SDK returns None, and does not raise, when a remote evaluation times out or fails.
+    # The SDK returns None, and does not raise, both when a remote evaluation fails and when the
+    # flag does not exist. The loaded local definitions tell the two cases apart.
     if result is None:
-        return _evaluation_failed(team, "NoResult")
+        try:
+            flag_off_everywhere = _flag_off_everywhere()
+        except Exception as error:
+            return _evaluation_failed(team, type(error).__name__)
+        if not flag_off_everywhere:
+            return _evaluation_failed(team, "NoResult")
     # The payload of the flag's `false` result must not enable a team outside the rollout.
-    if not result.enabled:
+    if result is None or not result.enabled:
         _cache.put(team.id, NO_KINDS)
         return NO_KINDS
     payload = result.payload
@@ -190,6 +196,19 @@ def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
         kinds = NO_KINDS
     _cache.put(team.id, kinds)
     return kinds
+
+
+def _flag_off_everywhere() -> bool:
+    """True when the loaded local definitions show the flag as missing, deleted or disabled.
+
+    False when the definitions are not loaded, because then a missing result can also be a failed
+    remote evaluation.
+    """
+    definitions = posthoganalytics.feature_flag_definitions()
+    if definitions is None:
+        return False
+    definition = next((flag for flag in definitions if flag.get("key") == DUAL_WRITE_FLAG), None)
+    return definition is None or bool(definition.get("deleted")) or not definition.get("active")
 
 
 def _evaluation_failed(team: _TeamIdentity, error_type: str) -> frozenset[str]:
