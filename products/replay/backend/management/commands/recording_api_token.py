@@ -7,10 +7,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 import structlog
 
 from posthog.models.team.team import Team
-from posthog.session_recordings.recordings.recording_api_jwt import (
-    RECORDING_API_STAFF_JWT_PURPOSE,
-    mint_recording_api_staff_token,
-)
+from posthog.session_recordings.recordings.recording_api_jwt import mint_recording_api_staff_token, staff_key_problem
 
 logger = structlog.get_logger(__name__)
 
@@ -38,8 +35,8 @@ class Command(BaseCommand):
         reason: str = options["reason"].strip()
         if not actor or not reason:
             raise CommandError("--actor and --reason must not be empty.")
-        if not RECORDING_API_STAFF_JWT_PURPOSE.enabled():
-            raise CommandError("RECORDING_API_STAFF_JWT_SECRET is not set on this pod, so it cannot mint tokens.")
+        if problem := staff_key_problem():
+            raise CommandError(f"{problem}, so this pod cannot mint tokens.")
         if not settings.RECORDING_API_URL:
             raise CommandError("RECORDING_API_URL is not set on this pod.")
         if not Team.objects.filter(pk=team_id).exists():

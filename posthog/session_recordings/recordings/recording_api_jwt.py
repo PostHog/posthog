@@ -1,3 +1,4 @@
+import os
 import time
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
@@ -61,12 +62,36 @@ class StaffRecordingApiToken:
     expires_at: datetime
 
 
+# Matches recording-api's boot check, since a short HMAC key can be guessed offline from one minted token.
+MIN_STAFF_KEY_BYTES = 32
+
+
+def staff_key_problem() -> str | None:
+    """Why this pod must not mint staff tokens, or None when its staff key is usable."""
+    staff_keys = RECORDING_API_STAFF_JWT_PURPOSE.signing_keys()
+    if not staff_keys:
+        return "RECORDING_API_STAFF_JWT_SECRET is not set on this pod"
+    if any(len(key.encode()) < MIN_STAFF_KEY_BYTES for key in staff_keys):
+        return f"RECORDING_API_STAFF_JWT_SECRET keys must be at least {MIN_STAFF_KEY_BYTES} bytes"
+    if set(staff_keys) & set(RECORDING_API_JWT_PURPOSE.signing_keys()):
+        return "RECORDING_API_STAFF_JWT_SECRET must not share a key with RECORDING_API_JWT_SECRET"
+    return None
+
+
 def mint_recording_api_staff_token(team_id: int, actor: str, reason: str) -> StaffRecordingApiToken:
     """Mint a read-only token for one team that recording-api logs with the actor and reason on every request."""
     now = int(time.time())
     token = RECORDING_API_STAFF_JWT_PURPOSE.mint(
         # recording-api checks the token's age against iat, which encode_jwt does not set.
-        {"team_id": team_id, "op": "read", "actor": actor, "reason": reason, "iat": now}
+        {
+            "team_id": team_id,
+            "op": "read",
+            "actor": actor,
+            "reason": reason,
+            "iat": now,
+            # The pod name ties the self-declared actor to the exec session Kubernetes audits.
+            "pod": os.environ.get("HOSTNAME", ""),
+        }
     )
     return StaffRecordingApiToken(
         token=token, expires_at=datetime.fromtimestamp(now, tz=UTC) + STAFF_RECORDING_API_TOKEN_TTL
