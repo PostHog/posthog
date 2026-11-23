@@ -358,63 +358,72 @@ class ErrorTrackingIssueSummarizeError(APIException):
     """A summarize request that wrote no summary. The error code is the outcome, so a client can tell the cases apart."""
 
     def __init__(self, outcome: contracts.IssueSummarizeOutcome) -> None:
-        self.status_code, detail = SUMMARIZE_ERRORS[outcome]
-        # The exception handler reads this, because a plain APIException would report every refusal as a server error.
-        self.exception_type = SUMMARIZE_ERROR_TYPES.get(self.status_code, "invalid_request")
+        self.status_code, self.exception_type, detail = SUMMARIZE_ERRORS[outcome]
         super().__init__(detail=detail, code=outcome.value)
 
 
-SUMMARIZE_ERROR_TYPES: dict[int, str] = {
-    status.HTTP_403_FORBIDDEN: "authentication_error",
-    status.HTTP_429_TOO_MANY_REQUESTS: "throttled_error",
-    status.HTTP_503_SERVICE_UNAVAILABLE: "server_error",
-}
-
-
-SUMMARIZE_ERRORS: dict[contracts.IssueSummarizeOutcome, tuple[int, str]] = {
+# Each row is the status, the error type and the detail. The exception handler reads the type from the exception,
+# because it reports a plain APIException as a server error whatever its status.
+SUMMARIZE_ERRORS: dict[contracts.IssueSummarizeOutcome, tuple[int, str, str]] = {
     contracts.IssueSummarizeOutcome.RESTRICTED: (
         status.HTTP_403_FORBIDDEN,
+        "authentication_error",
         "You can't summarize this issue, because summaries use event data you don't have access to.",
     ),
     contracts.IssueSummarizeOutcome.SETTING_OFF: (
         status.HTTP_403_FORBIDDEN,
+        "authentication_error",
         "Issue summaries are off for this project. Turn them on in the error tracking settings.",
     ),
     contracts.IssueSummarizeOutcome.AI_NOT_APPROVED: (
         status.HTTP_403_FORBIDDEN,
+        "authentication_error",
         "AI features are off for your organization. An organization admin can turn them on in organization settings.",
     ),
     contracts.IssueSummarizeOutcome.OUT_OF_CREDITS: (
         status.HTTP_402_PAYMENT_REQUIRED,
+        "invalid_request",
         "Your organization reached its AI credits limit. Increase the limit in billing settings, or ask an "
         "organization admin to do so.",
     ),
     contracts.IssueSummarizeOutcome.RATE_LIMITED: (
         status.HTTP_429_TOO_MANY_REQUESTS,
+        "throttled_error",
         "This project asked for too many summaries. Try again in a few minutes.",
     ),
     contracts.IssueSummarizeOutcome.IN_PROGRESS: (
         status.HTTP_409_CONFLICT,
+        "invalid_request",
         "A summary of this issue is being written. Load the summary again in a minute.",
     ),
     contracts.IssueSummarizeOutcome.NO_EXCEPTION: (
         status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "invalid_request",
         "This issue has no exception event with a stack trace to summarize.",
     ),
     contracts.IssueSummarizeOutcome.FAILED: (
         status.HTTP_503_SERVICE_UNAVAILABLE,
+        "server_error",
         "Couldn't write the summary. Try again.",
     ),
 }
 
 
+def _summary_payload(
+    summary_status: contracts.IssueSummaryStatus,
+    summary: contracts.ErrorTrackingIssueSummary | None,
+    reason: contracts.IssueSummaryUnavailableReason | None,
+) -> dict[str, object]:
+    return {
+        "status": summary_status,
+        "summary": ErrorTrackingStoredIssueSummarySerializer(summary).data if summary is not None else None,
+        "reason": reason,
+    }
+
+
 def issue_summary_response(team_id: int, issue_id: UUID, *, user: User) -> dict[str, object]:
     read = summaries_facade.read_issue_summary(team_id, issue_id, user=user)
-    return {
-        "status": read.status,
-        "summary": ErrorTrackingStoredIssueSummarySerializer(read.summary).data if read.summary is not None else None,
-        "reason": read.reason,
-    }
+    return _summary_payload(read.status, read.summary, read.reason)
 
 
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
@@ -778,13 +787,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             case contracts.IssueSummarizeOutcome.ISSUE_MISSING:
                 raise NotFound("Issue not found")
             case contracts.IssueSummarizeOutcome.READY if result.summary is not None:
-                return Response(
-                    {
-                        "status": contracts.IssueSummaryStatus.READY,
-                        "summary": ErrorTrackingStoredIssueSummarySerializer(result.summary).data,
-                        "reason": None,
-                    }
-                )
+                return Response(_summary_payload(contracts.IssueSummaryStatus.READY, result.summary, None))
         raise ErrorTrackingIssueSummarizeError(result.outcome)
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")

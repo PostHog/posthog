@@ -75,7 +75,6 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_WRITE_BUDGET,
 )
 from products.error_tracking.backend.logic.issue_summary_prompt import (
-    ISSUE_SUMMARY_IMPACT_LINE,
     ISSUE_SUMMARY_IMPACT_NOT_COUNTED,
     ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET,
     ISSUE_SUMMARY_INPUT_TEMPLATE,
@@ -260,13 +259,12 @@ def is_ai_data_processing_approved(team_id: int) -> bool:
 
 
 def get_issue_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueSummary | None:
-    return ErrorTrackingIssueSummary.objects.for_team(team_id).filter(issue_id=issue_id).first()
+    """The stored summary, or None when there is none or it fails the output check.
 
-
-def _shown_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueSummary | None:
-    # A read shows no summary for a row that fails the output check, so generation must write over that row. If it
-    # kept the row, each summarize request would return it and fail again.
-    stored = get_issue_summary(team_id, issue_id)
+    A row stored before the output check existed stays in the table. Treating it as missing hides it from every read
+    and lets generation write over it.
+    """
+    stored = ErrorTrackingIssueSummary.objects.for_team(team_id).filter(issue_id=issue_id).first()
     return stored if stored is not None and not unsafe_summary_fields(stored.content) else None
 
 
@@ -444,7 +442,7 @@ def _get_or_generate(
     team_id: int, issue_id: UUID | str, generation: _SummaryGeneration, timings: IssueSummaryTimings
 ) -> IssueSummaryResult:
     # Generation sees only the first event, so any stored summary already covers it.
-    if (stored := _shown_summary(team_id, issue_id)) is not None:
+    if (stored := get_issue_summary(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
     claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
     if (held := _claim_generation(team_id, issue_id, claim)) is not None:
@@ -459,7 +457,7 @@ def _generate_claimed(
     team_id: int, issue_id: UUID | str, generation: _SummaryGeneration, timings: IssueSummaryTimings
 ) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
-    if (stored := _shown_summary(team_id, issue_id)) is not None:
+    if (stored := get_issue_summary(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
     budget_key, budget = generation.budget_key, generation.budget
@@ -609,7 +607,7 @@ def _first_event_inputs(
     issue_id: UUID | str,
     first_seen: datetime | None,
     event_properties: dict[str, object],
-    impact_not_known: str,
+    impact_line: str,
 ) -> IssueSummaryInputs | IssueSummaryOutcome:
     source_properties = _source_properties(event_properties)
     stack_trace = _summary_stack_trace(source_properties)
@@ -622,8 +620,7 @@ def _first_event_inputs(
         event_properties=source_properties,
         first_event_properties=source_properties,
         stack_trace=stack_trace,
-        impact=None,
-        impact_not_known=impact_not_known,
+        impact_line=impact_line,
         trend={},
     )
 
@@ -646,8 +643,7 @@ def _summary_inputs(
     event_properties: dict[str, object],
     first_event_properties: dict[str, object],
     stack_trace: str,
-    impact: dict[str, object] | None,
-    impact_not_known: str,
+    impact_line: str,
     trend: dict[str, object],
 ) -> IssueSummaryInputs:
     latest_release = extract_release(event_properties).get("version")
@@ -669,7 +665,7 @@ def _summary_inputs(
         "trend_direction": _text(trend.get("direction")),
         "previous_occurrences": _count(trend.get("previous_occurrences")),
         "current_occurrences": _count(trend.get("current_occurrences")),
-        "impact": _impact_line(impact, impact_not_known),
+        "impact": impact_line,
     }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
         **{name: value.translate(FENCE_ESCAPES) for name, value in fields.items()}
@@ -679,14 +675,13 @@ def _summary_inputs(
             "fingerprint", flat=True
         )
     )
-    # Both paths read only the first event, so the hash counts one occurrence.
-    occurrences = to_number(impact.get("occurrences")) if impact is not None else 1
     return IssueSummaryInputs(
         prompt=prompt,
         input_hash=compute_input_hash(
             fingerprints=fingerprints,
             latest_release=latest_release if isinstance(latest_release, str) else None,
-            occurrences=int(occurrences) if occurrences is not None else 0,
+            # Both paths read only the first event, so the hash counts one occurrence.
+            occurrences=1,
         ),
     )
 
@@ -727,16 +722,6 @@ def _text(value: object) -> str:
 def _count(value: object) -> str:
     number = to_number(value)
     return str(int(number)) if number is not None else UNKNOWN
-
-
-def _impact_line(impact: dict[str, object] | None, not_known: str) -> str:
-    if impact is None:
-        return not_known
-    return ISSUE_SUMMARY_IMPACT_LINE.format(
-        occurrences=_count(impact.get("occurrences")),
-        users=_count(impact.get("users")),
-        sessions=_count(impact.get("sessions")),
-    )
 
 
 def _first_exception_event_properties(team: Team, issue_id: UUID | str, window: EventWindow) -> dict[str, object]:

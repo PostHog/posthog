@@ -159,8 +159,8 @@ class TestSummarizeErrors(SimpleTestCase):
         ]
     )
     def test_every_refusal_has_an_error_response(self, _name: str, outcome: IssueSummarizeOutcome) -> None:
-        status_code, detail = SUMMARIZE_ERRORS[outcome]
-        assert 400 <= status_code < 600 and detail
+        status_code, error_type, detail = SUMMARIZE_ERRORS[outcome]
+        assert 400 <= status_code < 600 and error_type and detail
 
 
 def _drain_on_demand_budget(test: "TestErrorTracking", _issue: ErrorTrackingIssue, _completions: Mock) -> None:

@@ -7,9 +7,9 @@ import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { errorTrackingIssuesSummarizeCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
-import {
-    type ErrorTrackingIssueSummaryResponseApi,
-    type ErrorTrackingStoredIssueSummaryApi,
+import type {
+    ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingStoredIssueSummaryApi,
     IssueSummarizeOutcomeEnumApi,
 } from '../../generated/api.schemas'
 import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
@@ -56,7 +56,7 @@ function isSummarizeRefusal(code: string | null): code is IssueSummarizeRefusal 
 
 function summarizeRefusal(error: unknown): IssueSummarizeRefusal {
     const code = error instanceof ApiError ? error.code : null
-    return isSummarizeRefusal(code) ? code : IssueSummarizeOutcomeEnumApi.Failed
+    return isSummarizeRefusal(code) ? code : 'failed'
 }
 
 // The issue-created workflow writes the summary soon after the first exception. Until this much time has passed, a

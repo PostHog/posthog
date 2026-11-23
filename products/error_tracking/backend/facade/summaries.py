@@ -29,14 +29,8 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
 
 
 def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummaryRead:
-    """The stored summary, or the reason `user` sees none. Never starts generation.
-
-    The output check runs again here because a row stored before the check existed stays until a summarize request
-    writes over it.
-    """
+    """The stored summary, or the reason `user` sees none. Never starts generation."""
     state = issue_summaries.read_issue_summary(team_id, issue_id, user)
-    if state.summary is not None and issue_summaries.unsafe_summary_fields(state.summary.content):
-        return contracts.IssueSummaryRead(status=contracts.IssueSummaryStatus.NOT_GENERATED, summary=None, reason=None)
     return contracts.IssueSummaryRead(
         status=state.status,
         summary=_to_summary(state.summary) if state.summary is not None else None,
@@ -47,9 +41,10 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> con
 def summarize_issue(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummarize:
     """Generate the summary of an issue that has none, because `user` asked for it. Each generation uses AI credits."""
     result = issue_summaries.generate_issue_summary_on_demand(team_id, issue_id, user)
-    summary = result.summary
-    if summary is not None and not issue_summaries.unsafe_summary_fields(summary.content):
-        return contracts.IssueSummarize(outcome=contracts.IssueSummarizeOutcome.READY, summary=_to_summary(summary))
+    if result.summary is not None:
+        return contracts.IssueSummarize(
+            outcome=contracts.IssueSummarizeOutcome.READY, summary=_to_summary(result.summary)
+        )
     return contracts.IssueSummarize(outcome=_summarize_outcome(result.outcome), summary=None)
 
 
@@ -73,7 +68,7 @@ def _summarize_outcome(outcome: IssueSummaryOutcome) -> contracts.IssueSummarize
             return contracts.IssueSummarizeOutcome.ISSUE_MISSING
         case IssueSummaryOutcome.NO_EXCEPTION:
             return contracts.IssueSummarizeOutcome.NO_EXCEPTION
-        # GENERATED and FRESH reach here only with an unsafe stored summary, which no read shows.
+        # GENERATED and FRESH always carry a summary, so they never reach this match.
         case (
             IssueSummaryOutcome.GENERATED
             | IssueSummaryOutcome.FRESH
