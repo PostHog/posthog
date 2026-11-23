@@ -3,6 +3,7 @@ import type { EmailTemplateFrom } from 'scenes/hog-functions/email-templater/typ
 
 import type { IntegrationType } from '~/types'
 
+import { sandboxTakesStepId } from './hogflows/steps/email/emailStepVariants'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 
 export interface StoppedSenderSteps {
@@ -21,13 +22,14 @@ function emailStepFrom(action: HogFlowAction): EmailTemplateFrom {
     if (typeof from !== 'object' || !from) {
         return {}
     }
-    const { integrationId, integrationIds } = from as EmailTemplateFrom
-    return {
-        integrationId: typeof integrationId === 'number' ? integrationId : undefined,
-        integrationIds: Array.isArray(integrationIds)
-            ? integrationIds.filter((id): id is number => typeof id === 'number')
-            : undefined,
+    const { integrationId, integrationIds } = from as { integrationId?: unknown; integrationIds?: unknown }
+    if (Array.isArray(integrationIds) && integrationIds.length > 0) {
+        // Sending rejects a rotation list with anything but sender IDs, so fixing a domain would not help that step.
+        return integrationIds.every((id) => typeof id === 'number')
+            ? { integrationIds: integrationIds as number[] }
+            : {}
     }
+    return { integrationId: typeof integrationId === 'number' ? integrationId : undefined }
 }
 
 // A step that rotates through several senders counts when any of them stopped, because the emails it sends
@@ -49,6 +51,23 @@ export function stoppedSenderSteps(
         return null
     }
     return { domains: [...new Set(stopped.map(senderDomain))], senderId: stopped[0].id, stepIds }
+}
+
+// Unsaved edits can delete a broken step or change its sender, so this picks one the draft still has broken.
+export function stepToChange(
+    broken: StoppedSenderSteps,
+    draft: Pick<HogFlow, 'actions'>,
+    integrations: IntegrationType[] | null
+): string | null {
+    const brokenInDraft = stoppedSenderSteps(draft, integrations)?.stepIds ?? []
+    return broken.stepIds.find((id) => brokenInDraft.includes(id)) ?? null
+}
+
+// Only an email step's From picker offers the test sender, and only for step IDs it can take.
+export function testSenderTakesSteps(workflow: Pick<HogFlow, 'actions'>, stepIds: string[]): boolean {
+    return workflow.actions.every(
+        (action) => !stepIds.includes(action.id) || (action.type === 'function_email' && sandboxTakesStepId(action))
+    )
 }
 
 // Names only the senders the step's From picker offers: it shows the test sender only when no own sender can send.

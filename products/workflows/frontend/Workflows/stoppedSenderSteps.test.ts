@@ -1,7 +1,7 @@
 import type { IntegrationType } from '~/types'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { changeSenderAdvice, stoppedSenderSteps } from './stoppedSenderSteps'
+import { changeSenderAdvice, stepToChange, stoppedSenderSteps, testSenderTakesSteps } from './stoppedSenderSteps'
 
 const sender = (id: number, domain: string, stopped: boolean): IntegrationType =>
     ({
@@ -58,6 +58,12 @@ describe('stoppedSenderSteps', () => {
                 { domains: ['b.example.com'], senderId: 3, stepIds: ['s2'] },
             ],
             [
+                'a step whose rotation list holds something other than sender IDs',
+                workflow(ownStep('s1', { integrationIds: ['3'], integrationId: 2 })),
+                SENDERS,
+                null,
+            ],
+            [
                 'a rotating step with one stopped sender, and two stopped domains',
                 workflow(ownStep('s1', { integrationIds: [1, 3] }), ownStep('s2', { integrationId: 2 })),
                 SENDERS,
@@ -66,6 +72,27 @@ describe('stoppedSenderSteps', () => {
         ]
     )('for %s', (_, flow, integrations, expected) => {
         expect(stoppedSenderSteps(flow, integrations)).toEqual(expected)
+    })
+
+    it.each<[string, Pick<HogFlow, 'actions'>, string | null]>([
+        ['the first broken step the draft still has', workflow(ownStep('b', { integrationId: 2 })), 'b'],
+        [
+            'a later broken step when the draft moved an earlier one to a sender that sends',
+            workflow(ownStep('a', { integrationId: 1 }), ownStep('b', { integrationId: 3 })),
+            'b',
+        ],
+        ['no step when the draft fixed every broken step', workflow(ownStep('a', { integrationId: 1 })), null],
+    ])('opens %s', (_, draft, expected) => {
+        const broken = { domains: ['a.example.com'], senderId: 2, stepIds: ['a', 'b'] }
+        expect(stepToChange(broken, draft, SENDERS)).toEqual(expected)
+    })
+
+    it.each<[string, HogFlowAction, boolean]>([
+        ['an email step', ownStep('s1', { integrationId: 2 }), true],
+        ['an older email step saved as a function step', olderEmailStep('s1', { integrationId: 2 }), false],
+        ['an email step whose ID the test sender cannot take', ownStep('welcome.email', { integrationId: 2 }), false],
+    ])('offers the test sender for %s: %s', (_, step, expected) => {
+        expect(testSenderTakesSteps(workflow(step), [step.id])).toEqual(expected)
     })
 
     it.each<[number, boolean, boolean, string]>([

@@ -9,12 +9,14 @@ import { urls } from 'scenes/urls'
 
 import { captureEmailDomainSetupStarted, emailDomainSetupPath } from '../Channels/EmailDomain/emailDomainSetupLinks'
 import { sandboxSenderLogic } from '../Channels/sandboxSenderLogic'
+import { hasDeliverableSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
 import {
-    hasDeliverableSender,
-    sandboxSenderAllowed,
-    sandboxTakesStepId,
-} from './hogflows/steps/email/emailStepVariants'
-import { StoppedSenderSteps, changeSenderAdvice, stoppedSenderSteps } from './stoppedSenderSteps'
+    StoppedSenderSteps,
+    changeSenderAdvice,
+    stepToChange,
+    stoppedSenderSteps,
+    testSenderTakesSteps,
+} from './stoppedSenderSteps'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Element | null {
@@ -40,15 +42,14 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
     const domains = broken.domains.length === 1 ? "the domain's" : "the domains'"
     // A rotating step still delivers from its other senders, so only the emails from a stopped domain fail.
     const sendFrom = `${stepCount === 1 ? 'sends' : 'send'} from ${broken.domains.length === 1 ? 'it' : 'them'}`
-    // Unsaved edits can delete a broken step, so the button opens one the editor still has.
-    const stepToChange = broken.stepIds.find((id) => workflow.actions.some((action) => action.id === id))
+    const stepId = stepToChange(broken, workflow, integrations)
     const nextStep = changeSenderAdvice(
         stepCount,
         !!hasDeliverableSender(integrations),
         canAdoptSandbox &&
             !!originalWorkflow &&
             sandboxSenderAllowed(originalWorkflow, !!props.editTemplateId) &&
-            broken.stepIds.every((id) => sandboxTakesStepId({ id }))
+            testSenderTakesSteps(originalWorkflow, broken.stepIds)
     )
 
     return (
@@ -62,11 +63,11 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
                     onClick: () => captureEmailDomainSetupStarted('stopped_sender_banner'),
                 }}
             >
-                <p className={stepToChange && !isViewOnly ? 'mb-2' : undefined}>
+                <p className={stepId && !isViewOnly ? 'mb-2' : undefined}>
                     Sending stopped for {broken.domains.join(', ')}. {steps} in this workflow {sendFrom}, and those
                     emails fail until {domains} DNS records are fixed. Fix your sending domain, or {nextStep}.
                 </p>
-                {stepToChange && !isViewOnly && (
+                {stepId && !isViewOnly && (
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -75,7 +76,7 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
                         // The editor reads the step and mode from the URL when it mounts, so this works from any tab.
                         to={
                             combineUrl(urls.workflow(props.id ?? 'new', 'workflow'), {
-                                node: stepToChange,
+                                node: stepId,
                                 mode: 'build',
                             }).url
                         }

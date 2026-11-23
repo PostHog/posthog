@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -85,8 +85,10 @@ describe('EmailSenderRow', () => {
         await waitFor(() => expect(container.querySelector('[data-attr$="-sender-select"]')).not.toBeNull())
         fireEvent.click(container.querySelector('[data-attr$="-sender-select"]') as HTMLElement)
 
-        const marks = await screen.findAllByText('Sending stopped')
-        expect(marks).toHaveLength(1)
-        expect(marks[0].parentElement).toHaveTextContent(/^hello@example\.comSending stopped$/)
+        const option = (address: string): HTMLElement =>
+            screen.getByText(address).closest('button, [role="option"], li') as HTMLElement
+        expect(await screen.findByText('Sending stopped')).toBeInTheDocument()
+        expect(within(option('hello@example.com')).getByText('Sending stopped')).toBeInTheDocument()
+        expect(within(option('hello@example.net')).queryByText('Sending stopped')).toBeNull()
     })
 })
