@@ -192,6 +192,7 @@ export const canvasAppWidgetLogic = kea<canvasAppWidgetLogicType>([
             (s) => [s.view],
             (view: CanvasViewResponseApi | null): CanvasHostLogicProps => ({
                 canvasId: props.canvasId,
+                canvasName: view?.canvas.name ?? null,
                 spaceId: view?.canvas.channel ?? null,
                 sourceVersionId: view?.published_build?.source_version_id ?? view?.current_version_id ?? null,
                 // Two tiles can show the same canvas. Each tile gets its own prompts and bridge state.

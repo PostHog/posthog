@@ -14,6 +14,7 @@ export function CanvasRenderer({ source }: { source: CanvasRenderSource }): JSX.
     }
     const hostProps: CanvasHostLogicProps = {
         canvasId: canvas.id,
+        canvasName: canvas.name,
         spaceId: canvas.channel,
         sourceVersionId: source.sourceVersionId,
     }

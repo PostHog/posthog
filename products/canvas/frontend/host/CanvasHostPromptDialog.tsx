@@ -13,6 +13,9 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
 import { CanvasHostPrompt, canvasHostLogic } from './canvasHostLogic'
 
 interface PromptCopy {
@@ -65,11 +68,31 @@ function promptCopy(prompt: CanvasHostPrompt): PromptCopy {
 }
 
 function PromptDetails({ prompt }: { prompt: CanvasHostPrompt }): JSX.Element {
+    const { canvasId, canvasName } = useValues(canvasHostLogic)
+
     switch (prompt.kind) {
         case 'connector':
             return (
                 <div className="flex flex-col gap-2">
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded border border-border p-3">
+                        <dt>
+                            <Text size="sm">Requesting canvas</Text>
+                        </dt>
+                        <dd className="min-w-0 break-words">
+                            <Text size="sm">{canvasName || 'Untitled canvas'}</Text>
+                        </dd>
+                        <dt>
+                            <Text size="sm">Canvas ID</Text>
+                        </dt>
+                        <dd className="min-w-0 break-all font-mono">
+                            <Link
+                                to={urls.canvasDetail(canvasId)}
+                                target="_blank"
+                                data-attr="canvas-host-prompt-canvas-link"
+                            >
+                                {canvasId}
+                            </Link>
+                        </dd>
                         <dt>
                             <Text size="sm">Connection</Text>
                         </dt>
