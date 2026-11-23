@@ -257,6 +257,14 @@ _MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 # display text as before.
 _DATE_NUMBER_FORMAT_TYPES = frozenset({"DATE", "DATE_TIME"})
 
+
+@frozen
+class _CellPosition:
+    # Zero-based, counted from A1, so the header row is row 0.
+    row: int
+    column: int
+
+
 _DATE_CELLS_FIELDS = "sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue),effectiveFormat(numberFormat(type))))))"
 
 
@@ -270,8 +278,8 @@ def _date_from_serial(serial: float, number_format_type: str) -> datetime.date |
     return moment.date() if number_format_type == "DATE" else moment
 
 
-def _read_date_cells(worksheet: gspread.Worksheet) -> dict[tuple[int, int], datetime.date]:
-    """Find the date and date-time cells of a worksheet, keyed by (row, column) from A1.
+def _read_date_cells(worksheet: gspread.Worksheet) -> dict[_CellPosition, datetime.date]:
+    """Find the date and date-time cells of a worksheet, keyed by their position.
 
     The values read returns the text that each cell shows, so a date in a format such as "dd-mm"
     loses its year. The display format does not change the value that the cell holds, so read that
@@ -282,7 +290,7 @@ def _read_date_cells(worksheet: gspread.Worksheet) -> dict[tuple[int, int], date
     }
     response = _retry_on_transient_api_error(lambda: worksheet.spreadsheet.fetch_sheet_metadata(params))
 
-    dates: dict[tuple[int, int], datetime.date] = {}
+    dates: dict[_CellPosition, datetime.date] = {}
     for sheet in response.get("sheets", []):
         for grid_data in sheet.get("data", []):
             start_row = grid_data.get("startRow", 0)
@@ -295,7 +303,8 @@ def _read_date_cells(worksheet: gspread.Worksheet) -> dict[tuple[int, int], date
                         continue
                     value = _date_from_serial(serial, number_format_type)
                     if value is not None:
-                        dates[(start_row + row_offset, start_column + column_offset)] = value
+                        position = _CellPosition(row=start_row + row_offset, column=start_column + column_offset)
+                        dates[position] = value
     return dates
 
 
@@ -311,21 +320,23 @@ def _value_kind(value: Any) -> type:
 
 
 def _records_from_grid(
-    grid: list[list[str]], locale: Locale | None, date_cells: dict[tuple[int, int], datetime.date]
+    grid: list[list[str]], locale: Locale | None, date_cells: dict[_CellPosition, datetime.date]
 ) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
     column_names = _resolve_column_names(list(grid[0]))
 
+    def cell_value(cell: str, position: _CellPosition) -> Any:
+        date = date_cells.get(position)
+        return date if date is not None else _parse_number_text(cell, locale)
+
     records = [
         dict(
             zip(
                 column_names,
                 [
-                    date_cells[(row_index, column_index)]
-                    if (row_index, column_index) in date_cells
-                    else _parse_number_text(cell, locale)
+                    cell_value(cell, _CellPosition(row=row_index, column=column_index))
                     for column_index, cell in enumerate(row)
                 ],
             )
