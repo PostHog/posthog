@@ -3920,16 +3920,16 @@ class TestCurrentAliasUsage(APIBaseTest):
             "other_project": Team.objects.create(organization=self.organization, name="Other project"),
             "sibling_environment": Team.objects.create(organization=self.organization, project=self.team.project),
         }
-        headers = {}
+        headers: dict[str, str] = {}
         if caller == "key":
             key = generate_random_token_personal()
             PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
             self.client.logout()
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+            headers["Authorization"] = f"Bearer {key}"
         query = {"token": teams[token_team].api_token} if token_team else {}
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
-            response = self.client.get(f"/api/projects/{path.format(id=self.team.id)}/", query, **headers)
+            response = self.client.get(f"/api/projects/{path.format(id=self.team.id)}/", query, headers=headers)
 
         assert response.status_code == status.HTTP_200_OK
         events = self._alias_events(capture, TOKEN_ON_PROJECT_PATH_USED_EVENT)
