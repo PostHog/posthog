@@ -224,8 +224,8 @@ fn membership_stops_on_a_list_that_holds_one_array_many_times() {
 
 // let a := []; let b := []; 100 times: a := arrayPushBack(a, '<A>'); b := arrayPushBack(b, '<B>')
 // if (inputs.mode == 'eq') { return a == b }; if (inputs.mode == 'equals') { return equals(a, b) }
-// if (inputs.mode == 'empty') { return [] == a }; return '<C>' in a
-const ONE_LITERAL_MANY_TIMES: &str = r#"["_H", 1, 43, 0, 43, 0, 33, 0, 33, 100, 36, 2, 15, 40, 27, 36, 0, 32, "ZZA", 2, "arrayPushBack", 2, 37, 0, 36, 1, 32, "ZZB", 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -34, 35, 32, "eq", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 1, 36, 0, 11, 38, 32, "equals", 32, "mode", 32, "inputs", 1, 2, 11, 40, 8, 36, 0, 36, 1, 2, "equals", 2, 38, 32, "empty", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 0, 43, 0, 11, 38, 36, 0, 32, "ZZC", 21, 38, 35, 35]"#;
+// if (inputs.mode == 'empty') { return [] == a }; if (inputs.mode == 'bool') { return true in a }; return '<C>' in a
+const ONE_LITERAL_MANY_TIMES: &str = r#"["_H", 1, 43, 0, 43, 0, 33, 0, 33, 100, 36, 2, 15, 40, 27, 36, 0, 32, "ZZA", 2, "arrayPushBack", 2, 37, 0, 36, 1, 32, "ZZB", 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -34, 35, 32, "eq", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 1, 36, 0, 11, 38, 32, "equals", 32, "mode", 32, "inputs", 1, 2, 11, 40, 8, 36, 0, 36, 1, 2, "equals", 2, 38, 32, "empty", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 0, 43, 0, 11, 38, 32, "bool", 32, "mode", 32, "inputs", 1, 2, 11, 40, 5, 36, 0, 29, 21, 38, 36, 0, 32, "ZZC", 21, 38, 35, 35]"#;
 
 #[test]
 fn a_test_against_one_long_literal_many_times_stops() {
@@ -239,7 +239,7 @@ fn a_test_against_one_long_literal_many_times_stops() {
             context(&bytecode, json!({"inputs": {"mode": mode}})).with_max_steps(1_000_000);
         sync_execute(&context, false).map_err(|failure| failure.error)
     };
-    for mode in ["in", "eq", "equals"] {
+    for mode in ["in", "eq", "equals", "bool"] {
         let error = run(mode).unwrap_err();
         assert!(
             matches!(error, hogvm::VmError::OutOfResource(_)),

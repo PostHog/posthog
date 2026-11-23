@@ -94,7 +94,7 @@ struct RepeatMeasure<'a> {
     cycles: Cycles,
 }
 
-/// The walk itself runs with no clock, and values that hold each other twice make it long.
+/// The walk itself runs with no clock. A container that holds one child twice at each level makes it long: n rounds of `a := [a, a]` reach 2^n leaves.
 const MAX_REPEAT_VISITS: usize = 1 << 20;
 
 impl<'a> RepeatMeasure<'a> {
@@ -119,7 +119,7 @@ impl<'a> RepeatMeasure<'a> {
         Ok(())
     }
 
-    /// The HogQL printer follows an AST node's fields with no cycle or depth check, so an AST value must need none.
+    /// The HogQL printer has no cycle check of its own, and it counts depth from the caller's start. So this walk refuses an AST value that reaches a cycle or the depth cutoff, before the printer starts.
     fn end_of_walk(&self) -> Result<(), crate::VmError> {
         let refused = match self.cycles {
             Cycles::Allowed => false,
@@ -632,16 +632,10 @@ impl<'a> HogQLPrinter<'a> {
         }
 
         let mut current = obj.get("next_join").cloned();
-        let mut joined: HashSet<HeapReference> = HashSet::new();
         while let Some(join) = current {
             let HogLiteral::Object(jo) = join.deref(self.heap)? else {
                 break;
             };
-            if let HogValue::Ref(ptr) = join {
-                if !joined.insert(ptr) {
-                    return Err(crate::VmError::OutOfResource("cyclic sql join".to_string()));
-                }
-            }
             let jo = jo.clone();
             let join_type = self
                 .str_field(&jo, "join_type")?

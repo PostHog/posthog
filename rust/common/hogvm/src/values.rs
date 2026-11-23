@@ -428,10 +428,11 @@ impl HogLiteral {
         }
     }
 
-    // Size of the literal, in bytes. If it's a non-primitive type, returns the size of all values, but
-    // if a value is on the heap, returns the size of the reference. This underestimates the size slightly,
-    // because it doesn't account for the enum discriminant, and it gets the size of callables wrong by ignoring
-    // the length of the callable's name, but is close enough for most purposes.
+    // What the heap limit charges for the literal, in bytes. It is not the allocated size:
+    // - a shared string costs one pointer whatever its length, because every copy points at one allocation;
+    // - a null, a boolean, a number and a container cost 8 bytes, where a value slot takes 32;
+    // - a container adds the charge of each value it holds, and a value on the heap costs its reference;
+    // - a callable costs a fixed size, without the length of its name.
     pub fn size(&self) -> usize {
         match self {
             // A shared string is one allocation that every copy points at, so a copy costs a pointer.

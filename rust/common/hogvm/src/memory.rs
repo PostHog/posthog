@@ -118,3 +118,23 @@ impl VmHeap {
         Ok(&mut to_load.value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reference_one_past_the_last_entry_is_out_of_bounds() {
+        let mut heap = VmHeap::new(1024);
+        let first = heap.emplace(HogLiteral::Null).unwrap();
+        let past = HeapReference {
+            idx: first.idx + 1,
+            epoch: first.epoch,
+        };
+        assert!(matches!(heap.get(past), Err(VmError::HeapIndexOutOfBounds)));
+        assert!(matches!(
+            heap.get_mut(past),
+            Err(VmError::HeapIndexOutOfBounds)
+        ));
+    }
+}

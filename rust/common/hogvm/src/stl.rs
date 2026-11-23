@@ -3068,6 +3068,9 @@ fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
 }
 
 fn utf16_len(s: &str) -> usize {
+    if s.is_ascii() {
+        return s.len();
+    }
     s.chars().map(char::len_utf16).sum()
 }
 

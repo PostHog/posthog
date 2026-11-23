@@ -81,6 +81,19 @@ fn a_missing_key_under_an_ordered_global_reads_null() {
         OrderedJson::Object(vec![]),
     )]));
     assert_eq!(hogvm::sync_execute(&context, false).unwrap(), Value::Null);
+
+    // return nothere.x
+    let no_root =
+        ExecutionContext::with_defaults(program(r#"["_H", 1, 32, "x", 32, "nothere", 1, 2, 38]"#))
+            .with_ordered_globals(OrderedJson::Object(vec![(
+                "inputs".into(),
+                OrderedJson::Object(vec![]),
+            )]));
+    let error = hogvm::sync_execute(&no_root, false).unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::UnknownGlobal(_)),
+        "{error:?}"
+    );
 }
 
 // return [inputs.list.1, inputs.list.-1, inputs.list.3, inputs.list.<i64::MIN>]
@@ -205,10 +218,10 @@ fn a_bounded_regex_cache_keeps_small_patterns_and_compiles_large_ones_per_call()
 #[test]
 fn the_public_printer_refuses_a_value_that_repeats_past_the_heap_limit() {
     // let a := [1]; 21 times: a := [a, a]; return a
-    let context = ExecutionContext::with_defaults(program(
+    let doubled = program(
         r#"["_H", 1, 33, 1, 43, 1, 33, 0, 33, 21, 36, 1, 15, 40, 17, 36, 0, 36, 0, 43, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -24, 35, 36, 0, 38, 35]"#,
-    ))
-    .with_raw_result();
+    );
+    let context = ExecutionContext::with_defaults(doubled.clone()).with_raw_result();
     let mut vm = context.to_vm().unwrap();
     while !matches!(vm.step().unwrap(), StepOutcome::Finished(_)) {}
     let result = vm.take_result().unwrap();
@@ -217,6 +230,14 @@ fn the_public_printer_refuses_a_value_that_repeats_past_the_heap_limit() {
         matches!(printed, Err(hogvm::VmError::OutOfResource(_))),
         "{:?}",
         printed.map(|text| text.len())
+    );
+
+    // Without `with_raw_result` the result goes through `hog_to_json`, which has the same limit.
+    let as_json = hogvm::sync_execute(&ExecutionContext::with_defaults(doubled), false);
+    let error = as_json.unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
     );
 }
 
@@ -282,4 +303,59 @@ fn a_host_checks_native_arguments_before_it_answers_a_call() {
         arguments_fit(64),
         Err(hogvm::VmError::OutOfResource(_))
     ));
+}
+
+#[test]
+fn closure_json_gives_the_reference_object_of_a_closure_and_of_a_function() {
+    // fun make() { let x := 1; let f := () -> x; return f }; return [make(), base64Encode]
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 52, "make", 0, 0, 19, 33, 1, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 57, 53, 0, 36, 0, 54, 0, 32, "base64Encode", 1, 1, 43, 2, 38, 35]"#,
+    ))
+    .with_raw_result();
+    let mut vm = context.to_vm().unwrap();
+    while !matches!(vm.step().unwrap(), StepOutcome::Finished(_)) {}
+    let result = vm.take_result().unwrap();
+    let HogLiteral::Array(items) = result.deref(&vm.heap).unwrap() else {
+        panic!("expected an array");
+    };
+    let json: Vec<Value> = items
+        .iter()
+        .map(|item| vm.closure_json(item.deref(&vm.heap).unwrap()).unwrap())
+        .collect();
+
+    assert_eq!(json[0]["__hogClosure__"], json!(true));
+    assert_eq!(json[0]["callable"]["__hogCallable__"], json!("local"));
+    assert_eq!(json[0]["callable"]["name"], json!("lambda"));
+    assert_eq!(json[0]["upvalues"], json!([1]));
+
+    assert_eq!(json[1]["callable"]["__hogCallable__"], json!("stl"));
+    assert_eq!(json[1]["callable"]["name"], json!("base64Encode"));
+    assert_eq!(json[1]["upvalues"], json!([]));
+
+    assert_eq!(vm.closure_json(&HogLiteral::Null), None);
+}
+
+#[test]
+fn a_join_of_many_references_to_one_global_string_stops_at_the_heap_limit() {
+    // return arrayStringConcat(inputs.a, inputs.t)
+    let text: Arc<str> = Arc::from("t".repeat(1024 * 1024));
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 32, "a", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 2, "arrayStringConcat", 2, 38]"#,
+    ))
+    .with_ordered_globals(OrderedJson::Object(vec![(
+        "inputs".into(),
+        OrderedJson::Object(vec![
+            (
+                "a".into(),
+                OrderedJson::Array(vec![OrderedJson::String(text); 64]),
+            ),
+            ("t".into(), OrderedJson::String(Arc::from(""))),
+        ]),
+    )]))
+    .with_max_heap_size(8 * 1024 * 1024);
+    let error = hogvm::sync_execute(&context, false).unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
+    );
 }

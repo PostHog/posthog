@@ -308,6 +308,27 @@ fn a_snapshot_refuses_a_state_that_repeats_one_string_past_the_heap_limit() {
 }
 
 #[test]
+fn a_snapshot_refuses_one_array_that_many_closures_captured() {
+    // fun make(a) { let f := () -> a; return f }; let big := ['<64 KiB>']; let fs := []
+    // 64 times: fs := arrayPushBack(fs, make(big)); asyncFetch(1); return 1
+    let bytecode = r#"["_H", 1, 52, "make", 1, 0, 16, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 53, 0, 32, "ZZCONST", 43, 1, 43, 0, 33, 0, 33, 64, 36, 3, 15, 40, 22, 36, 2, 36, 1, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 2, 33, 1, 36, 3, 6, 37, 3, 39, -29, 35, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35, 35]"#
+        .replace("ZZCONST", &"z".repeat(64 * 1024));
+    let program = Program::new(serde_json::from_str(&bytecode).unwrap()).unwrap();
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1);
+    let failure = match execute_resumable(&context) {
+        Err(failure) => failure,
+        Ok(_) => panic!("the state was accepted"),
+    };
+    assert!(
+        matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}
+
+#[test]
 fn a_snapshot_refuses_a_value_that_holds_itself() {
     for bytecode in [
         // let a := {}; a.self := a; asyncFetch(1); return 1
