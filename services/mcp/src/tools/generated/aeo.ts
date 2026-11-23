@@ -428,6 +428,7 @@ const aeoPromptsCitationsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                topic: params.topic,
                 url: params.url,
             },
         })

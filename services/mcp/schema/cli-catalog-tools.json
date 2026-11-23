@@ -2903,6 +2903,11 @@
                     "csv": false
                 },
                 {
+                    "param": "topic",
+                    "key": "topic",
+                    "csv": false
+                },
+                {
                     "param": "url",
                     "key": "url",
                     "csv": false
