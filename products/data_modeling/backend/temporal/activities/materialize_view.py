@@ -1387,15 +1387,23 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     A killed upsert leaves parquet that was never committed, so it carries no tombstone, and lite
     vacuum only reclaims tombstoned files. Those orphans would otherwise accumulate forever and
     inflate every later publish copy and folder-size read.
+
+    The vacuum commits to the delta log, so it can lose a commit race with a concurrent writer. The
+    run's data and watermark are already committed when this runs, and the next run vacuums again,
+    so a conflict here only logs a warning. It must not fail the run and make Temporal redo all the
+    work.
     """
     await logger.ainfo("Vacuuming delta table")
-    await asyncio.to_thread(
-        delta_table.vacuum,
-        retention_hours=DELTA_TABLE_RETENTION_HOURS,
-        enforce_retention_duration=False,
-        dry_run=False,
-        full=True,
-    )
+    try:
+        await asyncio.to_thread(
+            delta_table.vacuum,
+            retention_hours=DELTA_TABLE_RETENTION_HOURS,
+            enforce_retention_duration=False,
+            dry_run=False,
+            full=True,
+        )
+    except deltalake.exceptions.CommitFailedError as e:
+        await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
