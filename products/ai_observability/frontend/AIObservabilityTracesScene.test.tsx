@@ -86,7 +86,7 @@ function tracesRequests(): number {
     return jest.mocked(performQuery).mock.calls.filter(([query]) => query.kind === NodeKind.TracesQuery).length
 }
 
-async function renderTraces({ flag = true, url = LIST_PATH } = {}): Promise<RenderResult> {
+async function renderTraces({ url = LIST_PATH } = {}): Promise<RenderResult> {
     initKeaTests()
     localStorage.clear()
     jest.mocked(newInternalTab).mockClear()
@@ -96,9 +96,6 @@ async function renderTraces({ flag = true, url = LIST_PATH } = {}): Promise<Rend
         query.kind === NodeKind.TracesQuery ? { results: TRACES } : { results: [] }
     )
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-        [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: flag,
-    })
     panelLayoutLogic.mount()
     router.actions.push(url)
     const view = render(<AIObservabilityTraces />)
@@ -337,16 +334,6 @@ describe('AIObservabilityTracesScene', () => {
             expect(tableRow(view, 'first').className).not.toContain(OPEN_ROW_CLASS)
         })
 
-        it('keeps pushing the page url when the flag is off', async () => {
-            const view = await renderTraces({ flag: false })
-
-            fireEvent.click(firstCell(view))
-
-            expect(router.values.location.pathname).toContain(TRACE_PATH)
-            expect(router.values.searchParams).toMatchObject({ back_to: 'traces', timestamp: DRAWER_TIMESTAMP })
-            expect(router.values.searchParams).not.toHaveProperty('trace')
-        })
-
         it('keeps the drawer params through a filter change and does not query for writing them', async () => {
             const view = await renderTraces()
 
@@ -411,6 +398,22 @@ describe('AIObservabilityTracesScene', () => {
 
         it('renders the trace name as plain text when the row has no id', () => {
             expect(renderCell('traceName', { traceName: 'my trace' })).toBe('my trace')
+        })
+
+        it.each([
+            [
+                'the top-level error message and how many more there are',
+                { id: 'trace-1', errorCount: 2, events: [{ properties: { $ai_error: 'RateLimitError' } }] },
+                'RateLimitError+1',
+            ],
+            ['only the count when the error sits on a nested span', { id: 'trace-1', errorCount: 2 }, '2 errors'],
+        ])('renders %s in the redesigned errors cell', (_name, record, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN], {
+                [FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN]: true,
+            })
+
+            expect(renderCell('errorCount', record)).toBe(expected)
         })
     })
 })

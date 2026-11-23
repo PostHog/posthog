@@ -1,5 +1,4 @@
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 
 from products.metrics.backend.temporal.activities import (
     analyze_team_activity,
@@ -10,14 +9,26 @@ from products.metrics.backend.temporal.activities import (
     render_preview_activity,
     start_generation_activity,
 )
+from products.metrics.backend.temporal.recording_rules import (
+    METRICS_RECORDING_RULES_ACTIVITIES,
+    METRICS_RECORDING_RULES_WORKFLOWS,
+)
 from products.metrics.backend.temporal.workflows import (
     MetricsDashboardDiscoveryWorkflow,
     MetricsDashboardGenerateWorkflow,
     MetricsDashboardSuggestWorkflow,
 )
 
-WORKFLOWS = [MetricsDashboardDiscoveryWorkflow, MetricsDashboardSuggestWorkflow, MetricsDashboardGenerateWorkflow]
-ACTIVITIES: list[Callable[..., Any]] = [
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+WORKFLOWS = [
+    MetricsDashboardDiscoveryWorkflow,
+    MetricsDashboardSuggestWorkflow,
+    MetricsDashboardGenerateWorkflow,
+    *METRICS_RECORDING_RULES_WORKFLOWS,
+]
+ACTIVITIES: list[ActivityDefinition] = [
     find_teams_to_analyze_activity,
     analyze_team_activity,
     start_generation_activity,
@@ -25,4 +36,5 @@ ACTIVITIES: list[Callable[..., Any]] = [
     render_preview_activity,
     check_preview_activity,
     finish_generation_activity,
+    *METRICS_RECORDING_RULES_ACTIVITIES,
 ]

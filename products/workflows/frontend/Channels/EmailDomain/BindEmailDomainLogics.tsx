@@ -18,11 +18,14 @@ const LOGICS = [
     emailDomainLogic,
 ]
 
-/** Binds every logic of the sending domain page to one integration id, so the steps below can use them without props. */
-export function BindEmailDomainLogics({ id, children }: EmailDomainLogicProps & { children: ReactNode }): JSX.Element {
+export function BindEmailDomainLogics({
+    id,
+    origin,
+    children,
+}: EmailDomainLogicProps & { children: ReactNode }): JSX.Element {
     return LOGICS.reduceRight(
         (inner, logic) => (
-            <BindLogic logic={logic} props={{ id }}>
+            <BindLogic logic={logic} props={{ id, origin }}>
                 {inner}
             </BindLogic>
         ),

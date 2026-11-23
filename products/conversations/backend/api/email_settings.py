@@ -154,11 +154,15 @@ def _get_config_for_team(config_id: uuid.UUID, team: Team) -> EmailChannel | Non
 
 
 def _is_organization_admin(user: User, team: Team) -> bool:
-    return OrganizationMembership.objects.filter(
-        organization_id=team.organization_id,
-        user=user,
-        level__gte=OrganizationMembership.Level.ADMIN,
-    ).exists()
+    return (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
+            organization_id=team.organization_id,
+            user=user,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+        )
+        .exists()
+    )
 
 
 def _resolve_config(request: Request, config_id: uuid.UUID) -> ResolvedEmailConfig | Response:
@@ -350,6 +354,28 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> MailgunDnsRecords |
         return MailgunDomainReclaimBlocker.REWRITE_FAILED
 
     logger.info("email_connect_reclaimed_stranded_domain", team_id=team.id, domain=domain)
+    return dns_records
+
+
+def _reregister_expired_sibling_domain(team: Team, domain: str) -> MailgunDnsRecords | None:
+    """Register an unverified sibling's domain again when Mailgun no longer has it.
+
+    The Mailgun domain cleanup removes the registration of a setup that never verified, but keeps its
+    channels. A new registration gets new DNS records, so every channel on the domain gets them too.
+    Returns None when the sibling's records still apply. Raises when Mailgun fails, because the
+    sibling's records are no longer valid.
+    """
+    try:
+        if mailgun_get_domain(domain) is not None:
+            return None
+        dns_records = mailgun_add_domain(domain)
+    except MailgunNotConfigured:
+        return None
+
+    EmailChannel.objects.filter(
+        team__organization_id=team.organization_id, domain=domain, kind=EmailChannelKind.SUPPORT
+    ).update(dns_records=dns_records)
+    logger.info("email_connect_reregistered_expired_domain", team_id=team.id, domain=domain)
     return dns_records
 
 
@@ -621,6 +647,17 @@ class EmailConnectView(APIView):
             )
             if sibling:
                 dns_records = sibling.dns_records
+                if not sibling.domain_verified:
+                    try:
+                        dns_records = _reregister_expired_sibling_domain(team, domain) or dns_records
+                    except Exception:
+                        logger.exception(
+                            "email_connect_reregister_expired_domain_failed", team_id=team.id, domain=domain
+                        )
+                        return Response(
+                            {"error": "Failed to register domain for sending. Please try again later."},
+                            status=502,
+                        )
             else:
                 try:
                     dns_records = mailgun_add_domain(domain)

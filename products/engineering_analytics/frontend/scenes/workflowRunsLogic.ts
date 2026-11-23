@@ -36,7 +36,6 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 // Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`).
 const RUN_LIST_LIMIT = 200
 
-/** RunRowBase fields plus this page's lead-column data (run id, branch, attributed PR). */
 export interface WorkflowRunRow {
     ciEngine?: CIEngineEnumApi | null
     runId: number | null
@@ -57,7 +56,6 @@ export interface WorkflowRunsLogicProps {
     repoOwner: string
     repoName: string
     workflowName: string
-    // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
 }
 
@@ -270,7 +268,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     })),
 
     actions({
-        // Row expansion is keyed by a per-row key (re-runs share a run_id); jobs are fetched per run+attempt.
+        // Re-runs share a run_id, so row expansion uses a per-row key. Jobs are fetched per run and attempt.
         setRunExpanded: (
             rowKey: string,
             expanded: boolean,
@@ -301,8 +299,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     }),
             },
         ],
-        // Activity-chart points at a higher cap than the runs table, so the chart spans the full window
-        // on busy workflows where 200 runs collapse to a sub-day slice.
+        // The activity chart reads at a higher cap than the runs table, so it spans the full window on
+        // a busy workflow where RUN_LIST_LIMIT runs cover only part of it.
         runActivity: [
             { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
             {
@@ -334,7 +332,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 },
             },
         ],
-        // Cost split by runner tier; [] when the job-level source isn't synced.
+        // Empty when the job-level source isn't synced.
         runnerCosts: [
             [] as WorkflowRunnerCostApi[],
             {
@@ -349,7 +347,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     }),
             },
         ],
-        // Per-job rollups; [] when the job-level source isn't synced.
+        // Empty when the job-level source isn't synced.
         jobAggregates: [
             [] as WorkflowJobAggregateApi[],
             {
@@ -367,7 +365,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
-                // Reads the post-await values.runJobs so near-simultaneous first-expands don't clobber.
+                // values.runJobs is read after the await, so two near-simultaneous first expands do not
+                // overwrite each other.
                 loadJobs: async ({
                     ciEngine,
                     runId,

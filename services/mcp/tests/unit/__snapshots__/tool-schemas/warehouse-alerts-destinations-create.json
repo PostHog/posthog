@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "event_kinds": {
+            "default": ["firing", "resolved"],
+            "description": "Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.",
+            "items": {
+                "description": "* `firing` - firing\n* `resolved` - resolved",
+                "enum": ["firing", "resolved"],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "type": "string"
+        },
+        "pagerduty_region": {
+            "default": "us",
+            "description": "PagerDuty service region of the account. Used when type=pagerduty.\n\n* `us` - us\n* `eu` - eu",
+            "enum": ["us", "eu"],
+            "type": "string"
+        },
+        "pagerduty_routing_key": {
+            "description": "Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.",
+            "type": "string"
+        },
+        "pagerduty_severity": {
+            "default": "critical",
+            "description": "Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n* `critical` - critical\n* `error` - error\n* `warning` - warning\n* `info` - info",
+            "enum": ["critical", "error", "warning", "info"],
+            "type": "string"
+        },
+        "slack_channel_id": {
+            "description": "Slack channel ID. Required when type=slack.",
+            "type": "string"
+        },
+        "slack_channel_name": {
+            "description": "Human-readable channel name for display.",
+            "type": "string"
+        },
+        "slack_workspace_id": {
+            "description": "Integration ID for the Slack workspace. Required when type=slack.",
+            "type": "number"
+        },
+        "type": {
+            "description": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams\n* `discord` - discord\n* `pagerduty` - pagerduty",
+            "enum": ["slack", "webhook", "teams", "discord", "pagerduty"],
+            "type": "string"
+        },
+        "webhook_url": {
+            "description": "HTTPS endpoint to post to. Required for webhook, teams and discord.",
+            "format": "uri",
+            "type": "string"
+        }
+    },
+    "required": ["id", "type"],
+    "type": "object"
+}

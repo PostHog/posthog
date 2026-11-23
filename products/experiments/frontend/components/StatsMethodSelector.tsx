@@ -1,6 +1,7 @@
 import { ExperimentStatsMethod } from '~/types'
 
 import { SelectableCard } from './SelectableCard'
+import { STATS_METHOD_OPTIONS } from './statsMethodOptions'
 
 export interface StatsMethodSelectorProps {
     value: ExperimentStatsMethod
@@ -21,20 +22,16 @@ export function StatsMethodSelector({
 
     return (
         <div className="flex gap-4 max-w-[800px]">
-            <SelectableCard
-                title="Bayesian"
-                description="Gives you a clear win probability, showing how likely one variant is to be better than another. Great for product engineers new to experimentation."
-                selected={value === ExperimentStatsMethod.Bayesian}
-                onClick={() => !isDisabled && onChange(ExperimentStatsMethod.Bayesian)}
-                {...disabledProps}
-            />
-            <SelectableCard
-                title="Frequentist"
-                description="Uses p-values to determine statistical significance. Often preferred by data scientists and teams experienced with traditional A/B testing."
-                selected={value === ExperimentStatsMethod.Frequentist}
-                onClick={() => !isDisabled && onChange(ExperimentStatsMethod.Frequentist)}
-                {...disabledProps}
-            />
+            {STATS_METHOD_OPTIONS.map((option) => (
+                <SelectableCard
+                    key={option.value}
+                    title={option.title}
+                    description={option.description}
+                    selected={value === option.value}
+                    onClick={() => !isDisabled && onChange(option.value)}
+                    {...disabledProps}
+                />
+            ))}
         </div>
     )
 }

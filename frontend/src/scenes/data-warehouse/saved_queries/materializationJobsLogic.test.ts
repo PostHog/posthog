@@ -148,7 +148,7 @@ describe('materializationJobsLogic', () => {
         )
         expect(showsRefreshModeColumn).toBe(showsRefreshMode)
         if (fullRefreshReason === 'first run') {
-            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+            expect(screen.getByText('First run')).toBeTruthy()
         }
         if (runMode === 'incremental') {
             expect(screen.getByText('Incremental')).toBeTruthy()
@@ -731,7 +731,7 @@ describe('materializationJobsLogic', () => {
                 { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: dailyRevenue, speeds_up: [] },
             ],
             floor: null,
-            ceiling: { label: '6 hours', blocker: dailyRevenue },
+            ceiling: { label: '6 hours', blocker: dailyRevenue, pinned: false },
             best_effort_sources: [],
             best_effort_sources_withheld: false,
         }

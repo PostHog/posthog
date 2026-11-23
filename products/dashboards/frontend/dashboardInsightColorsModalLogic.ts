@@ -96,7 +96,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                     ? {
                           colors: mountedDashboardLogic.values.temporaryBreakdownColors,
                           themeId: mountedDashboardLogic.values.temporaryDataColorThemeId,
-                          wasInEditMode: mountedDashboardLogic.values.dashboardEditing !== null,
+                          wasInEditMode: mountedDashboardLogic.values.dashboardEditing,
                       }
                     : null
             )
@@ -107,14 +107,14 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                 values.dashboardId != null ? dashboardLogic.findMounted({ id: values.dashboardId }) : null
             if (mountedDashboardLogic && stateAtOpen) {
                 if (stateAtOpen.wasInEditMode) {
-                    // Edit mode predates the modal, so filter or layout edits may be pending.
+                    // Edit mode predates the modal, so filter edits may be pending.
                     // Revert only the color state and leave the rest of the edit session alone.
                     mountedDashboardLogic.actions.restoreTemporaryColorState(stateAtOpen.colors, stateAtOpen.themeId)
-                } else if (mountedDashboardLogic.values.dashboardEditing !== null) {
+                } else if (mountedDashboardLogic.values.dashboardEditing) {
                     // The modal entered edit mode itself, so the color edits are the only unsaved
                     // changes and a full discard both reverts them and exits edit mode.
                     mountedDashboardLogic.actions.setDashboardEditing(
-                        null,
+                        false,
                         DashboardEventSource.DashboardHeaderDiscardChanges
                     )
                 }

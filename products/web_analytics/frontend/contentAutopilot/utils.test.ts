@@ -1,8 +1,24 @@
+import { AI_LAB_SHADES, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabShades'
+
 import type { AEOPromptEngineCheckApi, ContentAutopilotOpportunityApi } from '../generated/api.schemas'
 import { EXAMPLE_OPPORTUNITIES, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
-import { draftableOpportunity, promptSearches } from './utils'
+import { draftableOpportunity, engineColor, engineMark, promptSearches } from './utils'
 
 describe('utils', () => {
+    describe('engine identity', () => {
+        it.each([
+            ['claude-web-search', 'Claude', AI_LAB_SHADES.Anthropic[MAIN_LAB_SHADE]],
+            ['claude-no-search', 'Claude', AI_LAB_SHADES.Anthropic[MAIN_LAB_SHADE - 1]],
+            ['openai-web-search', 'OpenAI', AI_LAB_SHADES.OpenAI[MAIN_LAB_SHADE]],
+            ['openai-no-search', 'OpenAI', AI_LAB_SHADES.OpenAI[MAIN_LAB_SHADE - 1]],
+            ['gemini-google-search', 'Gemini', AI_LAB_SHADES.Google[MAIN_LAB_SHADE]],
+            ['perplexity-web-search', 'Perplexity', undefined],
+            ['exa-answer', 'Unbranded model', undefined],
+        ])('gives %s the %s mark and color %s', (engine, mark, color) => {
+            expect([engineMark(engine), engineColor(engine)]).toEqual([mark, color])
+        })
+    })
+
     describe('draftableOpportunity', () => {
         const opportunity: ContentAutopilotOpportunityApi = {
             ...EXAMPLE_OPPORTUNITIES[0],

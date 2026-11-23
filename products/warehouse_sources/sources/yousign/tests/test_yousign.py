@@ -216,14 +216,62 @@ class TestWebhookTableTransformer:
         assert [row["id"] for row in rows] == ["sr-3"]
 
 
+class TestWorkflowSessionApplicants:
+    def test_walks_every_page_of_every_session(self) -> None:
+        # Unlike the signature request children, the applicants list is cursor-paginated.
+        result = _driver().run(
+            "workflow_session_applicants",
+            route(
+                {
+                    "/workflow_sessions": [
+                        ScriptedResponse(json={"data": [{"id": "ws-1"}], "meta": {"next_cursor": "s2"}}),
+                        ScriptedResponse(json={"data": [{"id": "ws-2"}], "meta": {"next_cursor": None}}),
+                    ],
+                    "/workflow_sessions/ws-1/applicants": [
+                        ScriptedResponse(
+                            json={"data": [{"id": "a-1", "workflow_session_id": "ws-1"}], "meta": {"next_cursor": "a2"}}
+                        ),
+                        ScriptedResponse(
+                            json={"data": [{"id": "a-2", "workflow_session_id": "ws-1"}], "meta": {"next_cursor": None}}
+                        ),
+                    ],
+                    "/workflow_sessions/ws-2/applicants": [
+                        ScriptedResponse(
+                            json={"data": [{"id": "a-3", "workflow_session_id": "ws-2"}], "meta": {"next_cursor": None}}
+                        ),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["workflow_session_id"], row["id"]) for row in result.rows] == [
+            ("ws-1", "a-1"),
+            ("ws-1", "a-2"),
+            ("ws-2", "a-3"),
+        ]
+        cursors = [
+            (request.path, request.param("after")) for request in result.requests if request.param("after") is not None
+        ]
+        assert cursors == [("/v3/workflow_sessions/ws-1/applicants", "a2"), ("/v3/workflow_sessions", "s2")]
+
+
 class TestCapabilityLinkStripping:
     """Signing and approval links (capability fields) must never reach the warehouse on any path."""
 
     @pytest.mark.parametrize(
-        "endpoint, link_field",
-        [("signers", "signature_link"), ("approvers", "approval_link")],
+        "endpoint, link_field, wrap_in_data, key_field",
+        [
+            ("signers", "signature_link", False, "id"),
+            ("approvers", "approval_link", False, "id"),
+            # Followers come wrapped in `data` and carry no id.
+            ("followers", "follower_link", True, "email"),
+        ],
     )
-    def test_fanout_strips_capability_link(self, endpoint: str, link_field: str) -> None:
+    def test_fanout_strips_capability_link(
+        self, endpoint: str, link_field: str, wrap_in_data: bool, key_field: str
+    ) -> None:
+        children = [{key_field: "r-1", "status": "notified", link_field: "https://link/abc"}]
         result = _driver().run(
             endpoint,
             route(
@@ -232,15 +280,16 @@ class TestCapabilityLinkStripping:
                         ScriptedResponse(json={"data": [{"id": "sr-1"}], "meta": {"next_cursor": None}})
                     ],
                     f"/signature_requests/sr-1/{endpoint}": [
-                        ScriptedResponse(json=[{"id": "r-1", "status": "notified", link_field: "https://link/abc"}])
+                        ScriptedResponse(json={"data": children} if wrap_in_data else children)
                     ],
                 }
             ),
         )
 
         assert result.raised is None
+        assert len(result.rows) == 1
         assert result.rows[0].get(link_field) is None
-        assert result.rows[0]["id"] == "r-1"
+        assert result.rows[0][key_field] == "r-1"
         assert result.rows[0]["signature_request_id"] == "sr-1"
 
     def test_signature_requests_strips_embedded_links(self) -> None:

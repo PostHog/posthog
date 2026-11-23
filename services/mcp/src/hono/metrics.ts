@@ -57,6 +57,12 @@ export const toolErrorsTotal = new Counter({
     labelNames: ['tool', 'error_type'] as const,
 })
 
+export const posthogCaptureEventsLostTotal = new Counter({
+    name: 'mcp_posthog_capture_events_lost_total',
+    help: "Events the server's PostHog client could not deliver, by capture endpoint and reason.",
+    labelNames: ['endpoint', 'reason'] as const,
+})
+
 export const redisOperationsTotal = new Counter({
     name: 'mcp_redis_operations_total',
     help: 'Redis cache and connection operations by outcome.',
@@ -126,7 +132,7 @@ export const confirmedActionRefusalsTotal = new Counter({
     labelNames: ['tool', 'reason'] as const,
 })
 
-// 1 if the codec + nonce ledger were installed at boot, 0 otherwise. A
+// 1 if the codec + payload stash were installed at boot, 0 otherwise. A
 // single boot-time console.error is easy to lose; this lets ops alert
 // directly on `mcp_confirmed_action_runtime_installed == 0` regardless
 // of whether anyone has tried a -prepare/-execute call yet.

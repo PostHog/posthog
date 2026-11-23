@@ -39,6 +39,12 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
             'Only return suggestions in this status.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `dismissed` - Dismissed\n\* `expired` - Expired\n\* `auto_resolved` - Auto-resolved'
         ),
     subject_id: zod.string().optional().describe('Only return suggestions about the view or table with this ID.'),
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
 })
 
 export const warehouseSuggestionsRetrievePathIdRegExp = new RegExp(
@@ -67,7 +73,15 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsAcceptCreateQueryBulkDefault = false
+
 export const WarehouseSuggestionsAcceptCreateQueryParams = () => zod.object({
+    bulk: zod
+        .boolean()
+        .default(warehouseSuggestionsAcceptCreateQueryBulkDefault)
+        .describe(
+            'Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.'
+        ),
     surface: zod
         .enum(['models', 'catalog'])
         .optional()
@@ -166,7 +180,15 @@ export const WarehouseSuggestionsDismissCreateParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsDismissCreateQueryBulkDefault = false
+
 export const WarehouseSuggestionsDismissCreateQueryParams = () => zod.object({
+    bulk: zod
+        .boolean()
+        .default(warehouseSuggestionsDismissCreateQueryBulkDefault)
+        .describe(
+            'Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.'
+        ),
     surface: zod
         .enum(['models', 'catalog'])
         .optional()
@@ -179,10 +201,12 @@ export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = () => zod.object({
     reason: zod
-        .enum(['not_useful', 'not_now', 'other'])
-        .describe('\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other')
+        .enum(['not_useful', 'not_now', 'wrong_estimate', 'already_handled', 'not_owner', 'other'])
         .describe(
-            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other'
+            '\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
+        )
+        .describe(
+            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
         ),
     note: zod
         .string()
@@ -209,5 +233,14 @@ export const WarehouseSuggestionsStatusRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsStatusRetrieveQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })

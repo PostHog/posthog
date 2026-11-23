@@ -2,7 +2,7 @@
 
 Use this flow only when the stored personal ranking cannot answer the request:
 
-- The list response's `ranker` is not `personal`, and the person wants a personal order now rather than the recommended order.
+- The list response's `ranker` is not `personal`, and the person wants a personal order now rather than the priority order.
 - The person asks for a ranking with custom weights, such as "ignore the model" or "weight fix chances higher".
 - The person asks to rank by themes from their activity summary that the stored ranking does not use.
 

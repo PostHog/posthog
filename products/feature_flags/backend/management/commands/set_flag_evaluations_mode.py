@@ -1,28 +1,45 @@
 """Set OrganizationFeatureFlagsConfig.flag_evaluations_mode on the selected organizations.
 
 New organizations take FLAG_EVALUATIONS_NEW_ORG_MODE when they are created. This command covers
-the organizations that existed before that setting changed: a list of ids, or every organization
-created after an instant.
+the organizations that existed before that setting changed: a list of ids, every organization
+created after an instant, or every organization, less an optional exclude list.
 
-On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams in
-the ingestion allowlist.
+The command writes the organizations in chunks and commits each chunk in its own transaction.
+A run skips organizations already at --mode, so a run that fails partway resumes when it runs
+again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
+a file. A rollback passes that file to --organization-ids-file.
+
+On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
+copies to flag_evaluations.
 """
 
+import os
+import math
+import time
+import fcntl
 import argparse
+from collections.abc import Iterable
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
-from typing import Any
+from itertools import batched
+from pathlib import Path
+from typing import Any, TextIO
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import transaction
+from django.db import DatabaseError, transaction
+
+from posthog.models import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_modes
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
+    OrganizationModeChange,
     UnknownIdsError,
-    get_organizations,
-    select_organizations,
-    set_organization_flag_evaluations_mode,
+    find_unknown_organization_ids,
+    select_organization_ids,
+    set_organizations_flag_evaluations_mode,
 )
 
 
@@ -32,6 +49,35 @@ def _parse_instant(value: str) -> datetime:
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"{value!r} is not an ISO 8601 date or datetime") from error
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a positive integer")
+    return parsed
+
+
+def _read_ids_file(path: Path) -> list[UUID]:
+    """One UUID per line. Blank lines are skipped, and any other line that is not a UUID fails the run."""
+    ids = []
+    try:
+        with path.open() as file:
+            for line_number, line in enumerate(file, start=1):
+                if not (text := line.strip()):
+                    continue
+                try:
+                    ids.append(UUID(text))
+                except ValueError as error:
+                    raise CommandError(f"{path}:{line_number}: {text!r} is not an organization id") from error
+    except OSError as error:
+        raise CommandError(f"Cannot read {path}: {error}") from error
+    return ids
+
+
+def _sync(file: TextIO) -> None:
+    file.flush()
+    os.fsync(file.fileno())
 
 
 class Command(BaseCommand):
@@ -54,10 +100,59 @@ class Command(BaseCommand):
             help="Organization to update. Repeat the flag for more than one.",
         )
         selector.add_argument(
+            "--organization-ids-file",
+            type=Path,
+            help="File with one organization id per line. An unknown id fails the run before any write.",
+        )
+        selector.add_argument(
             "--organizations-created-after",
             type=_parse_instant,
             dest="created_after",
             help="Update every organization created after this ISO 8601 instant. A bare date means midnight UTC.",
+        )
+        selector.add_argument("--all-organizations", action="store_true", help="Update every organization.")
+        parser.add_argument(
+            "--exclude-organization-ids-file",
+            type=Path,
+            help=(
+                "File with one organization id per line. The run skips these organizations. An unknown id fails "
+                "the run before any write."
+            ),
+        )
+        parser.add_argument(
+            "--chunk-size",
+            type=_positive_int,
+            default=1000,
+            help=(
+                "Organizations per transaction. A failure rolls back only its own chunk, and running the command "
+                "again resumes the run. A run larger than one chunk prints a line per chunk instead of one per "
+                "organization."
+            ),
+        )
+        parser.add_argument(
+            "--skip-experiment-count",
+            action="store_true",
+            help=(
+                "Skip the count of running experiments that read $feature_flag_called from events. The count "
+                "takes queries for each organization and only feeds a warning."
+            ),
+        )
+        parser.add_argument(
+            "--write-changed-ids",
+            type=Path,
+            help=(
+                "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
+                "writes its ids before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
+                "appends the ids it changes. Refused with --dry-run."
+            ),
+        )
+        parser.add_argument(
+            "--skip-unknown-organization-ids",
+            action="store_true",
+            help=(
+                "Skip listed ids that match no organization instead of failing the run. A rollback from a "
+                "--write-changed-ids file needs it when an organization was deleted after the run."
+            ),
         )
         parser.add_argument("--dry-run", action="store_true", help="Report the changes and write nothing")
         parser.add_argument(
@@ -65,8 +160,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
-                "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events "
-                "table keeps a gap for those teams for the time the organization spent on 2."
+                "the events writes that ingestion stopped for its teams. The events table keeps a gap for those "
+                "teams for the time the organization spent on 2."
             ),
         )
 
@@ -74,49 +169,181 @@ class Command(BaseCommand):
         mode = FlagEvaluationsMode(options["mode"])
         dry_run: bool = options["dry_run"]
         allow_downgrade: bool = options["allow_downgrade"]
-        organization_ids: list[UUID] | None = options["organization_ids"]
+        chunk_size: int = options["chunk_size"]
+        count_experiments = not options["skip_experiment_count"]
+        changed_ids_path: Path | None = options["write_changed_ids"]
+        if dry_run and changed_ids_path is not None:
+            raise CommandError("--write-changed-ids writes the ids a run changed, and a dry run changes none")
 
-        if organization_ids is None:
-            organizations = list(select_organizations(created_after=options["created_after"]))
-        else:
-            try:
-                organizations = get_organizations(organization_ids)
-            except UnknownIdsError as error:
-                raise CommandError(str(error)) from error
+        skip_unknown: bool = options["skip_unknown_organization_ids"]
+        organization_ids = self._select(options, skip_unknown=skip_unknown)
+        exclude_path: Path | None = options["exclude_organization_ids_file"]
+        if exclude_path is not None:
+            excluded_ids = set(
+                self._known(_read_ids_file(exclude_path), skip_unknown=skip_unknown, source=str(exclude_path))
+            )
+            selected_count = len(organization_ids)
+            organization_ids = [
+                organization_id for organization_id in organization_ids if organization_id not in excluded_ids
+            ]
+            self.stdout.write(
+                f"Excluded {selected_count - len(organization_ids)} selected organization(s) of the "
+                f"{len(excluded_ids)} in {exclude_path}."
+            )
 
         verb = "Would set" if dry_run else "Set"
-        self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organizations)} organization(s).")
+        self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organization_ids)} organization(s).")
+        if not count_experiments:
+            self.stdout.write("Skipping the count of running experiments that read $feature_flag_called from events.")
+
+        per_organization_lines = len(organization_ids) <= chunk_size
+        chunk_total = math.ceil(len(organization_ids) / chunk_size)
+        done_count = 0
         changed_count = 0
         left_above_count = 0
-        stopped_experiments_count = 0
-        with transaction.atomic():
-            for organization in organizations:
-                change = set_organization_flag_evaluations_mode(
-                    organization, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
+        experiments_needing_flag_calls_count = 0
+        started_at = time.monotonic()
+        with self._open_changed_ids_file(changed_ids_path) as changed_ids_file:
+            for chunk_number, chunk_ids in enumerate(batched(organization_ids, chunk_size, strict=False), start=1):
+                # An organization deleted after the selection drops out of its chunk instead of failing the run.
+                organizations = list(
+                    Organization.objects.filter(id__in=chunk_ids)
+                    .only("id", "name", "created_at")
+                    .order_by("created_at", "id")
                 )
-                changed_count += change.changed
-                left_above_count += change.left_above_mode
-                if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-                    stopped_experiments_count += change.running_experiments_on_feature_flag_called
-                outcome = (
-                    f"mode {change.current_mode} -> {change.target_mode}"
-                    if change.changed
-                    else f"mode {change.current_mode}, unchanged"
-                )
-                self.stdout.write(
-                    f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
-                    f"{change.team_count} team(s), "
-                    f"{change.running_experiments_on_feature_flag_called} experiment(s) on $feature_flag_called): {outcome}"
-                )
+                chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
+                modes_before_chunk: dict[UUID, int] = {}
+                try:
+                    with transaction.atomic():
+                        changes = set_organizations_flag_evaluations_mode(
+                            organizations,
+                            mode,
+                            allow_downgrade=allow_downgrade,
+                            dry_run=dry_run,
+                            count_experiments=count_experiments,
+                        )
+                        # The ids reach the disk before the chunk commits. A rerun reports a committed
+                        # organization as unchanged, so it could not list an id that a crash after the
+                        # commit lost.
+                        if changed_ids_file is not None:
+                            modes_before_chunk = {
+                                change.organization_id: change.current_mode for change in changes if change.changed
+                            }
+                            changed_ids_file.writelines(
+                                f"{organization_id}\n" for organization_id in modes_before_chunk
+                            )
+                            _sync(changed_ids_file)
+                except BaseException:
+                    if changed_ids_file is not None:
+                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, modes_before_chunk)
+                    raise
+
+                done_count += len(chunk_ids)
+                for change in changes:
+                    changed_count += change.changed
+                    left_above_count += change.left_above_mode
+                    if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+                        experiments_needing_flag_calls_count += change.running_experiments_needing_flag_calls_in_events
+                    if per_organization_lines:
+                        self._write_organization_line(change, count_experiments=count_experiments)
+                if not per_organization_lines:
+                    self.stdout.write(
+                        f"  chunk {chunk_number}/{chunk_total}: {done_count}/{len(organization_ids)} organization(s) "
+                        f"done, {changed_count} changed, {time.monotonic() - started_at:.0f}s elapsed"
+                    )
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
+        if changed_ids_path is not None:
+            self.stdout.write(f"Appended {changed_count} changed organization id(s) to {changed_ids_path}.")
         if left_above_count:
             self.stdout.write(
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
             )
-        if stopped_experiments_count:
+        if experiments_needing_flag_calls_count:
             self.stdout.write(
-                f"{stopped_experiments_count} running experiment(s) count exposures on $feature_flag_called. "
-                "On teams in the ingestion allowlist, those exposures stop on this mode."
+                f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
+                "through an exposure action, an activation, or a metric. Those reads find no new calls on this mode."
             )
+
+    def _select(self, options: dict[str, Any], *, skip_unknown: bool) -> list[UUID]:
+        if options["all_organizations"] or options["created_after"] is not None:
+            return select_organization_ids(created_after=options["created_after"])
+        ids_file: Path | None = options["organization_ids_file"]
+        if ids_file is None:
+            return self._known(options["organization_ids"], skip_unknown=skip_unknown, source="--organization-id")
+        return self._known(_read_ids_file(ids_file), skip_unknown=skip_unknown, source=str(ids_file))
+
+    def _known(self, organization_ids: Iterable[UUID], *, skip_unknown: bool, source: str) -> list[UUID]:
+        """The given ids, once each and in order, less those that match no organization when skip_unknown is set."""
+        unique_ids = list(dict.fromkeys(organization_ids))
+        if not (missing_ids := find_unknown_organization_ids(unique_ids)):
+            return unique_ids
+        if not skip_unknown:
+            raise CommandError(str(UnknownIdsError("organization", missing_ids)))
+        self.stdout.write(f"Skipping {len(missing_ids)} unknown organization id(s) in {source}.")
+        return [organization_id for organization_id in unique_ids if organization_id not in missing_ids]
+
+    def _open_changed_ids_file(self, path: Path | None) -> AbstractContextManager[TextIO | None]:
+        if path is None:
+            return nullcontext()
+        try:
+            file = path.open("a+")
+        except OSError as error:
+            raise CommandError(f"Cannot open {path}: {error}") from error
+        # Failure recovery truncates the file to where its chunk started, which would erase ids that another
+        # run appended after that point.
+        try:
+            fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            file.close()
+            raise CommandError(f"Another run is writing to {path}") from error
+        file.seek(0)
+        listed = file.read()
+        if listed_count := sum(1 for line in listed.splitlines() if line.strip()):
+            self.stdout.write(f"Appending to {path}, which lists {listed_count} organization id(s) already.")
+        if listed and not listed.endswith("\n"):
+            file.write("\n")
+        file.seek(0, os.SEEK_END)
+        return file
+
+    def _drop_ids_of_rolled_back_chunk(
+        self, file: TextIO, chunk_start: int, modes_before_chunk: dict[UUID, int]
+    ) -> None:
+        """Remove the failed chunk's ids from the file when the chunk rolled back.
+
+        A commit can apply on the server and still raise. The chunk commits or rolls back as a whole, so
+        the chunk rolled back only when every organization still reads the mode it had before the chunk.
+        In any other case the file keeps the ids, because another writer can move an organization after
+        the commit.
+        """
+        if not modes_before_chunk:
+            return
+        try:
+            stored_modes = get_organization_flag_evaluations_modes(list(modes_before_chunk))
+        except DatabaseError:
+            self.stderr.write(
+                f"Could not read back the modes of the failed chunk, so {file.name} keeps its "
+                f"{len(modes_before_chunk)} id(s) unverified."
+            )
+            return
+        if stored_modes == modes_before_chunk:
+            file.truncate(chunk_start)
+            _sync(file)
+
+    def _write_organization_line(self, change: OrganizationModeChange, *, count_experiments: bool) -> None:
+        outcome = (
+            f"mode {change.current_mode} -> {change.target_mode}"
+            if change.changed
+            else f"mode {change.current_mode}, unchanged"
+        )
+        experiments = (
+            f", {change.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
+            "from events"
+            if count_experiments
+            else ""
+        )
+        self.stdout.write(
+            f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
+            f"{change.team_count} team(s){experiments}): {outcome}"
+        )

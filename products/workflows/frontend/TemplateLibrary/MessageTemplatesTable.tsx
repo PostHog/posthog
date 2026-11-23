@@ -11,12 +11,12 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TagSelect } from 'lib/components/TagSelect'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -34,16 +34,8 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const {
-        filteredTemplates,
-        templates,
-        templatesLoading,
-        search,
-        createdByFilter,
-        transactionalOnly,
-        tagsFilter,
-        tags: allTags,
-    } = useValues(messageTemplatesLogic)
+    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, transactionalOnly, tagsFilter } =
+        useValues(messageTemplatesLogic)
     const {
         deleteTemplate,
         createTemplate,
@@ -180,17 +172,15 @@ export function MessageTemplatesTable(): JSX.Element {
                                                             initialValues: { tags: [...(template.tags ?? [])] },
                                                             content: (
                                                                 <LemonField name="tags">
-                                                                    <LemonInputSelect
-                                                                        mode="multiple"
-                                                                        allowCustomValues
-                                                                        options={allTags.map((tag) => ({
-                                                                            key: tag,
-                                                                            label: tag,
-                                                                        }))}
-                                                                        placeholder='try "growth"'
-                                                                        autoFocus
-                                                                        data-attr="template-tags-input"
-                                                                    />
+                                                                    {({ value, onChange }) => (
+                                                                        <TagsInputSelect
+                                                                            value={value}
+                                                                            onChange={onChange}
+                                                                            placeholder='try "growth"'
+                                                                            autoFocus
+                                                                            data-attr="template-tags-input"
+                                                                        />
+                                                                    )}
                                                                 </LemonField>
                                                             ),
                                                             onSubmit: async ({ tags }) => {

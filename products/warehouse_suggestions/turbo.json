@@ -9,7 +9,9 @@
                 "backend/webhook_consumers.py",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/temporal/**"
+                "backend/temporal/**",
+                "backend/activity_logging.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

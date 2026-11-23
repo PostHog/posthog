@@ -9,3 +9,4 @@ class KnockSourceConfig(config.Config):
     api_key: str
     object_collections: str | None = None
     audience_keys: str | None = None
+    in_app_feed_channel_ids: str | None = None

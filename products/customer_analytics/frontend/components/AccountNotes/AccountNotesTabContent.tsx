@@ -13,15 +13,13 @@ import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
+import { TagsFilter } from '../TagsFilter'
 import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
 import { AccountNotesViewSelector } from './AccountNotesViewSelector'
 import { NotesCreatedByFilter } from './NotesCreatedByFilter'
-import { NotesTagsFilter } from './NotesTagsFilter'
 
 export function AccountNotesTabContent(): JSX.Element {
     const {
@@ -36,7 +34,7 @@ export function AccountNotesTabContent(): JSX.Element {
         tagsFilter,
         sorting,
         pagination,
-        updatingNoteShortId,
+        pendingNoteTags,
     } = useValues(accountNotesLogic)
     const {
         setSearch,
@@ -49,8 +47,6 @@ export function AccountNotesTabContent(): JSX.Element {
         updateNoteTags,
     } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const hasFilters =
         !!search ||
@@ -118,9 +114,7 @@ export function AccountNotesTabContent(): JSX.Element {
                         <ObjectTags
                             tags={tags}
                             onChange={(newTags) => updateNoteTags(note, newTags)}
-                            onEdit={loadTagsIfNeeded}
-                            saving={updatingNoteShortId === note.short_id || tagsLoading}
-                            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+                            saving={!!pendingNoteTags[note.short_id]}
                             data-attr="account-note-tags"
                         />
                     </div>
@@ -168,7 +162,6 @@ export function AccountNotesTabContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
-                <AccountNotesViewSelector />
                 <LemonInput
                     type="search"
                     placeholder="Search notes"
@@ -178,8 +171,9 @@ export function AccountNotesTabContent(): JSX.Element {
                     className="min-w-64"
                     data-attr="account-notes-search"
                 />
+                <AccountNotesViewSelector />
                 <AccountPicker />
-                <NotesTagsFilter
+                <TagsFilter
                     value={tagsFilter}
                     onChange={(tags) => {
                         setTagsFilter(tags)

@@ -130,6 +130,13 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         path="/tags",
         data_key="tags",
     ),
+    # A point-in-time snapshot of each user's current availability. `from` filters on the user's
+    # creation date, not on when the availability changed, so this is full refresh only.
+    "user_availabilities": AircallEndpointConfig(
+        name="user_availabilities",
+        path="/users/availabilities",
+        data_key="users",
+    ),
     # Conversation Intelligence sub-resources, one object per call, fanned out over calls. Each
     # returns a flat per-call object, so "$" selects the whole body as the single row. These need
     # the AI Assist add-on on the account; without it every fetch is denied, which surfaces as an
@@ -161,6 +168,32 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
     "call_evaluations": AircallEndpointConfig(
         name="call_evaluations",
         path="/calls/{call_id}/evaluations",
+        data_key="$",
+        primary_key="call_id",
+        paginated=False,
+        fanout=_CALL_CI_FANOUT,
+    ),
+    # Unlike the flat CI bodies above, these two wrap the per-call object in a named key.
+    "call_predicted_csats": AircallEndpointConfig(
+        name="call_predicted_csats",
+        path="/calls/{call_id}/predicted_csat",
+        data_key="csat",
+        primary_key="call_id",
+        paginated=False,
+        fanout=_CALL_CI_FANOUT,
+    ),
+    "call_summaries": AircallEndpointConfig(
+        name="call_summaries",
+        path="/calls/{call_id}/summary",
+        data_key="summary",
+        primary_key="call_id",
+        paginated=False,
+        fanout=_CALL_CI_FANOUT,
+    ),
+    # Needs the AI Assist Pro package rather than the base AI Assist add-on.
+    "call_custom_summary_results": AircallEndpointConfig(
+        name="call_custom_summary_results",
+        path="/calls/{call_id}/custom_summary_result",
         data_key="$",
         primary_key="call_id",
         paginated=False,

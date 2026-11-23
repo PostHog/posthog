@@ -1,1 +1,1 @@
-1431_squash_2026_11_02_schema_addons
+1453_disable_activitylog_detail_gin_fastupdate

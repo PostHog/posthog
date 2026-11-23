@@ -135,11 +135,6 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     owner_changed_at = models.DateTimeField(null=True, blank=True)
     labels = models.JSONField(default=dict, db_default={})
     annotations = models.JSONField(default=dict, db_default={})
-    # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
-    # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
-    destinations_owner = models.CharField(
-        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
-    )
 
     activity_logging_on_delete = True
 
@@ -366,7 +361,7 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
 
 
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
-    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+    """Where an alert sends, beside any HogFunctions it has.
 
     One row is one destination a person sees on the alert's page. It sends through the platform's
     transport for its type.
@@ -389,6 +384,9 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     # The HogFunctions this replaced, so an id issued before the move still finds the destination.
     legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # A webhook whose receiver got its source's legacy body from the HogFunctions this replaced keeps
+    # that body, whatever the team's webhook body flags say.
+    keeps_legacy_webhook_body = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "alerts_platformalertdestination"

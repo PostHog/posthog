@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -11,6 +12,7 @@ import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
 import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
+import { failureText, isRunningInCI } from './utils'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
 tools
@@ -20,6 +22,7 @@ schema <tool_name> [field_path]
 call [--json] [--confirm] <tool_name> [json_input]`
 
 interface BuiltExec {
+    aiConsentGiven: boolean | undefined
     context: Context
     execTool: Tool<ZodObjectAny>
     tools: Tool<ZodObjectAny>[]
@@ -68,8 +71,9 @@ function printResult(result: unknown): void {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
+// Callers can inspect a tool's inputs before their organization grants AI consent.
 function buildStaticExec(): BuiltStaticExec {
-    const tools = getCliTools()
+    const tools = getCliTools({ aiConsentGiven: true })
     const execTool = createExecTool(
         tools,
         undefined,
@@ -99,11 +103,11 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         { requireDestructiveConfirmation: true }
     )
 
-    return { context, execTool, tools }
+    return { aiConsentGiven, context, execTool, tools }
 }
 
 function buildAgentHelpForStaticCatalog(): string {
-    return buildAgentHelp(getCliTools())
+    return buildAgentHelp(getCliTools({ aiConsentGiven: true }))
 }
 
 async function runStaticExecCommand(command: string): Promise<void> {
@@ -112,11 +116,18 @@ async function runStaticExecCommand(command: string): Promise<void> {
     printResult(result)
 }
 
-async function runExecCommand(command: string, config: CliConfig): Promise<void> {
+async function runExecCommand(command: string, config: CliConfig, toolName: string): Promise<void> {
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
-    const { execTool, context } = await buildExec(config)
+    const { aiConsentGiven, execTool, context } = await buildExec(config)
+    if (
+        !aiConsentGiven &&
+        getToolDefinitions()[toolName]?.requires_ai_consent &&
+        getCliTools({ aiConsentGiven: true }).some((tool) => tool.name === toolName)
+    ) {
+        throw new Error(`${toolName} sends data to an AI provider, and the organization has not allowed that.`)
+    }
     const result = await execTool.handler(context, { command })
     printResult(result)
 }
@@ -255,7 +266,8 @@ async function main(): Promise<void> {
             }
             await runExecCommand(
                 `call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`,
-                config
+                config,
+                toolName
             )
             return
         }
@@ -271,8 +283,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`Error: ${message}\n`)
+    process.stderr.write(`Error: ${failureText(error, isRunningInCI(process.env))}\n`)
     // process.exit() kills in-flight requests, which silently dropped every
     // errored $mcp_tool_call event; flush analytics before exiting non-zero.
     await flushAnalytics()

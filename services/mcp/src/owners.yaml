@@ -9,6 +9,7 @@ rules:
           - '/tools/generated/'
           - '/ui-apps/generated/'
           - '/ui-apps/apps/generated/'
+          - '/tools/links/app-url-manifest.json'
       status: generated
     - match:
           - '/generated/mcp_analytics/'
@@ -22,3 +23,17 @@ rules:
           - '/tools/generated/ai_observability.ts'
           - '/ui-apps/apps/generated/llm-costs.tsx'
       owners: team-ai-observability
+    # Every customer's agent reads or hits these files, so request the team even for a small change.
+    - match:
+          - '/tools/exec.ts'
+          - '/tools/exec-learn.ts'
+          - '/hono/instructions.ts'
+          - '/lib/instructions-formatter.ts'
+          - '/hono/guidance/'
+          - '/templates/sections/cli-*.md'
+          - '/templates/sections/exec-*.md'
+          - '/templates/sections/basic-functionality.md'
+          - '/templates/sections/compact-instructions.md'
+          - '/templates/sections/skills-first.md'
+          - '/templates/sections/tool-search.md'
+      sensitive: true

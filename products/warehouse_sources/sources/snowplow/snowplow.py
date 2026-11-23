@@ -11,7 +11,9 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
+    format_datetime,
     make_tracked_session,
+    resolve_incremental_start,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.snowplow.settings import SNOWPLOW_ENDPOINTS, SnowplowEndpointConfig
@@ -54,11 +56,6 @@ class SnowplowResumeConfig:
     # Keyed on stable IDs (not a positional index) so a pipeline added between a crash and the
     # retry is still processed rather than skipped.
     completed_pipeline_ids: list[str] = dataclasses.field(default_factory=list)
-
-
-def _format_datetime(dt: datetime) -> str:
-    """Format as the Z-suffixed ISO 8601 the API documents; from/to must share one format."""
-    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -236,13 +233,13 @@ def _get_windowed_job_rows(
 
     for window_start, window_end in _iter_windows(window.start, window.end, JOB_RUNS_WINDOW):
         runs = client.get(
-            "/jobs/v1/runs", params={"from": _format_datetime(window_start), "to": _format_datetime(window_end)}
+            "/jobs/v1/runs", params={"from": format_datetime(window_start), "to": format_datetime(window_end)}
         )
         if not isinstance(runs, list):
             runs = []
         if len(runs) >= JOB_RUNS_WINDOW_ROW_CAP:
             logger.warning(
-                f"Snowplow: jobs window {_format_datetime(window_start)}..{_format_datetime(window_end)} returned "
+                f"Snowplow: jobs window {format_datetime(window_start)}..{format_datetime(window_end)} returned "
                 f"{len(runs)} rows — the API caps a window at {JOB_RUNS_WINDOW_ROW_CAP} rows, data may be truncated"
             )
 
@@ -253,7 +250,7 @@ def _get_windowed_job_rows(
 
         # Save AFTER the window's batches were consumed, so a crash re-fetches the in-flight
         # window (merge dedupes on the primary key) rather than skipping it.
-        resumable_source_manager.save_state(SnowplowResumeConfig(window_from=_format_datetime(window_end)))
+        resumable_source_manager.save_state(SnowplowResumeConfig(window_from=format_datetime(window_end)))
 
 
 def _get_step_rows_for_runs(
@@ -329,15 +326,16 @@ def _get_failed_event_metric_rows(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     now = datetime.now(UTC)
-    if should_use_incremental_field and db_incremental_field_last_value:
-        start = _parse_datetime(db_incremental_field_last_value) - INCREMENTAL_LOOKBACK
-    else:
-        # The metrics store keeps about a week of failed-event aggregates (the API's own default
-        # range is the preceding week), so that is the deepest useful first sync.
-        start = now - JOB_RUNS_RETENTION
-    if start > now:
-        start = now
-    params = {"from": _format_datetime(start), "to": _format_datetime(now)}
+    # The metrics store keeps about a week of failed-event aggregates (the API's own default
+    # range is the preceding week), so that is the deepest useful first sync.
+    start = resolve_incremental_start(
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        default=JOB_RUNS_RETENTION,
+        lookback=INCREMENTAL_LOOKBACK,
+        now=now,
+    )
+    params = {"from": format_datetime(start), "to": format_datetime(now)}
 
     pipelines = client.get("/pipelines/v1")
     pipeline_list = pipelines.get("pipelines", []) if isinstance(pipelines, dict) else []

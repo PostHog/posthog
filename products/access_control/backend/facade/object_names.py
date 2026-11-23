@@ -6,6 +6,7 @@ drift from the code: a viewset opts in by mixing in AccessControlViewSetMixin, w
 the settings UI and the resolution preview show for object rules.
 """
 
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from functools import cache
 from typing import cast
@@ -17,7 +18,8 @@ from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -33,6 +35,9 @@ class _ResourceDisplayModel:
 # resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
 # and with no derivable name field is left out of the picker and falls back to the raw id.
 _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
+    # Search reads actions through the actions facade, and the actions viewset has no queryset to derive a model from.
+    "action": _ResourceDisplayModel(app_label="actions", model_name="action", name_field="name"),
+    "canvas": _ResourceDisplayModel(app_label="canvas", model_name="canvas", name_field="name"),
     "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
@@ -48,6 +53,25 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     ),
     "ticket": _ResourceDisplayModel(app_label="conversations", model_name="ticket", name_field="ticket_number"),
 }
+
+
+# (team_id, user_id, sandboxed) -> the ids of the objects that viewer may open. A product whose
+# objects have visibility rules of their own (a canvas follows its space) registers one, so the
+# settings endpoints never find or put rules on objects the requester cannot open. A sandbox token
+# may see less than its user, so the caller says whether the request carries one.
+ObjectVisibilityFilter = Callable[[int, int | None, bool], Collection[str]]
+
+_OBJECT_VISIBILITY_FILTERS: dict[str, ObjectVisibilityFilter] = {}
+
+
+def register_object_visibility_filter(resource: str, filter_fn: ObjectVisibilityFilter) -> None:
+    _OBJECT_VISIBILITY_FILTERS[resource] = filter_fn
+
+
+def visible_object_ids(resource: str, *, team_id: int, user_id: int | None, sandboxed: bool) -> Collection[str] | None:
+    """The ids of the `resource` objects the viewer may open, or None when the product adds no rule of its own."""
+    filter_fn = _OBJECT_VISIBILITY_FILTERS.get(resource)
+    return filter_fn(team_id, user_id, sandboxed) if filter_fn else None
 
 
 @dataclass(frozen=True, kw_only=True)

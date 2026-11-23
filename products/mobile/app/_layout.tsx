@@ -13,21 +13,23 @@ import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
 import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
-import { useDemoHydrated } from '@/demo/demoMode'
-import { installOfflineCache } from '@/features/offlineCache'
-import { MobileScene } from '@/ui/MobileScene'
+import { useDemoHydrated, useDemoMode } from '@/demo/demoMode'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
+import { installOfflineCache } from '@/features/offlineCache'
+import { useSnoozeReminderPreferences } from '@/features/snooze/useSnoozeReminderPreferences'
 import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
+import { useViewRangeStore, viewRangesLoaded } from '@/features/views/rangeStore'
 import { useChartWidgetSync } from '@/features/widgets/useChartWidgetSync'
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
 import { useAppearanceHydrated } from '@/ui/appearanceStore'
+import { MobileScene } from '@/ui/MobileScene'
 import { RouteErrorBoundary } from '@/ui/RouteErrorBoundary'
 import { SceneFrame } from '@/ui/SceneFrame'
 import { createStyles, useTheme } from '@/ui/theme'
@@ -50,12 +52,19 @@ function hideNativeSplash(): void {
     SplashScreen.hideAsync().catch(() => undefined)
 }
 
+function SnoozeReminderPreferences(): null {
+    useSnoozeReminderPreferences()
+    return null
+}
+
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
+    const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
     const authStatus = useAuthStore((state) => state.status)
+    const [rangesReady, setRangesReady] = useState(useViewRangeStore.persist.hasHydrated)
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
-    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading'
+    const ready = demoHydrated && appearanceHydrated && rangesReady && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
@@ -81,6 +90,12 @@ export default function RootLayout(): ReactElement {
     useEffect(() => {
         void useAuthStore.getState().restore()
     }, [])
+
+    useEffect(() => {
+        if (!rangesReady) {
+            void viewRangesLoaded.then(() => setRangesReady(true))
+        }
+    }, [rangesReady])
 
     useEffect(() => {
         if (!ready) {
@@ -113,12 +128,20 @@ export default function RootLayout(): ReactElement {
     useAutomaticUpdates(ready && segments[0] === '(tabs)')
 
     return (
-        <GestureHandlerRootView style={styles.root}>
+        <GestureHandlerRootView
+            style={styles.root}
+            collapsable={false}
+            importantForAccessibility="no"
+            accessibilityLabel={
+                demoHydrated && demoEnabled && authStatus === 'signed_out' ? undefined : 'ph-no-capture'
+            }
+        >
             <SafeAreaProvider>
                 <ReservedRegionsProvider style={styles.root}>
                     <SceneFrame>
                         <KeyboardProvider>
                             <QueryClientProvider client={queryClient}>
+                                {ready ? <SnoozeReminderPreferences /> : null}
                                 <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (

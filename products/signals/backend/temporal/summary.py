@@ -4,7 +4,7 @@ import json
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -43,7 +43,6 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     start_requested_implementation,
 )
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
@@ -52,11 +51,6 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalSpend,
     SignalTeamConfig,
-)
-from products.signals.backend.quota import (
-    capture_signal_report_quota_paused,
-    record_quota_check_failed_open,
-    self_driving_quota_gate,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice, ReportLayer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -297,6 +291,19 @@ RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), t
 RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
 
 
+def summary_execution_timeout(debounce_seconds: int = 0) -> timedelta:
+    """The `execution_timeout` of a summary workflow that waits `debounce_seconds` before it researches.
+
+    The hour covers the research work. The other terms cover the workflow's own sleeps, which the hour
+    was never sized for: the research debounce at entry, the implementation buffer at settle, and the
+    waits between sandbox retries. A run that loops through several buffers can still outlive this.
+    It is a backstop, and the report stays READY and re-promotes.
+    """
+    return (
+        timedelta(hours=1, seconds=debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS) + RESEARCH_SANDBOX_RETRY_BUDGET
+    )
+
+
 def _is_research_sandbox_unavailable(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
     return (
@@ -527,14 +534,11 @@ class SignalReportSummaryWorkflow:
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
-        # 0. Quota gate: a team whose org is over its self-driving credits quota gets no new research or PRs. The
-        # report stays candidate and re-promotes on the first matching signal after the quota
-        # lifts. patched(): executions recorded before the gate existed replay the old command
-        # sequence (see also the two mid-run gates below, same patch id).
+        # Keep the recorded gate command; report-pass admission owns the limits.
         if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
             inputs, stage="summary_entry"
         ):
-            log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
+            log.info("Report run paused: daily report limit reached", stage="summary_entry")
             return False
         # Pending signals and the implementation buffer may cause more research passes in
         # this same pipeline. Admission covers all of them through the final implementation.
@@ -642,7 +646,7 @@ class SignalReportSummaryWorkflow:
             if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                 inputs, stage="pre_repo_selection"
             ):
-                log.info("Report run paused: org over self-driving credits quota", stage="pre_repo_selection")
+                log.info("Report run paused: daily report limit reached", stage="pre_repo_selection")
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
@@ -694,7 +698,7 @@ class SignalReportSummaryWorkflow:
                 if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
                     inputs, stage="pre_research"
                 ):
-                    log.info("Report run paused: org over self-driving credits quota", stage="pre_research")
+                    log.info("Report run paused: daily report limit reached", stage="pre_research")
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
@@ -787,7 +791,7 @@ class SignalReportSummaryWorkflow:
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
-            has_new_signals: bool = await workflow.execute_activity(
+            has_new_signals: bool | None = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
@@ -814,6 +818,8 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if has_new_signals is None:
+                return False
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
@@ -969,42 +975,8 @@ class CheckReportQuotaGateInput:
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Check limits before accepting a report pipeline, never between its stages."""
-    # Existing histories still schedule these activities. Returning False preserves replay
-    # compatibility while letting the admitted pass finish repository selection and research.
-    if input.operator_rerun or input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
-        return False
-    try:
-        if await (
-            SignalReport.objects.filter(team_id=input.team_id, id=input.report_id)
-            .exclude(billing_exempt_reason__isnull=True)
-            .exclude(billing_exempt_reason="")
-            .aexists()
-        ):
-            return False
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
-            team, signal_id=input.signal_id
-        )
-        if gate.limited:
-            capture_signal_report_quota_paused(
-                team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
-            )
-        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-        if daily_gate.limited:
-            capture_signal_report_daily_limit_paused(
-                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
-            )
-        return gate.enforced or daily_gate.limited
-    except Exception:
-        record_quota_check_failed_open()
-        logger.exception(
-            "Self-driving quota gate check failed open",
-            report_id=input.report_id,
-            team_id=input.team_id,
-            stage=input.stage,
-        )
-        return False
+    """Recorded histories still call this activity; report-pass admission owns the limits."""
+    return False
 
 
 @frozen
@@ -1024,6 +996,22 @@ async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsIn
     return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
+def revert_report_to_candidate(team_id: int, report_id: str, *, started_before: datetime | None = None) -> bool:
+    """Move an IN_PROGRESS report back to CANDIDATE under a row lock. Returns whether the report moved.
+
+    With `started_before`, the report moves only if its current run started before that time. A caller
+    that decided from an earlier read therefore leaves alone a run that started after that read.
+    """
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        if report.status != SignalReport.Status.IN_PROGRESS:
+            return False
+        if started_before is not None and (report.last_run_at is None or report.last_run_at >= started_before):
+            return False
+        report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
+    return True
+
+
 @dataclass
 class RevertReportToCandidateInput:
     team_id: int
@@ -1037,16 +1025,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     """Return a report paused mid-run by the quota gate from in_progress to candidate, so the next
     matching signal re-promotes it (no promotion rule ever picks up an in_progress report).
     """
-
-    @transaction.atomic
-    def do_update() -> None:
-        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-        if report.status != SignalReport.Status.IN_PROGRESS:
-            return
-        updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-        report.save(update_fields=updated_fields)
-
-    await database_sync_to_async(do_update, thread_sensitive=False)()
+    await database_sync_to_async(revert_report_to_candidate, thread_sensitive=False)(input.team_id, input.report_id)
     logger.info(
         "Reverted quota-paused report to candidate",
         report_id=input.report_id,
@@ -1330,12 +1309,12 @@ def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> No
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool | None:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update() -> _ReportTransition:
+        def do_update() -> _ReportTransition | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.READY:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
@@ -1344,6 +1323,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 return _ReportTransition(
                     run_count=report.run_count, chart_count=0, was_duplicate=True, has_new_signals=True
                 )
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping ready transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
@@ -1404,6 +1390,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             report_id=input.report_id,
         )
         raise
+
+    if transition is None:
+        return None
 
     if transition.was_duplicate:
         logger.info(
@@ -1576,10 +1565,17 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, bool] | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.FAILED:
                 return report.run_count, True
+            if report.status not in (SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE):
+                logger.info(
+                    "Report is no longer in progress, skipping failed transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(
                 SignalReport.Status.FAILED,
                 error=startup_failure_message(input.startup_failure.failure) if input.startup_failure else input.error,
@@ -1598,7 +1594,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
                 )
             return report.run_count, False
 
-        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
@@ -1606,6 +1602,10 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         )
         raise
 
+    if transition is None:
+        return
+
+    run_count, was_already_failed = transition
     if was_already_failed:
         logger.info(
             f"Report {input.report_id} already in failed status, skipping duplicate transition",
@@ -1682,10 +1682,17 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> _ReportTransition:
+        def do_update() -> _ReportTransition | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping pending_input transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             title = report.title if input.keep_existing_content and report.title else input.title
             summary = report.summary if input.keep_existing_content and report.summary else input.summary
             updated_fields = report.transition_to(
@@ -1726,6 +1733,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report_id=input.report_id,
         )
         raise
+
+    if transition is None:
+        return
 
     if transition.was_duplicate:
         logger.info(
@@ -1772,15 +1782,22 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, bool] | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.POTENTIAL:
                 return report.run_count, True
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping potential transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
-        run_count, was_already_potential = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
@@ -1788,6 +1805,10 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         )
         raise
 
+    if transition is None:
+        return
+
+    run_count, was_already_potential = transition
     if was_already_potential:
         logger.info(
             f"Report {input.report_id} already in potential status, skipping duplicate transition",

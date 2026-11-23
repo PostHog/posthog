@@ -10,13 +10,11 @@ import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
 import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
-import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
+import { TagsFilter } from '../TagsFilter'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -52,13 +50,11 @@ export function AccountNotesExpansion({
         pagination,
         tagsFilter,
         createdByFilter,
-        updatingShortId,
+        pendingNotebookTags,
     } = useValues(logic)
     const { setSearchTerm, setSorting, createNote, setTagsFilter, setCreatedByFilter, updateNotebook } =
         useActions(logic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -101,9 +97,7 @@ export function AccountNotesExpansion({
                     <ObjectTags
                         tags={tags}
                         onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
-                        onEdit={loadTagsIfNeeded}
-                        saving={updatingShortId === notebook.short_id || tagsLoading}
-                        tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+                        saving={!!pendingNotebookTags[notebook.short_id]}
                         data-attr="account-note-tags"
                     />
                 )
@@ -160,11 +154,7 @@ export function AccountNotesExpansion({
                         className="min-w-64"
                     />
                     <AccountNotesViewSelector logicProps={{ sourceKey: logic.pathString, sourceLogic: logic }} />
-                    <NotesTagsFilter
-                        value={tagsFilter}
-                        onChange={setTagsFilter}
-                        data-attr="account-notes-tags-filter"
-                    />
+                    <TagsFilter value={tagsFilter} onChange={setTagsFilter} data-attr="account-notes-tags-filter" />
                     <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
                 </div>
                 <LemonButton

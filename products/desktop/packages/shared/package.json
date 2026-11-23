@@ -71,6 +71,10 @@
     "./product-engineer-prompt": {
       "types": "./dist/product-engineer-prompt.d.ts",
       "import": "./dist/product-engineer-prompt.js"
+    },
+    "./scout-names": {
+      "types": "./dist/scout-names.d.ts",
+      "import": "./dist/scout-names.js"
     }
   },
   "scripts": {
@@ -87,7 +91,7 @@
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "0.19.0",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^5.5.0",
     "vitest": "^4.1.8"
   },

@@ -15,26 +15,49 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory
+from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES
 
 _WRITE_CHUNK = 500
 
 CATEGORY_CODES: dict[str, int] = {category.name.lower(): category.value for category in RankCategory}
 CATEGORY_NAMES: dict[int, str] = {code: name for name, code in CATEGORY_CODES.items()}
 
+
 # A snapshot that names an experiment as anything but a plain integer gets -1, which matches no experiment, so the row
 # stays hidden from every viewer rather than readable by all.
-_EXPERIMENT_SQL = """
+def _experiment_sql() -> str:
+    """The rank row's denormalized experiment id, read from every store a snapshot can hold it in.
+
+    0 means the scan watched no experiment, which the readable-rank filters treat as readable by
+    anyone. A store left out of this CASE would give a snapshot held only in that store a 0 and
+    make its rows public, so the branches are generated from the shared store list rather than
+    typed out. -1 means a store named something this column cannot hold, which is readable by
+    nobody.
+
+    `experiment_id` is written once, when the rank row is inserted: `record_ranks` leaves it out of
+    its ON CONFLICT update and `_has_current_rank` skips an observation that already has a row. A
+    row computed without a store keeps its wrong value, so this has to be right before the first
+    observation of a scanner using that store is ranked.
+    """
+    numeric = "\n".join(
+        f"""        WHEN o.scanner_snapshot #>> '{{{store},experiment_id}}' ~ '^-?[0-9]{{1,9}}$'
+            THEN (o.scanner_snapshot #>> '{{{store},experiment_id}}')::int"""
+        for store in EXPERIMENT_ID_SNAPSHOT_STORES
+    )
+    present = "\n            OR ".join(
+        f"o.scanner_snapshot #> '{{{store},experiment_id}}' IS NOT NULL" for store in EXPERIMENT_ID_SNAPSHOT_STORES
+    )
+    return f"""
     CASE
-        WHEN o.scanner_snapshot #>> '{experiment_targeting,experiment_id}' ~ '^-?[0-9]{1,9}$'
-            THEN (o.scanner_snapshot #>> '{experiment_targeting,experiment_id}')::int
-        WHEN o.scanner_snapshot #>> '{scanner_config,experiment_id}' ~ '^-?[0-9]{1,9}$'
-            THEN (o.scanner_snapshot #>> '{scanner_config,experiment_id}')::int
-        WHEN o.scanner_snapshot #> '{experiment_targeting,experiment_id}' IS NOT NULL
-            OR o.scanner_snapshot #> '{scanner_config,experiment_id}' IS NOT NULL
+{numeric}
+        WHEN {present}
             THEN -1
         ELSE 0
     END
 """
+
+
+_EXPERIMENT_SQL = _experiment_sql()
 _PERSON_SQL = "hashtextextended(COALESCE(NULLIF(o.distinct_id, ''), o.session_id), 0)"
 _RANK_COLUMNS = (
     "observation_id, team_id, scanner_id, created_at, anchor_version, contrast, category, feed_group_id, "

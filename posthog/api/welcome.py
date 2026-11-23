@@ -20,6 +20,9 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.presentation.querysets import filter_projects
+from products.dashboards.backend.facade.api import dashboards_by_last_access
 
 logger = structlog.get_logger(__name__)
 
@@ -162,7 +165,7 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
     is always recomputed on read.
     """
     access_control = UserAccessControl(user=user, organization_id=str(organization.id))
-    accessible_team_ids = _get_accessible_team_ids(organization, access_control)
+    accessible_team_ids = _get_accessible_team_ids(organization, user)
 
     since = timezone.now() - timedelta(days=_RECENT_DAYS)
     latest_activity_id = _probe_latest_activity_id(organization, accessible_team_ids, since)
@@ -270,15 +273,16 @@ def _probe_latest_activity_id(
     return latest_activity_id
 
 
-def _get_accessible_team_ids(organization: Organization, access_control: UserAccessControl) -> list[int]:
+def _get_accessible_team_ids(organization: Organization, user: User) -> list[int]:
     """Return team ids visible to the requesting user, capped to keep the aggregation bounded.
 
     Fails closed: if access control filtering raises unexpectedly, we log and return an empty
     list rather than falling back to all org teams (which would leak cross-team data).
     """
-    queryset = organization.teams.all()
     try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        queryset = filter_projects(
+            organization.teams.all(), organization_id=organization.id, subject=Subject(user_id=user.pk)
+        )
     except Exception:
         logger.exception(
             "welcome.access_control_filter_failed",
@@ -404,7 +408,7 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
                 "name": display_name,
                 "email": member_user.email,
                 "avatar": None,
-                "role": OrganizationMembership.Level(membership.level).label,
+                "role": OrganizationMembership.Level(membership.effective_level).label,
                 "last_active": last_active,
             }
         )
@@ -499,13 +503,12 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessControl) -> list[dict[str, Any]]:
     if not team_ids:
         return []
-    from products.dashboards.backend.models.dashboard import Dashboard
-
-    queryset = Dashboard.objects.filter(team_id__in=team_ids, deleted=False)
     # Apply per-object access control so restricted dashboard names/descriptions don't leak via
     # this aggregation endpoint (same pattern as the main dashboards viewset).
     try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        dashboards = dashboards_by_last_access(
+            team_ids=team_ids, user_access_control=access_control, limit=_POPULAR_DASHBOARDS_MAX_ITEMS
+        )
     except Exception:
         logger.exception(
             "welcome.dashboard_access_control_failed",
@@ -513,9 +516,6 @@ def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessContr
         )
         return []
 
-    dashboards = list(
-        queryset.order_by(F("last_accessed_at").desc(nulls_last=True), "-created_at")[:_POPULAR_DASHBOARDS_MAX_ITEMS]
-    )
     return [
         {
             "id": dashboard.id,

@@ -167,9 +167,11 @@ export {
     DrawerContent,
     DrawerHandle,
     DrawerHeader,
+    DrawerBody,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    createDrawerHandle,
 } from './drawer'
 export {
     DropdownMenu,
@@ -359,3 +361,4 @@ export { ToggleGroup, ToggleGroupItem } from './toggle-group'
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'
+export { useReducedMotion } from './lib/use-reduced-motion'

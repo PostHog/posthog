@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action_id": {
+            "description": "The email step that sent the email, the `action_id` of a send.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "expand": {
+            "description": "Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.",
+            "items": {
+                "enum": ["before.*.elements_chain", "after.*.elements_chain"],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "The workflow run that sent the email, the `invocation_id` of a send.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "action_id"],
+    "type": "object"
+}

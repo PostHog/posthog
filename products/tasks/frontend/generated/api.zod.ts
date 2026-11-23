@@ -661,13 +661,21 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksCreateBodyRepositoryMax)
         .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        .describe(
+            'Target repository. For GitHub, use `organization\/repo` (e.g. `posthog\/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme\/platform\/api`).'
+        ),
     repositories: zod
         .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
         .max(tasksCreateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    repository_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.'
+        ),
     github_user_integration: zod
         .uuid()
         .nullish()
@@ -750,6 +758,18 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
+    warm_submission_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.'
+        ),
+    warm_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.'
         ),
     start_run: zod
         .boolean()
@@ -959,13 +979,21 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksUpdateBodyRepositoryMax)
         .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        .describe(
+            'Target repository. For GitHub, use `organization\/repo` (e.g. `posthog\/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme\/platform\/api`).'
+        ),
     repositories: zod
         .array(zod.string().max(tasksUpdateBodyRepositoriesItemMax))
         .max(tasksUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    repository_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.'
+        ),
     github_user_integration: zod
         .uuid()
         .nullish()
@@ -1119,13 +1147,21 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksPartialUpdateBodyRepositoryMax)
         .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        .describe(
+            'Target repository. For GitHub, use `organization\/repo` (e.g. `posthog\/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme\/platform\/api`).'
+        ),
     repositories: zod
         .array(zod.string().max(tasksPartialUpdateBodyRepositoriesItemMax))
         .max(tasksPartialUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    repository_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.'
+        ),
     github_user_integration: zod
         .uuid()
         .nullish()
@@ -2168,6 +2204,7 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'upstream_connection_error',
                     'upstream_timeout',
                     'upstream_provider_failure',
+                    'upstream_rate_limited',
                     'upstream_request_rejected',
                     'content_block_rejection',
                     'turn_ended_without_response',
@@ -2177,13 +2214,13 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'ActiveSessionCapError',
                 ])
                 .describe(
-                    '\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error\n\* `ActiveSessionCapError` - ActiveSessionCapError'
+                    '\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_rate_limited` - upstream_rate_limited\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error\n\* `ActiveSessionCapError` - ActiveSessionCapError'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Why the run failed, set by the caller that marked it failed.\n\n\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error\n\* `ActiveSessionCapError` - ActiveSessionCapError'
+            'Why the run failed, set by the caller that marked it failed.\n\n\* `agent_reported` - agent_reported\n\* `agent_server_crash` - agent_server_crash\n\* `agent_declined` - agent_declined\n\* `output_parse_failed` - output_parse_failed\n\* `poll_timeout` - poll_timeout\n\* `pi_runtime_error` - pi_runtime_error\n\* `upstream_stream_terminated` - upstream_stream_terminated\n\* `upstream_connection_error` - upstream_connection_error\n\* `upstream_timeout` - upstream_timeout\n\* `upstream_provider_failure` - upstream_provider_failure\n\* `upstream_rate_limited` - upstream_rate_limited\n\* `upstream_request_rejected` - upstream_request_rejected\n\* `content_block_rejection` - content_block_rejection\n\* `turn_ended_without_response` - turn_ended_without_response\n\* `subscription_usage_limit` - subscription_usage_limit\n\* `task_spend_limit` - task_spend_limit\n\* `agent_error` - agent_error\n\* `ActiveSessionCapError` - ActiveSessionCapError'
         ),
 })
 

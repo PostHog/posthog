@@ -23,7 +23,6 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -32,6 +31,7 @@ import {
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { QuillTaxonomicPopover } from 'lib/components/TaxonomicPopover/QuillTaxonomicPopover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,7 +43,7 @@ import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilt
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
+import { FILTER_ROW_FRAME_CLASSES, QUILL_FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
 import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
@@ -396,7 +396,9 @@ export function TaxonomicPropertyFilter({
                         className={clsx(
                             'TaxonomicPropertyFilter__row-items',
                             { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
-                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                            framedRows &&
+                                filter?.key &&
+                                (quillSurface ? QUILL_FILTER_ROW_FRAME_CLASSES : FILTER_ROW_FRAME_CLASSES)
                         )}
                     >
                         {showOperatorValueSelect &&

@@ -5,14 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
-import {
-    InternalPerson,
-    PersonUpdateFields,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-    TeamId,
-} from '~/types'
+import { InternalPerson, PersonUpdateFields, Team, TeamId } from '~/types'
 
 import { InternalPersonWithDistinctId, LifecycleMarkPerson } from './person-repository'
 
@@ -31,8 +24,6 @@ export interface RawPostgresPersonRepository {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,

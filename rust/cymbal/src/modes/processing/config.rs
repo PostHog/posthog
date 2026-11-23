@@ -148,9 +148,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
-    #[envconfig(from = "ERROR_TRACKING_PROCESSING_SHADOW_REDIS_URL")]
-    pub shadow_redis_url: Option<String>,
-
     #[envconfig(
         from = "ERROR_TRACKING_EVENT_PROPERTIES_TTL_SECONDS",
         default = "172800"
@@ -198,6 +195,21 @@ pub struct ProcessingConfig {
     )]
     pub error_tracking_rate_limiter_enabled_team_ids: String,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_MODE", default = "off")]
+    pub adaptive_ingestion_mode: String,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE", default = "12")]
+    pub adaptive_ingestion_issue_hour_multiple: f64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE", default = "2")]
+    pub adaptive_ingestion_issue_day_multiple: f64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE", default = "3")]
+    pub adaptive_ingestion_project_day_multiple: f64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_MIN_HISTORY_DAYS", default = "7")]
+    pub adaptive_ingestion_min_history_days: usize,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
@@ -206,6 +218,10 @@ pub struct ProcessingConfig {
     // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
+
+    // Retention must be deployed before enabling writes for all teams.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
+    pub issue_change_log_enabled: bool,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

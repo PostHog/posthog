@@ -106,6 +106,10 @@ class SdkAssessmentSerializer(serializers.Serializer):
     migration_required = serializers.BooleanField(
         help_text="True when this SDK must be replaced by a supported successor rather than upgraded in place."
     )
+    migration_guide_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.",
+    )
     severity = serializers.ChoiceField(
         choices=["none", "warning", "danger"],
         help_text="UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.",
@@ -204,6 +208,7 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             latest_version = sdk_for_lib.get("latestVersion")
             combined[lib] = {
                 "latest_version": latest_version,
+                "release_dates": sdk_for_lib.get("releaseDates", {}),
                 "usage": [
                     {
                         **entry,

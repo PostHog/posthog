@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    CANCELLED_METRIC_STATUS,
     failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
@@ -72,6 +73,12 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_warehouse_bucket_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -93,12 +100,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -323,16 +334,17 @@ TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
-# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
-# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# The import activity ran past its start-to-close (or schedule-to-close) budget. Those budgets are
+# a day for a full refresh and a week for an incremental run, so reaching one means the extraction
 # itself cannot finish in the window rather than that something stalled.
 SYNC_RUN_TOO_LONG_MESSAGE = (
     "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
     "incremental sync, or sync less data, so the next run finishes in time."
 )
 
-# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
-# and clear on their own, so the copy asks nothing of the customer.
+# An activity that stopped heartbeating, that no worker picked up in time, or a bookkeeping activity
+# (job creation, billing check) that ran past its one-minute budget. All are PostHog-side and clear
+# on their own, so the copy asks nothing of the customer.
 SYNC_RUN_STALLED_MESSAGE = (
     "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
 )
@@ -435,7 +447,10 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
 RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
 
 
-def _customer_facing_error(cause: BaseException | None) -> str:
+IMPORT_ACTIVITY_TYPE = import_data_activity_sync.__name__
+
+
+def _customer_facing_error(cause: BaseException | None, activity_type: str | None = None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
 
     Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
@@ -457,17 +472,21 @@ def _customer_facing_error(cause: BaseException | None) -> str:
         return CANCELLED_RUN_MESSAGE
     # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
     # connection, or a timeout). Temporal records it as an ApplicationError typed
-    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # `RESTClientRetryableError` (or `RetryableHTTPError` for a source on `vendor_retry`), whose
+    # message is a raw string like "HTTP 503 for <url>". That status
     # code means nothing to a customer, so replace it with a message that names the cause and says the
     # sync retries on its next schedule.
-    if getattr(cause, "type", None) == "RESTClientRetryableError":
+    if getattr(cause, "type", None) in (RESTClientRetryableError.__name__, RetryableHTTPError.__name__):
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
-    # timeout"), which names our orchestration rather than anything the customer can act on. Which
-    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
-    # stalled or unclaimed activity is ours and recovers by itself.
+    # timeout"), which names our orchestration rather than anything the customer can act on. Only the
+    # import activity's run budget means the customer has too much data per run. Every other activity
+    # has a budget of minutes, so running past it is a slow step on our side that recovers by itself.
     if isinstance(cause, exceptions.TimeoutError):
-        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+        if (
+            cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE)
+            and activity_type == IMPORT_ACTIVITY_TYPE
+        ):
             return SYNC_RUN_TOO_LONG_MESSAGE
         return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
@@ -672,9 +691,14 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
         # matching it here would disable a sync whose source never failed, and hand the customer a
         # message telling them to go fix a database that is working.
-        platform_failure = _is_app_db_failure(internal_error_normalized)
-        if platform_failure:
+        # The same applies to an error from our own warehouse bucket: its 403 body says "not
+        # authorized", which source maps read as a customer access denial.
+        if _is_app_db_failure(internal_error_normalized):
+            platform_failure = True
             inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+        elif is_warehouse_bucket_error(internal_error_normalized):
+            platform_failure = True
+            inputs.latest_error = OBJECT_STORE_TRANSIENT_MESSAGE
 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
@@ -1004,6 +1028,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         source_type = None
         # The finally block reads it, so it must exist when job creation itself fails.
         failed_runs_in_a_row = 0
+        run_cancelled = False
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1522,13 +1547,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
                 # friendly mapping is None keeps its raw message, and the finalization activity won't
                 # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
-                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause, e.activity_type)
                 raise
             else:
                 # Handle other activity errors normally
+                run_cancelled = isinstance(e.cause, exceptions.CancelledError)
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = _customer_facing_error(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
                 raise
         except Exception as e:
             # Catch all
@@ -1545,10 +1571,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             finished_status = update_inputs.status.lower()
+            # A cancelled run is a person or our own teardown stopping it, not the source failing.
+            # The job still records Failed, but counting it as a failure lets one action that
+            # cancels every schema of a source page the failure-rate alert.
+            metric_status = CANCELLED_METRIC_STATUS if run_cancelled else finished_status
             get_data_import_finished_metric(
                 source_type=source_type,
-                status=finished_status,
-                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+                status=metric_status,
+                streak=failure_streak_label(metric_status, failed_runs_in_a_row),
             ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed

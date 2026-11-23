@@ -396,24 +396,21 @@ async fn invalid_request_returns_400(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event(vec![]);
+    let mut input = make_event(vec![]);
+    input.properties["$adaptive_ingestion_over_issue_line"] = json!(true);
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     // Empty exception list returns success with error embedded in the event
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
-    let event = body.first_event();
-    let errors: Vec<String> = serde_json::from_value(
-        event
-            .as_ref()
-            .unwrap()
-            .properties
-            .get("$cymbal_errors")
-            .unwrap()
-            .clone(),
-    )
-    .unwrap();
+    let event = body.first_event().as_ref().unwrap();
+    assert!(event
+        .properties
+        .get("$adaptive_ingestion_over_issue_line")
+        .is_none());
+    let errors: Vec<String> =
+        serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
 }
 
@@ -460,6 +457,71 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
             .await
             .expect("Issue should keep severity");
     assert_eq!(severity.as_deref(), Some("low"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_change_log_tracks_creation_and_reopen(db: PgPool) {
+    let harness = TestHarness::new(db);
+    for disabled in [false, true] {
+        let mut input = make_event_with_options(
+            vec![make_exception("TypeError", "cannot read property")],
+            Some(if disabled {
+                "change-log-disabled"
+            } else {
+                "change-log-enabled"
+            }),
+            Some(false),
+        );
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        let issue_id = body.take_properties().issue_id();
+        let first_seen: DateTime<Utc> = "2020-02-03T04:05:06Z".parse().unwrap();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen) VALUES ($1, 1, $2, $3, 2, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(issue_id)
+        .bind(format!("older-fingerprint-{disabled}"))
+        .bind(first_seen)
+        .execute(&harness.db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+            .bind(issue_id)
+            .execute(&harness.db)
+            .await
+            .unwrap();
+
+        input.uuid = Uuid::now_v7();
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        assert_eq!(body.take_properties().issue_id(), issue_id);
+
+        let rows: Vec<(String, JsonValue, JsonValue, Option<Uuid>)> = sqlx::query_as(
+            "SELECT kind, data, snapshot, event_uuid FROM posthog_errortrackingissuechange WHERE issue_id = $1 ORDER BY id",
+        )
+        .bind(issue_id)
+        .fetch_all(&harness.db)
+        .await
+        .unwrap();
+        if disabled {
+            assert!(rows.is_empty());
+        } else {
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].0, "created");
+            assert_eq!(rows[0].1, json!({}));
+            assert_eq!(rows[0].2["first_seen"], "2024-01-01T00:00:00+00:00");
+            assert_eq!(rows[1].0, "status_changed");
+            assert_eq!(rows[1].1, json!({"previous": "resolved"}));
+            assert_eq!(rows[1].2["status"], "active");
+            assert_eq!(rows[1].2["first_seen"], "2020-02-03T04:05:06+00:00");
+            assert_eq!(rows[1].3, Some(input.uuid));
+        }
+    }
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -626,6 +688,45 @@ async fn uses_client_fingerprint_override(db: PgPool) {
     let event = body.take_properties();
     assert!(status.is_success());
     assert_eq!(event.fingerprint(), "custom-fingerprint");
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn replaces_null_bytes_in_client_supplied_fields(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event_with_options(vec![], Some("custom\u{0000}fingerprint"), None);
+    input.properties["$exception_list"] = json!([{
+        "type": "SIGSEGV",
+        "value": "segmentation fault",
+        "stacktrace": {
+            "type": "raw",
+            "frames": [{
+                "platform": "native",
+                "instruction_addr": "0x7f00000014a8",
+                "image_addr": "0x7f0000000000"
+            }]
+        }
+    }]);
+    input.properties["$debug_images"] = json!([{
+        "debug_id": "debug\u{0000}id",
+        "image_addr": "0x7f0000000000",
+        "image_size": 1048576
+    }]);
+    input.properties["$issue_name"] = json!("Custom\u{0000}name");
+    input.properties["$issue_description"] = json!("Custom\u{0000}description");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+
+    assert!(status.is_success());
+    let event = body.take_properties();
+    assert_eq!(event.fingerprint(), "custom\u{FFFD}fingerprint");
+    let (name, description): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT name, description FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(event.issue_id())
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(name.as_deref(), Some("Custom\u{FFFD}name"));
+    assert_eq!(description.as_deref(), Some("Custom\u{FFFD}description"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

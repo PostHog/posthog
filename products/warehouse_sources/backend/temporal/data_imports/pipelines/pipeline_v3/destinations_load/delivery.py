@@ -15,6 +15,7 @@ before this runs, and it carries the unsuffixed idempotency key it has always ha
 from __future__ import annotations
 
 import time
+import datetime as dt
 from collections.abc import Iterable
 
 import structlog
@@ -22,6 +23,7 @@ from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.destination_health import record_delivery_failure, record_delivery_success
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import includes_the_warehouse
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import resolve_destination_writer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
@@ -76,18 +79,7 @@ def warehouse_is_a_destination(export_signal: ExportSignalMessage) -> bool:
     A run that lists destinations but not the warehouse never touches delta: the customer
     asked us to move their data somewhere else, not to keep a copy here.
     """
-    if not export_signal.destination_ids:
-        return True
-
-    return (
-        ExternalDataDestination.objects.for_team(export_signal.team_id, canonical=True)
-        .filter(
-            id__in=export_signal.destination_ids,
-            type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE,
-            deleted=False,
-        )
-        .exists()
-    )
+    return includes_the_warehouse(export_signal.team_id, export_signal.destination_ids or [])
 
 
 def _source_scoped_table_name(source: ExternalDataSource, schema_name: str) -> str:
@@ -128,7 +120,17 @@ def destination_table_name(export_signal: ExportSignalMessage, config: dict) -> 
     return f"{config.get('table_prefix', '')}{base}"
 
 
-def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDestination) -> DestinationRunContext:
+def _run_started_at(export_signal: ExportSignalMessage) -> dt.datetime | None:
+    return (
+        ExternalDataJob.objects.filter(id=export_signal.job_id, team_id=export_signal.team_id)
+        .values_list("created_at", flat=True)
+        .first()
+    )
+
+
+def _run_context(
+    export_signal: ExportSignalMessage, destination: ExternalDataDestination, run_started_at: dt.datetime | None
+) -> DestinationRunContext:
     config = destination.config or {}
     return DestinationRunContext(
         team_id=export_signal.team_id,
@@ -150,6 +152,7 @@ def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDe
         primary_keys=tuple(normalize_column_name(key) for key in export_signal.primary_keys or ()),
         config=config,
         integration_id=destination.integration_id,
+        run_started_at=run_started_at,
     )
 
 
@@ -205,6 +208,7 @@ def deliver_batch_to_destinations(
     if not pending:
         return 0
 
+    run_started_at = _run_started_at(export_signal)
     written = 0
     for destination in pending:
         destination_id = str(destination.id)
@@ -230,7 +234,7 @@ def deliver_batch_to_destinations(
             )
             continue
 
-        run_ctx = _run_context(export_signal, destination)
+        run_ctx = _run_context(export_signal, destination, run_started_at)
         batch_ctx = DestinationBatchContext(
             run=run_ctx,
             batch_index=export_signal.batch_index,
@@ -301,8 +305,8 @@ def deliver_batch_to_destinations(
                 raise
             raise DestinationDeliveryError(destination.name, e) from e
 
-        record_delivery_success(destination)
         rows_written = outcome.rows_written if outcome else 0
+        record_delivery_success(destination, wrote_rows=rows_written > 0)
         duration_seconds = round(time.monotonic() - started_at, 3)
         logger.info(
             "destination_batch_delivered",
@@ -343,7 +347,8 @@ def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str =
                 destination_type=destination.type,
             )
             continue
-        run_ctx = _run_context(export_signal, destination)
+        # Aborting writes nothing, so the run's start time is not needed.
+        run_ctx = _run_context(export_signal, destination, run_started_at=None)
         try:
             ensure_builtin_destination_writers_registered()
             writer = resolve_destination_writer(run_ctx)

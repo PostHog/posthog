@@ -18,9 +18,8 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
-from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
-from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
@@ -321,10 +320,16 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
                 return
             claimed_team_ids |= sibling_team_ids
 
-        Integration.objects.filter(
-            team__organization_id=integration.organization_id,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).exclude(team_id__in=claimed_team_ids).delete()
+        unclaimed_team_ids = Team.objects.filter(organization_id=integration.organization_id).exclude(
+            pk__in=claimed_team_ids
+        )
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(unclaimed_team_ids.values_list("id", flat=True)))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                pass  # Another request deleted the resource after the list.
         integration.delete()
 
 
@@ -456,7 +461,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You are not a member of this organization.")
 
-        if membership.level < OrganizationMembership.Level.ADMIN:
+        if membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
 
         organization = membership.organization
@@ -658,7 +663,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         user = cast(User, request.user)
         memberships = (
-            OrganizationMembership.objects.filter(user=user, level__gte=OrganizationMembership.Level.ADMIN)
+            OrganizationMembership.objects.with_effective_level()
+            .filter(
+                user=user,
+                resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            )
             .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
             .select_related("organization")
         )
@@ -688,12 +697,12 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         for team in Team.objects.filter(organization_id__in=org_ids).order_by("name"):
             teams_by_org.setdefault(team.organization_id, []).append(team)
 
-        teams_with_vercel = set(
-            Integration.objects.filter(
-                team__organization_id__in=org_ids,
-                kind=Integration.IntegrationKind.VERCEL,
-            ).values_list("team_id", flat=True)
-        )
+        teams_with_vercel = {
+            resource.team_id
+            for resource in IntegrationManager.vercel.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(team.pk for teams in teams_by_org.values() for team in teams))
+            )
+        }
 
         organizations = [
             {

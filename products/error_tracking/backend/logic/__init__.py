@@ -42,6 +42,7 @@ SETTINGS_FIELDS = (
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+    "ai_issue_summaries_enabled",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (
@@ -68,7 +69,7 @@ def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .select_related("assignment")
-        .prefetch_related("external_issues__integration")
+        .prefetch_related("external_issues")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
     )

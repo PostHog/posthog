@@ -69,8 +69,8 @@ class TestTrialAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("trial", "member", 3, 403),
-            ("source", "member", 3, 403),
+            ("trial", "member", 3, 200),
+            ("source", "member", 3, 201),
             ("trial", "owner", 3, 200),
             ("source", "admin", 3, 201),
             ("trial", "member", 0, 200),
@@ -129,7 +129,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert [scout.enabled for scout in scouts] == ([True, True, True, False] if allowed else [True] * 4)
+        assert [scout.enabled for scout in scouts] == [True] * 4
         if path == "source":
             assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is allowed
 
@@ -140,8 +140,8 @@ class TestTrialAPI(APIBaseTest):
             for parent_access, scout_scope, count, allowed in (
                 (False, "signal_scout:write", 4, False),
                 (True, "signal_scout:write", 4, True),
-                (True, None, 4, False),
-                (True, "signal_scout:read", 4, False),
+                (True, None, 4, True),
+                (True, "signal_scout:read", 4, True),
                 (True, "*", 4, True),
                 (True, None, 3, True),
             )
@@ -183,7 +183,7 @@ class TestTrialAPI(APIBaseTest):
         assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
         for scout in scouts:
             scout.refresh_from_db()
-        assert sum(scout.enabled for scout in scouts) == (3 if allowed else count)
+        assert sum(scout.enabled for scout in scouts) == count
 
     @parameterized.expand([(False,), (True,)])
     def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:
@@ -255,9 +255,21 @@ class TestTrialAPI(APIBaseTest):
         assert not source.enabled
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([(False, True), (True, False)])
-    def test_flag_off_and_disabled_sources_do_not_enroll(self, flag: bool, enabled: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, False),
+            ("source_disabled", True, False, False),
+            ("billing_starts_later", True, True, True),
+        ]
+    )
+    def test_source_activation_outside_the_trial_does_not_enroll(
+        self, _name: str, flag: bool, enabled: bool, billing_starts_later: bool
+    ) -> None:
         self.flag_mock.return_value = flag
+        if billing_starts_later:
+            cutover = timezone.now().date() + timedelta(days=2)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
         with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing:
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/source_configs/",

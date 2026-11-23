@@ -121,6 +121,7 @@ def fetch_data(
     params: Optional[dict[str, Any]] = None,
     source_id: str | None = None,
     follow_after_cursor: bool = False,
+    unwrap_properties: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.
@@ -132,6 +133,8 @@ def fetch_data(
         params: Optional dict of query params to include in the request
         follow_after_cursor: Page by re-sending `params` with `paging.next.after` instead of
             following `paging.next.link`, for APIs that document `link` as optional.
+        unwrap_properties: Yield each result's `properties` object as the row. Turn it off for an
+            API that keeps other fields (such as `createdAt`) next to `properties`.
 
     Yields:
         A List of CRM object dicts
@@ -184,7 +187,7 @@ def fetch_data(
         if "results" in _data:
             _objects: list[dict[str, Any]] = []
             for _result in _data["results"]:
-                _obj = _result.get("properties", _result)
+                _obj = _result.get("properties", _result) if unwrap_properties else _result
                 if "id" not in _obj and "id" in _result:
                     # Move id from properties to top level
                     _obj["id"] = _result["id"]

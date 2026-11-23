@@ -6,8 +6,10 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import {
     buildReportCheckRows,
     latestCheckExplanations,
@@ -15,6 +17,7 @@ import {
     splitReportCheckRows,
 } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
+import { ReportStartMonitoringPrompt } from './ReportStartMonitoringPrompt'
 
 /**
  * What is still watching this report, and what the checks that already ran decided. A check is the
@@ -33,6 +36,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
     const { openReportCheckMetricSuggestion } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isCreatingPr, isDiscussing } =
         useValues(inboxTaskKickoffLogic)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -47,8 +51,14 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
+    const rows = buildReportCheckRows(
+        reportChecks,
+        latestCheckExplanations(reportArtefacts ?? []),
+        report.status,
+        scoutNamesBySkill
+    )
     const { visible, hidden } = splitReportCheckRows(rows)
+    const observations = checkObservationsByCheck(reportArtefacts ?? [])
 
     return (
         <DetailSection
@@ -62,10 +72,14 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             }
         >
             <div className="flex flex-col gap-1.5">
+                <ReportStartMonitoringPrompt report={report} />
                 {(showRetired ? rows : visible).map((row) => (
                     <ReportCheckRow
                         key={row.check.id}
                         row={row}
+                        reportId={report.id}
+                        monitoringStartedAt={report.monitoring_started_at}
+                        observations={observations.get(row.check.id)}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
                         onSuggestMetric={() => openReportCheckMetricSuggestion(report, row.check)}

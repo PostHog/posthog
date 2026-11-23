@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     _select_incremental_field,
     build_default_schemas,
     build_endpoint_schemas,
+    rank_incremental_fields,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -28,6 +29,103 @@ class TestSelectIncrementalField:
     def test_selection(self, _name: str, field_names: list[str], expected: str | None) -> None:
         chosen = _select_incremental_field([_field(n) for n in field_names])
         assert (chosen["field"] if chosen else None) == expected
+
+
+def _column(
+    name: str,
+    field_type: IncrementalFieldType = IncrementalFieldType.Timestamp,
+    *,
+    indexed: bool = True,
+    nullable: bool = False,
+) -> IncrementalField:
+    return {
+        "label": name,
+        "type": field_type,
+        "field": name,
+        "field_type": field_type,
+        "nullable": nullable,
+        "is_indexed": indexed,
+    }
+
+
+class TestRankIncrementalFields:
+    @parameterized.expand(
+        [
+            (
+                "update_tracking_beats_indexed_created",
+                [_column("created_at"), _column("updated_at", indexed=False, nullable=True)],
+                ["updated_at", "created_at"],
+            ),
+            (
+                "indexed_beats_unindexed_in_same_tier",
+                [_column("modified_at", indexed=False), _column("last_updated_on")],
+                ["last_updated_on", "modified_at"],
+            ),
+            (
+                "non_nullable_beats_nullable_in_same_tier",
+                [_column("created_at", nullable=True), _column("inserted_at")],
+                ["inserted_at", "created_at"],
+            ),
+            (
+                "integer_named_like_update_is_not_update_tracking",
+                [_column("modified_by", IncrementalFieldType.Integer), _column("created_at")],
+                ["created_at", "modified_by"],
+            ),
+            (
+                "uppercase_and_camel_case_names",
+                [_column("ID", IncrementalFieldType.Integer), _column("LAST_UPDATE_DATE"), _column("CreatedAt")],
+                ["LAST_UPDATE_DATE", "CreatedAt", "ID"],
+            ),
+            (
+                "id_beats_unknown_timestamp",
+                [_column("event_time"), _column("id", IncrementalFieldType.Integer)],
+                ["id", "event_time"],
+            ),
+            (
+                "integer_epoch_updated_at_beats_id",
+                [_column("id", IncrementalFieldType.Integer), _column("updated_at", IncrementalFieldType.Integer)],
+                ["updated_at", "id"],
+            ),
+            (
+                "synthetic_xmin_stays_last",
+                [
+                    {
+                        "label": "xmin",
+                        "type": IncrementalFieldType.XID,
+                        "field": "xmin",
+                        "field_type": IncrementalFieldType.XID,
+                        "is_indexed": False,
+                    },
+                    _column("event_time", indexed=False, nullable=True),
+                ],
+                ["event_time", "xmin"],
+            ),
+            (
+                "keeps_table_order_on_ties",
+                [_column("event_time"), _column("seen_at")],
+                ["event_time", "seen_at"],
+            ),
+        ]
+    )
+    def test_order(self, _name: str, fields: list[IncrementalField], expected: list[str]) -> None:
+        assert [f["field"] for f in rank_incremental_fields(fields)] == expected
+
+    def test_marks_first_as_recommended_and_explains_trade_offs(self) -> None:
+        ranked = rank_incremental_fields([_column("created_at"), _column("updated_at", indexed=False, nullable=True)])
+
+        assert [(f["field"], f["recommended"], f["notes"]) for f in ranked] == [
+            (
+                "updated_at",
+                True,
+                [
+                    "Changes when a row is updated, so edited rows sync again.",
+                    "Not indexed, so each sync scans the whole table.",
+                    "Can be empty. Rows where it's empty never sync.",
+                ],
+            ),
+            ("created_at", False, ["Only marks new rows. Edits to existing rows don't sync."]),
+        ]
+        assert _select_incremental_field(ranked) == ranked[0]
 
 
 class TestBuildDefaultSchemas:
@@ -71,26 +169,46 @@ class TestBuildDefaultSchemas:
 
     @parameterized.expand(
         [
-            ("no_incremental_support", False, False, [], False),
-            ("incremental_support_but_no_field", True, True, [], False),
-            ("source_prefers_full_refresh", True, True, [_field("updated_at")], True),
+            ("no_incremental_support", {"supports_incremental": False, "supports_append": False}),
+            ("incremental_support_but_no_field", {"incremental_fields": []}),
+            ("source_prefers_full_refresh", {"prefers_full_refresh": True}),
+            # A merge without a key fails on the second sync, and append would keep every old row version.
+            ("columns_show_no_key", {"columns": [("updated_at", "timestamp", False)]}),
+            ("source_declares_no_key", {"declares_primary_keys": True}),
         ]
     )
-    def test_full_refresh_fallback(
-        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list, prefers_full_refresh: bool
-    ) -> None:
+    def test_full_refresh_fallback(self, _name: str, overrides: dict) -> None:
+        fields: dict = {
+            "name": "dim_table",
+            "supports_incremental": True,
+            "supports_append": True,
+            "incremental_fields": [_field("updated_at")],
+            **overrides,
+        }
+        schemas = build_default_schemas([SourceSchema(**fields)])
+        assert schemas[0] == {"name": "dim_table", "should_sync": True, "sync_type": "full_refresh"}
+
+    @parameterized.expand(
+        [
+            # The sync falls back to an `id` column when no key is set.
+            ("id_column", [("ID", "integer", False), ("updated_at", "timestamp", False)]),
+            # A source that declares its key in code reports no columns, and supplies the key at sync time.
+            ("no_columns", []),
+        ]
+    )
+    def test_incremental_without_a_detected_key(self, _name: str, columns: list) -> None:
         schemas = build_default_schemas(
             [
                 SourceSchema(
-                    name="dim_table",
-                    supports_incremental=supports_incremental,
-                    supports_append=supports_append,
-                    incremental_fields=fields,
-                    prefers_full_refresh=prefers_full_refresh,
+                    name="orders",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("updated_at")],
+                    columns=columns,
                 )
             ]
         )
-        assert schemas[0] == {"name": "dim_table", "should_sync": True, "sync_type": "full_refresh"}
+        assert schemas[0]["sync_type"] == "incremental"
 
     def test_webhook_only_table_left_disabled(self) -> None:
         schemas = build_default_schemas(
