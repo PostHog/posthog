@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,12 +8,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
-import { SOURCE_KINDS, describeCondition, describeSchedule } from './platformAlertFormat'
+import { SOURCE_KINDS, describeCondition, describeInterval, describeSchedule } from './platformAlertFormat'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
 import { PlatformAlertRouting } from './routing/PlatformAlertRouting'
@@ -25,6 +26,25 @@ export const scene: SceneExport = {
 
 const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
     {
+        title: 'Type',
+        dataIndex: 'source_kind',
+        width: 0,
+        render: (_, configuration) => {
+            const { label, iconType } = SOURCE_KINDS[configuration.source_kind]
+            return (
+                <Tooltip title={label}>
+                    <span
+                        className="group/colorful-product-icons colorful-product-icons-true flex text-xl"
+                        aria-label={label}
+                        data-attr="platform-alerts-row-type"
+                    >
+                        {iconForType(iconType)}
+                    </span>
+                </Tooltip>
+            )
+        },
+    },
+    {
         title: 'Name',
         dataIndex: 'name',
         render: (_, configuration) => (
@@ -32,11 +52,6 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
                 {configuration.name}
             </Link>
         ),
-    },
-    {
-        title: 'Source',
-        dataIndex: 'source_kind',
-        render: (_, configuration) => SOURCE_KINDS[configuration.source_kind].label,
     },
     {
         title: 'State',
@@ -47,8 +62,12 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
         render: (_, configuration) => describeCondition(configuration),
     },
     {
-        title: 'Schedule',
-        render: (_, configuration) => describeSchedule(configuration),
+        title: 'Interval',
+        render: (_, configuration) => (
+            <Tooltip title={describeSchedule(configuration)}>
+                <span>{describeInterval(configuration)}</span>
+            </Tooltip>
+        ),
     },
     {
         title: 'Groups',

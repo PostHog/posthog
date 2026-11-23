@@ -1,6 +1,8 @@
 import { ApiError } from 'lib/api-error'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
@@ -23,6 +25,7 @@ export const STATUS_LABELS: Record<PlatformAlertConfigurationStatus, string> = {
 
 interface SourceKind {
     label: string
+    iconType: FileSystemIconType
     // The source product's own page for the alert, or null when the configuration cannot reach it.
     alertUrl: (configuration: PlatformAlertConfigurationApi) => string | null
 }
@@ -34,27 +37,33 @@ function legacyAlertUrl(url: (legacyConfigurationId: string) => string): SourceK
 export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, SourceKind> = {
     [PlatformAlertConfigurationSourceKindEnumApi.Logs]: {
         label: 'Logs',
+        iconType: 'logs',
         alertUrl: legacyAlertUrl(urls.logsAlertDetail),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
+        iconType: 'product_analytics',
         alertUrl: legacyAlertUrl(urls.alert),
     },
     // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
         label: 'Warehouse source',
+        iconType: 'data_warehouse',
         alertUrl: () => urls.sources(),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
         label: 'Warehouse destination',
+        iconType: 'data_warehouse',
         alertUrl: () => urls.warehouseDestinations(),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
         label: 'Metrics',
+        iconType: 'metrics',
         alertUrl: () => urls.metrics('alerts'),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
         label: 'Traces',
+        iconType: 'tracing',
         alertUrl: () => urls.tracing(),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.ErrorTracking]: {
@@ -125,6 +134,23 @@ export function describeSchedule(configuration: PlatformAlertConfigurationApi): 
     }
     const unit = CALENDAR_UNIT_LABELS[configuration.recurrence_unit]
     return configuration.anchor_time ? `Every ${unit} at ${configuration.anchor_time}` : `Every ${unit}`
+}
+
+const CALENDAR_UNIT_INTERVALS: Record<CalendarUnitEnumApi, string> = {
+    [CalendarUnitEnumApi.Day]: '1d',
+    [CalendarUnitEnumApi.Week]: '1w',
+    [CalendarUnitEnumApi.Month]: '1mo',
+}
+
+export function describeInterval(configuration: PlatformAlertConfigurationApi): string {
+    if (configuration.recurrence_unit !== null) {
+        return CALENDAR_UNIT_INTERVALS[configuration.recurrence_unit]
+    }
+    const minutes = configuration.check_interval_minutes
+    if (minutes % 1440 === 0) {
+        return `${minutes / 1440}d`
+    }
+    return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`
 }
 
 export function describeQuietHours(configuration: PlatformAlertConfigurationApi): string {
