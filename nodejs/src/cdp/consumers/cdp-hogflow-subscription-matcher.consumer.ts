@@ -87,8 +87,7 @@ const PINNED_GOALS_WINDOW_MARGIN_MS = 24 * 60 * 60 * 1000
 // After a flow change, its team looks up every event until a goals read that started this long after the change,
 // so the replica the goals are read from has caught up with the save.
 const PINNED_GOALS_CHANGE_WINDOW_MS = 2 * 60 * 1000
-// A read that takes longer stops holding up the rest of the tick, and no second read starts until it settles or
-// is older than PINNED_GOALS_MAX_READ_AGE_MS.
+// The pool sets no query timeout, so without this one a read on a dead connection would block every later read.
 const PINNED_GOALS_READ_TIMEOUT_MS = 20_000
 // Past this many goals, a team looks up every event rather than running each goal against it.
 const PINNED_GOALS_MAX_PER_TEAM = 500
@@ -342,7 +341,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by team.
     private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
     private pinnedGoalsRead: Promise<void> | null = null
-    private pinnedGoalsReadStartedAt = 0
     private teamsOverGoalCap: Set<number> = new Set()
     private pinnedGoalsReadAt = 0
     // Team -> when one of its flows changed, until a goals read that started PINNED_GOALS_CHANGE_WINDOW_MS later.
@@ -1182,6 +1180,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async refreshPinnedGoals(): Promise<void> {
         const startedAt = Date.now()
         const windowStart = startedAt - MAX_CONVERSION_WINDOW_MINUTES * 60_000 - PINNED_GOALS_WINDOW_MARGIN_MS
+        const goalsRead = {
+            // One row past the cap is enough to know a team is over it, so one team cannot add more rows than that.
+            text: `/* nodejs:hogflowMatcherPinnedGoals */ SELECT team_id, hog_flow_id, goal, event_names FROM (
+                 SELECT team_id, hog_flow_id, goal, event_names,
+                        row_number() OVER (PARTITION BY team_id ORDER BY last_live_at DESC) AS team_row
+                 FROM workflows_hogflowconversiongoal
+                 WHERE last_live_at > $1
+             ) goals
+             WHERE team_row <= $2`,
+            query_timeout: PINNED_GOALS_READ_TIMEOUT_MS,
+        }
         const result = await this.postgres.query<{
             team_id: number
             hog_flow_id: string
@@ -1189,21 +1198,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             event_names: string[] | null
         }>(
             PostgresUse.COMMON_READ,
-            // One row past the cap is enough to know a team is over it, so one team cannot add more rows than that.
-            `SELECT team_id, hog_flow_id, goal, event_names FROM (
-                 SELECT team_id, hog_flow_id, goal, event_names,
-                        row_number() OVER (PARTITION BY team_id ORDER BY last_live_at DESC) AS team_row
-                 FROM workflows_hogflowconversiongoal
-                 WHERE last_live_at > $1
-             ) goals
-             WHERE team_row <= $2`,
+            goalsRead,
             [new Date(windowStart), PINNED_GOALS_MAX_PER_TEAM + 1],
             'hogflowMatcherPinnedGoals'
         )
-        // A replaced read that settles late must not put older goals back.
-        if (startedAt < this.pinnedGoalsReadAt) {
-            return
-        }
         const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
         const rowsPerTeam = new Map<number, number>()
         for (const row of result.rows) {
@@ -1250,21 +1248,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // scan stops once "on" has read the goals, and otherwise runs at most every WATCHER_TEAMS_REFRESH_INTERVAL_MS.
     private async refreshWatcherState(): Promise<void> {
         if (this.pinnedGoalsMode !== 'off') {
-            // The pool sets no query timeout, so a read that never settles is replaced once it is this old.
-            if (!this.pinnedGoalsRead || Date.now() - this.pinnedGoalsReadStartedAt > PINNED_GOALS_MAX_READ_AGE_MS) {
-                this.pinnedGoalsReadStartedAt = Date.now()
-                const read = this.refreshPinnedGoals()
+            if (!this.pinnedGoalsRead) {
+                this.pinnedGoalsRead = this.refreshPinnedGoals()
                     .catch((err) => {
                         logger.error('⚠️', 'Failed to read conversion goals', { err })
                         captureException(err)
                     })
                     .finally(() => {
-                        if (this.pinnedGoalsRead === read) {
-                            this.pinnedGoalsRead = null
-                        }
+                        this.pinnedGoalsRead = null
                     })
-                this.pinnedGoalsRead = read
             }
+            // The query timeout does not cover the wait for a connection, which must not hold up start().
             let timer: NodeJS.Timeout | undefined
             await Promise.race([
                 this.pinnedGoalsRead,

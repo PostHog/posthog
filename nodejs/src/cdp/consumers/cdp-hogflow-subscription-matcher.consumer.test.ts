@@ -142,6 +142,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         last_live_at: Date
     }[] = []
     public goalsReadGate: Promise<void> | null = null
+    public goalsReadQueued = false
     public failGoalsRead = false
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
@@ -165,15 +166,25 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                     on: (channel: string, handler: (message: any) => void) => (pubSubHandlers[channel] = handler),
                 },
                 postgres: {
-                    query: jest.fn(async (_target: unknown, sql: string, params: any[]) => {
-                        this.calls.push({ sql, params })
-                        await this.goalsReadGate
-                        if (this.failGoalsRead) {
-                            throw new Error('goals read failed')
+                    query: jest.fn(
+                        async (_target: unknown, config: { text: string; query_timeout?: number }, params: any[]) => {
+                            this.calls.push({ sql: config.text, params })
+                            // As pg does: a query past its timeout rejects, and one queued for a connection has no timeout yet.
+                            await Promise.race([
+                                this.goalsReadGate,
+                                new Promise((_, reject) => {
+                                    if (this.goalsReadGate && config.query_timeout && !this.goalsReadQueued) {
+                                        setTimeout(() => reject(new Error('Query read timeout')), config.query_timeout)
+                                    }
+                                }),
+                            ])
+                            if (this.failGoalsRead) {
+                                throw new Error('goals read failed')
+                            }
+                            const rows = this.goalRows.filter((r) => r.last_live_at > params[0])
+                            return { rows, rowCount: rows.length }
                         }
-                        const rows = this.goalRows.filter((r) => r.last_live_at > params[0])
-                        return { rows, rowCount: rows.length }
-                    }),
+                    ),
                 },
             } as any
         )
@@ -2302,52 +2313,36 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expect((gated as any).pinnedGoalsByTeam.size).toBe(0)
             })
 
-            it('lets the rest of the tick run when the goals read hangs', async () => {
-                jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
-                try {
-                    const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'shadow' })
-                    gated.goalsReadGate = new Promise(() => {})
-                    const tick = (gated as any).refreshWatcherState()
-                    await jest.advanceTimersByTimeAsync(20_000)
-                    await tick
+            it.each([
+                { name: 'that times out', queued: false, readsAfter: 2 },
+                { name: 'still waiting for a connection', queued: true, readsAfter: 1 },
+            ])(
+                'lets the tick finish on a goals read $name, with at most one read open',
+                async ({ queued, readsAfter }) => {
+                    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+                    try {
+                        const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'shadow' })
+                        gated.goalsReadGate = new Promise(() => {})
+                        gated.goalsReadQueued = queued
+                        const tick = (gated as any).refreshWatcherState()
+                        const overlappingTick = (gated as any).refreshWatcherState()
+                        const reads = (): number =>
+                            gated.calls.filter((c) => c.sql.includes('workflows_hogflowconversiongoal')).length
+                        expect(reads()).toBe(1)
 
-                    expect(gated.calls.some((c) => c.sql.includes('MIN(created_at)'))).toBe(true)
-                } finally {
-                    jest.useRealTimers()
-                }
-            })
-
-            it('starts no second goals read while one runs, and replaces one that never settles', async () => {
-                jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
-                try {
-                    const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
-                    const reads = (): number =>
-                        gated.calls.filter((c) => c.sql.includes('workflows_hogflowconversiongoal')).length
-                    const tick = async (): Promise<void> => {
-                        const refreshed = (gated as any).refreshWatcherState()
                         await jest.advanceTimersByTimeAsync(20_000)
-                        await refreshed
+                        await Promise.all([tick, overlappingTick])
+                        expect(gated.calls.some((c) => c.sql.includes('MIN(created_at)'))).toBe(true)
+
+                        const nextTick = (gated as any).refreshWatcherState()
+                        await jest.advanceTimersByTimeAsync(20_000)
+                        await nextTick
+                        expect(reads()).toBe(readsAfter)
+                    } finally {
+                        jest.useRealTimers()
                     }
-                    let settleHungRead = (): void => {}
-                    gated.goalsReadGate = new Promise((resolve) => (settleHungRead = resolve))
-                    await tick()
-                    await tick()
-                    expect(reads()).toBe(1)
-
-                    await jest.advanceTimersByTimeAsync(minutes(5))
-                    gated.goalsReadGate = null
-                    gated.goalRows = [pinnedGoal('paused-flow', 'wuc_upgraded')]
-                    await tick()
-                    expect(reads()).toBe(2)
-
-                    gated.goalRows = []
-                    settleHungRead()
-                    await jest.advanceTimersByTimeAsync(0)
-                    expect(await wake(gated, 'wuc_upgraded')).toEqual(lookedUpPairs)
-                } finally {
-                    jest.useRealTimers()
                 }
-            })
+            )
 
             it('counts a conversion and a would-be miss in shadow mode when the goals lack it', async () => {
                 const missed = async (): Promise<number> =>
