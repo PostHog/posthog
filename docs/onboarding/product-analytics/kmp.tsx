@@ -21,7 +21,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     kotlin {
                                         sourceSets {
                                             commonMain.dependencies {
-                                                implementation("com.posthog:posthog-kmp:0.11.+")
+                                                implementation("com.posthog:posthog-kmp:1.+")
                                             }
                                         }
                                     }
@@ -30,11 +30,9 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                         ]}
                     />
                     <Markdown>
-                        `0.11.+` resolves to the latest `0.11.x` release. The SDK is a pre-release, so the API can
-                        change between minor versions – pin an exact version from [Maven
+                        `1.+` resolves to the latest `1.x` release. Pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately. The setup below requires `0.8.0` or higher. Kotlin/Wasm support requires
-                        `0.2.0` or higher.
+                        upgrade deliberately. Kotlin/Wasm support requires `0.2.0` or higher.
                     </Markdown>
                 </>
             ),
