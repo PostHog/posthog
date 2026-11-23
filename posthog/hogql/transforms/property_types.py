@@ -528,32 +528,10 @@ class PropertySwapper(CloningVisitor):
         field_type: ast.FieldType,
         first_key: str | int,
     ) -> ast.Expr | None:
-        if not isinstance(first_key, str):
-            return ast.Call(
-                start=node.start,
-                end=node.end,
-                type=node.type,
-                name=node.name,
-                args=[ast.Constant(value="{}"), *node.args[1:]],
-                params=node.params,
-                distinct=node.distinct,
-                within_group=node.within_group,
-                order_by=node.order_by,
-                filter_expr=node.filter_expr,
-            )
-        if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
-            return ast.Call(
-                start=node.start,
-                end=node.end,
-                type=node.type,
-                name=node.name,
-                args=[ast.Constant(value="{}"), *node.args[1:]],
-                params=node.params,
-                distinct=node.distinct,
-                within_group=node.within_group,
-                order_by=node.order_by,
-                filter_expr=node.filter_expr,
-            )
+        if not isinstance(first_key, str) or first_key in restricted_property_keys_for_table_type(
+            field_type.table_type, self.context
+        ):
+            return dataclasses.replace(node, args=[ast.Constant(value="{}"), *node.args[1:]])
         property_value = ast.Field(
             start=node.start,
             end=node.end,
@@ -564,18 +542,7 @@ class PropertySwapper(CloningVisitor):
         )
 
         # Keep remaining indices on the JSON function: integer indices can address both arrays and object members.
-        return ast.Call(
-            start=node.start,
-            end=node.end,
-            type=node.type,
-            name=node.name,
-            args=[key_json_document(property_value), *node.args[2:]],
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
-        )
+        return dataclasses.replace(node, args=[key_json_document(property_value), *node.args[2:]])
 
     @staticmethod
     def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
