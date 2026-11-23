@@ -1019,7 +1019,7 @@ def lint_staged_runner() -> EnforcerRunner | None:
     if not declares_lint_staged(package):
         return None
     package_manager = declared_package_manager(package.get("packageManager"))
-    lockfile = LOCKFILE_BY_PACKAGE_MANAGER.get(package_manager, "package-lock.json")
+    lockfile = LOCKFILE_BY_PACKAGE_MANAGER.get(package_manager or "npm", "package-lock.json")
     return EnforcerRunner(
         name="lint-staged",
         install=node_install_command(package_manager),

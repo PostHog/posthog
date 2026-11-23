@@ -630,7 +630,8 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert WRITER_QUOTES_PATH in run.state["pending_user_message"]
     check_attachment = attachment_by_name[CHECK_SCRIPT_ATTACHMENT_NAME]
     assert CHECK_SCRIPT_ATTACHMENT_NAME in run.state["pending_user_message"]
-    assert BASE_SHA in object_storage.read(check_attachment["storage_path"])
+    check_script = object_storage.read(check_attachment["storage_path"])
+    assert check_script is not None and BASE_SHA in check_script
     diff_attachment = attachment_by_name[SOURCE_DIFF_ATTACHMENT_NAME]
     assert object_storage.read(diff_attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
     assert object_storage.read(attachment_by_name["rules-1-AGENTS.md"]["storage_path"]) == BASE_FILES["AGENTS.md"]
