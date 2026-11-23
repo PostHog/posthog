@@ -257,10 +257,23 @@ def hog_function_saved(
 ) -> None:
     if _is_draft_only_save(update_fields) or not is_scorable(instance):
         return
-    transaction.on_commit(lambda: _queue_if_enabled(instance))
+    enabled_content_hash = _saved_enabled_content_hash(instance)
+    transaction.on_commit(lambda: _queue_if_enabled(instance, enabled_content_hash))
 
 
-def _queue_if_enabled(hog_function: HogFunction) -> None:
+def _saved_enabled_content_hash(hog_function: HogFunction) -> str | None:
+    """Taken while the save is written, because the task reads the row later and the instance can change after the
+    save. It leaves out the template, so the save does not look one up."""
+    if not hog_function.enabled:
+        return None
+    try:
+        return content_hash(content_of(hog_function))
+    except Exception:
+        logger.exception("cdp_abuse_classifier_content_hash_failed", hog_function_id=str(hog_function.id))
+        return None
+
+
+def _queue_if_enabled(hog_function: HogFunction, enabled_content_hash: str | None) -> None:
     # Runs in the saving request after the commit, so a failure here must not fail the save, and the flag is
     # read from the polled definitions so a slow flag service cannot slow the save.
     try:
@@ -273,13 +286,7 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
 
-        # The task and this check read the row after other writes, so the enable comes from the saved instance and
-        # travels with its content.
-        enabled_content = (
-            {"enabled_content_hash": content_hash(content_of(hog_function, candidate.template))}
-            if hog_function.enabled
-            else {}
-        )
+        enabled_content = {"enabled_content_hash": enabled_content_hash} if enabled_content_hash else {}
         classify_hog_function_for_abuse.delay(
             team_id=hog_function.team_id, hog_function_id=str(hog_function.id), **enabled_content
         )
@@ -342,7 +349,9 @@ def classify_if_due(hog_function: HogFunction, *, enabled_content_hash: str | No
     outbound_call = rules.has_outbound_call(runtime_content)
     scoring = _scoring_for(hog_function.team)
     public_content_hash = content_hash(content)
-    enabled = hog_function.enabled or enabled_content_hash == public_content_hash
+    enabled = hog_function.enabled or enabled_content_hash == content_hash(
+        replace(content, code_modified_from_template=None)
+    )
     reported = cache.get(_hash_key(str(hog_function.id)))
     # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
     covering_states = (True,) if enabled else (True, False)
