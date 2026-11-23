@@ -119,8 +119,9 @@ that can silently break.
   broad — count the `$ai_evaluation_applicable = false` rows), a job pointed at a
   **deprecated model** or a
   **disabled/revoked provider key**, or a Hog evaluator hitting the 5s execution limit.
-- **How to read it.** `llma-evaluation-list` (status/enabled, type,
-  `model_configuration.provider_key_id`, `conditions`), `llma-score-definition-list`. Cross-reference provider-key failures the error-tracking
+- **How to read it.** Shortlist with `llma-evaluation-list` (status/enabled, type), then
+  call `llma-evaluation-get` on the ones to inspect (`model_configuration.provider_key_id`,
+  `conditions`), plus `llma-score-definition-list`. Cross-reference provider-key failures the error-tracking
   lens has already surfaced (ProviderMismatchError, disabled-key) — those are this surface
   failing _reactively_; this lens is how you'd catch it _proactively_.
 - **Discipline.** These are config objects — a deliberately-disabled eval is not a
