@@ -6,12 +6,25 @@ import { urls } from 'scenes/urls'
 import { EventType } from '~/types'
 
 import { MetadataTag } from '../components/MetadataTag'
-import { parseTagsCell } from '../generationTagRunsLogic'
 import { asString } from '../utils'
 
+// $ai_tags can arrive as a JSON string, which would otherwise render one tag per character.
+function parseTagsCell(raw: unknown): string[] {
+    if (Array.isArray(raw)) {
+        return raw as string[]
+    }
+    if (typeof raw !== 'string') {
+        return []
+    }
+    try {
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) ? parsed : []
+    } catch {
+        return []
+    }
+}
+
 export function TagDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    // Reuse the loader's JSON-string defense so a stringified $ai_tags property
-    // doesn't end up iterated character-by-character here.
     const tags: string[] = parseTagsCell(eventProperties.$ai_tags)
     const reasoning = asString(eventProperties.$ai_tag_reasoning)
     const taggerName = asString(eventProperties.$ai_tagger_name)
