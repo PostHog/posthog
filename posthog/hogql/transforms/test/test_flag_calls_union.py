@@ -2373,6 +2373,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
             # Events rebuilds a flag property from `$feature_flags`, which holds text.
             ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            # The filter reaches the events branch, which compares the flag's own subcolumn of `$feature_flags`.
+            param(
+                "flag_filter",
+                "properties.`$feature/probe`",
+                123,
+                '"123"',
+                where="AND properties.`$feature/probe` = '123'",
+            ),
             ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
             param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
             # Events reads a declared path as its declared type, which is String for `$browser`.

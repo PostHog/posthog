@@ -1134,10 +1134,10 @@ Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asa
 - [x] `status_updates` — project/goal/portfolio status history (color + narrative) over time; the endpoint takes one `parent` gid, so it lands as `project_status_updates`, `goal_status_updates` and `portfolio_status_updates` (medium)
 - [x] `team_memberships` — user-to-team membership lookup joining synced users and teams (medium)
 - [x] `portfolios (+ portfolios/{gid}/items)` — program-level rollup grouping projects we already sync (medium)
-- [ ] `tasks/{task_gid}/dependencies and /dependents` — task dependency graph for blocked-work and critical-path analysis (medium)
-- [ ] `goal_relationships` — resolves goal hierarchy and which projects contribute to which goal (medium)
-- [ ] `time_tracking_categories` — lookup resolving the category ID carried on time tracking entries (medium)
-- [ ] `allocations` — resource allocation of users to projects over date ranges, for capacity reporting (low)
+- [x] `tasks/{task_gid}/dependencies and /dependents` — task dependency graph for blocked-work and critical-path analysis; lands as `task_dependencies` and `task_dependents` (medium)
+- [x] `goal_relationships` — resolves goal hierarchy and which projects contribute to which goal (medium)
+- [x] `time_tracking_categories` — lookup resolving the category ID carried on time tracking entries (medium)
+- [x] `allocations` — resource allocation of users to projects over date ranges, for capacity reporting (low)
 
 Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also present but excluded as plumbing/low value: webhooks, attachments, jobs, organization_exports, typeahead, project/task templates, ooo_entries, audit_log_events. Note /events is a sync-token change feed rather than a table.
 
@@ -12513,14 +12513,14 @@ Note (2026-11-19): Read llms.txt and fetched the list pages as .md to confirm ea
 
 ## Retell AI — gaps
 
-Today (7): `agent_versions`, `agents`, `calls`, `chats`, `phone_numbers`, `test_case_definitions`, `voices`
+Today (10): `agent_versions`, `agents`, `batch_tests`, `calls`, `chats`, `contacts`, `phone_numbers`, `test_case_definitions`, `test_runs`, `voices`
 
 Diffed against: <https://docs.retellai.com/llms.txt>
 
 - [x] `Agent versions (GET /list-agent-versions/{agent_id})` — resolve agent_version values on calls and compare outcomes between published versions (high)
-- [ ] `Contacts (POST /list-contacts)` — connect call and chat outcomes to customer profiles, external CRM IDs, and contact history (medium)
-- [ ] `Batch tests (GET /v2/list-batch-tests)` — track evaluation jobs and compare agent quality across test batches (medium)
-- [ ] `Test runs (GET /v2/list-test-runs/{test_case_batch_job_id})` — analyze individual evaluation results, failure explanations, and transcript snapshots (medium)
+- [x] `Contacts (POST /list-contacts)` — connect call and chat outcomes to customer profiles, external CRM IDs, and contact history (medium)
+- [x] `Batch tests (GET /v2/list-batch-tests)` — track evaluation jobs and compare agent quality across test batches (medium)
+- [x] `Test runs (GET /v2/list-test-runs/{test_case_batch_job_id})` — analyze individual evaluation results, failure explanations, and transcript snapshots (medium)
 - [x] `Test case definitions (GET /v2/list-test-case-definitions)` — interpret evaluation results using scenario definitions and configured scoring criteria (medium)
 
 Note: The official index and embedded OpenAPI definitions were fetched with curl for collection reads and nested version lists. Contacts use POST for a read-only list operation, as do existing call and agent imports. The existing agents endpoint lists both voice and chat agents without a channel filter, so chat agents are covered. Version and test-run tables require requests for each agent or batch; write operations and agent configuration resources are excluded.

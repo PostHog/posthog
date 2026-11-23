@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from contextlib import closing
 
@@ -27,7 +28,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.errors import QueryError
-from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
@@ -162,9 +163,9 @@ def test_prints_resolved_query_with_explicit_trino_locator_and_bound_value() -> 
 
     assert sql == (
         'SELECT "users"."user_id", CAST("users"."created_at" AS DATE) '
-        'FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = %(hogql_val_0)s)'
+        'FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = \'person-1\')'
     )
-    assert context.values == {"hogql_val_0": "person-1"}
+    assert context.values == {}
 
 
 def test_prints_expanded_saved_query_after_detaching_from_database() -> None:
@@ -269,9 +270,31 @@ def test_uses_trino_arbitrary_value_aggregate_for_any_variants() -> None:
     )
 
 
-def test_rejects_table_without_trino_locator() -> None:
+@pytest.mark.parametrize(
+    ("query", "feature_code"),
+    [
+        ("SELECT event FROM events", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM persons", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM orders", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM system.support_tickets", "TRINO_APP_DATABASE_TABLE_UNSUPPORTED"),
+        ("SELECT distinct_id FROM person_distinct_ids", "TRINO_CLICKHOUSE_ONLY_TABLE_UNSUPPORTED"),
+    ],
+)
+def test_rejects_table_without_trino_locator(query: str, feature_code: str) -> None:
+    database = Database(include_posthog_tables=True)
+    database.tables.add_child(
+        TableNode(
+            name="orders",
+            table=DataWarehouseTable(
+                name="orders",
+                url="http://example.com/orders",
+                format="Parquet",
+                fields={"id": StringDatabaseField(name="id")},
+            ),
+        )
+    )
     context = HogQLContext(
-        database=Database(include_posthog_tables=True),
+        database=database,
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
         limit_top_select=False,
@@ -280,8 +303,10 @@ def test_rejects_table_without_trino_locator() -> None:
         apply_events_retention_floor=False,
     )
 
-    with pytest.raises(QueryError, match="TRINO_TABLE_LOCATOR_MISSING"):
-        prepare_and_print_ast(parse_select("SELECT event FROM events"), context, "trino")
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert error.value.feature_code == feature_code
 
 
 def test_normalizes_prewhere_before_validation() -> None:
@@ -340,7 +365,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         (
             "replaceRegexpOne(user_id, '([a-z]+)', 'x')",
-            "__hogql_match -> __hogql_match[1] || %(hogql_val_0)s || __hogql_match[4]",
+            "__hogql_match -> __hogql_match[1] || 'x' || __hogql_match[4]",
         ),
         (
             "roundBankers(sum(length(user_id)), -1)",
@@ -372,7 +397,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             'filter(sequence(2, greatest((5) - 1, 2)), "__hogql_range_value" -> ("__hogql_range_value" < 5))',
         ),
         ("tuple(1, 2).1", "(ROW(1, 2))[1]"),
-        ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", %(hogql_val_0)s, 1)'),
+        ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", \'id-(.*)\', 1)'),
         ("JSON_VALUE(user_id, '$.key')", 'json_value("users"."user_id", \'lax $.key\')'),
         (
             "quantileIf(0.9)(length(user_id), user_id != '')",
@@ -405,16 +430,16 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("formatReadableTimeDelta(3661)", "'hour', 'hours'"),
         (
             "multiSearchAnyCaseInsensitive(user_id, ['Ab'])",
-            "any_match(ARRAY[%(hogql_val_0)s], __hogql_needle -> strpos(lower(",
+            "any_match(ARRAY['Ab'], __hogql_needle -> strpos(lower(",
         ),
         (
             "replaceOne(user_id, 'a', 'b')",
-            'CASE WHEN length(%(hogql_val_0)s) = 0 OR strpos("users"."user_id", %(hogql_val_0)s) = 0',
+            "CASE WHEN length('a') = 0 OR strpos(\"users\".\"user_id\", 'a') = 0",
         ),
         ("floor(1.234, 2)", "(floor(1.234 * power(10, 2)) / power(10, 2))"),
         ("ceil(-1.234, 2)", "(ceil(-1.234 * power(10, 2)) / power(10, 2))"),
         ("md5(user_id AS TEXT)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
-        ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", %(hogql_val_0)s), 1, 2) END'),
+        ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", \',\'), 1, 2) END'),
         ("splitByString('', user_id)", 'regexp_extract_all("users"."user_id", \'(?s).\')'),
         ("arraySlice([1, 2, 3], -2, -1)", "element_at(transform(ARRAY[ROW(ARRAY[1, 2, 3], -2, -1)]"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
@@ -422,14 +447,14 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toStartOfInterval(created_at, INTERVAL 2 MONTH)", "date_diff('month', TIMESTAMP '1900-01-01"),
         (
             "toStartOfInterval(created_at, INTERVAL 3 HOUR, toDateTime('2024-01-01'))",
-            "date_diff('second', CAST(%(hogql_val_0)s AS TIMESTAMP)",
+            "date_diff('second', CAST('2024-01-01' AS TIMESTAMP)",
         ),
         ("parseDateTimeBestEffort(user_id)", 'CAST(at_timezone(coalesce(IF(regexp_like("users"."user_id",'),
         (
             "dateDiff('day', user_id, created_at)",
-            'date_diff(%(hogql_val_0)s, CAST("users"."user_id" AS TIMESTAMP), "users"."created_at")',
+            'date_diff(\'day\', CAST("users"."user_id" AS TIMESTAMP), "users"."created_at")',
         ),
-        ("CASE user_id WHEN 'a' THEN 1 ELSE 2 END", 'CASE "users"."user_id" WHEN %(hogql_val_0)s THEN 1 ELSE 2 END'),
+        ("CASE user_id WHEN 'a' THEN 1 ELSE 2 END", 'CASE "users"."user_id" WHEN \'a\' THEN 1 ELSE 2 END'),
         ("if(2, 3, 4)", "CASE WHEN CAST(2 AS BOOLEAN) THEN 3 ELSE 4 END"),
         ("NOT properties.enabled", "NOT CAST(json_extract_scalar("),
         ("log(2)", "ln(2)"),
@@ -454,7 +479,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("_toUInt64(user_id)", 'CAST("users"."user_id" AS BIGINT)'),
         ("_toUInt64(created_at)", 'CAST(to_unixtime("users"."created_at") AS BIGINT)'),
         ("encodeURLComponent(user_id)", 'url_encode("users"."user_id")'),
-        ("in(user_id, tuple('one'))", '("users"."user_id" IN (%(hogql_val_0)s))'),
+        ("in(user_id, tuple('one'))", '("users"."user_id" IN (\'one\'))'),
         ("max2(1, 2)", "greatest(1, 2)"),
         ("min2(1, 2)", "least(1, 2)"),
         ("positiveModulo(-3, 2)", "mod(mod(-3, 2) + 2, 2)"),
@@ -535,7 +560,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("1 = (id > 0)", '(1 = CAST(("users"."id" > 0) AS INTEGER))'),
         (
             "(id > 0 AND user_id = 'a') = 1",
-            '(CAST(((("users"."id" > 0)) AND (("users"."user_id" = %(hogql_val_0)s))) AS INTEGER) = 1)',
+            '(CAST(((("users"."id" > 0)) AND (("users"."user_id" = \'a\'))) AS INTEGER) = 1)',
         ),
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
@@ -698,7 +723,7 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
         "trino",
     )
     assert "GLOBAL" not in membership_sql
-    assert '"users"."user_id" IN (%(hogql_val_0)s)' in membership_sql
+    assert '"users"."user_id" IN (\'a\')' in membership_sql
 
     query = parse_select("SELECT users.user_id FROM users LEFT JOIN users AS other ON users.user_id = other.user_id")
     assert isinstance(query, ast.SelectQuery)
@@ -786,9 +811,8 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
         parse_select(r"SELECT replaceRegexpOne(user_id, '([a-z])([0-9])', '\\2$\\1') FROM users"), context, "trino"
     )
 
-    assert r"(?s)\A(.*?)(([a-z])([0-9]))(.*)\z" in context.values.values()
-    assert "$" in context.values.values()
-    assert "coalesce(__hogql_match[4], '') || %(hogql_val_0)s || coalesce(__hogql_match[3], '')" in sql
+    assert escape_trino_string(r"(?s)\A(.*?)(([a-z])([0-9]))(.*)\z") in sql
+    assert "coalesce(__hogql_match[4], '') || '$' || coalesce(__hogql_match[3], '')" in sql
     assert "__hogql_match[5]" in sql
 
 
@@ -805,9 +829,9 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
 )
 def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected: str) -> None:
     context = _context_with_trino_table()
-    prepare_and_print_ast(parse_select(f"SELECT match(user_id, '{pattern}') FROM users"), context, "trino")
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT match(user_id, '{pattern}') FROM users"), context, "trino")
 
-    assert list(context.values.values()) == [expected]
+    assert f'regexp_like("users"."user_id", {escape_trino_string(expected)})' in sql
 
 
 @pytest.mark.parametrize(
@@ -1054,9 +1078,11 @@ def test_deeply_nested_arithmetic_prints_without_repeated_type_lookups() -> None
 
 def test_first_regex_replacement_preserves_inline_flags() -> None:
     context = _context_with_trino_table()
-    prepare_and_print_ast(parse_select("SELECT replaceRegexpOne(user_id, '(?i)a', 'b') FROM users"), context, "trino")
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT replaceRegexpOne(user_id, '(?i)a', 'b') FROM users"), context, "trino"
+    )
 
-    assert r"(?s)\A(.*?)((?i)a)(.*)\z" in context.values.values()
+    assert escape_trino_string(r"(?s)\A(.*?)((?i)a)(.*)\z") in sql
 
 
 @pytest.mark.parametrize(
@@ -1088,7 +1114,7 @@ def test_coerces_strict_trino_types_after_property_lowering() -> None:
     assert 'CAST(json_extract_scalar("users"."properties", \'$["duration"]\') AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
     assert 'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE))' in sql
     assert 'CAST(json_extract_scalar("users"."properties", \'$["failed"]\') AS BOOLEAN) = true' in sql
-    assert '"users"."created_at" >= CAST(%(hogql_val_0)s AS TIMESTAMP)' in sql
+    assert '"users"."created_at" >= CAST(\'2026-04-01\' AS TIMESTAMP)' in sql
 
 
 def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
@@ -1100,8 +1126,8 @@ def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
         "trino",
     )
 
-    assert "CAST(from_iso8601_timestamp(%(hogql_val_0)s) AS TIMESTAMP)" in sql
-    assert 'concat(CAST(%(hogql_val_1)s AS VARCHAR), CAST(length("users"."user_id") AS VARCHAR))' in sql
+    assert "CAST(from_iso8601_timestamp('2025-06-03T12:00:34.000Z') AS TIMESTAMP)" in sql
+    assert 'concat(CAST(\'ticket-\' AS VARCHAR), CAST(length("users"."user_id") AS VARCHAR))' in sql
 
 
 def test_preserves_date_return_type_for_trino_date_truncation() -> None:
@@ -1193,7 +1219,7 @@ def test_nested_integer_conversions_keep_only_used_parameters(function: str) -> 
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), context, "trino")
 
-    assert context.values == {"hogql_val_0": "7"}
+    assert context.values == {}
     sql, values = convert_pyformat_placeholders(sql, context.values)
     with duckdb.connect(":memory:") as connection:
         assert connection.execute(sql, values).fetchone() == (7,)
@@ -1280,7 +1306,7 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
         "trino",
     )
 
-    assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", %(hogql_val_0)s, 1)' in sql
+    assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", \'(?::|")href="(.*?)"\', 1)' in sql
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
 
 
@@ -1326,7 +1352,7 @@ def test_grouped_json_property_prints_the_same_path_in_projection_and_group_by(k
     grouped = f'json_extract_scalar("users"."properties", {expected_path})'
     assert sql.count(grouped) == 2
     assert sql.split(" GROUP BY ")[1].count(grouped) == 1
-    assert values == [""]
+    assert values == []
 
 
 @pytest.mark.parametrize(
@@ -1338,7 +1364,7 @@ def test_grouped_json_property_prints_the_same_path_in_projection_and_group_by(k
             "concat(user_id, 'suffix')",
             "account_id DESC",
             "1 DESC",
-            ["suffix"],
+            [],
         ),
         ("properties.color", "account_id", "account_id", "1 ASC", []),
         ("0", "account_id", "account_id", "1 ASC", []),
@@ -1347,8 +1373,8 @@ def test_grouped_json_property_prints_the_same_path_in_projection_and_group_by(k
             "user_id",
             "account_id",
             "concat(account_id, 'suffix')",
-            'concat(CAST("users"."user_id" AS VARCHAR), CAST(? AS VARCHAR)) ASC',
-            ["suffix"],
+            'concat(CAST("users"."user_id" AS VARCHAR), CAST(\'suffix\' AS VARCHAR)) ASC',
+            [],
         ),
     ],
 )
@@ -1483,7 +1509,7 @@ def test_inlines_scalar_ctes_for_trino() -> None:
     )
 
     assert "WITH" not in sql
-    assert '"users"."created_at" >= CAST(%(hogql_val_0)s AS TIMESTAMP)' in sql
+    assert '"users"."created_at" >= CAST(\'2025-01-01\' AS TIMESTAMP)' in sql
 
 
 def test_lowers_dynamic_numbers_with_a_bounded_cardinality() -> None:
@@ -1502,8 +1528,7 @@ def test_lowers_dynamic_numbers_with_a_bounded_cardinality() -> None:
     [
         (
             "''",
-            "(%(hogql_val_0)s IS NULL OR %(hogql_val_0)s = ''), "
-            "(%(hogql_val_1)s IS NOT NULL AND %(hogql_val_1)s <> '')",
+            "('' IS NULL OR '' = ''), ('' IS NOT NULL AND '' <> '')",
         ),
         ("[]", "(ARRAY[] IS NULL OR cardinality(ARRAY[]) = 0), (ARRAY[] IS NOT NULL AND cardinality(ARRAY[]) > 0)"),
         (
@@ -1571,7 +1596,7 @@ def test_lowers_nested_json_keys_and_values_raw() -> None:
     sql, _ = prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'teams')"), context, "trino")
 
     assert "map_entries(CAST(json_extract(" in sql
-    assert context.values == {"hogql_val_0": "{}"}
+    assert context.values == {}
     assert "'$[\"teams\"]'" in sql
 
 
@@ -1709,6 +1734,38 @@ def test_lowers_array_join_function_to_cross_join_unnest() -> None:
         'CROSS JOIN UNNEST(transform(ARRAY[1, 2], "__trino_array_function_0_value" -> '
         'ROW("__trino_array_function_0_value"))) AS "__trino_array_function_0" ("value_0")' in sql
     )
+
+
+def test_unnests_an_array_of_aggregates_after_grouping() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT user_id, arrayJoin([('rows', count()), ('ids', count(DISTINCT id))]) AS metric, metric.2 AS value "
+            "FROM users GROUP BY user_id ORDER BY user_id, metric.1 LIMIT 3"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert sql.index("GROUP BY") < sql.index("CROSS JOIN UNNEST") < sql.index("ORDER BY") < sql.index("LIMIT 3")
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT 7 AS n, arrayJoin([count(), count() + 1]) AS m, arrayMap(n -> n + m, [1, 2]) AS vals FROM users",
+            '"n" -> ("n" + "__trino_array_function_0"."value_0")',
+        ),
+        (
+            "SELECT (WITH t AS (SELECT 1 AS k) SELECT k FROM t) AS x, arrayJoin([count()]) AS n FROM users",
+            '(WITH "t" AS (SELECT 1 AS "k") SELECT "t"."k" FROM "t") AS "x"',
+        ),
+    ],
+)
+def test_unnests_an_array_of_aggregates_next_to_other_projections(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert expected in sql
 
 
 def test_lowers_select_alias_inside_array_join_function() -> None:
@@ -2179,6 +2236,7 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT arrayFilter(x -> x IN (SELECT v FROM rows LIMIT 1 BY v), [1, 2])",
             [([1],)],
         ),
+        ("SELECT 7 AS n, arrayFilter(n -> n > 1, [1, 2]) AS vals", [(7, [2])]),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
@@ -2436,7 +2494,7 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("user_id ILIKE 'person-%'", 'lower("users"."user_id") LIKE lower(%(hogql_val_0)s)'),
+        ("user_id ILIKE 'person-%'", 'lower("users"."user_id") LIKE lower(\'person-%\')'),
         (
             "uniq(user_id, created_at)",
             'count(DISTINCT ROW("users"."user_id", "users"."created_at"))',
@@ -2444,7 +2502,7 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("toDateTime64(created_at, 6)", 'CAST("users"."created_at" AS TIMESTAMP(6))'),
         (
             "dateAdd(toDate('2026-01-01'), toIntervalMonth(1))",
-            "(CAST(%(hogql_val_0)s AS DATE) + (CAST(1 AS BIGINT) * INTERVAL '1' MONTH))",
+            "(CAST('2026-01-01' AS DATE) + (CAST(1 AS BIGINT) * INTERVAL '1' MONTH))",
         ),
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
@@ -2465,7 +2523,7 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
             "JSONExtractKeysAndValues(properties, 'Nullable(UInt8)')",
             "'[]', true, 0, 255) AS ARRAY(ROW(VARCHAR, SMALLINT)))",
         ),
-        ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
+        ("['a', 'b'][2:]", "slice(ARRAY['a', 'b'], 2, 2147483647)"),
     ],
 )
 def test_prints_additional_semantics_safe_trino_expressions(expression: str, expected: str) -> None:
@@ -2645,8 +2703,8 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("arraySum(value -> value * 2, [1, 2])", 'reduce(transform(ARRAY[1, 2], "value" -> ("value" * 2)), '),
         ("arrayMax(value -> value * 2, [1, 2])", 'array_max(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
         ("arrayMin(value -> value * 2, [1, 2])", 'array_min(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
-        ("arrayMax(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
-        ("arrayMin(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
+        ("arrayMax(value -> toString(value), [1, 2]) = '2'", "))) = '2')"),
+        ("arrayMin(value -> toString(value), [1, 2]) = '2'", "))) = '2')"),
         ("arrayResize(arrayCumSum(value -> value / 2, [1, 2]), 4)", "repeat(DOUBLE '0',"),
         ("arrayFill(value -> value > 0, [0, 1, 0])", "element_at(__hogql_filled, -1)"),
         ("arrayReverseFill(value -> value > 0, [0, 1, 0])", "reverse(reduce(reverse(zip("),
@@ -2770,17 +2828,17 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("endsWith(user_id, '1')", 'substr("users"."user_id", -length(%(hogql_val_0)s)) = %(hogql_val_0)s'),
-        ("mapFromArrays(['a'], [1])", "map(ARRAY[%(hogql_val_0)s], ARRAY[1])"),
+        ("endsWith(user_id, '1')", "substr(\"users\".\"user_id\", -length('1')) = '1'"),
+        ("mapFromArrays(['a'], [1])", "map(ARRAY['a'], ARRAY[1])"),
         (
             "mapUpdate(mapFromArrays(['a'], [1]), mapFromArrays(['a'], [2]))",
-            "map_concat(map(ARRAY[%(hogql_val_0)s], ARRAY[1]), map(ARRAY[%(hogql_val_1)s], ARRAY[2]))",
+            "map_concat(map(ARRAY['a'], ARRAY[1]), map(ARRAY['a'], ARRAY[2]))",
         ),
-        ("in(user_id, ('a', 'b'))", '"users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
-        ("notIn(user_id, ('a', 'b'))", '"users"."user_id" NOT IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
-        ("user_id IN ['violet', 'amber']", '"users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
-        ("user_id NOT IN ['violet']", '"users"."user_id" NOT IN (%(hogql_val_0)s)'),
-        ("in(user_id, ['violet'])", '"users"."user_id" IN (%(hogql_val_0)s)'),
+        ("in(user_id, ('a', 'b'))", "\"users\".\"user_id\" IN ('a', 'b')"),
+        ("notIn(user_id, ('a', 'b'))", "\"users\".\"user_id\" NOT IN ('a', 'b')"),
+        ("user_id IN ['violet', 'amber']", "\"users\".\"user_id\" IN ('violet', 'amber')"),
+        ("user_id NOT IN ['violet']", '"users"."user_id" NOT IN (\'violet\')'),
+        ("in(user_id, ['violet'])", '"users"."user_id" IN (\'violet\')'),
         ("notIn(user_id, [])", "SELECT TRUE FROM"),
         ("user_id IN []", "SELECT FALSE FROM"),
         ("(1, 2) IN []", "SELECT FALSE FROM"),
@@ -2790,14 +2848,14 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("arrayMap(x -> x IN [], [1, 2])", 'transform(ARRAY[1, 2], "x" -> FALSE)'),
         ("arrayFilter(x -> x NOT IN [], [1, 2])", 'filter(ARRAY[1, 2], "x" -> TRUE)'),
         ("arrayMap(x -> in(x, []), [1, 2])", 'transform(ARRAY[1, 2], "x" -> FALSE)'),
-        ("user_id IN ['violet', NULL]", '"users"."user_id" IN (%(hogql_val_0)s, NULL)'),
+        ("user_id IN ['violet', NULL]", '"users"."user_id" IN (\'violet\', NULL)'),
         ("toDateTime(created_at, 'UTC')", 'with_timezone(CAST("users"."created_at" AS TIMESTAMP),'),
         ("toTimeZone(created_at, 'America/Toronto')", "at_timezone(with_timezone(CAST("),
         ("parseDateTime(user_id, '%Y-%m-%d')", 'TRY(date_parse("users"."user_id",'),
-        ("dateAdd('day', 2, created_at)", 'date_add(%(hogql_val_0)s, 2, "users"."created_at")'),
-        ("dateSub('day', 2, created_at)", 'date_add(%(hogql_val_0)s, -(2), "users"."created_at")'),
-        ("date_diff('day', created_at, created_at)", 'date_diff(%(hogql_val_0)s, "users"."created_at"'),
-        ("dateTrunc('month', created_at, 'UTC')", "date_trunc(%(hogql_val_0)s, at_timezone("),
+        ("dateAdd('day', 2, created_at)", 'date_add(\'day\', 2, "users"."created_at")'),
+        ("dateSub('day', 2, created_at)", 'date_add(\'day\', -(2), "users"."created_at")'),
+        ("date_diff('day', created_at, created_at)", 'date_diff(\'day\', "users"."created_at"'),
+        ("dateTrunc('month', created_at, 'UTC')", "date_trunc('month', at_timezone("),
         ("toISOWeek(created_at)", 'EXTRACT(WEEK FROM "users"."created_at")'),
         ("toISOYear(created_at)", 'EXTRACT(YEAR_OF_WEEK FROM "users"."created_at")'),
         ("toYYYYMM(created_at)", 'CAST(date_format("users"."created_at", \'%Y%m\') AS INTEGER)'),
@@ -2819,7 +2877,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("repeat(user_id, 2)", 'ELSE array_join(repeat("users"."user_id", 2), \'\') END'),
         ("5 / 2", "(CAST(5 AS DOUBLE) / CAST(2 AS DOUBLE))"),
         ("divide(5, 2)", "(CAST(5 AS DOUBLE) / CAST(2 AS DOUBLE))"),
-        ("not(user_id = '')", '(NOT ("users"."user_id" = %(hogql_val_0)s))'),
+        ("not(user_id = '')", '(NOT ("users"."user_id" = \'\'))'),
         ("toMonday(created_at)", 'CAST(date_trunc(\'week\', "users"."created_at") AS DATE)'),
         ("yesterday()", "date_add('day', -1, CURRENT_DATE)"),
         ("md5(user_id)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
@@ -2842,9 +2900,9 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("acos(1)", "acos(1)"),
         ("atan(1)", "atan(1)"),
         ("atan2(1, 2)", "atan2(1, 2)"),
-        ("trim(' x ', ' ')", "trim(%(hogql_val_0)s, %(hogql_val_1)s)"),
-        ("ltrim(' x ', ' ')", "ltrim(%(hogql_val_0)s, %(hogql_val_1)s)"),
-        ("rtrim(' x ', ' ')", "rtrim(%(hogql_val_0)s, %(hogql_val_1)s)"),
+        ("trim(' x ', ' ')", "trim(' x ', ' ')"),
+        ("ltrim(' x ', ' ')", "ltrim(' x ', ' ')"),
+        ("rtrim(' x ', ' ')", "rtrim(' x ', ' ')"),
         ("reverse(user_id)", 'reverse("users"."user_id")'),
         ("replace(user_id, 'a', 'b')", 'replace("users"."user_id",'),
         ("lpad(user_id, 3, '0')", 'lpad("users"."user_id", 3,'),
@@ -2857,7 +2915,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("arrayMax([1, 2])", "array_max(ARRAY[1, 2])"),
         (
             "arrayLastIndex(x -> x = 'blue', ['red', 'blue', 'green', 'blue'])",
-            "reduce(transform(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s],",
+            "reduce(transform(ARRAY['red', 'blue', 'green', 'blue'],",
         ),
         ("arraySum([1, 2])", "reduce(ARRAY[1, 2], CAST(0 AS DOUBLE)"),
         ("coalesce(nullIf(true, 0), false)", "coalesce(nullif(CAST(true AS INTEGER), 0), CAST(false AS INTEGER))"),
@@ -2865,7 +2923,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("JSONHas(properties, user_id)", 'json_format(CAST(CAST("users"."user_id" AS VARCHAR) AS JSON))'),
         ("JSONExtractString(properties)", 'json_extract_scalar("users"."properties",'),
         ("created_at + 2", "date_add('second', CAST(2 AS BIGINT)"),
-        ("['a'][3]", "element_at(ARRAY[%(hogql_val_0)s], 3)"),
+        ("['a'][3]", "element_at(ARRAY['a'], 3)"),
         ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "(CAST(1 AS DECIMAL(38, 10)) /"),
         (
             "divideDecimal(toDecimal(1, 10), toDecimal(100, 10), 4)",
@@ -2878,7 +2936,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ),
         (
             "positionCaseInsensitive(user_id, 'A', 2)",
-            'CASE WHEN strpos(lower(substr("users"."user_id", 2)), lower(%(hogql_val_0)s)) = 0 THEN 0',
+            'CASE WHEN strpos(lower(substr("users"."user_id", 2)), lower(\'A\')) = 0 THEN 0',
         ),
         ("cutFragment(user_id)", "regexp_replace(\"users\".\"user_id\", '#.*$', '')"),
         (
@@ -2893,18 +2951,17 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("toFloatOrNull(user_id)", 'TRY_CAST("users"."user_id" AS DOUBLE)'),
         ("_toInt16(12)", "CAST(12 AS SMALLINT)"),
         ("to_date(created_at)", 'CAST("users"."created_at" AS DATE)'),
-        ("map('key', 1)", "map(ARRAY[%(hogql_val_0)s], ARRAY[1])"),
+        ("map('key', 1)", "map(ARRAY['key'], ARRAY[1])"),
         (
             "transform(user_id, ['a'], ['A'], 'other')",
-            'CASE WHEN contains(ARRAY[%(hogql_val_0)s], "users"."user_id") '
-            "THEN element_at(ARRAY[%(hogql_val_1)s], array_position(",
+            "CASE WHEN contains(ARRAY['a'], \"users\".\"user_id\") THEN element_at(ARRAY['A'], array_position(",
         ),
         ("first_value(user_id)", 'arbitrary("users"."user_id")'),
         (
             "toStartOfDay(created_at, 'America/Toronto')",
             "date_trunc('day', at_timezone(with_timezone(CAST(",
         ),
-        ("like(user_id, '%example')", '("users"."user_id" LIKE %(hogql_val_0)s)'),
+        ("like(user_id, '%example')", '("users"."user_id" LIKE \'%example\')'),
     ],
 )
 def test_prints_safe_pr_91053_function_mappings(expression: str, expected: str) -> None:
@@ -2995,7 +3052,7 @@ def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(ident
         ("groupArray(user_id) OVER ()", 'array_agg("users"."user_id") OVER ()'),
         (
             "countIf(user_id != '') OVER ()",
-            'count_if(("users"."user_id" != %(hogql_val_0)s)) OVER ()',
+            'count_if(("users"."user_id" != \'\')) OVER ()',
         ),
         (
             "stddevPopIf(length(user_id), length(user_id) > 1) OVER ()",
@@ -3066,7 +3123,7 @@ def test_prints_distinct_trino_window_functions(expression: str, expected: str) 
         ),
         (
             "toDateTime64('2026-01-02 03:04:05', 3, 'UTC')",
-            "with_timezone(CAST(%(hogql_val_0)s AS TIMESTAMP(3)), %(hogql_val_1)s)",
+            "with_timezone(CAST('2026-01-02 03:04:05' AS TIMESTAMP(3)), 'UTC')",
         ),
         (
             "topK(2)(user_id)",
@@ -3108,7 +3165,7 @@ def test_lowers_offset_in_frame_over_a_full_partition() -> None:
         "trino",
     )
 
-    assert 'lead("users"."user_id", 1, %(hogql_val_0)s) OVER (ORDER BY "users"."created_at" ASC)' in sql
+    assert 'lead("users"."user_id", 1, \'\') OVER (ORDER BY "users"."created_at" ASC)' in sql
     assert "ROWS BETWEEN" not in sql
 
 
@@ -3242,7 +3299,7 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
         (
             "`id` String, `tiers` Nullable(String)",
             "SELECT tiers != '[]' FROM prices",
-            '("prices"."tiers" != %(hogql_val_0)s)',
+            '("prices"."tiers" != \'[]\')',
         ),
         (
             "`id` String, `tiers` Array(String)",
@@ -3257,12 +3314,12 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
         (
             "`id` String, `tiers` Nullable(String)",
             "SELECT p.tiers != '[]' FROM (SELECT tiers FROM prices) AS p",
-            '("p"."tiers" != %(hogql_val_0)s)',
+            '("p"."tiers" != \'[]\')',
         ),
         (
             "`id` String, `tiers` Nullable(String)",
             "SELECT p.tiers != '[]' FROM prices LEFT ANY JOIN prices AS p ON prices.id = p.id",
-            '("p"."tiers" != %(hogql_val_0)s)',
+            '("p"."tiers" != \'[]\')',
         ),
         (
             "`id` String, `tiers` Nullable(String)",
@@ -3465,6 +3522,12 @@ def test_nested_lambda_subquery_memberships_grow_linearly() -> None:
             "SELECT arrayMap(x -> concat(x, user_id), ['a']) AS user_id FROM users AS id",
             "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
         ),
+        ("SELECT arrayJoin([count()]) + count() AS x FROM users", "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED"),
+        (
+            "SELECT arrayJoin([count(), count() + 1]) AS n, count() OVER () + n AS c FROM users",
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+        ),
+        ("SELECT x + 1 AS y, arrayJoin([sum(id)]) AS x FROM users", "TRINO_ARRAY_JOIN_AGGREGATE_FORWARD_REFERENCE"),
     ],
 )
 def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: str, feature_code: str) -> None:
@@ -3587,6 +3650,52 @@ def test_grouping_reuses_projected_expression(
     assert isinstance(node.group_by[0], ast.PositionalRef)
     assert node.group_by[0].index == 1
     assert (sql, context.values) == snapshot
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(
+            "SELECT coalesce(nullIf(user_id, ''), 'none') AS org, count() FROM users GROUP BY org HAVING org NOT IN ('', 'a')",
+            id="having_on_grouped_alias",
+        ),
+        pytest.param(
+            "SELECT concat(splitByChar('/', user_id)[1], '-') AS id, splitByChar('/', user_id)[1] AS org FROM users GROUP BY id, org",
+            id="projection_contains_grouped_expression",
+        ),
+        pytest.param(
+            "SELECT if(user_id = 'a', 'x', 'y') AS bucket, count() FROM users GROUP BY bucket ORDER BY if(user_id = 'a', 'x', 'y')",
+            id="order_by_grouped_expression",
+        ),
+        pytest.param(
+            "SELECT parseDateTimeBestEffort(user_id) AS day, count() FROM users GROUP BY day HAVING count() > 1 AND day > now()",
+            id="function_owned_string_arguments",
+        ),
+    ],
+)
+def test_string_constants_print_as_literals_so_repeated_expressions_match(query: str) -> None:
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert context.values == {}
+    assert "%(" not in sql
+
+
+@pytest.mark.parametrize(
+    ("value", "printed", "bound"),
+    [
+        pytest.param("x' OR '1'='1", "'x'' OR ''1''=''1'", [], id="quote_is_doubled"),
+        pytest.param("a\\'b", "'a\\''b'", [], id="backslash_is_not_an_escape"),
+        pytest.param("a\0b", "%(hogql_val_0)s", ["a\0b"], id="nul_stays_bound"),
+    ],
+)
+def test_string_constant_prints_as_one_trino_literal(value: str, printed: str, bound: list[str]) -> None:
+    context = _context_with_trino_table()
+    query = parse_select("SELECT user_id = {value} FROM users", placeholders={"value": ast.Constant(value=value)})
+    sql, _ = prepare_and_print_ast(query, context, "trino")
+
+    assert f'("users"."user_id" = {printed})' in sql
+    assert list(context.values.values()) == bound
 
 
 def test_lowered_property_timestamp_is_not_constant(snapshot: SnapshotAssertion) -> None:
@@ -3715,3 +3824,57 @@ def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
     assert "UNION ALL" in sql
     assert "VALUES" not in sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_rows", "expected_bare_bounds"),
+    [
+        ("SELECT count() FROM events WHERE toDate(timestamp) BETWEEN '2026-01-01' AND '2026-01-31'", 2, 2),
+        ("SELECT count() FROM events WHERE toStartOfMonth(timestamp) = '2026-01-01'", 2, 2),
+        ("SELECT count() FROM events WHERE toStartOfDay(timestamp) < '2026-01-01 00:00:00'", 1, 1),
+        ("SELECT count() FROM events WHERE '2026-02-01' <= toDate(timestamp)", 1, 1),
+        (
+            "SELECT count() FROM events WHERE dateTrunc('hour', timestamp) >= toDateTime('2026-01-31 23:00:00') "
+            "AND event = 'x'",
+            2,
+            1,
+        ),
+        ("SELECT count() FROM events WHERE toDate(timestamp) = (toDate('2026-01-01') AS cutoff)", 1, 2),
+        (
+            "SELECT count() FROM events "
+            "WHERE toDate(timestamp) BETWEEN (toDate('2026-01-01') AS low) AND (toDate('2026-01-31') AS high)",
+            2,
+            2,
+        ),
+        ("SELECT count() FROM (SELECT toDate(timestamp) AS day FROM events WHERE day = '2026-01-31')", 1, 2),
+        ("WITH '2026-02-01' AS cutoff SELECT count() FROM events WHERE toDate(timestamp) >= cutoff", 1, 1),
+        ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(event)", None, 0),
+        ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(now() - toIntervalDay(rand() % 9000))", None, 0),
+    ],
+)
+def test_truncated_events_timestamp_filter_adds_a_prunable_range_without_dropping_rows(
+    query: str, expected_rows: int | None, expected_bare_bounds: int
+) -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert len(re.findall(r'\("tenant"\."posthog"\."events"\."timestamp" (?:>=|<) ', sql)) == expected_bare_bounds
+    if expected_rows is None:
+        return
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        connection.execute("ATTACH ':memory:' AS tenant")
+        connection.execute("CREATE SCHEMA tenant.posthog")
+        connection.execute('CREATE TABLE tenant.posthog.events ("timestamp" TIMESTAMP, event VARCHAR)')
+        connection.execute(
+            "INSERT INTO tenant.posthog.events VALUES "
+            "('2025-12-31 23:59:59.999', 'x'), ('2026-01-01 00:00:00', 'x'), "
+            "('2026-01-31 23:59:59.999', 'x'), ('2026-02-01 00:00:00', 'x')"
+        )
+        assert connection.execute(sql, values).fetchone() == (expected_rows,)

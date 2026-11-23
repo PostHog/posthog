@@ -815,13 +815,6 @@ export interface DataCatalogRelationshipProposalApi {
     field_name: string
     /** Extra join configuration, e.g. a field mapping. */
     configuration?: unknown
-    /**
-     * Discovery confidence in this join, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why this join is proposed. */
     reasoning?: string
     /** Sampling evidence: match rates, sample values. */

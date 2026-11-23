@@ -12013,6 +12013,13 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface ErrorTrackingIssueTagsFilter {
+      /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+      has?: string[] | null;
+      /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+      hasNot?: string[] | null;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -12088,8 +12095,9 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
-      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
       issueTag?: ErrorTrackingIssueTagFilter | null;
+      /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+      issueTags?: ErrorTrackingIssueTagsFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -36354,13 +36362,6 @@ export namespace Schemas {
       field_name: string;
       /** Extra join configuration, e.g. a field mapping. */
       configuration?: unknown;
-      /**
-         * Discovery confidence in this join, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why this join is proposed. */
       reasoning?: string;
       /** Sampling evidence: match rates, sample values. */
@@ -37930,6 +37931,18 @@ export namespace Schemas {
       best_effort_sources_withheld: boolean;
     }
 
+    export interface SavedQueryPlanClamp {
+      /**
+         * The refresh interval, in seconds, this view had before the rewrite. Null when it had none.
+         * @nullable
+         */
+      previous_target_seconds: number | null;
+      /** The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed. */
+      plan_floor_seconds: number;
+      /** When the refresh interval was rewritten. */
+      at: string;
+    }
+
     /**
      * * `Cancelled` - Cancelled
      * * `Modified` - Modified
@@ -38092,6 +38105,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
+      /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+      readonly plan_clamp: SavedQueryPlanClamp | null;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -43271,6 +43286,18 @@ export namespace Schemas {
       saved_query_id?: string | null;
     }
 
+    export interface EndpointPlanClamp {
+      /**
+         * The data freshness, in seconds, the endpoint had before the rewrite. Null when it had none.
+         * @nullable
+         */
+      previous_data_freshness_seconds: number | null;
+      /** The data freshness, in seconds, the endpoint was set to: the fastest the organization's plan allowed. */
+      plan_floor_seconds: number;
+      /** When the data freshness was rewritten. */
+      at: string;
+    }
+
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
 
 
@@ -43379,6 +43406,8 @@ export namespace Schemas {
          * @nullable
          */
       plan_refresh_floor_seconds: number | null;
+      /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+      plan_clamp: EndpointPlanClamp | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -43575,6 +43604,8 @@ export namespace Schemas {
          * @nullable
          */
       plan_refresh_floor_seconds: number | null;
+      /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+      plan_clamp: EndpointPlanClamp | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -45193,7 +45224,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagRead {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45337,7 +45368,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagCorrection {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45350,7 +45381,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagDefinition {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -62002,6 +62033,15 @@ export namespace Schemas {
       worstCampaign: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationDetectedChange = typeof MarketingAnalyticsRecommendationDetectedChange[keyof typeof MarketingAnalyticsRecommendationDetectedChange];
+
+
+    export const MarketingAnalyticsRecommendationDetectedChange = {
+      NegativeKeyword: 'negative_keyword',
+      BrandNegative: 'brand_negative',
+      KeywordAdded: 'keyword_added',
+    } as const;
+
     export type MarketingAnalyticsRecommendationRule = typeof MarketingAnalyticsRecommendationRule[keyof typeof MarketingAnalyticsRecommendationRule];
 
 
@@ -62099,7 +62139,7 @@ export namespace Schemas {
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
       /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
-      detectedChange?: 'negative_keyword' | null;
+      detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null;
       identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -62169,6 +62209,8 @@ export namespace Schemas {
       campaignTable?: string | null;
       /** Google Ads customer table, used for the account currency. */
       customerTable?: string | null;
+      /** Google Ads keyword table, used to tell which searches are already keywords. */
+      keywordTable?: string | null;
       /** Google Ads search term table for Performance Max campaigns. */
       performanceMaxSearchTermTable?: string | null;
       /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
@@ -65401,6 +65443,7 @@ export namespace Schemas {
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
      * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -65411,6 +65454,7 @@ export namespace Schemas {
       Postmark: 'postmark',
       Sendgrid: 'sendgrid',
       Mailgun: 'mailgun',
+      Mailchimp: 'mailchimp',
     } as const;
 
     export interface ImportStepOption {
@@ -65456,7 +65500,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -91718,6 +91763,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
+      /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+      readonly plan_clamp?: SavedQueryPlanClamp | null;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       readonly status?: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -105528,7 +105575,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -122227,7 +122275,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -122236,7 +122285,7 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
@@ -133902,6 +133951,14 @@ export namespace Schemas {
          * @nullable
          */
       calls_per_parent_invocation: number | null;
+    }
+
+    export interface _StoredTraceResponse {
+      /**
+         * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+         * @nullable
+         */
+      traceId: string | null;
     }
 
     export interface _SymbolSetDownloadResponse {
@@ -151671,6 +151728,15 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string;
     };
 
     export type TracingSpansValuesRetrieveParams = {
