@@ -70,8 +70,11 @@ export class RecipientsManagerService {
         return (await (args.anyCase ? this.anyCaseLoader : this.lazyLoader).get(key)) ?? null
     }
 
-    public markForRefresh(args: RecipientGetArgs): void {
-        ;(args.anyCase ? this.anyCaseLoader : this.lazyLoader).markForRefresh(toKey(args))
+    /** Reads directly from the primary database without consulting or populating the cache. */
+    public async getFresh(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
+        const key = toKey(args)
+        const rows = await this.fetchRecipients([key], Boolean(args.anyCase), PostgresUse.COMMON_WRITE)
+        return rows[key] ?? null
     }
 
     public async getMany(args: RecipientGetArgs[]): Promise<Record<string, RecipientManagerRecipient | null>> {
@@ -137,7 +140,8 @@ export class RecipientsManagerService {
 
     private async fetchRecipients(
         ids: string[],
-        anyCase: boolean
+        anyCase: boolean,
+        postgresUse: PostgresUse = PostgresUse.COMMON_READ
     ): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey).filter(({ teamId }) => isValidTeamId(teamId))
         if (recipientArgs.length === 0) {
@@ -175,7 +179,7 @@ export class RecipientsManagerService {
         const params = recipientArgs.flatMap((recipient) => [recipient.teamId, recipient.identifier])
 
         const response = await this.postgres.query<MessageRecipientPreferenceRow>(
-            PostgresUse.COMMON_READ,
+            postgresUse,
             queryString,
             params,
             'fetchCDPRecipients'

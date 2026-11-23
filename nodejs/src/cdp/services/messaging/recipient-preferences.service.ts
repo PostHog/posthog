@@ -271,6 +271,13 @@ export class RecipientPreferencesService {
             return true
         }
 
+        // Marketing API sends check fresh primary preferences in EmailService before delivery, so
+        // skip the cached step-level read here to avoid dropping a recipient who resubscribed after
+        // this worker cached an earlier opt-out.
+        if (action.type === 'function_email' && invocation.state.messageCategory?.type === 'marketing') {
+            return false
+        }
+
         return this.isOptedOut(invocation.teamId, identifier, categoryId, {
             anyCase: action.type === 'function_email',
         })
@@ -280,14 +287,21 @@ export class RecipientPreferencesService {
         teamId: number,
         identifier: string,
         categoryId: string,
-        { failOpen = true, anyCase = true }: { failOpen?: boolean; anyCase?: boolean } = {}
+        {
+            failOpen = true,
+            anyCase = true,
+            fresh = false,
+        }: { failOpen?: boolean; anyCase?: boolean; fresh?: boolean } = {}
     ): Promise<boolean> {
         try {
-            const recipient = await this.recipientsManager.get({
+            const args = {
                 teamId,
                 identifier,
                 ...(anyCase ? { anyCase: true } : {}),
-            })
+            }
+            const recipient = fresh
+                ? await this.recipientsManager.getFresh(args)
+                : await this.recipientsManager.get(args)
 
             if (!recipient) {
                 /**

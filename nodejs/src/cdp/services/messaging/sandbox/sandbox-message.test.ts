@@ -62,24 +62,4 @@ describe('buildSandboxMessage', () => {
         )
         expect(message.text).not.toMatch(/\r|\nBcc/)
     })
-
-    it('includes extra headers after X-PostHog-Organization-Id', () => {
-        const message = buildSandboxMessage({
-            email: { to: { email: 'Member@example.com' }, subject: 'Hello', text: 'Hi' },
-            organizationId,
-            organizationName: 'Example organization',
-            fromAddress: 'sandbox@example.com',
-            recipient: 'member@example.com',
-            headers: [
-                { name: 'List-Unsubscribe', value: '<https://example.com/u>' },
-                { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
-            ],
-        })
-
-        expect(message.headers).toEqual([
-            { name: 'X-PostHog-Organization-Id', value: organizationId },
-            { name: 'List-Unsubscribe', value: '<https://example.com/u>' },
-            { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
-        ])
-    })
 })

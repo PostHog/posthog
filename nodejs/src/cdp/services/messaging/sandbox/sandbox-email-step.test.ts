@@ -1,18 +1,26 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { AddressInfo, Server, Socket, createServer } from 'net'
+import supertest from 'supertest'
+import express from 'ultimate-express'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { CdpApi } from '~/cdp/cdp-api'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { RedisPool } from '~/types'
 
@@ -827,28 +835,95 @@ describe('SandboxEmailSendStep', () => {
         })
 
         it('retries a marketing code send without calling SES when the delivered address lookup is unavailable', async () => {
-            const flow = buildCodeSendFlow()
-            const unavailable: DeliveredAddressReader = () =>
-                Promise.reject(new SandboxRecipientUnavailableError('database unavailable'))
-            const unavailableExecutor = buildExecutor(caps, unavailable)
-            const routed = await unavailableExecutor.execute(
-                codeSendInvocation({
-                    flow,
-                    email: member().toLowerCase(),
-                    category: { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' },
-                    content: marketingContent,
+            const preferencesHub = await createHub({
+                ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
+                SITE_URL: 'http://localhost:8000',
+            })
+            const preferencesApi = new CdpApi(preferencesHub, createCdpConsumerDeps(preferencesHub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
+            const preferencesApp: express.Application = setupExpressApp()
+            preferencesApp.use('/', preferencesApi.router())
+            const preferencesServer = preferencesApp.listen(0, () => {})
+            const now = DateTime.utc()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
+            try {
+                const flow = buildCodeSendFlow()
+                const unavailable: DeliveredAddressReader = () =>
+                    Promise.reject(new SandboxRecipientUnavailableError('database unavailable'))
+                const unavailableExecutor = buildExecutor(caps, unavailable)
+                const routed = await unavailableExecutor.execute(
+                    codeSendInvocation({
+                        flow,
+                        email: member().toLowerCase(),
+                        category: { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' },
+                        content: marketingContent,
+                    })
+                )
+
+                const stalled = await unavailableExecutor.execute(nextDequeue(routed.invocation))
+
+                expect(world.ses.attempts).toBe(0)
+                expect(stalled.invocation.queue).toBe('emailsandbox')
+                expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(now.toMillis())
+
+                await runSandboxQueue(buildExecutor(), stalled.invocation)
+                expect(world.ses.delivered).toHaveLength(1)
+                const deliveredLink = world.ses.delivered[0].text!.match(/https?:\/\/\S+/)![0]
+                const token = new URL(deliveredLink).pathname.split('/').filter(Boolean).at(-1)!
+                const validated = await supertest(preferencesApp).get(
+                    `/api/messaging/validate_preferences_token/${token}`
+                )
+                expect(validated.status).toBe(200)
+                expect(validated.body).toMatchObject({ valid: true, team_id: world.team.id, identifier: member() })
+            } finally {
+                clock.mockRestore()
+                preferencesServer.close()
+                await closeHub(preferencesHub)
+            }
+        })
+
+        it('keeps retrying a categorized marketing code send past MAX_SANDBOX_RETRIES while preference reads fail, then delivers once recovered', async () => {
+            const now = DateTime.utc()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
+            const unlock = await world.lockTable('posthog_messagerecipientpreference')
+            try {
+                const flow = buildCodeSendFlow()
+                const category = { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' as const }
+                const stalledExecutor = buildExecutor(
+                    { team: 100, recipient: 100 },
+                    deliveredAddressReader(world.postgres),
+                    { recipientReadTimeoutMs: 50 }
+                )
+                const routed = await stalledExecutor.execute(
+                    codeSendInvocation({ flow, email: member(), category, content: marketingContent })
+                )
+
+                let current = routed.invocation
+                for (let attempt = 0; attempt <= MAX_SANDBOX_RETRIES + 1; attempt++) {
+                    const step = await stalledExecutor.execute(nextDequeue(current))
+                    current = step.invocation
+                    expect(current.queue).toBe('emailsandbox')
+                    expect(current.queueScheduledAt!.toMillis()).toBeGreaterThan(now.toMillis())
+                }
+                expect(world.ses.attempts).toBe(0)
+
+                await unlock()
+                const segments = await runSandboxQueue(buildExecutor({ team: 100, recipient: 100 }), current)
+                const finished = await buildExecutor({ team: 100, recipient: 100 }).execute(
+                    nextDequeue(segments.at(-1)!.invocation)
+                )
+
+                expect(world.ses.delivered).toHaveLength(1)
+                expect(finished.invocation.state.variables?.email_result).toEqual({
+                    status: 'accepted',
+                    message_id: 'ses-1',
                 })
-            )
-
-            const stalled = await unavailableExecutor.execute(nextDequeue(routed.invocation))
-
-            expect(world.ses.attempts).toBe(0)
-            expect(stalled.invocation.queue).toBe('emailsandbox')
-            expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-
-            await runSandboxQueue(buildExecutor(), stalled.invocation)
-            expect(world.ses.delivered).toHaveLength(1)
-            expect(unsubscribedIdentifier(world.ses.delivered[0])).toEqual(member())
+            } finally {
+                clock.mockRestore()
+                await unlock().catch(() => undefined)
+            }
         })
     })
 })

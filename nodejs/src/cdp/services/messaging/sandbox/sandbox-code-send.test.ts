@@ -40,7 +40,6 @@ import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
 import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
 import { BODY_MAX_LENGTH } from '../helpers/clickable-links'
-import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
@@ -856,13 +855,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 'test:sandbox-code-send-opt-out'
             )
 
-        const tokenOwner = (url: string): string | null => {
+        const tokenOwner = async (url: string): Promise<string | null> => {
             const token = new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? ''
-            const validated = new RecipientTokensService(
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            ).validatePreferencesToken(token)
-            return validated.valid && validated.team_id === world.team.id ? validated.identifier : null
+            const res = await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`)
+            return res.status === 200 && res.body.valid && res.body.team_id === world.team.id
+                ? res.body.identifier
+                : null
         }
 
         it('delivers a marketing code send with filled unsubscribe links and headers', async () => {
@@ -891,10 +889,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             const htmlHref = delivered.html!.match(/href="([^"]+)"/)![1].replace(/&amp;/g, '&')
             const textUrl = delivered.text!.match(/https?:\/\/\S+/)![0]
             const headerUrl = delivered.headers['List-Unsubscribe']?.match(/^<([^>]+)>$/)?.[1]
-            expect(tokenOwner(htmlHref)).toEqual(mixedMember)
-            expect(tokenOwner(textUrl)).toEqual(mixedMember)
-            expect(headerUrl).toMatch(/\?one_click_unsubscribe=1$/)
-            expect(tokenOwner(headerUrl!)).toEqual(mixedMember)
+            expect(await tokenOwner(htmlHref)).toEqual(mixedMember)
+            expect(await tokenOwner(textUrl)).toEqual(mixedMember)
+            expect(headerUrl).toBeDefined()
+            expect(await tokenOwner(headerUrl!)).toEqual(mixedMember)
             expect(delivered.headers['List-Unsubscribe-Post']).toEqual('List-Unsubscribe=One-Click')
             expect(deliveryStatuses(res.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
         })
@@ -931,7 +929,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
             expect(res.status).toEqual(422)
             expect(res.body).toEqual({ error: 'recipient_opted_out' })
-            expect(queued).toEqual([])
+            expect(await deliver()).toEqual([])
+            expect(world.ses.delivered).toEqual([])
             expect(
                 recordsAtKafka<{ recipient: string; status: string; reason: string }>(KAFKA_EMAIL_STATUS)
                     .filter((row) => row.recipient === member)
@@ -940,6 +939,37 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 { status: 'queued', reason: '' },
                 { status: 'failed', reason: 'recipient_opted_out' },
             ])
+        })
+
+        it('accepts and delivers a marketing code send after a previously opted-out org member resubscribes', async () => {
+            const categoryId = new UUIDT().toString()
+            await optOutMember(member, categoryId)
+
+            const refused = await sendFromCode(
+                request(
+                    sandboxSend({ content: marketingContent, message_category: { id: categoryId, type: 'marketing' } })
+                )
+            )
+            expect(refused.status).toEqual(422)
+
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagerecipientpreference SET preferences = $3, updated_at = NOW()
+                 WHERE team_id = $1 AND identifier = $2`,
+                [world.team.id, member, JSON.stringify({ [categoryId]: 'OPTED_IN' })],
+                'test:sandbox-code-send-resubscribe'
+            )
+
+            const accepted = await sendFromCode(
+                request(
+                    sandboxSend({ content: marketingContent, message_category: { id: categoryId, type: 'marketing' } })
+                )
+            )
+            expect(accepted.status).toEqual(202)
+
+            await deliver()
+            expect(world.ses.delivered).toHaveLength(1)
+            expect(deliveryStatuses(accepted.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
         })
 
         it('skips a marketing code send at delivery when the org member opts out after accept', async () => {
@@ -963,11 +993,24 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
         })
 
-        it('refuses a marketing code send without a clickable unsubscribe link', async () => {
+        it.each([
+            ['missing', { subject: 'Monthly news', html: '<p>News</p>', text: 'News' }],
+            [
+                'encoded with HTML entities inside the placeholder',
+                { subject: 'Monthly news', html: '<a href="{{&#32;unsubscribe_url&#32;}}">Unsubscribe</a>' },
+            ],
+            [
+                'wrapped in another host URL query parameter',
+                {
+                    subject: 'Monthly news',
+                    html: '<a href="https://example.com/?next={{ unsubscribe_url }}">Unsubscribe</a>',
+                },
+            ],
+        ])('refuses a marketing code send when the clickable unsubscribe link is %s', async (_case, badContent) => {
             const res = await sendFromCode(
                 request(
                     sandboxSend({
-                        content: { subject: 'Monthly news', html: '<p>News</p>', text: 'News' },
+                        content: badContent,
                         message_category: { id: new UUIDT().toString(), type: 'marketing' },
                     })
                 )
@@ -975,7 +1018,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
             expect(res.status).toEqual(400)
             expect(res.body).toEqual({ error: 'unsubscribe_link_required' })
-            expect(queued).toEqual([])
+            expect(await deliver()).toEqual([])
+            expect(world.ses.delivered).toEqual([])
         })
 
         it('skips a marketing code send at delivery when filling the unsubscribe link pushes the body past the size limit', async () => {

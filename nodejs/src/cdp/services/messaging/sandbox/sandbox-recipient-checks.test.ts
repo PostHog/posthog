@@ -120,10 +120,55 @@ describe('checkSandboxRecipient', () => {
         expect(await check()).toEqual({ ok: true })
     })
 
-    it('picks up an opt-out written after an earlier admitted check', async () => {
-        expect(await check()).toEqual({ ok: true })
-        await storePreferences({ newsletter: 'OPTED_OUT' })
-        expect(await check()).toEqual({ ok: false, reason: 'opted_out' })
+    it('picks up an opt-out written after an earlier admitted check when freshPreferences is set, even if the read replica lags', async () => {
+        const replicaSchema = `lagging_replica_${teamId}`
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `CREATE SCHEMA ${replicaSchema}; CREATE TABLE ${replicaSchema}.posthog_messagerecipientpreference (LIKE public.posthog_messagerecipientpreference INCLUDING ALL)`,
+            [],
+            'test:create-lagging-replica-schema'
+        )
+        const replicaUrl = new URL(defaultConfig.DATABASE_URL)
+        replicaUrl.searchParams.set('options', `-c search_path=${replicaSchema},public`)
+        const laggingRouter = new PostgresRouter({
+            ...defaultConfig,
+            DATABASE_URL: defaultConfig.DATABASE_URL,
+            DATABASE_READONLY_URL: replicaUrl.toString(),
+        })
+        try {
+            reads = sandboxRecipientReads(laggingRouter, suppressionConfig)
+            expect(await check({ freshPreferences: true })).toEqual({ ok: true })
+            await storePreferences({ newsletter: 'OPTED_OUT' })
+            expect(await check({ freshPreferences: true })).toEqual({ ok: false, reason: 'opted_out' })
+        } finally {
+            await laggingRouter.end()
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DROP SCHEMA IF EXISTS ${replicaSchema} CASCADE`,
+                [],
+                'test:drop-lagging-replica-schema'
+            )
+        }
+    })
+
+    it('keeps a workflow step cached preference when the database later fails, without refreshing unconditionally', async () => {
+        const temporaryRouter = new PostgresRouter(defaultConfig)
+        try {
+            reads = sandboxRecipientReads(temporaryRouter, suppressionConfig, 200)
+            expect(await check()).toEqual({ ok: true })
+            await temporaryRouter.end()
+            expect(await check()).toEqual({ ok: true })
+        } finally {
+            await temporaryRouter.end().catch(() => undefined)
+        }
+    })
+
+    it('reports preferences_unavailable when a categorized marketing preference read fails', async () => {
+        reads = { ...reads, recipients: sandboxRecipientReads(unreachable, suppressionConfig).recipients }
+        expect(await check({ freshPreferences: true })).toEqual({
+            ok: false,
+            reason: 'preferences_unavailable',
+        })
     })
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>, string]>([

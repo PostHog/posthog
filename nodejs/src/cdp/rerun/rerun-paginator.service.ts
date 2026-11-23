@@ -904,6 +904,7 @@ export class RerunPaginatorService {
                 renderTimeoutAttempts: _renderTimeoutAttempts,
                 sandboxEmail,
                 sandboxEmailRetries: _sandboxEmailRetries,
+                sandboxEmailPreferenceRetries: _sandboxEmailPreferenceRetries,
                 ...resumableCurrentAction
             } = persistedState.currentAction ?? {}
             const restoredCurrentAction =

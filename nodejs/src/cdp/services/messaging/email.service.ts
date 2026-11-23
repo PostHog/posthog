@@ -51,12 +51,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import {
-    BODY_MAX_LENGTH,
-    UNSUBSCRIBE_TOKENS_CHECKED,
-    filledUnsubscribeLength,
-    replaceUnsubscribePlaceholder,
-} from './helpers/clickable-links'
+import { BODY_MAX_LENGTH, filledUnsubscribeLength, replaceUnsubscribePlaceholder } from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -219,7 +214,6 @@ const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
-export { UNSUBSCRIBE_TOKENS_CHECKED }
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 class EmailSendDeadlineError extends Error {
@@ -1878,10 +1872,10 @@ export class EmailService {
             return false
         }
         const identifier = unquoteMailbox(to)
-        this.recipientsManager.markForRefresh({ teamId: invocation.teamId, identifier, anyCase: true })
         return await this.recipientPreferences.isOptedOut(invocation.teamId, identifier, category.id, {
             failOpen: false,
             anyCase: true,
+            fresh: true,
         })
     }
 

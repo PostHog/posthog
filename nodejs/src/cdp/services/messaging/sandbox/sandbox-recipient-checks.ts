@@ -14,8 +14,10 @@ type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<F
 
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
-    recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'> &
-        Partial<Pick<RecipientsManagerService, 'markForRefresh'>>
+    recipients: Pick<
+        RecipientsManagerService,
+        'get' | 'getFresh' | 'getPreference' | 'getAllMarketingMessagingPreference'
+    >
     frequencyCapBeforeDeadline: FrequencyCapRunner
 }
 
@@ -98,6 +100,7 @@ export type SandboxRecipientCheckRequest = {
     address: string
     categoryId?: string
     categoryType?: 'marketing' | 'transactional'
+    freshPreferences?: boolean
     optOuts: MessageOptOutRecord[]
     isTest: boolean
     frequencyCap: () => Promise<FrequencyCapCheck>
@@ -105,7 +108,15 @@ export type SandboxRecipientCheckRequest = {
 
 export type SandboxRecipientCheck =
     | { ok: true }
-    | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' | 'authorization_unavailable' }
+    | {
+          ok: false
+          reason:
+              | 'suppressed'
+              | 'opted_out'
+              | 'frequency_capped'
+              | 'authorization_unavailable'
+              | 'preferences_unavailable'
+      }
 
 export function canonicalRecipient(address: string): string {
     return address.trim().toLowerCase()
@@ -113,22 +124,44 @@ export function canonicalRecipient(address: string): string {
 
 export async function checkSandboxRecipient(
     { suppression, recipients, frequencyCapBeforeDeadline }: SandboxRecipientCheckDependencies,
-    { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
+    {
+        teamId,
+        address,
+        categoryId,
+        categoryType,
+        freshPreferences,
+        optOuts,
+        isTest,
+        frequencyCap,
+    }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
     try {
         if (await suppression.isSuppressed(teamId, address, { transactional })) {
             return { ok: false, reason: 'suppressed' }
         }
-        if (transactional) {
-            return { ok: true }
-        }
-        if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
+    } catch (error) {
+        logger.warn('Could not read sandbox recipient suppression', { teamId, error: String(error) })
+        return { ok: false, reason: 'authorization_unavailable' }
+    }
+    if (transactional) {
+        return { ok: true }
+    }
+    try {
+        if (
+            await isOptedOut(recipients, {
+                teamId,
+                address,
+                categoryId: categoryId || '$all',
+                freshPreferences: Boolean(freshPreferences),
+                optOuts,
+            })
+        ) {
             return { ok: false, reason: 'opted_out' }
         }
     } catch (error) {
-        logger.warn('Could not read sandbox recipient suppression or preferences', { teamId, error: String(error) })
-        return { ok: false, reason: 'authorization_unavailable' }
+        logger.warn('Could not read sandbox recipient preferences', { teamId, error: String(error) })
+        return { ok: false, reason: freshPreferences ? 'preferences_unavailable' : 'authorization_unavailable' }
     }
     if (!isTest && (await frequencyCapBeforeDeadline(frequencyCap)).capped) {
         return { ok: false, reason: 'frequency_capped' }
@@ -142,8 +175,15 @@ async function isOptedOut(
         teamId,
         address,
         categoryId,
+        freshPreferences,
         optOuts,
-    }: { teamId: number; address: string; categoryId: string; optOuts: MessageOptOutRecord[] }
+    }: {
+        teamId: number
+        address: string
+        categoryId: string
+        freshPreferences: boolean
+        optOuts: MessageOptOutRecord[]
+    }
 ): Promise<boolean> {
     const identifier = canonicalRecipient(address)
     if (
@@ -154,8 +194,8 @@ async function isOptedOut(
     ) {
         return true
     }
-    recipients.markForRefresh?.({ teamId, identifier: address, anyCase: true })
-    const recipient = await recipients.get({ teamId, identifier: address, anyCase: true })
+    const args = { teamId, identifier: address, anyCase: true }
+    const recipient = freshPreferences ? await recipients.getFresh(args) : await recipients.get(args)
     return (
         !!recipient &&
         (recipients.getPreference(recipient, categoryId) === 'OPTED_OUT' ||

@@ -73,14 +73,13 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import {
     EmailService,
     EmailServiceConfig,
-    UNSUBSCRIBE_TOKENS_CHECKED,
     formatMailbox,
     parseAddressList,
     parseTierCaps,
     sanitizeEmailSubject,
     teamEmailCapBucket,
 } from './email.service'
-import { BODY_MAX_LENGTH } from './helpers/clickable-links'
+import { BODY_MAX_LENGTH, UNSUBSCRIBE_TOKENS_CHECKED } from './helpers/clickable-links'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
@@ -239,6 +238,7 @@ describe('EmailService', () => {
         collaborators: {
             attachmentStore?: AttachmentStore
             teamConfigDb?: PostgresRouter
+            recipientsDb?: PostgresRouter
             emailStatusService?: EmailStatusService
         } = {}
     ): EmailService =>
@@ -258,7 +258,7 @@ describe('EmailService', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres),
+            new RecipientsManagerService(collaborators.recipientsDb ?? hub.postgres),
             collaborators.emailStatusService ?? null,
             workflowsActivationReporter,
             undefined,
@@ -4476,11 +4476,11 @@ describe('EmailService', () => {
         )
 
         it.each([
-            ['a marketing category', 'marketing', false, { ph_marketing: 'true' }],
-            ['a transactional category', 'transactional', true, {}],
+            ['a marketing category', 'marketing', false],
+            ['a transactional category', 'transactional', true],
         ] as const)(
-            'marks an API send from a marketing step in %s, a %s category, with $email_transactional %s in its sent event and its SES tags',
-            async (_name, type, transactional, extraTags) => {
+            'marks an API send from a marketing step in %s with $email_transactional %s in its sent and delivered events',
+            async (_name, type, transactional) => {
                 hub.SITE_URL = 'http://localhost:8000'
                 service = createService()
                 await captureEngagementEvents()
@@ -4503,11 +4503,103 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(result.emailSendResult).toEqual({ status: 'accepted' })
                 expect(result.capturedPostHogEvents[0].properties.$email_transactional).toEqual(transactional)
-                expect(ses.sent.map((email) => email.tags)).toEqual([
-                    { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ...extraTags },
-                ])
+                expect(ses.sent).toHaveLength(1)
+                const [sent] = ses.sent
+                const handler = new SesWebhookHandler(
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                )
+                const delivery = await handler.handleWebhook({
+                    body: [
+                        {
+                            eventType: 'Delivery',
+                            mail: {
+                                timestamp: '2025-10-03T12:00:00Z',
+                                source: sent.from,
+                                messageId: sent.messageId,
+                                destination: sent.to,
+                                commonHeaders: { to: sent.to, subject: sent.subject },
+                                headers: Object.entries(sent.headers).map(([name, value]) => ({ name, value })),
+                                tags: Object.fromEntries(
+                                    Object.entries(sent.tags).map(([name, value]) => [name, [value]])
+                                ),
+                            },
+                            delivery: {
+                                timestamp: '2025-10-03T12:01:00Z',
+                                recipients: ['test@example.com'],
+                            },
+                        },
+                    ],
+                    headers: {},
+                })
+                expect(delivery.metrics?.[0]?.properties?.$email_transactional).toEqual(transactional)
             }
         )
+
+        it('reads delivery-time opt-outs from the primary database when the read replica lags', async () => {
+            hub.SITE_URL = 'http://localhost:8000'
+            const replicaSchema = `lagging_replica_${team.id}`
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `CREATE SCHEMA ${replicaSchema}; CREATE TABLE ${replicaSchema}.posthog_messagerecipientpreference (LIKE public.posthog_messagerecipientpreference INCLUDING ALL)`,
+                [],
+                'test:email-service-create-lagging-replica'
+            )
+            const replicaUrl = new URL(hub.DATABASE_URL)
+            replicaUrl.searchParams.set('options', `-c search_path=${replicaSchema},public`)
+            const laggingRouter = new PostgresRouter({
+                ...hub,
+                DATABASE_URL: hub.DATABASE_URL,
+                DATABASE_READONLY_URL: replicaUrl.toString(),
+            })
+            try {
+                const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+                const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+                service = createService({}, {}, { recipientsDb: laggingRouter, emailStatusService })
+                const categoryId = randomUUID()
+                const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: categoryId, type: 'marketing' }
+                invocation.state.send = {
+                    content: { subject: 'News', html: body },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: body })
+
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagerecipientpreference
+                        (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                    [invocation.teamId, 'test@example.com', JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+                    'test:email-service-primary-opt-out'
+                )
+
+                await service.executeSendEmail(invocation)
+                await emailStatusService.flush()
+
+                expect(ses.sent).toEqual([])
+                expect(
+                    kafka
+                        .produced(EMAIL_STATUS_OUTPUT)
+                        .filter((row) => row.status === 'failed')
+                        .map((row) => row.reason)
+                ).toEqual(['recipient_opted_out'])
+            } finally {
+                await laggingRouter.end()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP SCHEMA IF EXISTS ${replicaSchema} CASCADE`,
+                    [],
+                    'test:email-service-drop-lagging-replica'
+                )
+            }
+        })
 
         it.each([
             {
@@ -4534,10 +4626,9 @@ describe('EmailService', () => {
             },
         ])('a marketing API send with $body sends: $sent', async ({ content, sent }) => {
             hub.SITE_URL = 'http://localhost:8000'
-            service = createService()
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
-            service['emailStatusService'] = emailStatusService
+            service = createService({}, {}, { emailStatusService })
             invocation.id = new UUIDT().toString()
             const preferences = new RecipientTokensService(
                 hub.ENCRYPTION_SALT_KEYS,

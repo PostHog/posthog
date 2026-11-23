@@ -674,10 +674,12 @@ describe('CDP hog invocation rerun e2e', () => {
         app.use('/', api.router())
         const server = app.listen(0, () => {})
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
-        const startEmailWorker = async (): Promise<CdpCyclotronWorkerEmail> => {
+        const startEmailWorker = async (
+            workerDeps: CdpConsumerBaseDeps = cdpDeps
+        ): Promise<CdpCyclotronWorkerEmail> => {
             const worker = new CdpCyclotronWorkerEmail(
                 hub,
-                cdpDeps,
+                workerDeps,
                 new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
             )
             await worker.start()
@@ -685,6 +687,7 @@ describe('CDP hog invocation rerun e2e', () => {
         }
         await hogflowWorker.start()
         let emailWorker = await startEmailWorker()
+        let freshHub: Hub | undefined
 
         try {
             const token = jsonwebtoken.sign(
@@ -725,8 +728,6 @@ describe('CDP hog invocation rerun e2e', () => {
                     provider: 'maildev',
                 },
             })
-            await hub.pubSub.publish('reload-integrations', JSON.stringify({ integrationIds: [senderId] }))
-            await waitForExpect(async () => expect(await hub.integrationManager.get(senderId)).not.toBeNull())
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_messagerecipientpreference
@@ -736,8 +737,15 @@ describe('CDP hog invocation rerun e2e', () => {
                 'test-insert-opt-out'
             )
 
-            await emailWorker.stop()
-            emailWorker = await startEmailWorker()
+            freshHub = await createHub()
+            const freshWorkerDeps = {
+                ...cdpDeps,
+                integrationManager: freshHub.integrationManager,
+            }
+            await Promise.all([emailWorker.stop(), hogflowWorker.stop()])
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, freshWorkerDeps, postgresV2Queue)
+            await hogflowWorker.start()
+            emailWorker = await startEmailWorker(freshWorkerDeps)
             await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
                 filter: {
                     window_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -768,7 +776,7 @@ describe('CDP hog invocation rerun e2e', () => {
             ).toEqual([])
         } finally {
             server.close()
-            await Promise.all([api.stop(), emailWorker.stop()])
+            await Promise.all([api.stop(), emailWorker.stop(), freshHub ? closeHub(freshHub) : Promise.resolve()])
         }
     })
 })

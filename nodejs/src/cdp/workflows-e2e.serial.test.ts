@@ -96,6 +96,8 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { BODY_MAX_LENGTH } from './services/messaging/helpers/clickable-links'
 import { mailDevWebUrl } from './services/messaging/helpers/maildev'
+import { SesWebhookHandler } from './services/messaging/helpers/ses'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
@@ -3867,7 +3869,33 @@ describe('Workflows E2E (email queue)', () => {
                         bytes: invoice.bytes,
                     },
                 ])
-                expect(email.tags).not.toHaveProperty('ph_marketing')
+                const handler = new SesWebhookHandler(
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                )
+                const delivery = await handler.handleWebhook({
+                    body: [
+                        {
+                            eventType: 'Delivery',
+                            mail: {
+                                timestamp: '2025-10-03T12:00:00Z',
+                                source: email.from,
+                                messageId: email.messageId,
+                                destination: email.to,
+                                commonHeaders: { to: email.to, subject: email.subject },
+                                headers: Object.entries(email.headers).map(([name, value]) => ({ name, value })),
+                                tags: Object.fromEntries(
+                                    Object.entries(email.tags).map(([name, value]) => [name, [value]])
+                                ),
+                            },
+                            delivery: {
+                                timestamp: '2025-10-03T12:01:00Z',
+                                recipients: email.to,
+                            },
+                        },
+                    ],
+                    headers: {},
+                })
+                expect(delivery.metrics?.[0]?.properties?.$email_transactional).toEqual(true)
             })
         })
 
@@ -3887,6 +3915,27 @@ describe('Workflows E2E (email queue)', () => {
                 kind: 'code',
                 payload: codeSendIn(newsletter, {
                     content: { subject: 'News', html: '<p>News</p>', text: 'Bye: {{ unsubscribe_url }}' },
+                }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category whose html encodes spaces inside the unsubscribe placeholder as HTML entities',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: { subject: 'News', html: '<a href="{{&#32;unsubscribe_url&#32;}}">Unsubscribe</a>' },
+                }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category whose html wraps the unsubscribe placeholder in another host URL',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: {
+                        subject: 'News',
+                        html: '<a href="https://example.com/?next={{ unsubscribe_url }}">Unsubscribe</a>',
+                    },
                 }),
                 status: 400,
                 error: 'unsubscribe_link_required',
@@ -4013,6 +4062,14 @@ describe('Workflows E2E (email queue)', () => {
         )
 
         it.each<ApiSend>([
+            {
+                name: 'a code send in a marketing category with spaces around the unsubscribe placeholder href',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: { subject: 'News', html: '<a href="  {{ unsubscribe_url }}  ">Unsubscribe</a>' },
+                    tracking: { captureEngagement: false, clicks: false },
+                }),
+            },
             {
                 name: 'a code send in a marketing category with the link in its text and no html',
                 kind: 'code',
@@ -4231,7 +4288,7 @@ describe('Workflows E2E (email queue)', () => {
             await waitForExpect(async () => {
                 const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
                 expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
-                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
+                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(new Date(job.created).getTime())
             }, 15000)
 
             await optOut(to, newsletterId)
@@ -4247,17 +4304,52 @@ describe('Workflows E2E (email queue)', () => {
             await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
         })
 
+        it('accepts and delivers a marketing code send after an opted-out recipient resubscribes, even when API and worker cached the opt-out', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            await optOut(to, newsletterId)
+
+            const refused = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(refused.status).toEqual(422)
+
+            // Warm the worker's own recipient preferences cache with the same opt-out via a regular marketing workflow step.
+            const marketingStepFlow = await insertHogFlow(
+                hub.postgres,
+                sendFlow('template', 'marketing', {}, newsletterId)
+            )
+            emailWorker = new CdpCyclotronWorkerEmail(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+            const warm = await post('template', marketingStepFlow, { to, distinct_id: 'reader' })
+            expect(warm.status).toEqual(202)
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+            expect(await emailsTo(to)).toEqual([])
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagerecipientpreference SET preferences = $3, updated_at = NOW()
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, to, JSON.stringify({ [newsletterId]: 'OPTED_IN' })],
+                'test-resubscribe-recipient'
+            )
+
+            const accepted = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(accepted.status).toEqual(202)
+            await waitForExpect(async () => expect(await emailsTo(to)).toHaveLength(1), 15000)
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+            expect(await emailsTo(to)).toHaveLength(1)
+        })
+
         it("holds a marketing code send while its recipient's preferences can't be read, then sends it once", async () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
             const to = `reader-${new UUIDT().toString()}@example.com`
-            const query = hub.postgres.query.bind(hub.postgres)
-            const outage = jest
-                .spyOn(hub.postgres, 'query')
-                .mockImplementation((target, sql, values, tag) =>
-                    tag === 'fetchCDPRecipients'
-                        ? Promise.reject(new Error('Connection terminated unexpectedly'))
-                        : query(target, sql, values, tag)
-                )
             emailWorker = new CdpCyclotronWorkerEmail(
                 hub,
                 deps,
@@ -4265,24 +4357,102 @@ describe('Workflows E2E (email queue)', () => {
             )
             await emailWorker.start()
 
-            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
-            expect(res.status).toEqual(202)
-            await waitForExpect(async () => {
-                const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
-                expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
-                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
-            }, 15000)
-            expect(await emailsTo(to)).toEqual([])
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `ALTER TABLE posthog_messagerecipientpreference RENAME TO posthog_messagerecipientpreference_outage_test`,
+                [],
+                'test-rename-preferences-outage'
+            )
+            let invocationId: string
+            try {
+                const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+                expect(res.status).toEqual(202)
+                invocationId = res.body.invocation_id
+                await waitForExpect(async () => {
+                    const job = (await queryCyclotronJobs()).find((j: any) => j.id === invocationId)
+                    expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
+                    expect(new Date(job.scheduled).getTime()).toBeGreaterThan(new Date(job.created).getTime())
+                }, 15000)
+                expect(await emailsTo(to)).toEqual([])
+            } finally {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `ALTER TABLE IF EXISTS posthog_messagerecipientpreference_outage_test RENAME TO posthog_messagerecipientpreference`,
+                    [],
+                    'test-restore-preferences-outage'
+                )
+            }
 
-            outage.mockRestore()
-            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
-                res.body.invocation_id,
-            ])
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [invocationId])
             await waitForExpect(async () => expect(await emailsTo(to)).toHaveLength(1), 15000)
             await waitForExpect(async () => {
                 expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
             }, 15000)
             expect(await emailsTo(to)).toHaveLength(1)
+        })
+
+        it('replays a keyed code send across inherited transactional categories while rejecting explicit category changes', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const inheritedReceipts = { ...receipts, inherited: true }
+
+            const uncategorizedKey = `idem-off-to-on-${new UUIDT().toString()}`
+            const firstOff = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: uncategorizedKey,
+                send: codeSend(),
+            })
+            expect(firstOff.status).toEqual(202)
+            expect(firstOff.body.replayed).toEqual(false)
+
+            const retryOnInherited = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: uncategorizedKey,
+                send: codeSend({ message_category: inheritedReceipts }),
+            })
+            expect(retryOnInherited.status).toEqual(202)
+            expect(retryOnInherited.body.replayed).toEqual(true)
+            expect(retryOnInherited.body.invocation_id).toEqual(firstOff.body.invocation_id)
+
+            const retryExplicit = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: uncategorizedKey,
+                send: codeSend({ message_category: receipts }),
+            })
+            expect(retryExplicit.status).toEqual(422)
+            expect(retryExplicit.body).toEqual({ error: 'idempotency_key_reused' })
+
+            const inheritedKey = `idem-on-to-off-${new UUIDT().toString()}`
+            const firstInherited = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: inheritedKey,
+                send: codeSend({ message_category: inheritedReceipts }),
+            })
+            expect(firstInherited.status).toEqual(202)
+            expect(firstInherited.body.replayed).toEqual(false)
+
+            const retryOff = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: inheritedKey,
+                send: codeSend(),
+            })
+            expect(retryOff.status).toEqual(202)
+            expect(retryOff.body.replayed).toEqual(true)
+            expect(retryOff.body.invocation_id).toEqual(firstInherited.body.invocation_id)
+
+            const retryDifferentExplicit = await post('code', flow, {
+                to,
+                distinct_id: 'reader',
+                idempotency_key: inheritedKey,
+                send: codeSend({ message_category: { id: otherCategoryId, type: 'transactional' } }),
+            })
+            expect(retryDifferentExplicit.status).toEqual(422)
+            expect(retryDifferentExplicit.body).toEqual({ error: 'idempotency_key_reused' })
         })
 
         it.each<ApiSend & { delivered: number; copyDelivered?: boolean }>([

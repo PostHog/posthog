@@ -64,11 +64,23 @@ const FOREIGN_BREAKOUT_TAGS = new Set([
     'var',
 ])
 const SELECT_CLOSERS = new Set(['input', 'keygen', 'textarea', 'select'])
+const SELECT_IN_TABLE_CLOSERS = new Set(['caption', 'table', 'tbody', 'tfoot', 'thead', 'tr', 'td', 'th'])
+const TABLE_SECTIONS = new Set(['tbody', 'tfoot', 'thead'])
 
 export const BODY_MAX_LENGTH = 1_500_000
 export const UNSUBSCRIBE_TOKENS_CHECKED = 50
 const TAG_MAX_ATTRIBUTES = 64
 const URL_MAX_AUTHORITY_LENGTH = 255
+const SENTINEL_ORIGIN = 'https://a'
+
+export type ClickableHrefsStats = {
+    tokens: number
+    contextOps: number
+}
+
+export type PreferencesTokensStats = {
+    urlParses: number
+}
 
 const isAscii = (value: string): boolean => {
     for (let i = 0; i < value.length; i++) {
@@ -80,6 +92,20 @@ const isAscii = (value: string): boolean => {
 }
 
 type Namespace = 'svg' | 'math' | 'html'
+
+type TemplateFrame = {
+    contexts: Array<{ tag: string; ns: Namespace }>
+    openCounts: Map<string, number>
+    inSelect: boolean
+    tables: Array<Set<string>>
+}
+
+const createTemplateFrame = (): TemplateFrame => ({
+    contexts: [],
+    openCounts: new Map(),
+    inSelect: false,
+    tables: [],
+})
 
 class TooComplex extends Error {}
 
@@ -107,7 +133,7 @@ const isHtmlAnnotationXml = (tag: Token.TagToken): boolean => {
     return lower === 'text/html' || lower === 'application/xhtml+xml'
 }
 
-const parsePreferencesUrl = (href: string, siteIsAscii: boolean): URL | undefined => {
+const parsePreferencesUrl = (href: string, siteIsAscii: boolean, stats?: PreferencesTokensStats): URL | undefined => {
     const colon = href.indexOf(':')
     if (colon === -1) {
         return undefined
@@ -160,6 +186,9 @@ const parsePreferencesUrl = (href: string, siteIsAscii: boolean): URL | undefine
     if (authorityLength === 0 || (siteIsAscii && nonAscii)) {
         return undefined
     }
+    if (stats) {
+        stats.urlParses += 1
+    }
     try {
         return new URL(href)
     } catch {
@@ -170,36 +199,135 @@ const parsePreferencesUrl = (href: string, siteIsAscii: boolean): URL | undefine
 export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
     (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
 
-export const clickableHrefs = (body: string): string[] => {
+const trackTableStart = (tables: Array<Set<string>>, tagName: string): void => {
+    if (tagName === 'table') {
+        const current = tables[tables.length - 1]
+        if (!current || current.has('td') || current.has('th') || current.has('caption')) {
+            tables.push(new Set(['table']))
+        } else {
+            tables[tables.length - 1] = new Set(['table'])
+        }
+        return
+    }
+    const table = tables[tables.length - 1]
+    if (!table) {
+        return
+    }
+    if (tagName === 'caption') {
+        table.delete('tbody')
+        table.delete('tfoot')
+        table.delete('thead')
+        table.delete('tr')
+        table.delete('td')
+        table.delete('th')
+        table.add('caption')
+    } else if (TABLE_SECTIONS.has(tagName)) {
+        table.delete('caption')
+        table.delete('tbody')
+        table.delete('tfoot')
+        table.delete('thead')
+        table.delete('tr')
+        table.delete('td')
+        table.delete('th')
+        table.add(tagName)
+    } else if (tagName === 'tr') {
+        table.delete('caption')
+        table.delete('tr')
+        table.delete('td')
+        table.delete('th')
+        if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
+            table.add('tbody')
+        }
+        table.add('tr')
+    } else if (tagName === 'td' || tagName === 'th') {
+        table.delete('caption')
+        table.delete('td')
+        table.delete('th')
+        if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
+            table.add('tbody')
+        }
+        table.add('tr')
+        table.add(tagName)
+    }
+}
+
+const trackTableEnd = (tables: Array<Set<string>>, tagName: string): void => {
+    const table = tables[tables.length - 1]
+    if (!table || !table.has(tagName)) {
+        return
+    }
+    if (tagName === 'table') {
+        tables.pop()
+    } else if (tagName === 'caption') {
+        table.delete('caption')
+    } else if (TABLE_SECTIONS.has(tagName)) {
+        table.delete(tagName)
+        table.delete('tr')
+        table.delete('td')
+        table.delete('th')
+    } else if (tagName === 'tr') {
+        table.delete('tr')
+        table.delete('td')
+        table.delete('th')
+    } else if (tagName === 'td' || tagName === 'th') {
+        table.delete(tagName)
+    }
+}
+
+export const clickableHrefs = (body: string, stats?: ClickableHrefsStats): string[] => {
     if (body.length > BODY_MAX_LENGTH) {
         return []
     }
     const hrefs = new Set<string>()
-    let templateDepth = 0
-    let inSelect = false
-    const contexts: Array<{ tag: string; ns: Namespace }> = []
-    const openCounts = new Map<string, number>()
+    const frames: TemplateFrame[] = [createTemplateFrame()]
 
-    const currentNs = (): Namespace => (contexts.length > 0 ? contexts[contexts.length - 1].ns : 'html')
+    const currentFrame = (): TemplateFrame => frames[frames.length - 1]
+    const currentNs = (): Namespace => {
+        const { contexts } = currentFrame()
+        return contexts.length > 0 ? contexts[contexts.length - 1].ns : 'html'
+    }
     const pushContext = (tag: string, ns: Namespace): void => {
-        contexts.push({ tag, ns })
-        openCounts.set(tag, (openCounts.get(tag) ?? 0) + 1)
+        const frame = currentFrame()
+        frame.contexts.push({ tag, ns })
+        frame.openCounts.set(tag, (frame.openCounts.get(tag) ?? 0) + 1)
+        if (stats) {
+            stats.contextOps += 1
+        }
     }
     const popContext = (): void => {
-        const popped = contexts.pop()
+        const frame = currentFrame()
+        const popped = frame.contexts.pop()
         if (popped) {
-            openCounts.set(popped.tag, (openCounts.get(popped.tag) ?? 1) - 1)
+            frame.openCounts.set(popped.tag, (frame.openCounts.get(popped.tag) ?? 1) - 1)
+            if (stats) {
+                stats.contextOps += 1
+            }
         }
     }
     const popToTag = (tag: string): void => {
-        if ((openCounts.get(tag) ?? 0) === 0) {
+        const frame = currentFrame()
+        if ((frame.openCounts.get(tag) ?? 0) === 0) {
             return
         }
-        while (contexts.length > 0) {
-            const top = contexts[contexts.length - 1]
+        while (frame.contexts.length > 0) {
+            const top = frame.contexts[frame.contexts.length - 1]
             popContext()
             if (top.tag === tag) {
                 break
+            }
+        }
+    }
+    const pushTemplateFrame = (): void => {
+        frames.push(createTemplateFrame())
+        if (stats) {
+            stats.contextOps += 1
+        }
+    }
+    const popTemplateFrame = (): void => {
+        if (frames.length > 1) {
+            frames.pop()
+            if (stats) {
+                stats.contextOps += 1
             }
         }
     }
@@ -208,17 +336,23 @@ export const clickableHrefs = (body: string): string[] => {
         {},
         {
             onStartTag: (tag: Token.TagToken) => {
+                if (stats) {
+                    stats.tokens += 1
+                }
+                const frame = currentFrame()
                 let ns = currentNs()
 
-                if (ns === 'html' && inSelect && templateDepth === 0) {
+                if (ns === 'html' && frame.inSelect) {
                     if (SELECT_CLOSERS.has(tag.tagName)) {
-                        inSelect = false
+                        frame.inSelect = false
                         if (tag.tagName === 'select') {
                             return
                         }
+                    } else if (frame.tables.length > 0 && SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
+                        frame.inSelect = false
                     } else {
                         if (tag.tagName === 'template') {
-                            templateDepth += 1
+                            pushTemplateFrame()
                         } else if (tag.tagName === 'script') {
                             tokenizer.state = TokenizerMode.SCRIPT_DATA
                         }
@@ -227,7 +361,7 @@ export const clickableHrefs = (body: string): string[] => {
                 }
 
                 if (ns !== 'html' && isForeignBreakout(tag)) {
-                    while (contexts.length > 0 && contexts[contexts.length - 1].ns !== 'html') {
+                    while (frame.contexts.length > 0 && frame.contexts[frame.contexts.length - 1].ns !== 'html') {
                         popContext()
                     }
                     ns = currentNs()
@@ -239,10 +373,13 @@ export const clickableHrefs = (body: string): string[] => {
                     } else if (tag.tagName === 'math' && !tag.selfClosing) {
                         pushContext('math', 'math')
                     } else if (tag.tagName === 'template') {
-                        templateDepth += 1
-                    } else if (templateDepth === 0 && tag.tagName === 'select') {
-                        inSelect = true
+                        pushTemplateFrame()
+                    } else if (tag.tagName === 'select') {
+                        frame.inSelect = true
                     } else {
+                        if (SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
+                            trackTableStart(frame.tables, tag.tagName)
+                        }
                         tokenizer.state = TEXT_MODES.get(tag.tagName) ?? tokenizer.state
                     }
                 } else if (ns === 'svg' && SVG_HTML_INTEGRATION_POINTS.has(tag.tagName) && !tag.selfClosing) {
@@ -262,7 +399,7 @@ export const clickableHrefs = (body: string): string[] => {
 
                 tokenizer.inForeignNode = currentNs() !== 'html'
 
-                if (tag.tagName === 'a' && templateDepth === 0 && !inSelect) {
+                if (tag.tagName === 'a' && frames.length === 1 && !frame.inSelect) {
                     const href =
                         tag.attrs.find(({ name }) => name === 'href') ??
                         (ns === 'svg' ? tag.attrs.find(({ name }) => name === 'xlink:href') : undefined)
@@ -272,10 +409,25 @@ export const clickableHrefs = (body: string): string[] => {
                 }
             },
             onEndTag: (tag: Token.TagToken) => {
-                if (tag.tagName === 'template' && templateDepth > 0) {
-                    templateDepth -= 1
-                } else if (tag.tagName === 'select' && templateDepth === 0 && inSelect) {
-                    inSelect = false
+                if (stats) {
+                    stats.tokens += 1
+                }
+                const frame = currentFrame()
+                const ns = currentNs()
+                if (tag.tagName === 'template' && frames.length > 1) {
+                    popTemplateFrame()
+                } else if (ns === 'html' && frame.inSelect) {
+                    if (tag.tagName === 'select') {
+                        frame.inSelect = false
+                    } else if (
+                        SELECT_IN_TABLE_CLOSERS.has(tag.tagName) &&
+                        frame.tables[frame.tables.length - 1]?.has(tag.tagName)
+                    ) {
+                        frame.inSelect = false
+                        trackTableEnd(frame.tables, tag.tagName)
+                    }
+                } else if (ns === 'html' && SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
+                    trackTableEnd(frame.tables, tag.tagName)
                 } else if (
                     tag.tagName === 'svg' ||
                     tag.tagName === 'math' ||
@@ -320,7 +472,43 @@ export const filledUnsubscribeLength = (body: string | undefined, url: string | 
 export const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
     body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)
 
-export const preferencesTokensInBody = (body: { html?: string; text?: string }, siteUrl: string): string[] => {
+const unusedSentinelUrl = (source: string): { origin: string; pathname: string; url: string } => {
+    let n = 0
+    while (true) {
+        const token = `_${n.toString(36)}`
+        if (!source.includes(token)) {
+            const pathname = `/${token}/`
+            return { origin: SENTINEL_ORIGIN, pathname, url: `${SENTINEL_ORIGIN}${pathname}` }
+        }
+        n += 1
+    }
+}
+
+/**
+ * Checks whether replacing raw `{{ unsubscribe_url }}` placeholders produces a clickable preferences
+ * link in `html` (or a placeholder in plain `text` when `html` is empty), matching the delivery-time
+ * substitution so entity-encoded placeholders and foreign-host wrapper URLs are rejected upfront.
+ */
+export const hasReplaceableUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean => {
+    if (html) {
+        if (html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
+            return false
+        }
+        const sentinel = unusedSentinelUrl(html)
+        const filled = replaceUnsubscribePlaceholder(html, sentinel.url)
+        return clickableHrefs(filled).some((href) => {
+            const page = parsePreferencesUrl(href, true)
+            return page !== undefined && page.origin === sentinel.origin && page.pathname === sentinel.pathname
+        })
+    }
+    return (text ?? '').search(UNSUBSCRIBE_PLACEHOLDER) !== -1
+}
+
+export const preferencesTokensInBody = (
+    body: { html?: string; text?: string },
+    siteUrl: string,
+    stats?: PreferencesTokensStats
+): string[] => {
     const preferencesPage = `${siteUrl}/messaging-preferences/`
     const tokens = new Set<string>()
     const addPath = (path: string): void => {
@@ -332,7 +520,7 @@ export const preferencesTokensInBody = (body: { html?: string; text?: string }, 
     if (body.html) {
         const siteIsAscii = isAscii(siteUrl)
         for (const href of clickableHrefs(body.html)) {
-            const page = parsePreferencesUrl(href, siteIsAscii)
+            const page = parsePreferencesUrl(href, siteIsAscii, stats)
             const path = page ? `${page.origin}${page.pathname}` : ''
             if (path.startsWith(preferencesPage)) {
                 addPath(path.slice(preferencesPage.length))

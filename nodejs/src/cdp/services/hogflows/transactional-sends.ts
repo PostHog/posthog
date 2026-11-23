@@ -105,7 +105,11 @@ const transactionalEmailFingerprint = (
     send: AcceptedSend | undefined,
     scheduledAt: Date | null
 ): TransactionalEmailFingerprint => {
-    const request: unknown[] = [hogFlowId, to, distinct_id, variables, ...(message_category ? [message_category] : [])]
+    const explicitCategory =
+        message_category && !message_category.inherited
+            ? { id: message_category.id, type: message_category.type }
+            : undefined
+    const request: unknown[] = [hogFlowId, to, distinct_id, variables, ...(explicitCategory ? [explicitCategory] : [])]
     const schedule: unknown[] = scheduledAt ? [SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString()] : []
     const shape: unknown[] = send
         ? [
@@ -478,7 +482,7 @@ export class TransactionalSends {
             invocation.state.send = queuedSend
         }
         if (category) {
-            invocation.state.messageCategory = category
+            invocation.state.messageCategory = { id: category.id, type: category.type }
         }
         if (senderKind) {
             invocation.state.senderKind = senderKind
@@ -562,7 +566,10 @@ export class TransactionalSends {
         const optedOut = Promise.all(
             marketingCategoryId
                 ? recipients.map((email) =>
-                      this.deps.recipientPreferences.isOptedOut(teamId, email, marketingCategoryId)
+                      this.deps.recipientPreferences.isOptedOut(teamId, email, marketingCategoryId, {
+                          anyCase: true,
+                          fresh: true,
+                      })
                   )
                 : []
         )

@@ -10,7 +10,7 @@ import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 import { decodeLiquidTags } from '~/cdp/utils/liquid'
 
-import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
+import { clickableHrefs, hasReplaceableUnsubscribeLink, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -26,12 +26,23 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
-const SendCategorySchema = z
-    .object({ id: z.guid(), type: z.enum(['marketing', 'transactional']) })
+const SendCategoryFields = {
+    id: z.guid(),
+    type: z.enum(['marketing', 'transactional']),
+}
+
+const SendCategorySchema = z.object(SendCategoryFields).strict().readonly()
+
+const AcceptedSendCategorySchema = z
+    .object({
+        ...SendCategoryFields,
+        inherited: z.boolean().optional(),
+    })
     .strict()
     .readonly()
 
 export type SendCategory = z.infer<typeof SendCategorySchema>
+export type AcceptedSendCategory = z.infer<typeof AcceptedSendCategorySchema>
 
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
@@ -211,7 +222,7 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
-        message_category: SendCategorySchema.optional(),
+        message_category: AcceptedSendCategorySchema.optional(),
     })
     .strict()
     .readonly()
@@ -250,17 +261,15 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
     category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
 
-const LIQUID_UNSUBSCRIBE_PLACEHOLDER =
-    /\{\{-?\s*unsubscribe_url(?:_one_click)?\s*(?:-?|\|\s*[a-zA-Z_][^{}]*)\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
+const LIQUID_UNSUBSCRIBE_EXPRESSION =
+    '(?:\\{\\{-?\\s*unsubscribe_url(?:_one_click)?\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
+const LIQUID_UNSUBSCRIBE_PLACEHOLDER = new RegExp(LIQUID_UNSUBSCRIBE_EXPRESSION)
+const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^\\s*${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#].*)?\\s*$`)
 
-const hasUnsubscribeLink = (
-    { html, text }: { html?: string; text?: string },
-    placeholder: RegExp,
-    normalize: (value: string) => string = (value) => value
-): boolean =>
+const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>
     html
-        ? clickableHrefs(html).some((href) => normalize(href).search(placeholder) !== -1)
-        : normalize(text ?? '').search(placeholder) !== -1
+        ? clickableHrefs(html).some((href) => LIQUID_UNSUBSCRIBE_HREF.test(decodeLiquidTags(href)))
+        : LIQUID_UNSUBSCRIBE_PLACEHOLDER.test(decodeLiquidTags(text ?? ''))
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
@@ -295,9 +304,7 @@ export const marketingSendRefusal = (
     if (isTooLargeToCheck(send?.content ?? email)) {
         return 'content_too_large'
     }
-    const linked = send?.content
-        ? hasUnsubscribeLink(send.content, UNSUBSCRIBE_PLACEHOLDER)
-        : hasUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_PLACEHOLDER, decodeLiquidTags)
+    const linked = send?.content ? hasReplaceableUnsubscribeLink(send.content) : hasLiquidUnsubscribeLink(email)
     return linked ? marketingCopiesRefusal(action, send, category) : 'unsubscribe_link_required'
 }
 
@@ -343,7 +350,7 @@ export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend(
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & {
     send?: AcceptedSend
-    message_category?: SendCategory
+    message_category?: AcceptedSendCategory
 }
 
 export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [

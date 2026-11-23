@@ -626,6 +626,7 @@ export type HogFlowInvocationContext = {
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
         sandboxEmailRetries?: number
+        sandboxEmailPreferenceRetries?: number
         sandboxEmailUncertainSends?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the

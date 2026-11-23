@@ -47,6 +47,7 @@ export type SandboxSendRequest = {
     headers?: { name: string; value: string }[]
     categoryId?: string
     categoryType?: 'marketing' | 'transactional'
+    freshPreferences?: boolean
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
     capClaimId: string
@@ -68,6 +69,7 @@ export type SandboxEmailServiceDeps = {
 
 const RETRYABLE_REFUSALS = new Set([
     'authorization_unavailable',
+    'preferences_unavailable',
     'suspension_state_unavailable',
     'pause_state_unavailable',
     'cap_storage_unavailable',
@@ -219,6 +221,7 @@ export class SandboxEmailService {
             teamId: request.teamId,
             categoryId: request.categoryId,
             categoryType: request.categoryType,
+            freshPreferences: request.freshPreferences,
             optOuts: request.optOuts ?? [],
             isTest: request.isTest,
         }

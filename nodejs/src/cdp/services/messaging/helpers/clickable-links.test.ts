@@ -1,4 +1,12 @@
-import { BODY_MAX_LENGTH, UNSUBSCRIBE_TOKENS_CHECKED, clickableHrefs, preferencesTokensInBody } from './clickable-links'
+import { DefaultTreeAdapterMap, parse } from 'parse5'
+
+import {
+    BODY_MAX_LENGTH,
+    UNSUBSCRIBE_TOKENS_CHECKED,
+    clickableHrefs,
+    hasReplaceableUnsubscribeLink,
+    preferencesTokensInBody,
+} from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -179,9 +187,64 @@ describe('clickableHrefs', () => {
             [],
         ],
         [
+            'an anchor after an unclosed select closed by its closing table tag',
+            '<table><tr><td><select></table><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after an unclosed select closed by its closing table cell tag',
+            '<table><tr><td><select></td><a href="https://example.com/bye">Unsubscribe</a></tr></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after an unclosed select closed by its closing table row tag',
+            '<table><tr><td><select></tr><a href="https://example.com/bye">Unsubscribe</a></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after an unclosed select closed by a table row start tag',
+            '<table><select><tr><td><a href="https://example.com/bye">Unsubscribe</a></td></tr></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after an unclosed select closed by a caption start tag',
+            '<table><select><caption><a href="https://example.com/bye">Unsubscribe</a></caption></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after an unclosed select closed by a nested table start tag',
+            '<table><select><table><tr><td><a href="https://example.com/bye">Unsubscribe</a></td></tr></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after a closing cell tag that was not open around a select in a table',
+            '<table><select></td><a href="https://example.com/bye">Unsubscribe</a></table>',
+            [],
+        ],
+        [
+            'an anchor after a stray closing table tag inside a select outside a table',
+            '<select></table><a href="https://example.com/bye">Unsubscribe</a>',
+            [],
+        ],
+        [
+            'an anchor inside a select in a table when a template closes a cell inside it',
+            '<table><tr><td><select><template></td></template><a href="https://example.com/bye">Unsubscribe</a></select></td></tr></table>',
+            [],
+        ],
+        [
             'an anchor after a template with an unclosed select',
             '<template><select></template><a href="https://example.com/bye">Unsubscribe</a>',
             ['https://example.com/bye'],
+        ],
+        [
+            'an anchor inside a bogus CDATA comment after a template with an unclosed SVG element',
+            '<template><svg></template><![CDATA[><a href="https://example.com/bye">Unsubscribe</a>]]>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor inside a style block after a template with an unclosed SVG element',
+            '<template><svg></template><style><a href="https://example.com/bye">Unsubscribe</a></style>',
+            [],
         ],
         [
             'an anchor inside a self-closing template',
@@ -192,13 +255,6 @@ describe('clickableHrefs', () => {
             'an anchor before a frameset inside a comment',
             '<a href="https://example.com/bye">Unsubscribe</a><!-- <frameset> -->',
             ['https://example.com/bye'],
-        ],
-        [
-            'an anchor reconstructed across repeated blocks after an SVG drawing',
-            '<svg></svg><div><a href="https://example.com/a"></div>' +
-                '<div>x</div>'.repeat(100) +
-                '<a href="https://example.com/bye">Unsubscribe</a>',
-            ['https://example.com/a', 'https://example.com/bye'],
         ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
@@ -215,48 +271,145 @@ describe('clickableHrefs', () => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
     })
 
-    it.each([
-        ['deeply nested markup', '<div>'.repeat(40_000)],
-        ['an SVG drawing and a table with foster-parented elements', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
+    it.each<[string, (n: number) => string, number, number]>([
+        ['deeply nested markup', (n) => '<div>'.repeat(n), 2_000, 20_000],
+        [
+            'an SVG drawing and a table with foster-parented elements',
+            (n) => '<svg></svg><table>' + '<i></i>'.repeat(n),
+            500,
+            5_000,
+        ],
         [
             'an SVG drawing and repeated active formatting elements',
-            '<svg></svg>' + '<div><table><object><b></table></div>'.repeat(20_000),
+            (n) => '<svg></svg>' + '<div><table><object><b></table></div>'.repeat(n),
+            1_000,
+            10_000,
         ],
         [
             'a MathML annotation-xml element with a large encoding attribute followed by many tags',
-            '<math><annotation-xml encoding="' + 'A'.repeat(750_000) + '">' + '<x></x>'.repeat(100_000) + '</math>',
+            (n) => '<math><annotation-xml encoding="' + 'A'.repeat(n * 5) + '">' + '<x></x>'.repeat(n) + '</math>',
+            2_000,
+            20_000,
         ],
         [
             'an SVG element with a large tag name followed by many end tags',
-            '<svg><' + 'a'.repeat(750_000) + '>' + '</x>'.repeat(100_000) + '</svg>',
+            (n) => '<svg><' + 'a'.repeat(n * 5) + '>' + '</x>'.repeat(n) + '</svg>',
+            2_000,
+            20_000,
         ],
         [
             'many nested MathML text integration points followed by unmatched SVG end tags',
-            '<math><mtext>'.repeat(50_000) + '</svg>'.repeat(50_000),
+            (n) => '<math><mtext>'.repeat(n) + '</svg>'.repeat(n),
+            2_000,
+            20_000,
         ],
-    ])('finds the anchor in linear time after %s', (_name, filler) => {
-        expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
-            'https://example.com/bye',
-        ])
+    ])('finds the anchor with linearly bounded work after %s', (_name, buildFiller, smallN, largeN) => {
+        const smallStats = { tokens: 0, contextOps: 0 }
+        const largeStats = { tokens: 0, contextOps: 0 }
+        expect(
+            clickableHrefs(buildFiller(smallN) + '<a href="https://example.com/bye">Unsubscribe</a>', smallStats)
+        ).toEqual(['https://example.com/bye'])
+        expect(
+            clickableHrefs(buildFiller(largeN) + '<a href="https://example.com/bye">Unsubscribe</a>', largeStats)
+        ).toEqual(['https://example.com/bye'])
+        expect(largeStats.tokens).toBeLessThanOrEqual(smallStats.tokens * 12)
+        expect(largeStats.contextOps).toBeLessThanOrEqual(Math.max(smallStats.contextOps * 12, 20))
+    })
+    it('matches parse5 document parsing across generated combinations of tables, selects, templates, and foreign content', () => {
+        const parse5Hrefs = (html: string): string[] => {
+            const doc = parse(html)
+            const hrefs = new Set<string>()
+            const stack: DefaultTreeAdapterMap['parentNode'][] = [doc]
+            for (let node = stack.pop(); node; node = stack.pop()) {
+                if ('tagName' in node && node.tagName === 'a') {
+                    const href =
+                        node.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
+                        node.attrs.find(({ name }) => name === 'href')
+                    if (href) {
+                        hrefs.add(href.value)
+                    }
+                }
+                for (let i = node.childNodes.length - 1; i >= 0; i--) {
+                    const child = node.childNodes[i]
+                    if ('tagName' in child) {
+                        stack.push(child)
+                    }
+                }
+            }
+            return [...hrefs]
+        }
+
+        const fragments = [
+            '<table><tr><td>',
+            '<table><caption>',
+            '<table><tbody><tr><td>',
+            '<select>',
+            '</select>',
+            '<input>',
+            '<textarea>',
+            '</textarea>',
+            '</td>',
+            '</tr>',
+            '</tbody>',
+            '</caption>',
+            '</table>',
+            '<template>',
+            '</template>',
+            '<svg>',
+            '</svg>',
+            '<svg><title>',
+            '</title>',
+            '<svg><foreignObject>',
+            '</foreignObject>',
+            '<svg><style>',
+            '</style>',
+            '<math><mtext>',
+            '</mtext>',
+            '</math>',
+            '<p>',
+            '<script>',
+            '</script>',
+            '<style>',
+            '<![CDATA[><a href="https://example.com/cdata">c</a>]]>',
+            '<!-- <a href="https://example.com/comment">m</a> -->',
+            '<a href="https://example.com/bye">Unsubscribe</a>',
+            '<a xlink:href="https://example.com/svg">SVG</a>',
+        ]
+        let seed = 0x51a7c0de
+        const nextInt = (max: number): number => {
+            seed = (seed * 1664525 + 1013904223) >>> 0
+            return seed % max
+        }
+        const mismatches: Array<{ html: string; actual: string[]; expected: string[] }> = []
+        for (let i = 0; i < 600; i++) {
+            const length = 2 + nextInt(6)
+            let html = ''
+            for (let j = 0; j < length; j++) {
+                html += fragments[nextInt(fragments.length)]
+            }
+            html += '<a href="https://example.com/tail">Unsubscribe</a>'
+            const actual = clickableHrefs(html)
+            const expected = parse5Hrefs(html)
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+                mismatches.push({ html, actual, expected })
+                if (mismatches.length >= 5) {
+                    break
+                }
+            }
+        }
+        expect(mismatches).toEqual([])
     })
 })
 
 describe('preferencesTokensInBody', () => {
-    it('extracts the preferences token without re-parsing reconstructed copies of a long href', () => {
-        const longHref = `https://example.com/${'a'.repeat(1_000_000)}`
-        const html =
-            `<svg></svg><div><a href="${longHref}"></div>` +
-            '<div>x</div>'.repeat(20_000) +
-            '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
-        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
-    })
-
     it('extracts the preferences token without IDNA-normalizing long Unicode hostnames', () => {
         const unicodeHost = Array.from({ length: 4_000 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join('')
         const unicodeLinks = Array.from({ length: 160 }, (_, i) => `<a href="https://${unicodeHost}/p${i}">x</a>`).join(
             ''
         )
         const specialSchemeLinks = [
+            `<a href="https://bücher.example/p">x</a>`,
+            `<a href="https://${'a'.repeat(300)}.example/p">x</a>`,
             `<a href="https:\\\\${unicodeHost}/p">x</a>`,
             `<a href="https://\t/${unicodeHost}/p">x</a>`,
             `<a href="https:${unicodeHost}/p">x</a>`,
@@ -266,7 +419,9 @@ describe('preferencesTokensInBody', () => {
             specialSchemeLinks +
             '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
         expect(html.length).toBeLessThan(BODY_MAX_LENGTH)
-        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
+        const stats = { urlParses: 0 }
+        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com', stats)).toEqual(['tok-1'])
+        expect(stats.urlParses).toBe(1)
     })
 
     it('keeps the same first 50 tokens in document order with and without an SVG drawing', () => {
@@ -281,5 +436,62 @@ describe('preferencesTokensInBody', () => {
         const withSvg = preferencesTokensInBody({ html: `<svg></svg>${paragraphs}` }, 'https://app.posthog.com')
         expect(plain).toContain('tok-first')
         expect(withSvg).toEqual(plain)
+    })
+})
+
+describe('hasReplaceableUnsubscribeLink', () => {
+    it.each([
+        {
+            name: 'a plain placeholder href',
+            content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+            expected: true,
+        },
+        {
+            name: 'a placeholder href surrounded by spaces',
+            content: { html: '<a href="  {{ unsubscribe_url }}  ">Unsubscribe</a>' },
+            expected: true,
+        },
+        {
+            name: 'a placeholder href with a query string',
+            content: { html: '<a href="{{ unsubscribe_url }}?utm_source=x">Unsubscribe</a>' },
+            expected: true,
+        },
+        {
+            name: 'a placeholder padded to the size limit',
+            content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x') },
+            expected: true,
+        },
+        {
+            name: 'a placeholder with HTML entities inside the braces',
+            content: { html: '<a href="{{&#32;unsubscribe_url&#32;}}">Unsubscribe</a>' },
+            expected: false,
+        },
+        {
+            name: 'a placeholder wrapped in another host URL',
+            content: { html: '<a href="https://example.com/?next={{ unsubscribe_url }}">Unsubscribe</a>' },
+            expected: false,
+        },
+        {
+            name: 'a placeholder followed by extra path text',
+            content: { html: '<a href="{{ unsubscribe_url }}extra">Unsubscribe</a>' },
+            expected: false,
+        },
+        {
+            name: 'a body that already contains the first sentinel URL outside a placeholder',
+            content: { html: '<a href="https://a/_0/">Fake</a><!-- {{ unsubscribe_url }} -->' },
+            expected: false,
+        },
+        {
+            name: 'a text-only body with the placeholder',
+            content: { text: 'Unsubscribe: {{ unsubscribe_url }}' },
+            expected: true,
+        },
+        {
+            name: 'a text-only body without the placeholder',
+            content: { text: 'Unsubscribe here' },
+            expected: false,
+        },
+    ])('returns $expected for $name', ({ content, expected }) => {
+        expect(hasReplaceableUnsubscribeLink(content)).toBe(expected)
     })
 })

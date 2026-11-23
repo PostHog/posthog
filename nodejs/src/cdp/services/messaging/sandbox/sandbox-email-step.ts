@@ -53,6 +53,13 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
         if (attempt.status !== 'retry') {
             return this.record(invocation, action, result.metrics, toOutcome(attempt))
         }
+        if (attempt.reason === 'preferences_unavailable') {
+            // Keep retrying with backoff until recipient preferences are readable again so an
+            // outage never drops a categorized marketing send or bypasses its opt-out check.
+            const preferenceRetries = invocation.state.currentAction?.sandboxEmailPreferenceRetries ?? 0
+            result.invocation.state.currentAction!.sandboxEmailPreferenceRetries = preferenceRetries + 1
+            return { retryAt: DateTime.now().plus({ milliseconds: sandboxRetryDelayMs(preferenceRetries) }) }
+        }
         const retries = invocation.state.currentAction?.sandboxEmailRetries ?? 0
         if (retries >= MAX_SANDBOX_RETRIES) {
             return this.record(invocation, action, result.metrics, {
@@ -121,6 +128,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             headers,
             categoryId: messageCategory?.id ?? action.config.message_category_id,
             categoryType: messageCategory?.type ?? action.config.message_category_type,
+            freshPreferences: messageCategory?.type === 'marketing',
             optOuts: invocation.state.messageOptOuts,
             capClaimId: `${stepVisitKey(invocation, action)}/${uncertainSends(invocation)}`,
             claimSesSlot: () => claimSesSlot(this.deps.sesBucket),
