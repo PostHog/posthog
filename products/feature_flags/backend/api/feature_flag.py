@@ -2926,9 +2926,8 @@ class FeatureFlagSerializer(
         if not current_flag_key:
             return
 
-        # Only the dependencies this write adds must be readable. A stored dependency, or a dependency of a
-        # dependency, that the caller cannot read must not fail the active or format checks of an edit the
-        # caller is allowed to make. The cycle walk still follows such a flag, so a cycle through it is refused.
+        # Only dependencies this write adds must be readable. A hidden stored dependency must not fail the
+        # active or format checks, but the cycle walk still refuses a cycle through it.
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
         project_flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"])
