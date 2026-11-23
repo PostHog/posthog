@@ -26,7 +26,6 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
@@ -39,7 +38,11 @@ from products.cdp.backend.facade.models import HogFunction, HogFunctionState, Ho
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
 from products.data_quality.backend.presentation.views import data_quality_gate_response
-from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
+from products.data_warehouse.backend.facade.api import (
+    create_data_ops_dashboard,
+    get_managed_warehouse_data_status,
+    get_source_schema_statuses,
+)
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
     ManagedWarehouseDataStatusResponseSerializer,
@@ -1256,8 +1259,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             with transaction.atomic():
                 config = TeamDataWarehouseConfig.objects.select_for_update().get(team=self.team)
                 if not config.overview_dashboards.exists():
-                    dashboard = create_data_ops_dashboard(self.team, request.user)
-                    config.overview_dashboards.add(dashboard)
+                    dashboard_id = create_data_ops_dashboard(self.team, cast(User, request.user))
+                    config.overview_dashboards.add(dashboard_id)
 
         # TODO: In the future this endpoint will return multiple dashboards (one per use-case).
         # For now we only expose the first one (by creation order) to keep the UI simple.
