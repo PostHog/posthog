@@ -215,17 +215,22 @@ def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
     return bool(cohort.query or cohort_filters_have_values(cohort.filters))
 
 
-def get_cohort_calculation_candidates_queryset() -> QuerySet:
+def _recalculable_dynamic_cohorts() -> QuerySet:
     return (
         Cohort.objects.filter(
-            Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
-            | Q(last_calculation__isnull=True),
             deleted=False,
             is_calculating=False,
             errors_calculating__lte=MAX_ERRORS_CALCULATING,
         )
         .exclude(is_static=True)
         .exclude(team__organization__is_active=False)
+    )
+
+
+def get_cohort_calculation_candidates_queryset() -> QuerySet:
+    return _recalculable_dynamic_cohorts().filter(
+        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
+        | Q(last_calculation__isnull=True)
     )
 
 
@@ -414,16 +419,7 @@ def reset_stuck_cohorts() -> None:
 
 def update_cohort_metrics() -> None:
     now = timezone.now()
-    base_queryset = (
-        Cohort.objects.filter(
-            Q(last_calculation__isnull=False),
-            deleted=False,
-            is_calculating=False,
-            errors_calculating__lte=MAX_ERRORS_CALCULATING,
-        )
-        .exclude(is_static=True)
-        .exclude(team__organization__is_active=False)
-    )
+    base_queryset = _recalculable_dynamic_cohorts().filter(last_calculation__isnull=False)
 
     COHORTS_TOTAL_GAUGE.set(base_queryset.count())
 

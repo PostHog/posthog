@@ -1072,14 +1072,17 @@ class TestCohortCalculationTasks(APIBaseTest):
         stale = timezone.now() - relativedelta(days=3)
         Cohort.objects.create(team_id=deactivated_team.pk, last_calculation=stale)
         active_cohort = Cohort.objects.create(team_id=self.team.pk, last_calculation=stale)
+        never_deactivated_organization = Organization.objects.create(name="Never deactivated", is_active=None)
+        never_deactivated_team = Team.objects.create(organization=never_deactivated_organization, name="Null team")
+        never_deactivated_cohort = Cohort.objects.create(team_id=never_deactivated_team.pk, last_calculation=stale)
 
         candidates = get_cohort_calculation_candidates_queryset()
-        self.assertEqual(list(candidates.values_list("pk", flat=True)), [active_cohort.pk])
+        self.assertCountEqual(candidates.values_list("pk", flat=True), [active_cohort.pk, never_deactivated_cohort.pk])
 
         update_cohort_metrics()
 
-        self.assertEqual(REGISTRY.get_sample_value("cohorts_total"), 1)
-        self.assertEqual(REGISTRY.get_sample_value("cohorts_stale", {"hours": "48"}), 1)
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_total"), 2)
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_stale", {"hours": "48"}), 2)
 
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
@@ -1758,6 +1761,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True, True),
             ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True, True),
             ("organization_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), False, False),
+            ("organization_never_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), None, True),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
@@ -1767,7 +1771,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         _name: str,
         source_fields: dict,
         error_age: relativedelta,
-        organization_is_active: bool,
+        organization_is_active: bool | None,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
         mock_insert_cohort_from_filters: MagicMock,
