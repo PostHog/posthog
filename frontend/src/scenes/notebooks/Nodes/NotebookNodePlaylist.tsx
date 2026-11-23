@@ -45,12 +45,13 @@ const Component = ({
 }
 
 interface NotebookCollectionStatus {
+    ids: string[] | undefined
     loading: boolean
     count?: number
     hasAuthoredDuration: boolean
 }
 
-function collectionPreviewNotice({ loading, count }: NotebookCollectionStatus, ids?: string[]): JSX.Element | null {
+function collectionPreviewNotice({ loading, count, ids }: NotebookCollectionStatus): JSX.Element | null {
     if (loading) {
         return <LemonSkeleton className="m-3 h-6" />
     }
@@ -75,18 +76,11 @@ function NotebookPlaylistView({
     if (isShared || !notebookFilters) {
         return <PlaylistContent {...props} />
     }
-    const collectionIds = collection ? props.attributes.pinned : undefined
-    const notice = collection && collectionPreviewNotice(collection, collectionIds)
+    const notice = collection && collectionPreviewNotice(collection)
     if (notice) {
         return notice
     }
-    const filters = getFilteredNotebookPlaylist(
-        props.attributes.universalFilters,
-        notebookFilters,
-        collection && collectionIds
-            ? { ids: collectionIds, hasAuthoredDuration: collection.hasAuthoredDuration }
-            : undefined
-    )
+    const filters = getFilteredNotebookPlaylist(props.attributes.universalFilters, notebookFilters, collection)
     if (!filters) {
         return (
             <div className="flex h-full flex-col">
@@ -95,7 +89,7 @@ function NotebookPlaylistView({
             </div>
         )
     }
-    if (collectionIds && filters.session_ids?.length === 0) {
+    if (collection && filters.session_ids?.length === 0) {
         return <div className="p-3 text-secondary">No recordings match the notebook and collection filters.</div>
     }
     const key = notebookFilteredBlockKey(shortId, props.attributes.nodeId, notebookFilters)
@@ -237,12 +231,14 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
         )
     }
 
+    const pinned = pinnedRecordings?.map((recording) => String(recording.id))
     return (
         <NotebookPlaylistView
             {...props}
             collection={
                 playlist.type === 'collection'
                     ? {
+                          ids: pinned,
                           loading: pinnedRecordingsLoading,
                           count: playlist.recordings_counts?.collection?.count,
                           hasAuthoredDuration: 'duration' in filters || !!filters.session_recording_duration,
@@ -253,7 +249,7 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
                 ...props.attributes,
                 id: undefined,
                 universalFilters: asUniversalFilters(filters) || DEFAULT_RECORDING_FILTERS,
-                pinned: pinnedRecordings?.map((recording) => String(recording.id)),
+                pinned,
             }}
         />
     )

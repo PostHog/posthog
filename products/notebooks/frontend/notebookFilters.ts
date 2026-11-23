@@ -125,7 +125,7 @@ export function getFilteredNotebookQuery(
 export function getFilteredNotebookPlaylist(
     authored: RecordingUniversalFilters,
     filters: NotebookFilters,
-    collection?: { ids: string[]; hasAuthoredDuration: boolean }
+    collection?: { ids: string[] | undefined; hasAuthoredDuration: boolean }
 ): RecordingUniversalFilters | null {
     const existing = filtersFromUniversalFilterGroups(authored)
     if (
@@ -135,11 +135,12 @@ export function getFilteredNotebookPlaylist(
     ) {
         return null
     }
+    const collectionIds = collection?.ids ?? []
     return {
         ...authored,
         ...filters.dateRange,
         ...(collection && {
-            session_ids: authored.session_ids?.filter((id) => collection.ids.includes(id)) ?? collection.ids,
+            session_ids: authored.session_ids?.filter((id) => collectionIds.includes(id)) ?? collectionIds,
             duration: collection.hasAuthoredDuration ? authored.duration : [],
         }),
         ...(filters.properties.length > 0 && {
