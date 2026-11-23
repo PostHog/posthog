@@ -1040,9 +1040,9 @@ def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationM
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_mcp_connections_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from products.mcp_store.backend.facade.api import remove_member_connections
+    from products.mcp_store.backend.facade.api import remove_member_mcp_connections
 
-    deleted_count = remove_member_connections(user_id=instance.user_id, organization_id=instance.organization_id)
+    deleted_count = remove_member_mcp_connections(user_id=instance.user_id, organization_id=instance.organization_id)
 
     if deleted_count > 0:
         logger.info(
