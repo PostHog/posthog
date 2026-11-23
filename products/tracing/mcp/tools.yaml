@@ -28,6 +28,7 @@ tools:
         title: Break down spans by attribute value
         description_file: ./prompts/apm-attribute-breakdown.md
         feature_flag: tracing
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -46,6 +47,7 @@ tools:
             List values for a specific span or resource attribute key. Use to discover what values exist for a given
             attribute before building filters.
         feature_flag: tracing
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -64,6 +66,7 @@ tools:
             attributes or "span_resource_attribute" for resource-level attributes (e.g. k8s labels). Use this to
             discover available attribute keys before building filters.
         feature_flag: tracing
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -221,6 +224,7 @@ tools:
                 default: true
         ui_app: trace-span-list
         feature_flag: tracing
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -245,6 +249,7 @@ tools:
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
         feature_flag: tracing
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results

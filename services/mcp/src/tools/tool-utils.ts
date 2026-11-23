@@ -57,6 +57,8 @@ export type WithInformationalResponse<T = unknown> = T & {
     [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: true
 }
 
+const informationalWrappers = new WeakMap<object, { tag: string; purpose?: string }>()
+
 export function withInformationalResponse<T>(result: T, tag: string, purpose?: string): WithInformationalResponse<T> {
     if (result === null || typeof result !== 'object') {
         throw new TypeError('Informational response wrapping requires an object or array result')
@@ -83,8 +85,18 @@ export function withInformationalResponse<T>(result: T, tag: string, purpose?: s
         value: true,
         enumerable: false,
     })
+    informationalWrappers.set(wrappedResult, { tag, purpose })
 
     return wrappedResult as WithInformationalResponse<T>
+}
+
+/** Wraps `next` the way `original` was wrapped, for a step that rebuilds an informational result as a plain object. */
+export function withInformationalResponseOf<T>(original: unknown, next: T): T {
+    const wrapper = typeof original === 'object' && original !== null ? informationalWrappers.get(original) : undefined
+    if (!wrapper || typeof next !== 'object' || next === null || POSTHOG_INFORMATIONAL_RESPONSE_KEY in next) {
+        return next
+    }
+    return withInformationalResponse(next, wrapper.tag, wrapper.purpose)
 }
 
 const TEXT_PROJECTION_TAG = 'rows'

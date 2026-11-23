@@ -4,6 +4,7 @@ import { redactCredentials, redactCredentialsInText } from '@/lib/credential-red
 import redactFailureLogsHooks from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
 import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
+import { GENERATED_TOOLS as TRACING_TOOLS } from '@/tools/generated/tracing'
 import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
 import type { Context } from '@/tools/types'
 
@@ -389,6 +390,68 @@ describe('credential redaction', () => {
         } as unknown as Context
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
+    })
+
+    it.each([
+        {
+            tool: 'query-apm-spans',
+            response: {
+                results: [
+                    {
+                        name: 'GET',
+                        attributes: {
+                            'url.full': `https://bucket.example.com/a.png?X-Amz-Credential=${OTHER_SECRET}&X-Amz-Signature=${OTHER_SECRET}&X-Amz-Expires=300`,
+                        },
+                    },
+                ],
+            },
+            expected: {
+                results: [
+                    {
+                        name: 'GET',
+                        attributes: {
+                            'url.full':
+                                'https://bucket.example.com/a.png?X-Amz-Credential=[REDACTED]&X-Amz-Signature=[REDACTED]&X-Amz-Expires=300',
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            tool: 'apm-trace-get',
+            response: { results: [{ attributes: { 'http.request.header.authorization': `Bearer ${OTHER_SECRET}` } }] },
+            expected: {
+                results: [{ attributes: { 'http.request.header.authorization': 'Bearer [REDACTED]' } }],
+                _posthogUrl: 'https://app.example.com/project/1/tracing?trace=abc123',
+            },
+        },
+        {
+            tool: 'apm-attribute-values-list',
+            response: { results: [{ id: `{"api_key":"${OTHER_SECRET}"}`, name: `{"api_key":"${OTHER_SECRET}"}` }] },
+            expected: { results: [{ id: '{"api_key":"[REDACTED]"}', name: '{"api_key":"[REDACTED]"}' }] },
+        },
+        {
+            tool: 'apm-attributes-list',
+            response: {
+                results: [{ name: 'http.url', matchedOn: 'value', matchedValue: `/cb?token=${OTHER_SECRET}` }],
+            },
+            expected: { results: [{ name: 'http.url', matchedOn: 'value', matchedValue: '/cb?token=[REDACTED]' }] },
+        },
+        {
+            tool: 'apm-attribute-breakdown',
+            response: { results: [{ value: `postgres://app:${OTHER_SECRET}@db.example.com/app`, count: 3 }] },
+            expected: { results: [{ value: 'postgres://app:[REDACTED]@db.example.com/app', count: 3 }] },
+        },
+    ])('redacts span data through the generated $tool handler', async ({ tool, response, expected }) => {
+        const context = {
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+            api: {
+                request: vi.fn().mockResolvedValue(response),
+                getProjectBaseUrl: () => 'https://app.example.com/project/1',
+            },
+        } as unknown as Context
+
+        expect(await TRACING_TOOLS[tool]!().handler(context, { trace_id: 'abc123' })).toEqual(expected)
     })
 
     it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {
