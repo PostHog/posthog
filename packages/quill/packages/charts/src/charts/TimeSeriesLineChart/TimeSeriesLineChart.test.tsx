@@ -472,14 +472,14 @@ describe('TimeSeriesLineChart', () => {
             expect(chart.valueLabels()).toHaveLength(SERIES[0].data.length)
         })
 
-        it('forwards an explicit formatter', () => {
+        it('formats source values when a moving average is visible', () => {
             const formatter = (v: number): string => `~${v}`
             const { chart } = renderChart(
                 <TimeSeriesLineChart
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ valueLabels: { formatter } }}
+                    config={{ valueLabels: { formatter }, movingAverage: [{ seriesKey: 'a', window: 2 }] }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['~1', '~2', '~3'])

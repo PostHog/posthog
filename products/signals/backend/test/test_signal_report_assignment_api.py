@@ -1350,7 +1350,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert {row["id"] for row in rows} == {str(report.id) for report in mine}
         assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
 
-    def test_needs_you_keeps_the_reports_waiting_on_the_user_or_claimed_by_them(self):
+    def test_needs_you_and_connected_keep_the_reports_tied_to_the_user(self):
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
 
         def suggest(report: SignalReport, user: User) -> SignalReport:
@@ -1383,6 +1383,17 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert needs_you.status_code == rest.status_code == status.HTTP_200_OK
         assert {row["id"] for row in needs_you.json()["results"]} == {str(r.id) for r in [waiting, *claimed]}
         assert {row["id"] for row in rest.json()["results"]} == {str(r.id) for r in others}
+
+        suggested_to_me = [waiting, others[1]]
+        for connected, expected in [
+            ("assigned", claimed),
+            ("suggested_reviewer", suggested_to_me),
+            ("assigned,suggested_reviewer", [*claimed, *suggested_to_me]),
+        ]:
+            response = self.client.get(self._list_url(connected=connected))
+            assert response.status_code == status.HTTP_200_OK
+            assert {row["id"] for row in response.json()["results"]} == {str(r.id) for r in expected}
+        assert self.client.get(self._list_url(connected="merged")).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
         Task = apps.get_model("tasks", "Task")

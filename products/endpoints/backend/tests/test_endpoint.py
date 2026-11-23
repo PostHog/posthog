@@ -17,6 +17,7 @@ from posthog.schema import EndpointLastExecutionTimesRequest
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -993,6 +994,45 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
         endpoint = Endpoint.objects.get(name="slow_query", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
+    @time_machine.travel("2026-11-20T12:00:00Z", tick=False)
+    def test_oauth_run_stamps_last_executed_at(self):
+        create_endpoint_with_version(
+            name="agent_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        application = OAuthApplication.objects.create(
+            name="Agent",
+            client_id="agent-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_agent_query",
+            scope="endpoint:read query:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/agent_query/run/",
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        endpoint = Endpoint.objects.get(name="agent_query", team=self.team)
         version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
         self.assertIsNotNone(endpoint.last_executed_at)
         self.assertIsNotNone(version.last_executed_at)

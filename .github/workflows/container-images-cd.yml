@@ -668,18 +668,10 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
-                      signupEnrichment:
-                        - 'products/growth/backend/**'
-                        - 'ee/billing/salesforce_enrichment/**'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - 'products/*/backend/facade/temporal.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
-
                       billing:
                         - 'ee/billing/**'
+                        - 'posthog/entitlements/**'
+                        - 'posthog/temporal/entitlement_reactions/**'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
                         - 'posthog/temporal/salesforce_enrichment/**'
@@ -765,21 +757,6 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
-
-                      webAnalytics:
-                        - 'products/web_analytics/backend/**'
-                        - 'posthog/egress/**'
-                        - 'posthog/storage/**'
-                        - 'posthog/security/url_validation.py'
-                        - 'posthog/models/team/team_heatmap_config.py'
-                        - '.github/workflows/container-images-cd.yml'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/settings/temporal.py'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - 'products/*/backend/facade/temporal.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
 
                       weeklyDigest:
                         - 'posthog/temporal/weekly_digest/**'
@@ -868,18 +845,6 @@ jobs:
                         - Dockerfile
                         - 'posthog/clickhouse/migrations/**'
 
-                      healthCheck:
-                        - 'posthog/temporal/health_checks/**'
-                        - 'products/*/backend/temporal/health_checks/**'
-                        # `.dockerignore` keeps test files out of every image, so a
-                        # test-only edit cannot reach the running worker.
-                        - '!products/*/backend/temporal/health_checks/tests/**'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - 'products/*/backend/facade/temporal.py'
-                        - 'posthog/clickhouse/migrations/**'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
                       logsAlerting:
                         - 'posthog/temporal/logs_alerting/**'
                         - 'products/alerts/backend/facade/**'
@@ -1199,27 +1164,6 @@ jobs:
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Trigger Web Analytics Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.webAnalytics == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-web-analytics",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
-                      }
-
             - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.experimentsRecalculation == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -1359,73 +1303,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-general-purpose",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
-                      }
-
-            - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-signup-enrichment",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
-                      }
-
-            # The product path list for this worker lives in the filter step above and
-            # is not itself one of its paths. This clause deploys once when that list
-            # changes, so detectors the list newly covers ship with the worker.
-            - name: Check whether this workflow added health check worker coverage
-              id: check_health_check_coverage_added
-              env:
-                  BEFORE: ${{ github.event.before }}
-              run: |
-                  BASE="$BEFORE"
-                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-                      BASE="$(git rev-list --max-parents=0 HEAD)"
-                  elif ! git fetch --depth=1 --no-tags origin "$BASE"; then
-                      echo "::error::Unable to fetch the workflow event base commit ($BASE)"
-                      exit 1
-                  fi
-                  if ! DIFF="$(git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml)"; then
-                      echo "::error::Unable to inspect workflow changes between $BASE and HEAD"
-                      exit 1
-                  fi
-                  if grep -qE '^\+.*health_checks' <<< "$DIFF"; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-health-check",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},

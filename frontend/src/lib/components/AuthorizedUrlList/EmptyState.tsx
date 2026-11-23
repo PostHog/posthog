@@ -5,10 +5,12 @@ import { useMemo } from 'react'
 import { IconRefresh } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { ExperimentIdType } from '~/types'
 
 import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { QuillAuthorizedUrlEmptyState } from './QuillAuthorizedUrlEmptyState'
 
 type EmptyStateProps = {
     type: AuthorizedUrlListType
@@ -33,6 +35,7 @@ export function EmptyState({
     })
     const { urlsKeyed, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
     const { loadSuggestions } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     const domainOrUrl = type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domain' : 'URL'
 
@@ -49,18 +52,17 @@ export function EmptyState({
         [[], []] as KeyedAppUrl[][]
     )
 
+    // If there are authorized URLs, never display this empty state.
+    // If the add URL form is visible, don't show the empty state either.
+    const hidden = authorizedURLs.length > 0 || isAddUrlFormVisible
+    const showsSuggestions = suggestionURLs.length > 0 && displaySuggestions
+
     const children = useMemo(() => {
-        // If there are authorized URLs, never display this empty state
-        if (authorizedURLs.length > 0) {
+        if (hidden) {
             return null
         }
 
-        // If the add URL form is visible, don't show the empty state either
-        if (isAddUrlFormVisible) {
-            return null
-        }
-
-        if (suggestionURLs.length > 0 && displaySuggestions) {
+        if (showsSuggestions) {
             return (
                 <p className="mb-0">
                     There are no authorized {domainOrUrl}s. <br />
@@ -116,16 +118,20 @@ export function EmptyState({
                 )}
             </div>
         )
-    }, [
-        authorizedURLs.length,
-        isAddUrlFormVisible,
-        suggestionURLs.length,
-        suggestionsLoading,
-        type,
-        domainOrUrl,
-        loadSuggestions,
-        displaySuggestions,
-    ])
+    }, [hidden, showsSuggestions, suggestionsLoading, type, domainOrUrl, loadSuggestions, displaySuggestions])
+
+    if (quillSurface) {
+        return hidden ? null : (
+            <QuillAuthorizedUrlEmptyState
+                type={type}
+                domainOrUrl={domainOrUrl}
+                showsSuggestions={showsSuggestions}
+                displaySuggestions={displaySuggestions}
+                suggestionsLoading={suggestionsLoading}
+                onFetchSuggestions={loadSuggestions}
+            />
+        )
+    }
 
     return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
 }

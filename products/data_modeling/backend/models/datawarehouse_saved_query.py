@@ -32,7 +32,7 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.hogql.database.models import DecimalDatabaseField, FieldOrTable, SavedQuery, clickhouse_decimal_scale
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
@@ -624,7 +624,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMotherDuckTable,
         DirectTrinoTable,
     ]:
-        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
+        if (
+            self.table is not None
+            and self.table.team_id == self.team_id
+            and self.is_materialized
+            and modifiers is not None
+            and modifiers.useMaterializedViews
+        ):
             table = self.table.hogql_definition(modifiers)
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)
@@ -677,6 +683,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
+
+            field = fields[column]
+            if isinstance(field, DecimalDatabaseField):
+                field.scale = clickhouse_decimal_scale(clickhouse_type)
 
         return fields
 

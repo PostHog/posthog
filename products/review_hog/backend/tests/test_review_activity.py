@@ -966,6 +966,8 @@ def test_a_review_points_to_the_review_ui_and_the_comment_commands(
     with (
         patch(f"{_MODULE}._installation_auth", return_value=("token", "1")),
         patch(f"{_MODULE}.comment_commands_enabled", return_value=commands_on),
+        patch(f"{_MODULE}.ReviewCadence.load", return_value=None),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
         patch(f"{_MODULE}.publish_persisted_review", publish),
         patch(f"{_MODULE}.ReviewReport"),
     ):

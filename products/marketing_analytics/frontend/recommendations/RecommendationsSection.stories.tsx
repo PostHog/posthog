@@ -439,20 +439,24 @@ export const MissingTablesInModal: Story = {
 }
 
 function withResolved(
-    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+    state: (
+        row: MarketingAnalyticsRecommendation
+    ) => MarketingAnalyticsRecommendationResolutionState | 'detected' | null
 ): Mocks {
     const results = RESULTS.map((row) => {
         const resolved = state(row)
-        return resolved
-            ? {
-                  ...row,
-                  resolution: {
-                      id: `resolution-${row.subject}`,
-                      resolution: resolved,
-                      resolved_at: '2025-02-14T12:00:00Z',
-                  },
-              }
-            : row
+        return resolved === 'detected'
+            ? { ...row, detectedChange: 'negative_keyword' }
+            : resolved
+              ? {
+                    ...row,
+                    resolution: {
+                        id: `resolution-${row.subject}`,
+                        resolution: resolved,
+                        resolved_at: '2025-02-14T12:00:00Z',
+                    },
+                }
+              : row
     })
     return {
         ...MOCKS,
@@ -466,12 +470,19 @@ function withResolved(
 }
 
 const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+const SPEND_WITHOUT_CONVERSIONS = RESULTS.filter((row) => row.rule === 'spend_without_conversions')
 
 export const ResolvedInModal: Story = {
     parameters: {
         msw: {
             mocks: withResolved((row) =>
-                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+                row === SPEND_WITHOUT_CONVERSIONS[0]
+                    ? 'dismissed'
+                    : row === SPEND_WITHOUT_CONVERSIONS[1]
+                      ? 'detected'
+                      : row === BRAND_OVERLAP[0]
+                        ? 'applied'
+                        : null
             ),
         },
     },
@@ -479,8 +490,8 @@ export const ResolvedInModal: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
-        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
+        await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
+        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
     },
 }
 
@@ -545,7 +556,7 @@ export const RuleResolvedInModal: Story = {
     play: async ({ canvasElement }) => {
         await dismissHighCostCampaign(canvasElement)
         await within(canvasElement.ownerDocument.body).findByText(
-            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+            'Every recommendation in this rule is dismissed or applied. Review them to see each one.'
         )
     },
 }

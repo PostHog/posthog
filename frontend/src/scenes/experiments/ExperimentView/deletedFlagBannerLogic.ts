@@ -13,6 +13,7 @@ import { Experiment, FeatureFlagBasicType, FeatureFlagType } from '~/types'
 import { featureFlagsActivityRetrieve, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentTriggeredBy } from '../experimentLogic'
 
 export interface DeletedFlagBannerLogicProps {
     experimentId: Experiment['id']
@@ -43,11 +44,11 @@ export interface deletedFlagBannerLogicActions {
     loadExperiment: (
         payload?:
             | {
-                  triggeredBy?: import('../experimentLogic').ExperimentTriggeredBy
+                  triggeredBy?: ExperimentTriggeredBy
               }
             | undefined
     ) => {
-        triggeredBy?: import('../experimentLogic').ExperimentTriggeredBy
+        triggeredBy?: ExperimentTriggeredBy
     } // experimentLogic
     loadDeletedFlag: () => any
     loadDeletedFlagFailure: (

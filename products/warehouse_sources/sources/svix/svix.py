@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional
 
@@ -133,8 +134,15 @@ def _app_id_param() -> dict[str, Any]:
     return {"app_id": {"type": "resolve", "resource": "applications", "field": "id"}}
 
 
+_PARENT_ID_FIELDS: dict[str, str] = {"applications": "app_id", "streams": "stream_id"}
+
+
+def _parent_resource(name: str) -> EndpointResource:
+    return {"name": name, "endpoint": _list_endpoint(SVIX_ENDPOINTS[name].path, {}, SvixCursorPaginator())}
+
+
 def _applications_resource() -> EndpointResource:
-    return {"name": "applications", "endpoint": _list_endpoint("/app", {}, SvixCursorPaginator())}
+    return _parent_resource("applications")
 
 
 def _endpoints_resource(name: str, paginator: SvixCursorPaginator) -> EndpointResource:
@@ -146,21 +154,41 @@ def _endpoints_resource(name: str, paginator: SvixCursorPaginator) -> EndpointRe
     }
 
 
+def _row_map(
+    parent: str, renames: dict[str, str], excluded_fields: tuple[str, ...]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    rename = rename_parent_fields(parent, renames)
+
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        row = rename(row)
+        for name in excluded_fields:
+            row.pop(name, None)
+        return row
+
+    return _map
+
+
 def _resources(config: SvixEndpointConfig, stop_before: Optional[datetime]) -> list[str | EndpointResource]:
     paginator = SvixCursorPaginator(stop_before=stop_before, timestamp_field=config.incremental_field or "timestamp")
     if config.parent is None:
         return [{"name": config.name, "endpoint": _list_endpoint(config.path, config.params, paginator)}]
 
-    if config.parent == "applications":
-        if config.name == "endpoints":
-            return [_applications_resource(), _endpoints_resource(config.name, paginator)]
+    if config.parent == "applications" and config.name == "endpoints":
+        return [_applications_resource(), _endpoints_resource(config.name, paginator)]
+
+    if config.parent in _PARENT_ID_FIELDS:
+        id_field = _PARENT_ID_FIELDS[config.parent]
         child: EndpointResource = {
             "name": config.name,
             "include_from_parent": ["id"],
-            "endpoint": _list_endpoint(config.path, {**_app_id_param(), **config.params}, paginator),
-            "data_map": rename_parent_fields("applications", {"id": "app_id"}),
+            "endpoint": _list_endpoint(
+                config.path,
+                {id_field: {"type": "resolve", "resource": config.parent, "field": "id"}, **config.params},
+                paginator,
+            ),
+            "data_map": _row_map(config.parent, {"id": id_field}, config.excluded_fields),
         }
-        return [_applications_resource(), child]
+        return [_parent_resource(config.parent), child]
 
     params: dict[str, Any] = {
         "app_id": {"type": "resolve", "resource": "endpoints", "field": "app_id"},
@@ -204,6 +232,8 @@ def svix_source(
             "base_url": SVIX_BASE_URL,
             "headers": _headers(),
             "auth": {"type": "bearer", "token": api_key},
+            # Sample capture stores raw responses before `data_map` drops the excluded fields.
+            "capture": not config.excluded_fields,
         },
         # Per-resource settings are fully specified below, so no shared defaults are needed.
         "resource_defaults": {},

@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -137,3 +139,78 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
     assert table.size_in_s3_mib == 20.0
     assert table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
     refresh_delay.assert_called_once_with(team.pk, str(saved_query.id), None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_a_given_row_count_is_recorded_without_counting_the_files(team: Team) -> None:
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=team,
+        name="counted_model",
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+    )
+    job = await DataModelingJob.objects.acreate(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="counted-workflow",
+    )
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", return_value={}),
+        patch.object(DataWarehouseTable, "get_count", side_effect=RuntimeError("the files must not be counted")),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.calculate_table_size",
+            new_callable=AsyncMock,
+            return_value=0.0,
+        ),
+    ):
+        result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, "folder", row_count=42)
+
+    await result.table.arefresh_from_db()
+    assert result.table.row_count == 42
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_concurrent_publishes_run_their_blocking_reads_at_the_same_time(team: Team) -> None:
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=team,
+        name="parallel_model",
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+    )
+    first_job, second_job = [
+        await DataModelingJob.objects.acreate(
+            team=team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id=workflow_id,
+        )
+        for workflow_id in ("first-workflow", "second-workflow")
+    ]
+    both_publishes_reading = threading.Barrier(2, timeout=5)
+
+    def read_alongside_the_other_publish(result: object) -> Callable[..., object]:
+        def read(*args: object, **kwargs: object) -> object:
+            both_publishes_reading.wait()
+            return result
+
+        return read
+
+    with (
+        patch.object(DataWarehouseTable, "get_columns", side_effect=read_alongside_the_other_publish({})),
+        patch.object(DataWarehouseTable, "get_count", side_effect=read_alongside_the_other_publish(1)),
+        patch(
+            "products.data_warehouse.backend.logic.data_load.create_table.get_size_of_folder",
+            side_effect=read_alongside_the_other_publish(3.0),
+        ),
+    ):
+        first_result, second_result = await asyncio.gather(
+            create_table_from_saved_query(str(first_job.id), str(saved_query.id), team.pk, "first-folder"),
+            create_table_from_saved_query(str(second_job.id), str(saved_query.id), team.pk, "second-folder"),
+        )
+
+    assert [(result.table.row_count, result.total_storage_mib) for result in (first_result, second_result)] == [
+        (1, 3.0),
+        (1, 3.0),
+    ]

@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Button, Input } from '@posthog/quill'
 
@@ -9,15 +7,18 @@ export function SectionTitle({
     canEdit,
     onToggle,
     onRename,
+    draft,
+    onDraftChange: setDraft,
 }: {
     title: string
     collapsed: boolean
     canEdit: boolean
     onToggle: () => void
     onRename: (title: string) => void
+    /** The title being typed, or null when not renaming. Held by the caller so its menu can start a rename. */
+    draft: string | null
+    onDraftChange: (draft: string | null) => void
 }): JSX.Element {
-    const [draft, setDraft] = useState<string | null>(null)
-
     const commit = (): void => {
         if (draft !== null && draft.trim() && draft !== title) {
             onRename(draft.trim())

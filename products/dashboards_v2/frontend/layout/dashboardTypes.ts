@@ -1,3 +1,5 @@
+import type { AccessControlLevel } from '~/types'
+
 export const GRID = {
     columns: 24,
     rowPx: 32,
@@ -63,6 +65,8 @@ export interface DashboardTab {
 export interface Dashboard {
     version: 2
     title: string
+    /** The viewer's access to this dashboard, as v1 dashboards carry it. Missing means the project-wide level. */
+    user_access_level?: AccessControlLevel
     tabs: DashboardTab[]
 }
 

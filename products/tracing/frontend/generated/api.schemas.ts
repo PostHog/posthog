@@ -634,6 +634,49 @@ export interface _TracingLatencyHeatmapResponseApi {
     results: _TracingLatencyHeatmapCellApi[]
 }
 
+export interface _TracingTimeseriesQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingLatencyPercentilesRequestApi {
+    /** The latency percentiles query to execute. */
+    query: _TracingTimeseriesQueryBodyApi
+}
+
+export interface _TracingLatencyPercentilesRowApi {
+    /** ISO 8601 UTC start of the time bucket. */
+    time: string
+    /** Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the matching spans in the window hold neither. 0 for a bucket with no such spans. */
+    count: number
+    /**
+     * Median duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p50_ns: number | null
+    /**
+     * 95th percentile duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p95_ns: number | null
+    /**
+     * 99th percentile duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p99_ns: number | null
+}
+
+export interface _TracingLatencyPercentilesResponseApi {
+    /** One row per time bucket in the window, ordered by time, on the sparkline's time axis. */
+    results: _TracingLatencyPercentilesRowApi[]
+}
+
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration
@@ -1064,6 +1107,14 @@ export interface _TracingSparklineRowApi {
 export interface _TracingSparklineResponseApi {
     /** One row per time bucket and service, ordered by time. */
     results: _TracingSparklineRowApi[]
+}
+
+export interface _StoredTraceResponseApi {
+    /**
+     * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+     * @nullable
+     */
+    traceId: string | null
 }
 
 export interface _SymbolStatsSymbolApi {
@@ -1726,6 +1777,15 @@ export type TracingSpansServiceNamesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string
 }
 
 export type TracingSpansValuesRetrieveParams = {

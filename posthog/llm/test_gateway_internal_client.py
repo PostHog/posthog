@@ -21,6 +21,8 @@ from posthog.llm.gateway_internal_client import (
     reverse_org_credit,
 )
 
+ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
+
 
 def _response(status: int, payload: dict | None = None) -> httpx.Response:
     return httpx.Response(status, json=payload or {}, request=httpx.Request("GET", "http://gw"))
@@ -112,10 +114,10 @@ class TestAddCredit:
             "duplicate": False,
         }
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, payload)) as mock_post:
-            result = add_credit(42, "25.00", "topping up", "key-123")
+            result = add_credit(42, ORG_ID, "25.00", "topping up", "key-123")
 
         url = mock_post.call_args.args[0]
-        assert url == "http://gw/internal/teams/42/credits"
+        assert url == f"http://gw/internal/accounts/{ORG_ID}/credits"
         assert mock_post.call_args.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
         assert mock_post.call_args.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
         assert mock_post.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
@@ -129,7 +131,7 @@ class TestAddCredit:
         _configured(mock_settings)
         payload = {"team_id": 42, "entry_id": "entry-1", "amount_usd": "25", "balance_usd": "35", "duplicate": True}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, payload)):
-            result = add_credit(42, "25", "again", "key-123")
+            result = add_credit(42, ORG_ID, "25", "again", "key-123")
         assert result.duplicate is True
 
     @patch("posthog.llm.gateway_internal_client.settings")
@@ -138,7 +140,7 @@ class TestAddCredit:
         body = {"error": "amount_usd: must be positive"}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(400, body)):
             with pytest.raises(AIGatewayInternalError, match="amount_usd: must be positive"):
-                add_credit(42, "-1", "bad", "key-123")
+                add_credit(42, ORG_ID, "-1", "bad", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_raises_on_non_json_success_body(self, mock_settings):
@@ -146,21 +148,21 @@ class TestAddCredit:
         non_json = httpx.Response(200, text="<html>not json</html>", request=httpx.Request("POST", "http://gw"))
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=non_json):
             with pytest.raises(AIGatewayInternalError, match="not valid JSON"):
-                add_credit(42, "10", "x", "key-123")
+                add_credit(42, ORG_ID, "10", "x", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_raises_on_success_body_missing_required_fields(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, {"team_id": 42})):
             with pytest.raises(AIGatewayInternalError, match="missing required fields"):
-                add_credit(42, "10", "x", "key-123")
+                add_credit(42, ORG_ID, "10", "x", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_accepts_zero_balance(self, mock_settings):
         _configured(mock_settings)
         body = {"team_id": 42, "entry_id": "e1", "amount_usd": "10", "balance_usd": "0", "duplicate": False}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
-            result = add_credit(42, "10", "x", "key-123")
+            result = add_credit(42, ORG_ID, "10", "x", "key-123")
         assert result.balance_usd == "0"
 
 
@@ -240,10 +242,9 @@ class TestNotConfigured:
         mock_settings.AI_GATEWAY_INTERNAL_URL = ""
         mock_settings.AI_GATEWAY_INTERNAL_TOKEN = ""
         with pytest.raises(AIGatewayNotConfigured):
-            add_credit(42, "10", "x", "key")
+            add_credit(42, ORG_ID, "10", "x", "key")
 
 
-ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
 ORG_LEDGER_RESPONSE = {
     "org_id": ORG_ID,
     "entry_id": "entry-1",

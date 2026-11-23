@@ -18,6 +18,8 @@ import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/
 export interface EventToEmit<O extends string> {
     event: ProcessedEvent
     output: O
+    /** Extra Kafka headers for this message. The step's own headers win on a name clash. */
+    headers?: Record<string, string>
 }
 
 export interface EmitEventStepConfig<O extends string> {
@@ -74,7 +76,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
 
         const ingested: Promise<IngestedEventInfo | null>[] = []
 
-        for (const { event, output } of eventsToEmit) {
+        for (const { event, output, headers: entryHeaders } of eventsToEmit) {
             const serialized = serializeEvent(event)
 
             // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
@@ -85,6 +87,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: {
+                        ...entryHeaders,
                         productTrack: productTrackHeader(event),
                         [TEAM_ID_HEADER]: String(serialized.team_id),
                         [EVENT_NAME_HEADER]: serialized.event,
