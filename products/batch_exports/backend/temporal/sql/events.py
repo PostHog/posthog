@@ -6,7 +6,7 @@ from string import Template
 
 from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    json_document_sql,
+    json_member_pairs_sql,
     person_document_sql,
 )
 
@@ -450,14 +450,23 @@ def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str
 #   `unset` and `group_set` are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
+def _build_properties_document_sql(properties: str, temporary_properties: str) -> str:
+    """The `properties` column as document text in its stored shape, with the temporary properties after the others."""
+    pairs = (
+        json_member_pairs_sql(
+            properties,
+            exclude_empty_key="$feature_flags",
+            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+        ),
+        json_member_pairs_sql(temporary_properties),
+    )
+    return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
+
+
 # `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
 # here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
-    "properties": json_document_sql(
-        "events.properties",
-        exclude_empty_key="$feature_flags",
-        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    ),
+    "properties": _build_properties_document_sql("events.properties", "events.temporary_properties"),
     "person_properties": person_document_sql("events.person_properties"),
     **_build_temporary_property_fields("toJSONString(events.temporary_properties)"),
 }
