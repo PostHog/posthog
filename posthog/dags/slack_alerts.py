@@ -28,7 +28,11 @@ notification_channel_per_team = {
     JobOwners.TEAM_SECURITY.value: "#alerts-security",
     JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
-    JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
+    JobOwners.TEAM_ANALYTICS.value: "#alerts-web-analytics",
+    # Dagster stores the owner tag on each run when the run starts. Runs that started before the
+    # web analytics team became team-analytics still carry the old value, and their failures must
+    # reach the same channel.
+    "team-web-analytics": "#alerts-web-analytics",
 }
 
 JOB_ALERT_RUNBOOK_URLS = {
@@ -72,6 +76,10 @@ SLACK_BLOCK_REJECTION_ERRORS = frozenset(
     {"invalid_blocks", "invalid_blocks_format", "blocks_too_long", "msg_too_long", "metadata_too_large"}
 )
 
+# Slack refused the channel itself, usually because the alerts bot was never invited. The message did
+# not post, so resending it to the default channel can't duplicate it.
+SLACK_UNREACHABLE_CHANNEL_ERRORS = frozenset({"not_in_channel", "channel_not_found", "is_archived"})
+
 
 def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> bool:
     """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
@@ -87,6 +95,17 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
         return True
     except SlackApiError as e:
         error_code = e.response.get("error") if e.response is not None else None
+        default_channel = settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL
+        if error_code in SLACK_UNREACHABLE_CHANNEL_ERRORS and channel != default_channel:
+            context.log.warning(f"Slack refused {channel} ({error_code}), sending to {default_channel}")
+            note = f"Could not post to {channel} ({error_code}). Invite the Dagster alerts bot there."
+            return send_slack_alert(
+                context,
+                client,
+                default_channel,
+                [{"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}, *blocks],
+                f"{note} {fallback_text}",
+            )
         if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
             # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
             context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
@@ -110,7 +129,7 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
 # run tags carry no owner, so ownership has to come from the failed step names instead. First
 # matching prefix wins; assets whose names don't start with one of these fall back to the run tag.
 ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
-    ("web_", JobOwners.TEAM_WEB_ANALYTICS),
+    ("web_", JobOwners.TEAM_ANALYTICS),
     ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_ranking_", JobOwners.TEAM_SELF_DRIVING),

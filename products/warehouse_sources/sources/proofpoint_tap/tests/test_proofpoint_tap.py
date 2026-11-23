@@ -210,6 +210,7 @@ def test_error_classification_preserves_checkpoint(status: int) -> None:
         (403, None, True, None, "/v2/siem/clicks/blocked"),
         (403, "messages_blocked", False, "Check access in the TAP dashboard", "/v2/siem/messages/blocked"),
         (200, "threats", True, None, "/v2/siem/all"),
+        (200, "forensics", True, None, "/v2/siem/all"),
         (200, "campaigns", True, None, "/v2/siem/clicks/blocked"),
         (200, "top_clickers", True, None, "/v2/siem/clicks/blocked"),
     ],
@@ -237,6 +238,29 @@ def test_unexpected_probe_error_is_not_bad_credentials() -> None:
             ProofpointTapSource().validate_credentials(CONFIG, 1)
 
 
+LOOKUP_PATHS = {"threats": "/v2/threat/summary/{id}", "forensics": "/v2/forensics"}
+
+
+def add_lookups() -> None:
+    for threat_id in ("threat-a", "threat-b"):
+        responses.get(
+            f"{ROOT}/threat/summary/{threat_id}", json={"id": threat_id, "identifiedAt": "2026-01-01T00:00:00Z"}
+        )
+        responses.get(
+            f"{ROOT}/forensics",
+            match=[responses.matchers.query_param_matcher({"threatId": threat_id})],
+            json={
+                "generated": "2026-01-08T10:00:00Z",
+                "reports": [{"id": threat_id, "scope": "THREAT", "forensics": [{"type": "url", "malicious": True}]}],
+            },
+        )
+    responses.get(f"{ROOT}/threat/summary/gone", status=404, json={})
+    responses.get(
+        f"{ROOT}/forensics", match=[responses.matchers.query_param_matcher({"threatId": "gone"})], status=404, json={}
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["threats", "forensics"])
 @pytest.mark.parametrize(
     ("resume", "lookups", "saved"),
     [
@@ -265,8 +289,8 @@ def test_unexpected_probe_error_is_not_bad_credentials() -> None:
 )
 @time_machine.travel(NOW, tick=False)
 @responses.activate
-def test_threats_resolve_each_siem_threat_once_and_skip_missing(
-    resume: TapResumeState | None, lookups: list[str], saved: list[tuple[str, tuple[str, ...]]]
+def test_threat_lookups_resolve_each_siem_threat_once_and_skip_missing(
+    endpoint: str, resume: TapResumeState | None, lookups: list[str], saved: list[tuple[str, tuple[str, ...]]]
 ) -> None:
     def siem_all(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
         end = query(request)["interval"][0].split("/")[1]
@@ -282,28 +306,54 @@ def test_threats_resolve_each_siem_threat_once_and_skip_missing(
         return 200, {"Content-Type": "application/json"}, json.dumps(payload)
 
     responses.add_callback(responses.GET, f"{BASE}/all", callback=siem_all)
-    for threat_id in ("threat-a", "threat-b"):
-        responses.get(
-            f"{ROOT}/threat/summary/{threat_id}", json={"id": threat_id, "identifiedAt": "2026-01-01T00:00:00Z"}
-        )
-    responses.get(f"{ROOT}/threat/summary/gone", status=404, json={})
+    add_lookups()
 
-    harness = Harness(endpoint="threats", resume=resume)
+    harness = Harness(endpoint=endpoint, resume=resume)
     rows = harness.rows()
 
     expected_rows = [threat_id for threat_id in lookups if threat_id != "gone"]
     assert [(row["id"], row["query_end_time"]) for row in rows] == [
         (threat_id, datetime(2026, 1, 8, 10, 59, tzinfo=UTC)) for threat_id in expected_rows
     ]
+    if endpoint == "forensics":
+        assert [query(call.request) for call in responses.calls[1:-1]] == [
+            {"threatId": [threat_id]} for threat_id in lookups
+        ]
+        assert all(row["reports"][0]["id"] == row["id"] for row in rows)
+        assert all(row["generated"] == "2026-01-08T10:00:00Z" for row in rows)
     assert [urlparse(call.request.url or "").path for call in responses.calls] == [
         "/v2/siem/all",
-        *[f"/v2/threat/summary/{threat_id}" for threat_id in lookups],
+        *[LOOKUP_PATHS[endpoint].format(id=threat_id) for threat_id in lookups],
         "/v2/siem/all",
     ]
     assert [(call.args[0].next_start, call.args[0].done) for call in harness.manager.save_state.call_args_list] == saved
     assert harness.response.primary_keys == ["id"]
     assert harness.response.sort_mode is None
     assert harness.cursor.staged == TapCursor(query_end_time="2026-01-08T11:59:00+00:00")
+
+
+@pytest.mark.parametrize(
+    ("payload", "reports"),
+    [
+        ({"generated": "2026-01-08T10:00:00Z", "reports": []}, []),
+        ({"generated": "2026-01-08T10:00:00Z", "reports": None}, []),
+        ({"generated": "2026-01-08T10:00:00Z"}, []),
+        ({"generated": "2026-01-08T10:00:00Z", "reports": {"id": "threat-a"}}, None),
+        ({"generated": "2026-01-08T10:00:00Z", "reports": ["bad"]}, None),
+    ],
+)
+@time_machine.travel(NOW, tick=False)
+@responses.activate
+def test_forensics_report_shapes(payload: dict[str, Any], reports: list[dict[str, Any]] | None) -> None:
+    add_windows("all", "clicksBlocked", [{"id": "click-a", "threatID": "threat-a"}])
+    responses.get(f"{ROOT}/forensics", json=payload)
+    harness = Harness(endpoint="forensics", watermark=NOW - timedelta(hours=1))
+    if reports is None:
+        with pytest.raises(ValueError):
+            harness.rows()
+        harness.manager.safe_point.assert_not_called()
+        return
+    assert [row["reports"] for row in harness.rows()] == [reports]
 
 
 @time_machine.travel(NOW, tick=False)

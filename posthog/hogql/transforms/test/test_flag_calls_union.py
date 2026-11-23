@@ -830,6 +830,29 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ).generate_clickhouse_sql()
         return substitute_params(sql, context.values)
 
+    @parameterized.expand(
+        [
+            ("without_key_or_date", FLAG_CALLS),
+            ("mixed_with_other_events", f"SELECT count() FROM events WHERE {MIXED}"),
+            ("select_star", f"SELECT * {FLAG_CALLS_FROM}"),
+        ]
+    )
+    def test_flag_evaluations_only_reads_the_same_when_it_keeps_writing_flag_calls_to_events(
+        self, _name: str, query: str
+    ):
+        def compiled() -> str:
+            try:
+                return self._sql(query, mode=ONLY, new_events_schema=False)
+            except QueryError as error:
+                return f"QueryError: {error}"
+
+        without_kept_writes = compiled()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            keep_writing_flag_calls_to_events=True
+        )
+
+        assert compiled() == without_kept_writes
+
     @staticmethod
     def _branches(sql: str) -> list[str]:
         start = sql.index("UNION ALL")
@@ -2380,6 +2403,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
             # Events rebuilds a flag property from `$feature_flags`, which holds text.
             ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            # The filter reaches the events branch, which compares the flag's own subcolumn of `$feature_flags`.
+            param(
+                "flag_filter",
+                "properties.`$feature/probe`",
+                123,
+                '"123"',
+                where="AND properties.`$feature/probe` = '123'",
+            ),
             ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
             param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
             # Events reads a declared path as its declared type, which is String for `$browser`.

@@ -1,7 +1,8 @@
 """Reads SendGrid's Handlebars into a tree of text, output tags and blocks, for sendgrid_templates.py to turn into Liquid.
 
 Follows the Handlebars grammar where SendGrid templates use it: https://handlebarsjs.com/guide/expressions.html.
-Anything outside it raises _Malformed or _Unconvertible, and the converter keeps that part as text.
+A template that doesn't parse raises _Malformed. A tag outside the grammar stays in the tree for the converter to keep as
+text.
 """
 
 import re
@@ -36,7 +37,9 @@ _EXPRESSION_TOKEN = re.compile(
 
 def liquid_literal(tag: str) -> str:
     # A raw block ends at the first `endraw` and needs a close of its own, so these print their openings another way.
-    if "endraw" in tag or tag in ("{{", "{%"):
+    # The renderer also decodes entities and `%20` inside every tag, raw blocks included, so a tag holding either
+    # prints its openings that way too and keeps the rest as text.
+    if "endraw" in tag or tag in ("{{", "{%") or "&" in tag or "%20" in tag:
         return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', tag)
     return f"{{% raw %}}{tag}{{% endraw %}}"
 
@@ -70,6 +73,8 @@ class _Text:
 @frozen
 class _Liquid:
     liquid: str
+    # What Handlebars prints, which the HTML around the next value sees. `liquid` can spell it differently.
+    printed: str = ""
 
 
 @frozen
@@ -92,6 +97,9 @@ class _Block:
     inverse: tuple[object, ...] = ()
     # Written as `{{else if x}}`, so it sits in the block before it.
     chained: bool = False
+    source_else: str = ""
+    # False when the opening tag is outside the grammar, so only its name is known.
+    parsed: bool = True
 
 
 @frozen
@@ -124,7 +132,7 @@ def _tokenize(source: str, is_html: bool) -> list[_Tag]:
             end = source.find("}}", start)
             end = len(source) if end == -1 else end + 2
             tags.append(_Tag(kind="text", source=source[position : start - 1]))
-            tags.append(_Tag(kind="liquid", source=liquid_literal(source[start:end])))
+            tags.append(_Tag(kind="liquid", source=liquid_literal(source[start:end]), body=source[start:end]))
             position = end
             continue
         if start > position:
@@ -257,10 +265,8 @@ def _parse_until(tags: list[_Tag], position: int, depth: int) -> _ParsedNodes:
         if tag.kind == "text":
             nodes.append(_Text(text=tag.source))
         elif tag.kind == "liquid":
-            nodes.append(_Liquid(liquid=tag.source))
+            nodes.append(_Liquid(liquid=tag.source, printed=tag.body))
         elif tag.kind == "output":
-            # An output follows the same grammar as a block, so a name that can't be written into Liquid is refused.
-            _parse_expression(tag.body.removeprefix("&").strip())
             nodes.append(_Output(source=tag.source, body=tag.body, raw=tag.raw))
         elif tag.kind == "open":
             block, position = _parse_block(tags, position, tag, depth)
@@ -271,7 +277,12 @@ def _parse_until(tags: list[_Tag], position: int, depth: int) -> _ParsedNodes:
 def _parse_block(
     tags: list[_Tag], position: int, opening: _Tag, depth: int, close_name: str | None = None
 ) -> tuple[_Block, int]:
-    expression = _parse_expression(opening.body)
+    try:
+        expression = _parse_expression(opening.body)
+        in_grammar = True
+    except _Unconvertible:
+        expression = _Expression(name=(opening.body.split() or [""])[0], params=(), hash_args={}, block_params=())
+        in_grammar = False
     name, params, hash_args, block_params = (
         expression.name,
         expression.params,
@@ -283,21 +294,25 @@ def _parse_block(
     parsed = _parse_until(tags, position, depth + 1)
     body, position, stop = parsed.nodes, parsed.position, parsed.stop
     inverse: tuple[object, ...] = ()
+    else_source = ""
     if stop is not None and stop.kind == "else":
         position += 1
+        else_source = stop.source
         if stop.body:
             chained, position = _parse_block(
                 tags, position, _Tag(kind="open", source=stop.source, body=stop.body), depth + 1, closes_with
             )
             inverse = (replace(chained, chained=True),)
-            return _block(opening, name, params, hash_args, block_params, body, inverse, chained.source_close), position
+            block = _block(opening, name, params, hash_args, block_params, body, inverse, chained.source_close)
+            return replace(block, source_else=stop.source, parsed=in_grammar), position
         parsed = _parse_until(tags, position, depth + 1)
         inverse, position, stop = parsed.nodes, parsed.position, parsed.stop
         if stop is not None and stop.kind == "else":
             raise _Malformed("a block with two else tags")
     if stop is None or stop.kind != "close" or stop.body != closes_with:
         raise _Malformed(f"a block {name} without its closing tag")
-    return _block(opening, name, params, hash_args, block_params, body, inverse, stop.source), position + 1
+    block = _block(opening, name, params, hash_args, block_params, body, inverse, stop.source)
+    return replace(block, source_else=else_source, parsed=in_grammar), position + 1
 
 
 def _block(

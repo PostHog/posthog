@@ -26,6 +26,9 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
 )
 
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.scoping import team_scope
+
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 COVERAGE_START = NOW.replace(hour=0) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
@@ -735,12 +738,42 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
                 "SELECT person_id FROM flag_called_people",
                 f"WITH flag_called_people AS ({_PROMOTED_SOURCE}) ",
             ),
+            ("array_over_a_persons_column", " AS p", "p", "JSONExtract(properties, 'allowed_ids', 'Array(UUID)')", ""),
+            (
+                "beside_a_cte_that_joins_with_using",
+                " AS p",
+                "p",
+                _PROMOTED_SOURCE,
+                "WITH helper AS (SELECT a.n FROM (SELECT 1 AS n) AS a JOIN (SELECT 1 AS n) AS b USING (n)) ",
+            ),
         ]
     )
     def test_swaps_when_persons_holds_a_copy_of_its_join_filter(
         self, _name: str, alias: str, name: str, source: str, ctes: str
     ):
         query = ctes + _PROMOTED_OUTER.format(alias=alias, name=name, source=source)
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_persons_join_filter_reads(self):
+        flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="SELECT id FROM persons")
+        query = f"WITH flag_people AS ({flag_people}), persons AS (SELECT 1 AS unrelated) SELECT * FROM flag_people"
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_the_persons_join_filter_reads_a_project_defined_persons_field(self):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="raw_persons",
+                field_name="approved_ids",
+                expression="JSONExtract(properties, 'approved_ids', 'Array(UUID)')",
+            )
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="approved_ids")
 
         swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
 
@@ -781,12 +814,24 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "flag_evaluations" not in swap.source.to_hogql()
 
-    def test_refuses_when_the_join_filter_subquery_reads_a_name_from_the_enclosing_query(self):
-        correlated = f"{_PROMOTED_SOURCE} AND person_id = e.person_id"
-        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=correlated)
+    def test_refuses_when_the_persons_join_filter_reads_a_column_of_the_enclosing_query(self):
+        source = f"{_PROMOTED_SOURCE} AND person_id = e.person_id"
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
 
         with pytest.raises(QueryError, match="Unable to resolve field: e"):
             _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+    def test_swaps_when_the_persons_join_filter_reads_a_cte_of_an_outer_query(self):
+        source = f"SELECT person_id FROM flag_called_people WHERE {FLAG_CALLED}"
+        joined = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+        query = (
+            f"WITH flag_called_people AS (SELECT person_id, event FROM events WHERE {UNQUALIFIED}) "
+            f"SELECT * FROM ({joined}) AS q"
+        )
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
 
 
 @time_machine.travel(NOW, tick=False)

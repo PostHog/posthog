@@ -14,6 +14,7 @@ import { DashboardPlacement } from '~/types'
 import type { DashboardTile, InsightModel } from '~/types'
 
 import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
+import type { DashboardStreamResultTiming } from 'products/dashboards/frontend/streamDashboardQueryResults'
 
 import type { DashboardLogicProps, DashboardSettings } from './dashboardLogic'
 import {
@@ -168,7 +169,7 @@ export type TileRefreshReporter = (
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: undefined,
-    loadTiming: { queueWaitMs: number; requestMs: undefined; dashboardV2Ui: boolean },
+    loadTiming: { queueWaitMs: number; requestMs: number; dashboardV2Ui: boolean },
     filterChange: undefined,
     isAutomatic: boolean | undefined,
     eventProperties: Record<string, unknown>
@@ -219,7 +220,12 @@ async function loadThroughBoardStream<T extends InsightTile>(
     const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
     const settledTileIds = new Set<number>()
     const startedAt = performance.now()
-    const settleLoaded = (tile: T, insight: InsightModel, isCached: boolean): void => {
+    const settleLoaded = (
+        tile: T,
+        insight: InsightModel,
+        isCached: boolean,
+        timing: DashboardStreamResultTiming
+    ): void => {
         settledTileIds.add(tile.id)
         dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
         actions.setRefreshStatus(tile.insight.short_id)
@@ -231,12 +237,16 @@ async function loadThroughBoardStream<T extends InsightTile>(
             refresh.variables,
             Math.floor(performance.now() - startedAt),
             false,
+            // An open stream has no completed-response or resource timing for this tile.
             undefined,
-            // Stream tiles skip the per-tile load queue and have no request of their own.
-            { queueWaitMs: 0, requestMs: undefined, dashboardV2Ui: true },
+            { queueWaitMs: 0, requestMs: Math.floor(timing.requestToResultMs), dashboardV2Ui: true },
             undefined,
             refresh.isAutomatic,
-            { stream_fallback: false }
+            {
+                stream_fallback: false,
+                request_timing_scope: 'stream_start_to_result',
+                ...(timing.httpRequestId ? { http_request_id: timing.httpRequestId } : {}),
+            }
         )
         load.settle(tile, isCached ? 'cached' : 'refreshed')
     }
@@ -258,7 +268,7 @@ async function loadThroughBoardStream<T extends InsightTile>(
                 variables_override: JSON.stringify(refresh.variables),
             },
             signal,
-            (result) => {
+            (result, _debug, timing) => {
                 const tile = result.id !== undefined ? tilesById.get(result.id) : undefined
                 if (signal.aborted || !tile || settledTileIds.has(tile.id)) {
                     return
@@ -276,9 +286,9 @@ async function loadThroughBoardStream<T extends InsightTile>(
                     settleErrored(tile, queryError?.code ? queryError : undefined)
                     return
                 }
-                settleLoaded(tile, insight, !!insight.is_cached)
+                settleLoaded(tile, insight, !!insight.is_cached, timing)
             },
-            ({ tiles: cachedTiles, pending }) => {
+            ({ tiles: cachedTiles, pending }, timing) => {
                 if (signal.aborted) {
                     return
                 }
@@ -297,7 +307,7 @@ async function loadThroughBoardStream<T extends InsightTile>(
                             dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
                         }
                     } else if (insight) {
-                        settleLoaded(tile, insight, true)
+                        settleLoaded(tile, insight, true, timing)
                     } else {
                         settleErrored(tile)
                     }
