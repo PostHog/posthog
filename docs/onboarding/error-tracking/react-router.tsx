@@ -64,7 +64,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                 />
                 <Markdown>
                     {dedent`
-                        In data mode, pass the same handler to \`<RouterProvider router={router} onError={onError} />\`. \`onError\` needs React Router 7.11 or later; on older versions, capture in your root \`ErrorBoundary\` inside a \`useEffect\` with the same two checks. Do not capture in an \`ErrorBoundary\` as well as in \`onError\`: each error would arrive twice. A \`PostHogErrorBoundary\` around the router never sees these errors, because React Router's own boundaries catch them first.
+                        In data mode, pass the same handler to \`<RouterProvider router={router} onError={onError} />\`. \`onError\` needs React Router 7.11 or later. On 7.8.2 to 7.10, pass the same handler as \`unstable_onError\` and type it with \`unstable_ClientOnErrorFunction\`. On older versions, capture inside a \`useEffect\` in every \`ErrorBoundary\` your routes export, with the same two checks. Do not capture in an \`ErrorBoundary\` as well as in \`onError\`: each error would arrive twice. A \`PostHogErrorBoundary\` around the router never sees these errors, because React Router's own boundaries catch them first.
                     `}
                 </Markdown>
             </>
@@ -108,9 +108,21 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                     {dedent`
                         Set \`POSTHOG_PROJECT_TOKEN\` and \`POSTHOG_HOST\` where the server runs. \`react-router-serve\` does not read \`.env\` files, and Vite does not replace \`process.env\` in the server build.
 
-                        The snippets on this page need \`posthog-node\` 6 or later. If your app pins \`posthog-node\` 5, call \`posthog.captureException(error, distinctId, properties)\` with the two values instead: in version 5 the second argument is the distinct ID.
+                        The snippets on this page need \`posthog-node\` 6 or later. If your app pins \`posthog-node\` 5, pass the two values separately: in version 5 the second argument is the distinct ID.
                     `}
                 </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'posthog-node 5',
+                            code: dedent`
+                                const { distinctId, properties } = posthogRequestContext(request)
+                                posthog.captureException(error, distinctId, properties)
+                            `,
+                        },
+                    ]}
+                />
             </>
         ),
     }
@@ -228,7 +240,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
         content: (
             <Markdown>
                 {dedent`
-                    Throw an error from a loader and open that page in a production build (\`npm run build && npm start\`). One exception should arrive from \`posthog-node\` with the page's URL and your browser's session, and none from the browser for the same error.
+                    Throw an error from a loader, run \`npm run build\`, and start the production server with the server variables set. \`npm start\` runs \`react-router-serve\`, which does not read \`.env\`, so load it yourself, for example with \`node --env-file=.env ./node_modules/@react-router/serve/dist/cli.js ./build/server/index.js\`. Open the page: one exception should arrive from \`posthog-node\` with the page's URL and your browser's session, and none from the browser for the same error.
 
                     [Check for exceptions in PostHog](https://app.posthog.com/activity/events)
                 `}
