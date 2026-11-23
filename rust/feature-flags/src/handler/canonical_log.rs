@@ -7,7 +7,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
-use crate::team::request_blocklist::BlockReason;
+use crate::team::request_lists::BlockReason;
 use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;

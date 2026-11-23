@@ -8,6 +8,10 @@ use std::net::IpAddr;
 
 const X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
 
+/// Our edge proxy writes the client address it computes from its trusted hops into this header.
+/// It replaces any value that the caller sends, but only where our edge is in front of the service.
+const EDGE_CLIENT_IP: HeaderName = HeaderName::from_static("x-posthog-edge-client-ip");
+
 /// The chains that reach the flags service have a few entries, and a caller can send any number.
 pub const MAX_FORWARDED_ADDRESSES: usize = 20;
 
@@ -39,6 +43,10 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
     };
 
     ip_without_port.parse().ok()
+}
+
+pub fn edge_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    parse_entry(headers.get(EDGE_CLIENT_IP)?.to_str().ok()?)
 }
 
 /// Right to left, so that padding on the left cannot push the entries our edge appended

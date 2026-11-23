@@ -26,7 +26,7 @@ use crate::{
         FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_BLOCKED_COUNTER,
         FLAG_REQUEST_FAULTS_COUNTER,
     },
-    team::team_models::Team,
+    team::{request_lists::CallerHost, team_models::Team},
     utils::forwarded_for,
 };
 use std::collections::HashMap;
@@ -211,9 +211,15 @@ async fn process_request_inner(
         let block_reason = if is_internal {
             None
         } else {
+            let edge_ip = if *context.state.config.trust_edge_client_ip_header {
+                forwarded_for::edge_client_ip(&context.headers)
+            } else {
+                None
+            };
             team.request_block_reason(
-                context.origin_host.as_deref(),
+                CallerHost::new(context.origin_host.as_deref(), &context.headers),
                 forwarded_for::addresses(&context.headers).chain(std::iter::once(context.ip)),
+                edge_ip,
             )
         };
         if let Some(reason) = block_reason {
