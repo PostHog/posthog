@@ -176,12 +176,15 @@ function decodeEncodedWord(word: string): string {
 
 describe('sendDeadlineMsFor', () => {
     it.each([
-        ['empty files', 0, 17_000],
-        ['files half the size limit', LARGEST_SEND_FILE_BYTES / 2, 31_000],
-        ['files at the size limit', LARGEST_SEND_FILE_BYTES, 45_000],
-        ['files past the size limit', LARGEST_SEND_FILE_BYTES * 2, 45_000],
-    ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs) => {
-        expect(sendDeadlineMsFor(fileBytes)).toBe(deadlineMs)
+        ['empty files', 0, 17_000, undefined],
+        ['files half the size limit', LARGEST_SEND_FILE_BYTES / 2, 31_000, undefined],
+        ['files at the size limit', LARGEST_SEND_FILE_BYTES, 45_000, undefined],
+        ['files past the size limit', LARGEST_SEND_FILE_BYTES * 2, 45_000, undefined],
+        ['empty files, under a small-send deadline of 20 s', 0, 20_000, 20_000],
+        ['files at the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES, 45_000, 20_000],
+        ['empty files, under a small-send deadline past the largest', 0, 45_000, 50_000],
+    ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs, smallestMs) => {
+        expect(sendDeadlineMsFor(fileBytes, smallestMs)).toBe(deadlineMs)
     })
 })
 
