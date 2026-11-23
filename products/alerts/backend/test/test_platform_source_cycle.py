@@ -5,7 +5,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -114,6 +114,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.source_configs import AlertNamePatterns, SignalSourceConfigSnapshot
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
@@ -134,6 +135,17 @@ def _check_event(*, previous_state: str, state: str) -> PlatformCheckEvent:
         query_duration_ms=None,
         error_message=None,
     )
+
+
+def _alerts_feature(limit: int | None) -> dict[str, Any]:
+    return {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": limit}
+
+
+_PAID_INTERVALS: Final = [
+    {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+    {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+]
+_CAPPED_AT_FIVE: Final = [*_PAID_INTERVALS, _alerts_feature(5)]
 
 
 _AGENT_ON: Final = {
@@ -990,6 +1002,62 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert outcome is not None and outcome.failure is not None
         assert (outcome.failure.kind, outcome.disable, query.called) == (AlertEventKind.ERRORED, True, False)
+
+    @parameterized.expand(
+        [
+            ("behind_newer_insight_alerts", "row", _CAPPED_AT_FIVE, False),
+            ("behind_newer_alerts_with_no_insight_row", "native", _CAPPED_AT_FIVE, False),
+            ("behind_newer_alerts_the_platform_disabled", "disabled_on_the_platform", _CAPPED_AT_FIVE, True),
+            ("behind_newer_alerts_on_a_cadence_the_plan_lost", "every_15_minutes", [_alerts_feature(5)], True),
+            ("behind_newer_alerts_on_deleted_insights", "deleted_insight", _CAPPED_AT_FIVE, True),
+            ("behind_newer_copies_whose_alert_is_gone", "orphaned_copy", _CAPPED_AT_FIVE, True),
+            ("on_a_plan_without_a_numeric_limit", "row", [*_PAID_INTERVALS, _alerts_feature(None)], True),
+            ("on_a_plan_without_an_alerts_feature", "row", _PAID_INTERVALS, True),
+        ]
+    )
+    def test_an_alert_past_the_plan_limit_is_skipped_without_a_query_and_stays_enabled(
+        self, _name: str, newer: str, features: list[dict[str, Any]], queried: bool
+    ) -> None:
+        self.organization.available_product_features = features
+        self.organization.save()
+        oldest = self._alert()
+        AlertConfiguration.objects.filter(pk=oldest.pk).update(created_at=CUTOFF - timedelta(days=30))
+        configuration = self._copy(oldest)
+        later = CUTOFF + timedelta(days=1)
+        for _ in range(5):
+            if newer == "row":
+                self._alert()
+            elif newer == "every_15_minutes":
+                self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
+            elif newer == "native":
+                row = self._alert()
+                self._copy(
+                    None,
+                    legacy_configuration_id=None,
+                    next_check_at=later,
+                    source_config={"insight_id": row.insight_id},
+                )
+                row.delete()
+            elif newer == "deleted_insight":
+                # A bulk update, as the migration that deleted revenue insights left them.
+                Insight.objects.filter(pk=self._alert().insight_id).update(deleted=True)
+            elif newer == "orphaned_copy":
+                self._copy(
+                    None, legacy_configuration_id=uuid4(), owner=PlatformAlertOwner.PLATFORM, next_check_at=later
+                )
+            else:
+                owned = self._alert(owner=PlatformAlertOwner.PLATFORM.value)
+                self._copy(owned, owner=PlatformAlertOwner.PLATFORM, enabled=False, next_check_at=later)
+
+        outcome, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+
+        assert outcome is not None
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable, query.called) == (
+            AlertEventKind.CHECK,
+            "not_firing",
+            False,
+            queried,
+        )
 
     @parameterized.expand(
         [

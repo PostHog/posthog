@@ -6,6 +6,7 @@ import contextlib
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -40,7 +41,8 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -103,10 +105,16 @@ from products.alerts.backend.facade.api import (
 )
 from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
+from products.alerts_platform.backend.facade import (
+    api as platform_api,
+    testing as platform_testing,
+)
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
+
+from ee.models.license import License
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -204,6 +212,24 @@ async def _create_alert(
         return alert
 
     return await _create()
+
+
+def _alerts_feature(limit: int | None) -> dict:
+    return {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": limit}
+
+
+@sync_to_async
+def _set_features(organization: Organization, features: list[dict]) -> None:
+    organization.available_product_features = features
+    organization.save()
+
+
+@sync_to_async
+def _set_creation_order(alerts: list[AlertConfiguration]) -> None:
+    for minutes, alert in enumerate(alerts):
+        AlertConfiguration.objects.filter(pk=alert.pk).update(
+            created_at=datetime(2024, 6, 1, tzinfo=UTC) + timedelta(minutes=minutes)
+        )
 
 
 @pytest_asyncio.fixture
@@ -560,6 +586,168 @@ class TestPrepareAlert:
         entitled = await _create_alert(ateam, calculation_interval=calculation_interval)
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
         assert result.action == PrepareAction.EVALUATE
+
+    async def test_alerts_past_the_plan_limit_are_skipped_until_the_plan_has_room(self, ateam, aorganization) -> None:
+        limit = 5
+        await _set_features(aorganization, [_alerts_feature(limit)])
+        with time_machine.travel("2024-06-03T10:00:00Z", tick=False):
+            alerts = [await _create_alert(ateam) for _ in range(limit + 2)]
+            newest_disabled = await _create_alert(ateam, enabled=False)
+            await _set_creation_order([*alerts, newest_disabled])
+            env = ActivityEnvironment()
+            results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in alerts]
+
+        assert [(result.action, result.reason) for result in results] == [
+            (PrepareAction.SKIP, SkipReason.OVER_PLAN_LIMIT),
+            (PrepareAction.SKIP, SkipReason.OVER_PLAN_LIMIT),
+            *[(PrepareAction.EVALUATE, None)] * limit,
+        ]
+        oldest = await sync_to_async(AlertConfiguration.objects.get)(pk=alerts[0].pk)
+        assert (oldest.enabled, oldest.state) == (True, AlertState.NOT_FIRING)
+        assert oldest.next_check_at is not None and oldest.next_check_at > datetime(2024, 6, 3, 10, tzinfo=UTC)
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration_id=oldest.id).exists)()
+
+        await _set_features(aorganization, [_alerts_feature(None)])
+        with time_machine.travel(oldest.next_check_at + timedelta(minutes=1), tick=False):
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(oldest.id)))
+        assert result.action == PrepareAction.EVALUATE
+
+    @pytest.mark.parametrize(
+        "features",
+        [
+            pytest.param(
+                [{"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}], id="no_alerts_feature"
+            ),
+            pytest.param([{"key": key, "name": key} for key in License.ENTERPRISE_FEATURES], id="self_hosted_license"),
+            pytest.param([{"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": None}], id="no_numeric_limit"),
+        ],
+    )
+    async def test_a_plan_without_a_numeric_alert_limit_runs_every_alert(
+        self, ateam, aorganization, features: list[dict]
+    ) -> None:
+        await _set_features(aorganization, features)
+        alerts = [await _create_alert(ateam) for _ in range(7)]
+        await _set_creation_order(alerts)
+
+        env = ActivityEnvironment()
+        results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in alerts]
+
+        assert {result.action for result in results} == {PrepareAction.EVALUATE}
+
+    async def test_alerts_on_deleted_insights_take_no_slot(self, ateam, aorganization) -> None:
+        await _set_features(aorganization, [_alerts_feature(5)])
+        healthy = [await _create_alert(ateam) for _ in range(2)]
+        on_deleted_insights = [await _create_alert(ateam, insight_deleted=True) for _ in range(5)]
+        await _set_creation_order([*healthy, *on_deleted_insights])
+
+        env = ActivityEnvironment()
+        results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in healthy]
+
+        assert {result.action for result in results} == {PrepareAction.EVALUATE}
+
+    @pytest.mark.parametrize(
+        "handed,after_the_platform_read,checked",
+        [
+            pytest.param(handed, after, checked, id=f"{handed.value}-{'after' if after else 'before'}-{checked}")
+            for handed in (PlatformAlertOwner.PLATFORM, PlatformAlertOwner.SOURCE)
+            for after in (False, True)
+            for checked in ("moved", "older")
+        ],
+    )
+    async def test_an_ownership_change_between_the_ranking_reads_skips_no_alert_within_the_limit(
+        self, ateam, aorganization, handed: PlatformAlertOwner, after_the_platform_read: bool, checked: str
+    ) -> None:
+        # Two alerts under a limit of two: a read that misses the moved alert skips it, and a read that
+        # counts it twice skips the older one.
+        await _set_features(aorganization, [_alerts_feature(2)])
+        moved = await _create_alert(ateam)
+        older = await _create_alert(ateam)
+        await _set_creation_order([older, moved])
+        previous_owner = (
+            PlatformAlertOwner.PLATFORM if handed == PlatformAlertOwner.SOURCE else PlatformAlertOwner.SOURCE
+        )
+
+        @sync_to_async
+        def _copy_with_owner() -> UUID:
+            AlertConfiguration.objects.filter(pk=moved.pk).update(owner=previous_owner.value)
+            with team_scope(ateam.id):
+                return platform_testing.create_configuration(
+                    team_id=ateam.id,
+                    name="alert",
+                    source_kind="insight",
+                    source_config={"insight_id": moved.insight_id},
+                    check_interval_minutes=60 * 24,
+                    legacy_configuration_id=moved.id,
+                    owner=previous_owner.value,
+                ).id
+
+        copy_id = await _copy_with_owner()
+        read_held = platform_api.newest_enabled_held_configurations
+        handed_over = False
+
+        def _hand_over() -> None:
+            nonlocal handed_over
+            if handed_over:
+                return
+            handed_over = True
+            AlertConfiguration.objects.filter(pk=moved.pk).update(owner=handed.value)
+            with team_scope(ateam.id):
+                platform_testing.set_owner(copy_id, handed)
+
+        def _read_with_a_handover_beside_it(**kwargs):
+            if not after_the_platform_read:
+                _hand_over()
+            held = read_held(**kwargs)
+            if after_the_platform_read:
+                _hand_over()
+            return held
+
+        alert = moved if checked == "moved" else older
+        with patch.object(platform_api, "newest_enabled_held_configurations", _read_with_a_handover_beside_it):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.action == PrepareAction.EVALUATE
+
+    async def test_alerts_on_a_cadence_the_plan_lost_take_no_slot(self, ateam, aorganization) -> None:
+        await _set_features(aorganization, [_alerts_feature(5)])
+        daily = [await _create_alert(ateam) for _ in range(3)]
+        every_15_minutes = [
+            await _create_alert(ateam, calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
+            for _ in range(5)
+        ]
+        await _set_creation_order([*daily, *every_15_minutes])
+
+        env = ActivityEnvironment()
+        results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in daily]
+
+        assert {result.action for result in results} == {PrepareAction.EVALUATE}
+
+    async def test_an_edit_during_an_over_limit_skip_keeps_its_schedule(self, ateam, aorganization) -> None:
+        await _set_features(aorganization, [_alerts_feature(1)])
+        oldest = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.MONTHLY.value)
+        newest = await _create_alert(ateam)
+        await _set_creation_order([oldest, newest])
+        edited_check_at = datetime(2024, 6, 3, 10, 0, tzinfo=UTC)
+
+        def _edited_to_hourly_while_ranking(alert: AlertConfiguration, organization: Organization) -> bool:
+            # The API's update lands between the activity's read and its skip.
+            AlertConfiguration.objects.filter(pk=oldest.pk).update(
+                calculation_interval=AlertCalculationInterval.HOURLY.value, next_check_at=edited_check_at
+            )
+            return True
+
+        with (
+            time_machine.travel("2024-06-03T10:00:00Z", tick=False),
+            patch.object(AlertConfiguration, "is_over_plan_limit", _edited_to_hourly_while_ranking),
+        ):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(oldest.id)))
+
+        assert result.reason == SkipReason.OVER_PLAN_LIMIT
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=oldest.pk)
+        assert (refreshed.calculation_interval, refreshed.next_check_at) == (
+            AlertCalculationInterval.HOURLY.value,
+            edited_check_at,
+        )
 
 
 @pytest.mark.asyncio

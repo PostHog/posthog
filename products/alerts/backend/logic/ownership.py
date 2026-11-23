@@ -270,7 +270,7 @@ def take_alert_ownership(
             enabled=True,
             existing=previous,
         ):
-            raise AlertWriteRefused({"calculation_interval": [limit_error]})
+            raise AlertWriteRefused({limit_error.field: [limit_error.message]})
         if not updated.has_no_insight_row:
             updated.report_updated(actor, analytics_props=analytics_props)
         _record_transfer(updated, actor, owner, previous_owner, was_impersonated)

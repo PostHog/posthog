@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     EnabledNativeConfiguration,
     Grouping,
+    HeldAlertCandidate,
     HeldAlertSearchMatch,
     InstanceCheckState,
     NativeConfigurationMatch,
@@ -513,6 +514,39 @@ def count_configurations(
     if check_interval_minutes is not None:
         configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
     return configurations.count()
+
+
+def newest_enabled_held_configurations(
+    *,
+    team_id: int,
+    source_kind: str,
+    excluded_check_interval_minutes: Collection[int],
+    exclude_public_id: UUID | None,
+    limit: int,
+    offset: int,
+) -> list[HeldAlertCandidate]:
+    """A team's enabled alerts of a kind whose settings the platform holds, newest first, one page of
+    `limit` from `offset`. A copy's public id is its source row's id."""
+    configurations = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(_HELD, source_kind=source_kind, enabled=True)
+        .exclude(check_interval_minutes__in=excluded_check_interval_minutes)
+        .annotate(public_id=Coalesce("legacy_configuration_id", "id"))
+    )
+    if exclude_public_id is not None:
+        configurations = configurations.exclude(public_id=exclude_public_id)
+    rows = configurations.order_by("-created_at", "-public_id").values_list(
+        "created_at", "public_id", "legacy_configuration_id", "source_config"
+    )[offset : offset + limit]
+    return [
+        HeldAlertCandidate(
+            created_at=created_at,
+            public_id=public_id,
+            has_source_row=legacy_configuration_id is not None,
+            source_config=source_config,
+        )
+        for created_at, public_id, legacy_configuration_id, source_config in rows
+    ]
 
 
 def get_configuration(
