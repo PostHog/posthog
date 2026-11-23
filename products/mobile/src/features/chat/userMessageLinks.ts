@@ -7,6 +7,11 @@ interface UserMessageLink {
 const WEB_LINK = /<(https?:\/\/[^\s<>"|\\]+)(?:\|([^<>\r\n]*))?>|\b(https?:\/\/[^\s<>"|\\`]+)/gi
 const TRAILING_PUNCTUATION = /[.,!?;:'’”…]/
 
+function decodeSlackEntities(text: string): string {
+    // Decode ampersands last so a literal &amp;lt; becomes &lt; exactly once.
+    return text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+}
+
 function trimBareUrl(url: string): string {
     let parentheses = 0
     let brackets = 0
@@ -33,7 +38,7 @@ export function splitUserMessageLinks(text: string): (string | UserMessageLink)[
     let end = 0
     for (const match of text.matchAll(WEB_LINK)) {
         const [matched, wrappedUrl, label, bareUrl = ''] = match
-        const url = wrappedUrl ?? trimBareUrl(bareUrl)
+        const url = wrappedUrl ? decodeSlackEntities(wrappedUrl) : trimBareUrl(bareUrl)
         try {
             if (!new URL(url).hostname) continue
         } catch {
@@ -42,7 +47,7 @@ export function splitUserMessageLinks(text: string): (string | UserMessageLink)[
 
         const offset = match.index
         if (offset > end) parts.push(text.slice(end, offset))
-        parts.push({ offset, label: label?.trim() || url, url })
+        parts.push({ offset, label: label?.trim() ? decodeSlackEntities(label.trim()) : url, url })
         end = offset + (wrappedUrl ? matched.length : url.length)
     }
     if (end < text.length) parts.push(text.slice(end))

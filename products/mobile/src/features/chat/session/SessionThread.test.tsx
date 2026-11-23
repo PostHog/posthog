@@ -185,16 +185,16 @@ describe('SessionThread', () => {
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
         open.mockClear()
         const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
-        const review = 'https://example.com/pull/123?tab=files#diff'
-        const guide = 'https://example.com/wiki/Example_(page)'
+        const review = 'https://example.com/pull/123?tab=files&view=split#diff'
+        const guide = 'https://example.com/wiki/Example_(page)?title=A&amp;B'
         const status = 'http://example.com/status'
-        const text = `Check <${review}|the review>, then (${guide}).\nStatus: <${status}>. Ignore <file:///tmp/test|test>.`
+        const text = `Check <${review.replace('&', '&amp;')}|Files &amp; comments &lt;review&gt; &amp;lt;>, then (${guide}).\nStatus: <${status}>. Ignore <file:///tmp/test|test>.`
         const items: SessionThreadItem[] = [{ kind: 'user', id: 'message', text }]
         render(<SessionThread session={session({ items })} onRetryHistory={jest.fn()} />)
 
         expect(screen.getAllByRole('link')).toHaveLength(3)
         await act(async () => {
-            fireEvent.press(screen.getByText('the review'))
+            fireEvent.press(screen.getByText('Files & comments <review> &lt;'))
             fireEvent.press(screen.getByText(guide))
             fireEvent.press(screen.getByText(status))
             fireEvent.press(screen.getByLabelText('Copy message text'))
