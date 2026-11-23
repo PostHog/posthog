@@ -17,6 +17,8 @@ from products.warehouse_sources.sources.vimeo.source import VimeoSource
         (403, "folders", "/me/projects", (False, PERMISSION_ERROR)),
         (200, "showcase_videos", "/me/albums", (True, None)),
         (403, "video_comment_replies", "/me/videos", (False, PERMISSION_ERROR)),
+        (403, "video_tags", "/me/videos", (False, PERMISSION_ERROR)),
+        (200, "followers", "/me/followers", (True, None)),
     ],
 )
 def test_credentials_probe(status: int, schema: str | None, path: str, expected: tuple[bool, str | None]) -> None:

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 DIALPAD_BASE_URL = "https://dialpad.com"
 
@@ -31,6 +31,14 @@ class DialpadEndpointConfig:
     access_requirement: Optional[str] = None
     # False when the endpoint returns the whole collection in one response, with no `cursor`.
     paginated: bool = True
+    # Set for an endpoint that runs once per row of a parent endpoint.
+    fanout: Optional[DependentEndpointConfig] = None
+    # The path that `validate_credentials` and `get_endpoint_permissions` read, when `path` needs a parent id.
+    probe_path: Optional[str] = None
+
+    @property
+    def readable_path(self) -> str:
+        return self.probe_path or self.path
 
 
 DIALPAD_ENDPOINTS: dict[str, DialpadEndpointConfig] = {
@@ -80,6 +88,67 @@ DIALPAD_ENDPOINTS: dict[str, DialpadEndpointConfig] = {
         partition_key="date_added",
     ),
 }
+
+# Scorecards belong to one target. The list takes the target type and id, so the source lists the
+# targets of each type first. Each state is asked for by name, so no state depends on the API default.
+SCORECARDS_PATH = "/api/v2/scorecards"
+SCORECARD_TARGETS: tuple[tuple[str, str], ...] = (
+    ("office", "offices"),
+    ("callcenter", "call_centers"),
+    ("coachingteam", "coaching_teams"),
+)
+SCORECARD_STATES = ("active", "archived", "draft")
+
+
+def _fanout(parent_name: str, parent_id_column: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name=parent_name,
+        resolve_param="id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": parent_id_column},
+        parent_params=dict(DIALPAD_ENDPOINTS[parent_name].params),
+        # A parent deleted between the parent list and the child request has no children left.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
+
+
+DIALPAD_ENDPOINTS.update(
+    {
+        # Operators are users and rooms, so each row carries `operator_type`. A user row has its own
+        # `office_id`, so the office that the row is an operator of is `parent_office_id`.
+        "call_center_operators": DialpadEndpointConfig(
+            name="call_center_operators",
+            path="/api/v2/callcenters/{id}/operators",
+            primary_keys=["call_center_id", "operator_type", "id"],
+            paginated=False,
+            fanout=_fanout("call_centers", "call_center_id"),
+            probe_path="/api/v2/callcenters",
+        ),
+        "channel_members": DialpadEndpointConfig(
+            name="channel_members",
+            path="/api/v2/channels/{id}/members",
+            primary_keys=["channel_id", "id"],
+            fanout=_fanout("channels", "channel_id"),
+            probe_path="/api/v2/channels",
+        ),
+        "office_operators": DialpadEndpointConfig(
+            name="office_operators",
+            path="/api/v2/offices/{id}/operators",
+            primary_keys=["parent_office_id", "operator_type", "id"],
+            paginated=False,
+            fanout=_fanout("offices", "parent_office_id"),
+            probe_path="/api/v2/offices",
+        ),
+        "scorecards": DialpadEndpointConfig(
+            name="scorecards",
+            path=SCORECARDS_PATH,
+            primary_keys=["target_type", "target_id", "id"],
+            partition_key="date_created",
+            probe_path="/api/v2/offices",
+        ),
+    }
+)
 
 ENDPOINTS = tuple(DIALPAD_ENDPOINTS)
 

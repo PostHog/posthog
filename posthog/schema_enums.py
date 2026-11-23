@@ -2231,6 +2231,12 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationDetectedChange(StrEnum):
+    NEGATIVE_KEYWORD = "negative_keyword"
+    BRAND_NEGATIVE = "brand_negative"
+    KEYWORD_ADDED = "keyword_added"
+
+
 class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
     GOOGLE_ADS = "google_ads"
 
@@ -2389,6 +2395,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -2445,6 +2453,12 @@ class MetricsQueryLanguage(StrEnum):
     BUILDER = "builder"
     PROMQL = "promql"
     SQL = "sql"
+
+
+class MetricsQueryProvenanceMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"
 
 
 class MetricsRangeFunction(StrEnum):
@@ -2800,6 +2814,9 @@ class ProductIntentContext(StrEnum):
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = "workflow_email_impact_turn_on_replay"
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = "workflow_survey_trigger_create_survey"
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = "workflow_warehouse_table_trigger_set_up_source"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
     BATCH_EXPORT_UPDATED = "batch_export_updated"
@@ -3072,6 +3089,12 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class YAxisPosition2(StrEnum):
+    AUTO = "auto"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class ResultCustomizationBy(StrEnum):

@@ -6,8 +6,6 @@ The model, stack trace limit and cap are placeholders until the offline quality 
 from posthog.token_bucket import Budget
 
 ISSUE_SUMMARY_FLAG = "error-tracking-issue-summaries"
-# The issue-created workflow generates the first summary only when this flag and the read flag are both on.
-ISSUE_SUMMARY_ON_WRITE_FLAG = "error-tracking-issue-summaries-on-write"
 
 ISSUE_SUMMARY_MODEL = "posthog/zai-org/glm-5.2"
 ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS = 2000

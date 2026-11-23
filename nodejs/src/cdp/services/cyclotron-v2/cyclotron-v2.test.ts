@@ -1874,6 +1874,26 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
+                const first = uuidv7()
+                const second = uuidv7()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'b')])
+
+                expect(
+                    await manager.findIdempotencyKeys([
+                        second.toUpperCase(),
+                        uuidv7(),
+                        first.replace(/-/g, ''),
+                        `{${second}}`,
+                    ])
+                ).toEqual([
+                    { fingerprint: 'b', reply: null },
+                    null,
+                    { fingerprint: 'a', reply: null },
+                    { fingerprint: 'b', reply: null },
+                ])
+            })
+
             it('reports the stored fingerprint of a key that answers replayed or mismatch', async () => {
                 const id = uuidv7()
                 await manager.claimJobs([keyed(id, 'a')])
@@ -4879,8 +4899,11 @@ describe('Cyclotron V2', () => {
             }
             const expired = uuidv7()
             const live = uuidv7()
-            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            // Kept past its expiry while the matcher may still hold an event that arrived before it.
+            const justExpired = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 600_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            await insertWatcher(justExpired, new Date(Date.now() - 60_000))
             const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
@@ -4907,9 +4930,9 @@ describe('Cyclotron V2', () => {
             writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
-                [expired, live],
+                [expired, live, justExpired],
             ])
-            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            expect(remaining.rows.map((r) => r.id).sort()).toEqual([live, justExpired].sort())
             const remainingKeys = await assertPool.query(
                 `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
                 [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]

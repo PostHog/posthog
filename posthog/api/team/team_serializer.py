@@ -37,6 +37,7 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.utils import UUIDT
+from posthog.permissions import request_subject
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -47,12 +48,17 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
 from products.dashboards.backend.models import Dashboard
+from products.error_tracking.backend.facade.contracts import ErrorTrackingAIFeature
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import (
-    flag_calls_only_in_flag_evaluations,
-    get_flag_evaluations_read_mode,
+    FlagEvaluationsConfig,
+    events_lack_new_flag_calls,
+    get_flag_evaluations_read_config,
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
@@ -70,13 +76,11 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
-# Credentials a project response carries that outlive a workload token: the project secret token and its backup,
-# the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
-# so without this a workload could read one and keep access after its token expires. The public project token
-# (`api_token`) stays.
+# Credentials a project response carries that outlive a workload token: the heatmaps
+# screenshot secret and the 7-day live events token. A workload token acts as the
+# organization owner, so without this a workload could read one and keep access after
+# its token expires. The public project token (`api_token`) stays.
 TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
-    "secret_api_token",
-    "secret_api_token_backup",
     "heatmaps_screenshot_secret",
     "live_events_token",
 )
@@ -90,12 +94,12 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
-def flag_evaluations_read_mode_for(context: dict[str, Any], organization_id: UUID) -> int:
-    # Two fields read the mode. A list serializes every object with one context, so one lookup serves the list.
-    modes: dict[UUID, int] = context.setdefault("flag_evaluations_read_modes", {})
-    if organization_id not in modes:
-        modes[organization_id] = get_flag_evaluations_read_mode(organization_id)
-    return modes[organization_id]
+def flag_evaluations_read_config_for(context: dict[str, Any], organization_id: UUID) -> FlagEvaluationsConfig:
+    # Two fields read the config. A list serializes every object with one context, so one lookup serves the list.
+    configs: dict[UUID, FlagEvaluationsConfig] = context.setdefault("flag_evaluations_read_configs", {})
+    if organization_id not in configs:
+        configs[organization_id] = get_flag_evaluations_read_config(organization_id)
+    return configs[organization_id]
 
 
 class RealtimeCohortsAccess(models.TextChoices):
@@ -130,6 +134,19 @@ def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[st
     }
 
 
+def available_error_tracking_ai_features(team: Team) -> list[str]:
+    from products.error_tracking.backend.facade import api as error_tracking_api
+
+    return [feature.value for feature in error_tracking_api.available_ai_features(team.id)]
+
+
+AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA = serializers.ListField(
+    child=serializers.ChoiceField(choices=ErrorTrackingAIFeature.choices),
+    help_text="Error tracking AI features available to this project. Its error tracking settings show a switch for "
+    "each one. Empty when the project has none.",
+)
+
+
 REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
     help_text="Realtime cohorts as the request's user sees them in this project."
 )
@@ -158,6 +175,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
     )
     realtime_cohorts = serializers.SerializerMethodField()
+    available_error_tracking_ai_features = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -204,8 +222,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -225,6 +241,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -235,8 +252,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -252,6 +267,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -268,7 +284,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens(representation)
 
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
@@ -326,16 +341,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
-        return flag_calls_only_in_flag_evaluations(
-            obj, flag_evaluations_read_mode_for(self.context, obj.organization_id)
-        )
+        return events_lack_new_flag_calls(obj, flag_evaluations_read_config_for(self.context, obj.organization_id))
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj)
+
+    @extend_schema_field(AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA)
+    def get_available_error_tracking_ai_features(self, obj: Team) -> list[str]:
+        return available_error_tracking_ai_features(obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
@@ -491,17 +508,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not request:
             return value
 
-        user = request.user
-
         if self.instance:
-            try:
-                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
-                if membership.level < OrganizationMembership.Level.ADMIN:
-                    raise exceptions.PermissionDenied(
-                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
-                    )
-            except OrganizationMembership.DoesNotExist:
+            organization = self.instance.organization
+            resource, subject = Resource.organization(organization.id), request_subject(request)
+            if not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
                 raise exceptions.PermissionDenied("You must be a member of this organization.")
+            if not authorization.check(resource=resource, action=Action.EDIT, subject=subject):
+                raise exceptions.PermissionDenied(
+                    "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                )
 
         return value
 

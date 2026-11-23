@@ -1122,7 +1122,11 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             ("sdk_vendor_header", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             ("legacy_vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             # An unrecognized client is still named — its own self-report beats "Other".
-            ("unrecognized_named_verbatim", {"$mcp_client_name": "openclaw-bundle-mcp"}, "openclaw-bundle-mcp"),
+            (
+                "unrecognized_named_verbatim",
+                {"$mcp_client_name": "example-unrecognized-mcp"},
+                "example-unrecognized-mcp",
+            ),
             # ...and keeps its own capitalization: matching lower-cases the token, but the
             # name shown back is the one the client reported.
             ("unrecognized_keeps_casing", {"$mcp_client_name": "NexusAgent"}, "NexusAgent"),

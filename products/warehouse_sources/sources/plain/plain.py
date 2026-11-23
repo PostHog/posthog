@@ -38,6 +38,16 @@ _NESTED_VALUE_FIELDS: list[tuple[str, str, str]] = [
     ("channelDetails", "channelType", "channelType"),
     ("template", "type", "templateType"),
     ("template", "questionText", "templateQuestionText"),
+    ("account", "id", "accountId"),
+    ("assignedTo", "id", "assignedToId"),
+    ("assignedTo", "assigneeType", "assignedToType"),
+    ("task", "id", "taskId"),
+]
+
+# (list of objects, key inside each, flat list column)
+_ID_LIST_FIELDS: list[tuple[str, str, str]] = [
+    ("labelTypes", "id", "labelTypeIds"),
+    ("dependsOnLabels", "labelTypeId", "dependsOnLabelTypeIds"),
 ]
 
 
@@ -149,6 +159,11 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
             flattened[dst_field] = nested.get(key) if isinstance(nested, dict) else None
     for src_field in nested_sources:
         del flattened[src_field]
+
+    for src_field, key, dst_field in _ID_LIST_FIELDS:
+        if src_field in flattened:
+            items = flattened.pop(src_field) or []
+            flattened[dst_field] = [item.get(key) for item in items if isinstance(item, dict)]
 
     for src_field, dst_field in _MESSAGE_INFO_FIELDS:
         if src_field in flattened:

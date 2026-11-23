@@ -13,6 +13,7 @@ import type {
     AlertCreateDestinationApi,
     AlertCreatePagerDutyDestinationApi,
     AlertCreateUrlDestinationApi,
+    AlertCreatedDestinationResponseApi,
     AlertCustomizeDestinationApi,
     AlertDeleteDestinationApi,
     AlertDestinationListItemApi,
@@ -23,6 +24,7 @@ import type {
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
+    AlertTransferOwnershipApi,
     AlertsListParams,
     AlertsPagerdutyAvailabilityRetrieveParams,
     AlertsRetrieveParams,
@@ -192,15 +194,15 @@ export const getAlertsDestinationsCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned `id` identifies the destination.
  */
 export const alertsDestinationsCreate = async (
     projectId: string,
     id: string,
     alertCreateDestinationApi: AlertCreateDestinationApi,
     options?: RequestInit
-): Promise<AlertDestinationResponseApi> => {
-    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<AlertCreatedDestinationResponseApi> => {
+    return apiMutator<AlertCreatedDestinationResponseApi>(getAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -255,15 +257,15 @@ export const getAlertsDestinationsPagerdutyCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination.
+ * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned `id` identifies the destination.
  */
 export const alertsDestinationsPagerdutyCreate = async (
     projectId: string,
     id: string,
     alertCreatePagerDutyDestinationApi: AlertCreatePagerDutyDestinationApi,
     options?: RequestInit
-): Promise<AlertDestinationResponseApi> => {
-    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsPagerdutyCreateUrl(projectId, id), {
+): Promise<AlertCreatedDestinationResponseApi> => {
+    return apiMutator<AlertCreatedDestinationResponseApi>(getAlertsDestinationsPagerdutyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -297,15 +299,15 @@ export const getAlertsDestinationsWebhookCreateUrl = (projectId: string, id: str
 }
 
 /**
- * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned IDs identify the destination.
+ * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned `id` identifies the destination.
  */
 export const alertsDestinationsWebhookCreate = async (
     projectId: string,
     id: string,
     alertCreateUrlDestinationApi: AlertCreateUrlDestinationApi,
     options?: RequestInit
-): Promise<AlertDestinationResponseApi> => {
-    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsWebhookCreateUrl(projectId, id), {
+): Promise<AlertCreatedDestinationResponseApi> => {
+    return apiMutator<AlertCreatedDestinationResponseApi>(getAlertsDestinationsWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -318,16 +320,19 @@ export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Make the requesting user the owner of this alert and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
  */
 export const alertsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
+    alertTransferOwnershipApi?: AlertTransferOwnershipApi,
     options?: RequestInit
 ): Promise<AlertApi> => {
     return apiMutator<AlertApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertTransferOwnershipApi),
     })
 }
 

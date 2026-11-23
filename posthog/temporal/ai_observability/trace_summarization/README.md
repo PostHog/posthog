@@ -4,7 +4,7 @@ Hourly Temporal workflow that generates summaries and embeddings of LLM traces f
 
 ## How It Works
 
-1. Coordinator workflow runs hourly, discovering teams dynamically (guaranteed teams + sampled teams with AI events)
+1. Coordinator workflow runs hourly, discovering opted-in projects with AI data processing consent and AI events in its window
 2. Per-team workflow queries recent traces (default: last 60 min, max 15 items)
 3. For each item (trace or generation), a two-step activity pipeline runs:
    - **fetch_and_format**: fetch data from ClickHouse → format text repr → store in Redis (gzip-compressed)
@@ -57,8 +57,7 @@ Both activities are unified — they handle trace-level and generation-level sum
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
-Guaranteed teams come first, and the sampled teams keep a random order.
+Discovers opted-in projects with AI data processing consent and AI events in the processing window via `get_team_ids_for_ai_observability`, excluding the operational skip list.
 
 The coordinator keeps up to `max_concurrent_teams` per-team workflows running at once.
 It starts the next team when any running team finishes, so one slow team holds one slot and does not delay the others.
@@ -141,13 +140,21 @@ See [AI data processing consent](#ai-data-processing-consent).
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
+### Opt-in and scheduled processing
+
+Clustering is opt-in. Enabling it saves the project setting and adds missing default jobs within the project's 10-job limit. Preparation and clustering use the existing schedules; enabling or editing a job does not start an immediate run or backfill historical traces.
+
+Scheduled preparation samples recent windows. Clustering requires at least 10 prepared items within its lookback: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Ten items permit clustering but do not guarantee groups; HDBSCAN can classify all items as outliers.
+
+Workers check project opt-in, AI data processing consent, and the job's current enabled state and scope before paid work and result emission. Disabling a job or changing its scope prevents subsequent processing; an already-issued provider request cannot be undone. Embedding metadata and document IDs include a hash of the job's analysis level and filters so jobs do not consume data prepared for an obsolete scope. Existing unversioned embeddings are excluded from scoped runs.
+
 ### Team Discovery
 
-Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
-The coordinator passes its summarization window to discovery, so the sample only holds teams with AI events in that window.
+Teams are discovered via `team_discovery.py`: projects with clustering enabled, organization AI data processing consent, and AI events in the discovery window.
+The coordinator passes its summarization window to discovery, so only projects with AI events in that window are included.
 A team with no AI events in the window has nothing to summarize, and it would still cost a child workflow and a sampling query.
 The clustering coordinators pass no window, so their discovery uses `discovery_lookback_days` from the flag payload.
-Every discovered team must also pass the consent gate below, guaranteed teams included.
+The feature flag's `skip_team_ids` excludes projects from discovery and worker execution. Legacy guaranteed-team and sampling fields no longer opt projects in.
 
 ### AI data processing consent
 
@@ -156,8 +163,8 @@ An unset flag counts as not approved.
 
 The rule is applied in two places:
 
-- Team discovery drops every team without consent, so a guaranteed team is not exempt.
-- The per-team workflow repeats the check and returns an empty result when consent is absent. This also gates a manual trigger and a stale allowlist entry, which both skip discovery.
+- Team discovery drops every project without consent.
+- Worker checks also apply to manual triggers and work queued before consent or opt-in changed.
 
 Discovery retries transient consent database connection errors up to three attempts, with a 100 ms wait between attempts.
 These retries reuse the candidate teams without repeating the ClickHouse discovery query.
@@ -187,9 +194,9 @@ Key constants in `constants.py`:
 | `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55           | Max coordinator workflow duration               |
 | `SAMPLE_TIMEOUT_SECONDS`                    | 900          | Sampling activity timeout (per attempt)         |
 | `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s         | Fetch + format activity timeout (per attempt)   |
-| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s          | Heartbeat window for fetch activity             |
+| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 90s          | Heartbeat window for fetch activity             |
 | `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s         | Summarize + save activity timeout (per attempt) |
-| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s          | Heartbeat window for summarize activity         |
+| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 90s          | Heartbeat window for summarize activity         |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
 

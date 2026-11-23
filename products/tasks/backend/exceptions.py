@@ -113,6 +113,10 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
         )
 
 
+class GitHubTokenRetryError(ProcessTaskTransientError, NonReportableError):
+    pass
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
@@ -245,18 +249,6 @@ class SandboxCleanupError(ProcessTaskTransientError):
     pass
 
 
-class SnapshotNotFoundError(ProcessTaskTransientError):
-    """Snapshot does not exist."""
-
-    pass
-
-
-class SnapshotNotReadyError(ProcessTaskTransientError):
-    """Snapshot exists but is not ready for use."""
-
-    pass
-
-
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
 
@@ -327,17 +319,11 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
 
 
 class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
-    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    """No Go token for a run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
-
-
-class PersonalAPIKeyError(ProcessTaskTransientError):
-    """Failed to create or inject personal API key."""
-
-    pass
 
 
 class OAuthTokenError(ProcessTaskTransientError):

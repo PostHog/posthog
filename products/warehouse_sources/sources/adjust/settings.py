@@ -157,7 +157,42 @@ ADJUST_REPORTS: dict[str, AdjustReportConfig] = {
 # The events catalog maps readable event names and tokens to the slugs used in report metrics.
 EVENTS_CATALOG = "events"
 
-ENDPOINTS = (*ADJUST_REPORTS.keys(), EVENTS_CATALOG)
+# Lookup tables: full refresh only, since none of these endpoints filters by a timestamp.
+FILTERS_DATA = "filters_data"
+PARTNERS = "partners"
+LINKS = "links"
+SUBLINKS = "sublinks"
+
+CATALOG_PRIMARY_KEYS: dict[str, list[str]] = {
+    EVENTS_CATALOG: ["id"],
+    FILTERS_DATA: ["filter_type", "id"],
+    PARTNERS: ["id"],
+    # Link tokens are only documented as identifying a link within its app.
+    LINKS: ["app_token", "token"],
+    SUBLINKS: ["app_token", "token"],
+}
+
+# The `required_filters` values that decode the IDs in the report tables. The rest of the
+# documented values describe report options (dimensions, cohort periods, UTC offsets), not account
+# data.
+FILTER_TYPES = (
+    "apps",
+    "partners",
+    "networks",
+    "channels",
+    "countries",
+    "os_names",
+    "platform",
+    "store_type",
+    "currencies",
+    "attribution_types",
+    "attribution_source",
+    "attribution_status",
+    "ad_revenue_sources",
+    "monetization_partners",
+)
+
+ENDPOINTS = (*ADJUST_REPORTS.keys(), *CATALOG_PRIMARY_KEYS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ADJUST_REPORTS.items() if config.incremental_fields
@@ -166,4 +201,8 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 DESCRIPTIONS: dict[str, str] = {
     **{name: config.description for name, config in ADJUST_REPORTS.items() if config.description},
     EVENTS_CATALOG: "Catalog of in-app events with their report slugs, names, event tokens, and apps.",
+    FILTERS_DATA: "Lookups for the apps, partners, networks, channels, countries, and other filter IDs used in the reports.",
+    PARTNERS: "Ad network partners available in Adjust, with whether they support cost data.",
+    LINKS: "Network-level tracking links (trackers) of each app.",
+    SUBLINKS: "Campaign, ad group, and creative sublinks nested under each tracking link.",
 }

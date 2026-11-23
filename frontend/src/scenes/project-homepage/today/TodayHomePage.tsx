@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Suspense, useLayoutEffect, useRef } from 'react'
 
-import { Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -15,7 +15,9 @@ import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayPrimaryDashboard } from './TodayPrimaryDashboard'
 import { TodayPromoBanner } from './TodayPromoBanner'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
@@ -51,6 +53,8 @@ export function TodayHomePage(): JSX.Element {
         useSampleData,
     } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
+    const { toggleHomeEditing } = useActions(todayHomeEditLogic)
     const {
         currentProjectId,
         highlights,
@@ -120,6 +124,15 @@ export function TodayHomePage(): JSX.Element {
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
+                    <Button
+                        variant={homeEditing ? 'primary' : 'outline'}
+                        size="sm"
+                        className="ms-auto"
+                        onClick={toggleHomeEditing}
+                        data-attr={homeEditing ? 'today-home-edit-save' : 'today-home-edit'}
+                    >
+                        {homeEditing ? 'Save' : 'Edit'}
+                    </Button>
                 </div>
                 <TodayMetaLine />
                 {homeComposer &&
@@ -140,6 +153,7 @@ export function TodayHomePage(): JSX.Element {
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
                 {isNewProject ? <TodayForYou /> : null}
+                {isNewProject ? null : <TodayPrimaryDashboard />}
                 {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
                     <TodayExplore />
                 ) : (

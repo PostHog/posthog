@@ -62,7 +62,10 @@ __all__ = [
     "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
+    "TRINO_INSTANCE_REPLACED_ERROR_PREFIX",
 ]
+
+TRINO_INSTANCE_REPLACED_ERROR_PREFIX = "Trino restarted while it was building this model"
 
 
 class CPUnavailableError(RuntimeError):
@@ -411,9 +414,9 @@ class TrinoCompiledQuery:
     values: dict[str, Any]
     hogql: str | None = None
     needs_row_type_probe: bool = True
-    """Whether an output column may hold a ROW with anonymous fields.
+    """Whether the build must read the output types: an output column may hold a ROW with anonymous fields or a boolean.
 
-    False only when every output column resolved to a type without a tuple or an unknown part.
+    False only when every output column resolved to a type without a tuple, a boolean or an unknown part.
     """
 
 
@@ -429,6 +432,18 @@ class TrinoIncrementalWrite:
     incremental_key: str
     unique_key: tuple[str, ...]
     since: Any = None
+
+
+@frozen
+class StoredColumnType:
+    """The ClickHouse type stored for one output column of a saved query.
+
+    A Trino build matches these types, so models that read the table see the same column types
+    on both engines.
+    """
+
+    name: str
+    clickhouse_type: str
 
 
 class TrinoExpansionMode(StrEnum):

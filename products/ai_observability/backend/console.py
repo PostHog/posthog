@@ -38,7 +38,9 @@ from products.ai_observability.backend.facade.admin import (
     LabelTarget,
     ReviewCard,
     UsageReportRefused,
+    count_unlabeled_cards,
     dataset_retention_enabled,
+    delete_unlabeled_cards,
     label_card,
     label_target,
     load_labeled_cards,
@@ -102,7 +104,7 @@ class AIObservabilityTool(ConsoleTool):
     key = "ai-observability"
     title = "AI observability"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Sends a missing daily usage report, and pauses or resumes dataset cleanup in this region."
 
     def page(self, request: HttpRequest) -> Page:
@@ -173,6 +175,27 @@ class ReviewFilterForm(forms.Form):
         required=False,
     )
     unlabeled = forms.BooleanField(label="Only cards without a label", required=False, initial=True)
+
+
+def preview_unlabeled_deletion(request: HttpRequest, form: forms.Form) -> Page:
+    counts = count_unlabeled_cards()
+    return Page(
+        blocks=(
+            Stats(
+                items=(
+                    Stat(label="Proposed cards", value=f"{counts.proposed:,}"),
+                    Stat(label="Expired cards", value=f"{counts.expired:,}"),
+                    Stat(label="Teams", value=f"{counts.teams:,}"),
+                )
+            ),
+        )
+    )
+
+
+def delete_unlabeled(request: HttpRequest, form: forms.Form | None) -> None:
+    deleted = delete_unlabeled_cards()
+    logger.info("eval_suggestions_unlabeled_deleted", deleted=deleted, staff_id=cast(User, request.user).pk)
+    messages.success(request, f"Deleted {deleted:,} unlabeled {'card' if deleted == 1 else 'cards'}.")
 
 
 class LabelSuggestionForm(forms.Form):
@@ -306,7 +329,17 @@ def _decision(card: ReviewCard, position: int, count: int, filters: ReviewFilter
     after_label = position if filters.unlabeled else position + 1
     return Decision(
         title=card.headline,
-        text=f"{card.outcome}\n\n{card.reason}",
+        # The words the customer card shows, in its order, so a label judges the copy as customers read it.
+        text="\n\n".join(
+            part
+            for part in (
+                card.outcome,
+                " · ".join(part for part in (card.observation, card.observation_scope) if part),
+                f"Rule: {card.rule}" if card.rule else "",
+                f"Why it matters: {card.reason}" if card.reason else "",
+            )
+            if part
+        ),
         detail=f"Card {position} of {count} · team {card.team_id} · {completed}, {card.trigger} · {card.status}{label}",
         operation_key="label",
         field="verdict",
@@ -342,7 +375,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
     key = "eval-suggestion-review"
     title = "Eval suggestion review"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Labels the eval suggestion cards the pipeline publishes, to tune which ones it shows."
 
     def page(self, request: HttpRequest) -> Page:
@@ -406,5 +439,20 @@ class EvalSuggestionReviewTool(ConsoleTool):
                 form_initial=initial,
                 description=f"{card}Saves a staff label on one card. The customer sees nothing.",
                 listed=False,
-            )
+            ),
+            ToolOperation(
+                key="delete-unlabeled-cards",
+                label="Delete unlabeled cards",
+                handler=delete_unlabeled,
+                danger=True,
+                form_class=ReasonForm,
+                preview=preview_unlabeled_deletion,
+                description=(
+                    "Deletes every card without a label that is still proposed or has expired, across all teams. "
+                    "Customers stop seeing those cards until their team's next run. Labeled, accepted and dismissed "
+                    "cards stay."
+                ),
+                undo_hint="This can't be undone. Each team's next run makes new cards.",
+                pending_label="Deleting cards",
+            ),
         ]

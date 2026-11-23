@@ -1,0 +1,1967 @@
+name: Release hog
+
+# Releases hog the way release-cli.yml releases posthog-cli. A merged sampo changeset in
+# hog/.sampo/changesets/ starts this workflow, which asks for approval in Slack and in the hog-release
+# environment, then opens a release pull request with the version bump. Merging that pull request
+# writes the changelog and deletes the changesets, which starts the workflow again: this time it
+# builds, signs and publishes the version in the hog-publish environment, which has no reviewers and
+# admits only master. That one approval in hog-release covers the release. See hog/README.md,
+# "Releases".
+#
+# The file name of a changeset says when it releases. weekly-<name>.md waits for the weekly run, so it
+# costs one approval a week. Any other name, or a manual run, releases everything pending at once. sampo
+# reads every front matter line as a package and a bump, so the file name carries the timing.
+#
+# Every release builds what master has, so it ships every change to code compiled into hog since the last
+# release, changeset or not. The gap job finds those changes, and when the tool catalog can't deliver them
+# and no changeset names their pull requests, prepare-release adds one changeset that lists them. That
+# changeset exists only in the release run, which consumes it, so it never lands on master. A weekly or
+# manual run releases for it alone, and the pull requests that changed compiled files own the release like
+# the ones that added changesets.
+on:
+    push:
+        branches: [master]
+        paths:
+            - 'hog/.sampo/changesets/*.md'
+            # A release for compiled changes alone deletes no changeset, so its merge starts the
+            # workflow through the changelog it writes.
+            - 'hog/CHANGELOG.md'
+    schedule:
+        - cron: '0 14 * * 2'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+    SAMPO_VERSION: 0.17.4
+    # The version the flox environment pins for hog, as in ci-hog.yml.
+    BUN_VERSION: 1.4.2
+    RELEASE_BRANCH: chore/release-hog
+    # Everything that decides what the build job ships: hog, the MCP library and workspace packages it
+    # bundles, the product files that library imports or copies in, what picks and installs the
+    # dependencies (the root package's install scripts run during the build), and this workflow. Keep it
+    # in step with the build job's sparse checkout. The approval check runs as the last release tag has
+    # it, and copies from before it checked changeset owners read this list.
+    HOG_SOURCE_PATHS: >-
+        hog
+        services/mcp
+        tools/openapi-codegen
+        packages/llm-normalizer
+        packages/quill
+        products/notebooks
+        products/product_analytics/mcp
+        products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+        products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+        package.json
+        pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        .npmrc
+        .pnpmfile.cjs
+        patches
+        .husky
+        bin/fix-rdkafka-paths
+        .github/actions/pnpm-install
+        .github/actions/setup-pnpm
+        .github/actions/setup-rust
+        .github/workflows/release-hog.yml
+    # The approver checks run hog/release/check-approvers.sh as the last release tag has it, and pass
+    # HOG_SOURCE_PATHS, plus the compiled files where a build listed them, as extra paths. Owners are the
+    # pull requests that touched the checker's own RELEASE_PATHS or the extra paths. The extra paths come
+    # from the commit being released, so a pull request can change them, but they only add owners: nothing
+    # it changes can drop below RELEASE_PATHS. That covers a tree hog starts to build from before a tag
+    # carries a RELEASE_PATHS that names it, and the gap job warns until one does.
+    #
+    # A pull request that changes the checker can't weaken the check of its own release, because hog/ is a
+    # release path, so its people own that release. It doesn't stop the next releases: once a tag carries a
+    # changed checker, that copy decides their owners, so the checker gets the same review as any release
+    # code.
+    #
+    # The copies below predate the release paths. When the tag carries one of them, the checks run
+    # COMPILED_OWNERS_CHECKER_BLOB instead. Both are git blobs, so neither can change without a change to
+    # this workflow, which no tag protects. git fetches any blob GitHub serves, so the pin only runs when
+    # master's history has it as hog/release/check-approvers.sh, which makes it code a pull request merged.
+    OLD_CHECKER_BLOBS: >-
+        b15fb50313c6bf32a76db83d40ff35afe61718fb
+        799d46e6a3f739377c713ccc6f65aabb0b266e5f
+        38b61c0ff33c4a9c7454acce28ba0dd22825f84f
+    COMPILED_OWNERS_CHECKER_BLOB: 70ce430ab208f3399bb6376949b509ac60babf9e
+    # Every approver check runs this as `bash -c "$PIN_OLD_CHECKER" pin <checker> <last tag>`. It swaps a
+    # checker from OLD_CHECKER_BLOBS for the pinned blob, and fails when master never had that blob.
+    PIN_OLD_CHECKER: |
+        set -euo pipefail
+        checker=$1
+        last_tag=$2
+        if [[ " $OLD_CHECKER_BLOBS " != *" $(git hash-object "$checker") "* ]]; then
+            exit 0
+        fi
+        echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
+        if ! git rev-parse -q --verify refs/remotes/origin/master >/dev/null; then
+            git fetch --quiet --filter=blob:none origin +refs/heads/master:refs/remotes/origin/master
+        fi
+        # Collected first: grep -q exiting early would end awk with SIGPIPE, which pipefail reports as a failure.
+        blobs=$(git log --format= --raw --no-abbrev --no-renames origin/master -- hog/release/check-approvers.sh | awk '{ print $4 }')
+        if ! grep -qxF "$COMPILED_OWNERS_CHECKER_BLOB" <<<"$blobs"; then
+            echo "::error::Blob $COMPILED_OWNERS_CHECKER_BLOB was never hog/release/check-approvers.sh on master, so it can't stand in for the approver check. Set COMPILED_OWNERS_CHECKER_BLOB to a checker master has."
+            exit 1
+        fi
+        git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
+
+jobs:
+    check-changesets:
+        name: Check for hog changesets
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            has-changesets: ${{ steps.check.outputs.has-changesets }}
+            release-now: ${{ steps.check.outputs.release-now }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+                  sparse-checkout: hog/.sampo/changesets
+                  sparse-checkout-cone-mode: false
+
+            - name: Check for changesets
+              id: check
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+              run: |
+                  changesets=$(find hog/.sampo/changesets -name '*.md' 2>/dev/null | sort)
+                  if [ -z "$changesets" ]; then
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "release-now=false" >> "$GITHUB_OUTPUT"
+                      echo "No hog changesets to release"
+                      exit 0
+                  fi
+                  echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "### Pending hog changesets"
+                      echo
+                      printf '%s\n' "$changesets" | sed 's/^/- /'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+                  now=$(printf '%s\n' "$changesets" | grep -Ev '/weekly-[^/]+\.md$' || true)
+                  if [ "$EVENT_NAME" != push ] || [ -n "$now" ]; then
+                      echo "release-now=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "release-now=false" >> "$GITHUB_OUTPUT"
+                      echo "Every pending changeset is named weekly-<name>.md, so they wait for the weekly release"
+                  fi
+
+    # Builds hog and the CLI library to learn which files they compile in, which takes running the
+    # repository's code and dependencies. So this job holds no secret and no write token, and passes what
+    # it finds on as outputs. It runs on the weekly and manual runs, which release for compiled changes
+    # alone, and before every release a changeset starts, because each release ships these changes and
+    # their pull requests own it. In the run a release pull request's merge starts, it waits for the tag
+    # that promote creates, so changesets that merged while that pull request waited start the next
+    # release from it.
+    gap:
+        name: Find what changed in hog since the last release
+        needs: [check-changesets, release, promote]
+        if: >-
+            always() && needs.check-changesets.result == 'success'
+            && (needs.release.outputs.is-release != 'true' || needs.promote.result == 'success')
+            && (github.event_name != 'push' || needs.check-changesets.outputs.release-now == 'true')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        outputs:
+            needed: ${{ steps.changeset.outputs.needed }}
+            bump: ${{ steps.gap.outputs.bump }}
+            changeset: ${{ steps.changeset.outputs.changeset }}
+            release-path-gaps: ${{ steps.release-path-gaps.outputs.paths }}
+            # The release tag the analysis compared with.
+            tag: ${{ steps.base.outputs.tag }}
+        steps:
+            # The whole tree, so the check below can tell when the release build's sparse checkout misses a
+            # compiled file, and the history back to the last release.
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Find the last release
+              id: base
+              run: |
+                  set -euo pipefail
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
+                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so there is nothing to compare with. If that release is still publishing, re-run the failed jobs after it finishes."
+                      exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "$base" HEAD; then
+                      echo "::error::$last_tag isn't on master"
+                      exit 1
+                  fi
+                  {
+                      echo "tag=$last_tag"
+                      echo "commit=$base"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
+                  # The answer decides whether hog releases and what the changelog says, so, as in the
+                  # build job, the packages come from the registry and not from a cache other jobs can write.
+                  cache: 'false'
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
+
+            # Both builds write a metafile listing every source file they compile in.
+            - name: Build hog and the CLI library
+              working-directory: hog
+              run: |
+                  pnpm run build:mcp
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+
+            # The approver checks of this release run the checker the last release tag carries, or the pinned
+            # one in its place, so its list of release paths is the one that has to cover what the build reads.
+            - name: List the release paths of the approver check
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  git show "$BASE:hog/release/check-approvers.sh" >"$checker"
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$LAST_TAG"
+                  bash "$checker" --list-paths >"$RUNNER_TEMP/release-paths.txt"
+                  cat "$RUNNER_TEMP/release-paths.txt"
+
+            - name: Check what the catalog can't deliver
+              id: gap
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  result=$(bun release/catalog-gap.ts --base "$BASE" --release-paths "$RUNNER_TEMP/release-paths.txt")
+                  echo "$result" > "$RUNNER_TEMP/catalog-gap.json"
+                  echo "$result" | jq '{needsRelease, bump, reasons, outsideReleaseCheckout, outsideReleasePaths}'
+
+                  echo "bump=$(echo "$result" | jq -r '.bump')" >> "$GITHUB_OUTPUT"
+
+                  {
+                      echo "### Compiled into hog since $LAST_TAG, and not in the tool catalog"
+                      echo "<pre>"
+                      echo "$result" | jq -r '.reasons[] | "\(.file): \(.why)" | gsub("[\\r\\n]"; " ") | @html'
+                      echo "</pre>"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            # The release build checks out only what its sparse checkout names, so a compiled file outside
+            # it fails the build after the release is approved and its pull request merged.
+            - name: Check the release build checks out every compiled file
+              run: |
+                  set -euo pipefail
+                  outside=$(jq -r '.outsideReleaseCheckout[]' "$RUNNER_TEMP/catalog-gap.json")
+                  if [ -n "$outside" ]; then
+                      echo "::error::hog compiles in files that the sparse checkout of the build job in .github/workflows/release-hog.yml leaves out, so the release build would fail. Add a pattern for each, and the path to HOG_SOURCE_PATHS:"
+                      echo "$outside"
+                      exit 1
+                  fi
+
+            # The approver checks pass HOG_SOURCE_PATHS as extra paths, so a file the release builds from outside
+            # it would let its author approve the release that ships it. This workflow comes from master, so
+            # adding the path there clears it.
+            - name: Check HOG_SOURCE_PATHS covers everything the release builds from
+              run: |
+                  set -euo pipefail
+                  outside=$(jq -r '.outsideSourcePaths[]' "$RUNNER_TEMP/catalog-gap.json")
+                  if [ -n "$outside" ]; then
+                      echo "::error::The release builds from paths that HOG_SOURCE_PATHS in .github/workflows/release-hog.yml leaves out, so their authors could approve the release. Add each to HOG_SOURCE_PATHS:"
+                      echo "$outside"
+                      exit 1
+                  fi
+
+            # The late check passes these paths to the checker after the release pull request merges, and the
+            # checker stops on a path it can't match literally, which would block publishing. Running the
+            # checker on them here fails before approval and names the path.
+            - name: Check the approver check accepts every build path
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  extra_paths="$RUNNER_TEMP/extra-paths.txt"
+                  { tr ' ' '\n' <<<"$HOG_SOURCE_PATHS"; bun release/catalog-gap.ts --list-compiled; } | sed '/^$/d' >"$extra_paths"
+                  if ! GITHUB_OUTPUT=/dev/null bash "$RUNNER_TEMP/check-approvers.sh" --report --extra-paths "$extra_paths" "$BASE" "$BASE"; then
+                      echo "::error::The approver check can't take a path the release builds from, so the late check would stop publishing. Rename the path above."
+                      exit 1
+                  fi
+
+            # Only a release can update the tagged checker, so a gap here can't block one. The extra paths
+            # already make those pull requests owners, and the warning asks for RELEASE_PATHS to catch up.
+            - name: Warn about build paths RELEASE_PATHS misses
+              id: release-path-gaps
+              run: |
+                  set -euo pipefail
+                  outside=$(jq -r '.outsideReleasePaths[]' "$RUNNER_TEMP/catalog-gap.json" | grep -E '^[A-Za-z0-9._@+/-]+$' || true)
+                  if [ -n "$outside" ]; then
+                      echo "::warning::The release builds from paths that RELEASE_PATHS in hog/release/check-approvers.sh doesn't list. HOG_SOURCE_PATHS still makes their pull requests owners. Add each to RELEASE_PATHS: $(paste -sd ' ' - <<<"$outside")"
+                      {
+                          echo "### Paths RELEASE_PATHS doesn't list yet"
+                          echo
+                          while IFS= read -r path; do echo "- $path"; done <<<"$outside"
+                      } >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                  paths=$(paste -sd ',' - <<<"$outside")
+                  echo "paths=${paths//,/, }" >> "$GITHUB_OUTPUT"
+
+            # A pull request that added a changeset already has its line in the changelog, which covers the
+            # weekly-pr-<number>.md changesets CI used to add. Every other pull request that changed one of
+            # the files gets a line in one generated changeset.
+            - name: List the pull requests without a changeset
+              id: changeset
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  if [ "$(jq -r '.needsRelease' "$RUNNER_TEMP/catalog-gap.json")" != true ]; then
+                      echo "needed=false" >> "$GITHUB_OUTPUT"
+                      echo "Nothing compiled into hog since $LAST_TAG needs a release"
+                      exit 0
+                  fi
+
+                  pathspecs=()
+                  while IFS= read -r path; do
+                      pathspecs+=(":(literal)$path")
+                  done < <(jq -r '.reasons[].file' "$RUNNER_TEMP/catalog-gap.json")
+                  changed=$(git log --reverse --format=%H "$BASE..HEAD" -- "${pathspecs[@]}")
+                  with_changeset=$(git log --no-renames --diff-filter=AM --format=%H "$BASE..HEAD" -- 'hog/.sampo/changesets/*.md')
+                  without=$(grep -vxF -f <(printf '%s\n' "$with_changeset") <<<"$changed" || true)
+                  if [ -z "$without" ]; then
+                      echo "needed=false" >> "$GITHUB_OUTPUT"
+                      echo "Every pull request that changed these files since $LAST_TAG added a changeset"
+                      exit 0
+                  fi
+
+                  # A squash merge's subject is the pull request title followed by (#<number>).
+                  lines=$(while read -r sha; do
+                      subject=$(git log -1 --format=%s "$sha")
+                      if [[ "$subject" =~ ^(.*)\ \(#([0-9]+)\)$ ]]; then
+                          printf -- '- [#%s](https://github.com/%s/pull/%s) %s\n' "${BASH_REMATCH[2]}" "$REPOSITORY" "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}"
+                      else
+                          printf -- '- [%s](https://github.com/%s/commit/%s) %s\n' "${sha:0:11}" "$REPOSITORY" "$sha" "$subject"
+                      fi
+                  done <<<"$without")
+
+                  delimiter="changeset_$(openssl rand -hex 8)"
+                  {
+                      echo "needed=true"
+                      echo "changeset<<$delimiter"
+                      echo "Changes built into hog since ${LAST_TAG#hog/}, from these pull requests:"
+                      echo
+                      echo "$lines"
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+                  {
+                      echo "### Pull requests the generated changeset lists"
+                      echo
+                      echo "$lines"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: [check-changesets, gap]
+        # always(), because gap's own needs include publishing jobs that are skipped when nothing publishes.
+        if: >-
+            always() && needs.gap.result == 'success'
+            && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            # The pull requests that added the changesets, to name who can't approve them.
+            pull-requests: read
+        outputs:
+            slack_ts: ${{ steps.notify.outputs.ts }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+                  sparse-checkout: |
+                      hog/package.json
+                  sparse-checkout-cone-mode: false
+
+            # Informational only: prepare-release enforces the rule. The report runs as the last release
+            # shipped the check, so it never names a different group of people than the check blocks.
+            - name: List who can't approve
+              id: owners
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  echo "last-tag=$last_tag" >> "$GITHUB_OUTPUT"
+                  base=$(git rev-parse --verify "refs/tags/$last_tag^{commit}")
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
+                  extra_paths="$RUNNER_TEMP/extra-paths.txt"
+                  tr ' ' '\n' <<<"$HOG_SOURCE_PATHS" | sed '/^$/d' >"$extra_paths"
+                  bash "$checker" --report --extra-paths "$extra_paths" "$base" HEAD
+
+            - name: Build Slack payload
+              id: payload
+              env:
+                  CHANNEL: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  USER_GROUP: ${{ vars.SLACK_HOG_RELEASE_APPROVERS_GROUP_ID }}
+                  REPOSITORY: ${{ github.repository }}
+                  RUN_ID: ${{ github.run_id }}
+                  LAST_TAG: ${{ steps.owners.outputs.last-tag }}
+                  SHA: ${{ github.sha }}
+                  PRS_MRKDWN: ${{ steps.owners.outputs.prs_mrkdwn }}
+                  OWNERS_MRKDWN: ${{ steps.owners.outputs.owners_mrkdwn }}
+                  RELEASE_PATH_GAPS: ${{ needs.gap.outputs.release-path-gaps }}
+              run: |
+                  set -euo pipefail
+                  # Slack refuses a section over 3000 characters, and a weekly release can list dozens of
+                  # pull requests, so each list keeps the entries that fit and counts the rest.
+                  payload=$(jq -nc '
+                    def fit($separator):
+                      if length <= 2900 then .
+                      else
+                        reduce (split($separator)[]) as $entry ({kept: [], size: 0, dropped: 0};
+                          if .dropped == 0 and .size + ($entry | length) + ($separator | length) <= 2850
+                          then .kept += [$entry] | .size += ($entry | length) + ($separator | length)
+                          else .dropped += 1 end)
+                        | (.kept | join($separator)) + "\($separator)…and \(.dropped) more"
+                      end;
+                    {
+                      channel: $ENV.CHANNEL,
+                      text: "🚀 hog release approval needed",
+                      blocks: (
+                        [
+                          {type: "header", text: {type: "plain_text", text: "🚀 hog release approval needed", emoji: true}},
+                          {type: "section", text: {type: "mrkdwn", text: "A hog release is ready for approval in `\($ENV.REPOSITORY)`."}}
+                        ]
+                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Ships changes from:*\n\($ENV.PRS_MRKDWN | fit("\n"))"}}] else [] end)
+                        + (if $ENV.OWNERS_MRKDWN != "" then [
+                            {type: "section", text: {type: "mrkdwn", text: "⛔ *Cannot approve this release:* \($ENV.OWNERS_MRKDWN | fit(", "))"}},
+                            {type: "context", elements: [{type: "mrkdwn", text: "Whoever opened, merged or pushed commits to a pull request this release ships, through a changeset or a change to code compiled into hog, can'"'"'t approve it."}]}
+                          ] else [] end)
+                        + (if $ENV.RELEASE_PATH_GAPS != "" then [{type: "context", elements: [{type: "mrkdwn", verbatim: true, text: "⚠️ RELEASE_PATHS in hog/release/check-approvers.sh does not list \($ENV.RELEASE_PATH_GAPS | fit(", ")) yet. HOG_SOURCE_PATHS still makes their pull requests owners. Add them to RELEASE_PATHS."}]}] else [] end)
+                        + (if $ENV.USER_GROUP != "" then [{type: "section", text: {type: "mrkdwn", text: "<!subteam^\($ENV.USER_GROUP)> Please review and approve the release."}}] else [] end)
+                        + [{
+                            type: "actions",
+                            elements: [
+                              {type: "button", text: {type: "plain_text", text: "View Diff on GitHub", emoji: true},
+                               url: "https://github.com/\($ENV.REPOSITORY)/compare/\(if $ENV.LAST_TAG != "" then $ENV.LAST_TAG else "master" end)...\($ENV.SHA)"},
+                              {type: "button", text: {type: "plain_text", text: "Approve/Reject on GitHub", emoji: true},
+                               url: "https://github.com/\($ENV.REPOSITORY)/actions/runs/\($ENV.RUN_ID)", style: "primary"}
+                            ]
+                          }]
+                      )
+                    }')
+                  delimiter="payload_$(openssl rand -hex 8)"
+                  {
+                      echo "payload<<$delimiter"
+                      echo "$payload"
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Send Slack notification
+              id: notify
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              continue-on-error: true
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  payload: ${{ steps.payload.outputs.payload }}
+
+    prepare-release:
+        name: Prepare hog release pull request
+        needs: [check-changesets, gap, notify-approval-needed]
+        # always(), so a Slack outage doesn't stop the release, while slack_ts stays available. The gap
+        # job lists the compiled files whose pull requests own the release, so nothing releases without it.
+        if: >-
+            always() && needs.gap.result == 'success'
+            && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        environment: hog-release
+        # One preparation at a time. A newer push replaces a run still waiting to start, and its
+        # release pull request includes the older changesets. Publishing and promotion have their own
+        # groups, so a changeset push never cancels them.
+        concurrency:
+            group: release-hog-prepare
+            cancel-in-progress: false
+        permissions:
+            contents: read
+            # The approvals of this run, and the pull requests of the released commits, which the
+            # approval checks read.
+            actions: read
+            pull-requests: read
+        outputs:
+            new-version: ${{ steps.prepare-release.outputs.new-version }}
+            release-pr: ${{ steps.release-pr.outputs.url }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+                  filter: blob:none
+                  # The steps that write get the App token explicitly, so the dependencies, sampo and the
+                  # changelog formatters that run here can't read it from the git config.
+                  persist-credentials: false
+
+            - name: Update to latest master before preparing release
+              run: git pull --ff-only origin master
+
+            # Nobody who opened, merged or pushed commits to a pull request that added one of the
+            # released changesets, or changed the trees hog compiles in, may approve the release. The
+            # checker holds the list of those trees itself. It runs before the releaser token exists. The
+            # range ends at the commit checked out here. The release job checks the whole release again
+            # after the release pull request merges.
+            - name: Check approvers against the owners of the released changes
+              id: range-guard
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" \
+                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
+                  if [ -z "$approvers" ]; then
+                      echo "::error::This run has no approval in hog-release to check"
+                      exit 1
+                  fi
+
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
+                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so the check has no first commit. If that release is still publishing, re-run the failed jobs after it finishes. Before the first release, tag the first commit as hog/README.md, \"Releases\", describes."
+                      exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "$base" HEAD; then
+                      echo "::error::$last_tag isn't on master"
+                      exit 1
+                  fi
+
+                  # The check runs as the last release shipped it. A change to it since then is in the
+                  # range it checks, so it can't clear its own author.
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  if ! gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"; then
+                      echo "::error::$last_tag has no hog/release/check-approvers.sh to run"
+                      exit 1
+                  fi
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
+                  chmod +x "$checker"
+                  extra_paths="$RUNNER_TEMP/extra-paths.txt"
+                  tr ' ' '\n' <<<"$HOG_SOURCE_PATHS" | sed '/^$/d' >"$extra_paths"
+
+                  mapfile -t approver_list <<<"$approvers"
+                  if ! "$checker" --extra-paths "$extra_paths" "$base" HEAD "${approver_list[@]}"; then
+                      echo "::error::Re-run the failed jobs and have someone else approve."
+                      exit 1
+                  fi
+
+            - name: Notify Slack - Approval rejected by the release range check
+              if: failure() && steps.range-guard.outputs.violations != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a pull request this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  emoji_reaction: 'no_entry'
+
+            # Written into this checkout only. sampo consumes it below, and the guard on the files the
+            # release changes accepts it because a consumed changeset leaves nothing behind, or moves to
+            # hog/.sampo/prerelease/ while the version is a prerelease.
+            # The gap job compared its commit with the release tag it had. A release that published since
+            # then already shipped part of that, so the changeset is dropped, and the next run compares with
+            # the new tag.
+            - name: Add the changeset for compiled changes
+              id: compiled-changeset
+              if: needs.gap.outputs.needed == 'true'
+              env:
+                  BUMP: ${{ needs.gap.outputs.bump }}
+                  CHANGESET: ${{ needs.gap.outputs.changeset }}
+                  GAP_TAG: ${{ needs.gap.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  if [ "$BUMP" != patch ] && [ "$BUMP" != minor ]; then
+                      echo "::error::The gap job returned an unexpected bump, $BUMP"
+                      exit 1
+                  fi
+                  tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if [ "$tag" != "$GAP_TAG" ]; then
+                      echo "::notice::The gap job compared with $GAP_TAG, but master is now at $tag, so its changeset is dropped. The next run compares with $tag."
+                      exit 0
+                  fi
+                  # A release that consumes every changeset leaves no file, so git drops the folder.
+                  mkdir -p hog/.sampo/changesets
+                  path="hog/.sampo/changesets/compiled-since-v$(jq -r '.version' hog/package.json).md"
+                  printf -- '---\nnpm/hog: %s\n---\n\n%s\n' "$BUMP" "$CHANGESET" >"$path"
+                  echo "path=$path" >> "$GITHUB_OUTPUT"
+                  cat "$path"
+
+            - name: Get the hog releaser token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
+
+            - name: Check for remaining changesets
+              id: recheck-changesets
+              run: |
+                  if [ -n "$(find hog/.sampo/changesets -name '*.md' 2>/dev/null)" ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No hog changesets remain; skipping release preparation"
+                  fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release approved. Preparing the hog version bump.'
+                  emoji_reaction: 'white_check_mark'
+
+            - name: Install Rust
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            # Built from crates.io on every run. Other workflows write the shared sampo cache entry,
+            # and this job holds the releaser App key.
+            - name: Install Sampo CLI
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              run: cargo install sampo --version "$SAMPO_VERSION" --locked
+
+            # While the version is a prerelease, sampo bumps the prerelease number and moves the
+            # consumed changesets to hog/.sampo/prerelease/.
+            - name: Prepare release with Sampo
+              id: prepare-release
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              working-directory: hog
+              env:
+                  # sampo only reads public pull request data, which the job token covers.
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  sampo release
+                  new_version=$(jq -r '.version' package.json)
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+                  echo "Prepared hog v$new_version"
+
+            - name: Install pnpm dependencies
+              if: steps.prepare-release.outputs.new-version != ''
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter=@posthog/root
+                  cache: 'false'
+
+            # The same passes as `hogli format:markdown`. The last command re-runs the gate, so an
+            # unfixable violation stops the release before the pull request opens.
+            - name: Format the changelog
+              if: steps.prepare-release.outputs.new-version != ''
+              run: |
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix hog/CHANGELOG.md
+                  pnpm exec oxfmt hog/CHANGELOG.md
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc hog/CHANGELOG.md
+
+            - name: Check release tag
+              if: steps.prepare-release.outputs.new-version != ''
+              env:
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+              run: |
+                  if git ls-remote --exit-code --tags origin "refs/tags/hog/v$NEW_VERSION" >/dev/null 2>&1; then
+                      echo "::error::Tag hog/v$NEW_VERSION already exists"
+                      exit 1
+                  fi
+
+            - name: Check release changes
+              id: check-changes
+              if: steps.prepare-release.outputs.new-version != ''
+              env:
+                  GENERATED: ${{ steps.compiled-changeset.outputs.path }}
+              run: |
+                  changed_files=$(git status --porcelain --untracked-files=all | awk '{ print $NF }')
+                  if [ -z "$changed_files" ]; then
+                      echo "::error::Sampo did not produce any release changes"
+                      exit 1
+                  fi
+
+                  unexpected=$(echo "$changed_files" | grep -Ev '^hog/(package\.json|CHANGELOG\.md|\.sampo/(changesets|prerelease)/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files changed during hog release prep:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  # Committed, it would wait on master and release the same pull requests again.
+                  if [ -n "$GENERATED" ] && [ -e "$GENERATED" ]; then
+                      echo "::error::Sampo did not consume the changeset for compiled changes, $GENERATED"
+                      exit 1
+                  fi
+
+                  echo "committed=true" >> "$GITHUB_OUTPUT"
+
+            # master moves every few minutes, so only a hog changeset that landed during prep matters: it
+            # would miss this release. The release job's approver check covers every other merge.
+            - name: Ensure no hog changeset landed during release prep
+              if: steps.check-changes.outputs.committed == 'true'
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags origin master
+                  landed=$(git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- 'hog/.sampo/changesets/*.md')
+                  if [ -n "$landed" ]; then
+                      echo "::error::A hog changeset landed on master while preparing the release. Re-run the workflow so the release includes it:"
+                      printf '%s\n' "$landed"
+                      exit 1
+                  fi
+
+            - name: Reset release branch to master
+              if: steps.check-changes.outputs.committed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  target_sha=$(git rev-parse HEAD)
+                  if gh api "repos/$REPOSITORY/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
+                      gh api -X PATCH "repos/$REPOSITORY/git/refs/heads/$RELEASE_BRANCH" -f sha="$target_sha" -F force=true
+                  else
+                      gh api "repos/$REPOSITORY/git/refs" -f ref="refs/heads/$RELEASE_BRANCH" -f sha="$target_sha"
+                  fi
+
+            - name: Commit release changes to release branch
+              id: commit-release
+              if: steps.check-changes.outputs.committed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  # The release job reads the run from the message, to check its approvers against what
+                  # merges while the release pull request waits.
+                  commit_message: |
+                      chore(cli): release hog v${{ steps.prepare-release.outputs.new-version }}
+
+                      hog-release-run: ${{ github.run_id }}
+                  repo: ${{ github.repository }}
+                  branch: ${{ env.RELEASE_BRANCH }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            # The body carries the Slack thread, so the run that publishes after the merge replies in it.
+            - name: Create or update release pull request
+              id: release-pr
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
+                  REPOSITORY: ${{ github.repository }}
+                  SLACK_TS: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+              run: |
+                  body_file="$RUNNER_TEMP/release-pr.md"
+                  cat > "$body_file" <<EOF
+                  ## Problem
+
+                  The hog release version bump must pass the normal pull request checks before it reaches master.
+
+                  ## Changes
+
+                  - Prepare hog v$NEW_VERSION for release. Merging this pull request publishes it.
+
+                  ## How did you test this code?
+
+                  - The release workflow validates the generated changelog and package changes before it opens this pull request.
+
+                  ## Docs update
+
+                  - None.
+
+                  ## 🤖 Agent context
+
+                  **Autonomy:** Fully autonomous
+
+                  <!-- hog-release-slack-thread: $SLACK_TS -->
+                  EOF
+
+                  release_owner=${REPOSITORY%%/*}
+                  existing_prs=$(gh api --paginate "repos/$REPOSITORY/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
+                  if [ "$(printf '%s\n' "$existing_prs" | sed '/^$/d' | wc -l)" -gt 1 ]; then
+                      echo "::error::More than one open hog release pull request exists"
+                      exit 1
+                  fi
+                  existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
+                  if [ -n "$existing_pr" ]; then
+                      head_sha=$(gh api "repos/$REPOSITORY/pulls/$existing_pr" --jq '.head.sha')
+                      if [ "$head_sha" != "$RELEASE_COMMIT" ]; then
+                          echo "::error::The existing hog release pull request does not contain the generated release commit"
+                          exit 1
+                      fi
+                      gh pr edit "$existing_pr" --repo "$REPOSITORY" --title "chore(cli): release hog v$NEW_VERSION" --body-file "$body_file"
+                      pr_url=$(gh pr view "$existing_pr" --repo "$REPOSITORY" --json url --jq '.url')
+                  else
+                      pr_url=$(gh pr create --repo "$REPOSITORY" \
+                          --title "chore(cli): release hog v$NEW_VERSION" \
+                          --body-file "$body_file" \
+                          --base master \
+                          --head "$RELEASE_BRANCH")
+                  fi
+
+                  echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Release pull request created
+              if: steps.release-pr.outputs.url != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
+                  emoji_reaction: 'eyes'
+
+            # A second App approves the generated bump, as in release-cli.yml, so the author of the
+            # pull request never approves it. It still waits for its checks and the Trunk merge queue.
+            - name: Get release approval token
+              id: release-approval-token
+              if: steps.release-pr.outputs.url != ''
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-pull-requests: write
+
+            - name: Approve and request Trunk merge
+              if: steps.release-approval-token.outputs.token != ''
+              env:
+                  GH_TOKEN: ${{ steps.release-approval-token.outputs.token }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
+                  RELEASE_PR: ${{ steps.release-pr.outputs.url }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  # The approval covers the generated commit only. Another head means something else
+                  # pushed to the release branch, so stop instead of approving it.
+                  pr_data=$(gh pr view "$RELEASE_PR" --json number,headRefOid)
+                  pr_number=$(printf '%s' "$pr_data" | jq -r '.number')
+                  pr_head=$(printf '%s' "$pr_data" | jq -r '.headRefOid')
+                  if [ "$pr_head" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request head $pr_head is not the generated release commit $RELEASE_COMMIT"
+                      exit 1
+                  fi
+
+                  gh api "repos/$REPOSITORY/pulls/$pr_number/reviews" \
+                      -f event=APPROVE \
+                      -f commit_id="$RELEASE_COMMIT" \
+                      -f body='Automated approval for the generated hog release version bump.' >/dev/null
+
+                  gh pr comment "$RELEASE_PR" --body '/trunk merge'
+
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "hog",
+                        "jobName": "prepare-release",
+                        "packageName": "hog",
+                        "packageVersion": "${{ steps.prepare-release.outputs.new-version || 'unknown' }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to prepare release hog@v${{ steps.prepare-release.outputs.new-version || 'unknown' }} :rotating_light:",
+                        "alertContext": "The version bump pull request could not be prepared."
+                      }
+
+            - name: Notify Slack - Failed
+              if: ${{ failure() && steps.range-guard.outputs.violations == '' && needs.notify-approval-needed.outputs.slack_ts != '' }}
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: "❌ Failed to prepare the release pull request for `hog@v${{ steps.prepare-release.outputs.new-version || 'unknown' }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
+                  emoji_reaction: 'x'
+
+    # A rejected deployment fails prepare-release without running a step, so this asks the
+    # approvals API whether that is what happened.
+    notify-rejected:
+        name: Notify Slack - Rejected
+        needs: [prepare-release, notify-approval-needed]
+        if: always() && needs.prepare-release.result == 'failure' && needs.notify-approval-needed.outputs.slack_ts != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            actions: read
+        steps:
+            - name: Check for rejection
+              id: check-rejection
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  response=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals")
+                  rejected=$(printf '%s' "$response" | jq '[.[] | select(.state == "rejected")] | length')
+                  if [ "$rejected" -eq 0 ]; then
+                      echo "was_rejected=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  comment=$(printf '%s' "$response" | jq -r '[.[] | select(.state == "rejected") | .comment // empty][0] // empty')
+                  {
+                      echo "was_rejected=true"
+                      echo 'message<<EOF'
+                      if [ -n "$comment" ]; then echo "🚫 The hog release was rejected: $comment"; else echo "🚫 The hog release was rejected."; fi
+                      echo 'EOF'
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Rejected
+              if: steps.check-rejection.outputs.was_rejected == 'true'
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: ${{ steps.check-rejection.outputs.message }}
+                  emoji_reaction: 'no_entry_sign'
+
+    # A merged release pull request writes the changelog and deletes the consumed changesets, or moves
+    # them to hog/.sampo/prerelease/, which starts this workflow again. Only that release commit
+    # continues to publishing. Changesets that merged while the release pull request waited stay on
+    # master, and prepare-release starts the next release from them in the same run.
+    release:
+        name: Identify merged hog release
+        needs: check-changesets
+        # Only a merge publishes. The weekly run only prepares.
+        if: github.event_name != 'schedule'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            is-release: ${{ steps.release-metadata.outputs.is-release }}
+            prepare-run: ${{ steps.release-metadata.outputs.prepare-run }}
+            version: ${{ steps.release-metadata.outputs.version }}
+            release-tag: ${{ steps.release-metadata.outputs.release-tag }}
+            release-commit: ${{ steps.release-metadata.outputs.release-commit }}
+            build-date: ${{ steps.release-metadata.outputs.build-date }}
+            slack-ts: ${{ steps.release-metadata.outputs.slack-ts }}
+        steps:
+            # The release commit's parent, to compare what landed with it.
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+                  sparse-checkout: |
+                      hog/package.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Identify release commit
+              id: release-metadata
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_COMMIT: ${{ github.sha }}
+                  REPOSITORY: ${{ github.repository }}
+                  RELEASER_LOGIN: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_LOGIN }}
+              run: |
+                  set -euo pipefail
+
+                  # Every master commit comes from a merged pull request. None listed means GitHub hasn't
+                  # linked it yet, which takes a little while after the merge queue lands a commit, and
+                  # skipping would leave a release unpublished without a word. A stacked pull request keeps
+                  # its parent layer as its base, so only the release pull request has to target master.
+                  merged_prs=""
+                  for attempt in $(seq 1 12); do
+                      merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                          --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.ref) \(.base.ref)"')
+                      [ -n "$merged_prs" ] && break
+                      echo "GitHub lists no merged pull request for $RELEASE_COMMIT yet (attempt $attempt of 12)"
+                      sleep 10
+                  done
+                  if [ -z "$merged_prs" ]; then
+                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT after 2 minutes. Re-run the failed jobs."
+                      exit 1
+                  fi
+                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch && $3 == "master" { print $1 }' <<<"$merged_prs")
+                  release_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
+                  if [ "$release_count" -eq 0 ]; then
+                      echo "is-release=false" >> "$GITHUB_OUTPUT"
+                      echo "$RELEASE_COMMIT isn't a hog release commit, so nothing publishes"
+                      exit 0
+                  fi
+                  if [ "$release_count" -ne 1 ]; then
+                      echo "::error::Expected one merged hog release pull request for $RELEASE_COMMIT"
+                      exit 1
+                  fi
+
+                  if [ -z "$RELEASER_LOGIN" ]; then
+                      echo "::error::Set the GH_APP_POSTHOG_HOG_RELEASER_LOGIN variable to the hog releaser App's bot login, like hog-releaser[bot]"
+                      exit 1
+                  fi
+                  release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
+                  pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
+
+                  # Only the hog releaser App may open the pull request and make its commit. GitHub
+                  # commits and signs what the App writes through the API, so a commit a person signed,
+                  # even one that names the App as its author, doesn't pass.
+                  head=$(printf '%s' "$pr_data" | jq -r '.head.sha')
+                  head_data=$(gh api "repos/$REPOSITORY/commits/$head")
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.head.repo.full_name')" != "$REPOSITORY" ] \
+                      || [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASER_LOGIN" ] \
+                      || [ "$(printf '%s' "$head_data" | jq -r '.author.login // empty')" != "$RELEASER_LOGIN" ] \
+                      || [ "$(printf '%s' "$head_data" | jq -r '.committer.login // empty')" != web-flow ] \
+                      || [ "$(printf '%s' "$head_data" | jq -r '.commit.verification.verified')" != true ]; then
+                      echo "::error::The release pull request and its commit were not both made by $RELEASER_LOGIN"
+                      exit 1
+                  fi
+
+                  # What landed on master, whatever the pull request held: release files only, and a
+                  # package.json that differs in its version alone, so nothing the build runs changed.
+                  landed=$(git diff --name-only "$RELEASE_COMMIT^1" "$RELEASE_COMMIT")
+                  unexpected=$(printf '%s\n' "$landed" | grep -Ev '^hog/(package\.json|CHANGELOG\.md|\.sampo/(changesets|prerelease)/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::The hog release commit changes more than the release files:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+                  if [ "$(git show "$RELEASE_COMMIT^1:hog/package.json" | jq -S 'del(.version)')" != "$(git show "$RELEASE_COMMIT:hog/package.json" | jq -S 'del(.version)')" ]; then
+                      echo "::error::The hog release commit changes hog/package.json beyond its version"
+                      exit 1
+                  fi
+
+                  # A rename has an old path too, and both must be release files.
+                  files=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '.[] | .filename, (.previous_filename // empty)')
+                  unexpected=$(printf '%s\n' "$files" | grep -Ev '^hog/(package\.json|CHANGELOG\.md|\.sampo/(changesets|prerelease)/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files in the hog release pull request:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+                  # A release for compiled changes alone consumes a changeset that never reached master, so
+                  # the version bump, not a deleted changeset, is what marks a release.
+                  version=$(jq -r '.version' hog/package.json)
+                  if [ "$(git show "$RELEASE_COMMIT^1:hog/package.json" | jq -r '.version')" = "$version" ]; then
+                      echo "::error::The hog release pull request doesn't change the version"
+                      exit 1
+                  fi
+                  release_tag="hog/v$version"
+                  # A tag on this commit means an earlier run got that far. Publishing again is safe,
+                  # because every step skips what is already published.
+                  tag_sha=$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$release_tag" | awk '{ print $1 }')
+                  if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::$release_tag already names another commit, $tag_sha"
+                      exit 1
+                  fi
+
+                  # The commit time, so a rerun builds the same date into the binary.
+                  build_date=$(printf '%s' "$head_data" | jq -r '.commit.committer.date')
+                  slack_ts=$(printf '%s' "$pr_data" | jq -r '.body // ""' | sed -n 's/.*hog-release-slack-thread: \([0-9.]*\).*/\1/p' | head -n 1)
+
+                  prepare_run=$(printf '%s' "$head_data" | jq -r '.commit.message' | sed -n 's/^hog-release-run: \([0-9][0-9]*\)$/\1/p' | head -n 1)
+                  if [ -z "$prepare_run" ]; then
+                      echo "::error::The release commit doesn't name the run that prepared it"
+                      exit 1
+                  fi
+
+                  {
+                      echo "is-release=true"
+                      echo "version=$version"
+                      echo "prepare-run=$prepare_run"
+                      echo "release-tag=$release_tag"
+                      echo "release-commit=$RELEASE_COMMIT"
+                      echo "build-date=$build_date"
+                      echo "slack-ts=$slack_ts"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Publish needs approval
+              if: steps.release-metadata.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ steps.release-metadata.outputs.slack-ts }}
+                  message: 'The release pull request merged. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Publishing hog ${{ steps.release-metadata.outputs.version }}>.'
+                  emoji_reaction: 'package'
+
+    build:
+        name: Test and compile
+        needs: release
+        if: needs.release.outputs.is-release == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        outputs:
+            compiled-files: ${{ steps.compiled.outputs.files }}
+        steps:
+            # The workspace packages pnpm installs for hog, and the product files build:mcp bundles or
+            # copies in (services/mcp/scripts/copy-instructions.ts). A missing one fails the build.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      /hog/
+                      /services/mcp/
+                      /tools/openapi-codegen/
+                      /packages/llm-normalizer/
+                      /packages/quill/
+                      /products/notebooks/
+                      /products/product_analytics/mcp/
+                      /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+                      /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.github/actions/setup-rust/
+                      /patches/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                  sparse-checkout-cone-mode: false
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
+                  # The installed packages are compiled into the signed binary, so they come from the
+                  # registry, checked against the lockfile, and not from a cache other jobs can write.
+                  cache: 'false'
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
+
+            - name: Build the MCP library
+              working-directory: hog
+              run: pnpm run build:mcp
+
+            # The tests run hog against hog-worker, the Rust program in hog/worker/, built for this
+            # runner as in ci-hog.yml. The build-worker job builds the copies that ship.
+            - name: Read the Rust version hog-worker builds with
+              id: rust
+              run: echo "version=$(sed -n 's/^channel = "\(.*\)"$/\1/p' hog/worker/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+            - name: Install Rust
+              uses: ./.github/actions/setup-rust
+              with:
+                  toolchain: ${{ steps.rust.outputs.version }}
+
+            - name: Build hog-worker for the tests
+              working-directory: hog
+              run: pnpm run build:worker
+
+            - name: Typecheck
+              working-directory: hog
+              run: pnpm run typecheck
+
+            - name: Test
+              working-directory: hog
+              run: bun test
+
+            - name: Compile every target
+              working-directory: hog
+              env:
+                  VERSION: ${{ needs.release.outputs.version }}
+                  BUILD_DATE: ${{ needs.release.outputs.build-date }}
+              run: bun release/compile.ts --version "$VERSION" --build-date "$BUILD_DATE"
+
+            - name: Check the Linux build reports its version
+              working-directory: hog
+              env:
+                  VERSION: ${{ needs.release.outputs.version }}
+              run: test "$(HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 dist/release/bin/linux-x64/hog --version)" = "$VERSION"
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: hog-binaries
+                  path: hog/dist/release/bin/
+                  if-no-files-found: error
+
+            # For the late-approvers job, which needs a token this job doesn't get while it runs the build.
+            - name: List the files compiled into hog
+              id: compiled
+              working-directory: hog
+              run: |
+                  set -euo pipefail
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+                  delimiter="files_$(openssl rand -hex 8)"
+                  {
+                      echo "files<<$delimiter"
+                      bun release/catalog-gap.ts --list-compiled
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+    # prepare-release checked its approvers against the changes up to the commit it released from. Changes
+    # that merged while the release pull request waited in the queue ship too, so this checks everything
+    # since the last release tag again, with the checker that tag carries and the paths the release commit
+    # builds from. Publishing waits for it.
+    late-approvers:
+        name: Check approvers against changes merged after the approval
+        needs: [release, build]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            # The approvals of the run that prepared the release.
+            actions: read
+            contents: read
+            pull-requests: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+                  sparse-checkout: |
+                      hog/package.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Check approvers against everything the release ships
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  RELEASE_COMMIT: ${{ needs.release.outputs.release-commit }}
+                  PREPARE_RUN: ${{ needs.release.outputs.prepare-run }}
+                  COMPILED_FILES: ${{ needs.build.outputs.compiled-files }}
+              run: |
+                  set -euo pipefail
+
+                  run_path=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN" --jq '.path')
+                  if [ "$run_path" != .github/workflows/release-hog.yml ]; then
+                      echo "::error::Run $PREPARE_RUN, which the release commit names, isn't a Release hog run"
+                      exit 1
+                  fi
+                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN/approvals" \
+                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
+                  if [ -z "$approvers" ]; then
+                      echo "::error::Run $PREPARE_RUN has no approval in hog-release to check"
+                      exit 1
+                  fi
+
+                  last_tag="hog/v$(git show "$RELEASE_COMMIT^1:hog/package.json" | jq -r '.version')"
+                  if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
+                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so the check has no first commit"
+                      exit 1
+                  fi
+
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
+                  chmod +x "$checker"
+
+                  # The build job ran the release commit's code to list these, which only adds owners.
+                  extra_paths="$RUNNER_TEMP/extra-paths.txt"
+                  { tr ' ' '\n' <<<"$HOG_SOURCE_PATHS"; printf '%s\n' "$COMPILED_FILES"; } | sed '/^$/d' >"$extra_paths"
+
+                  mapfile -t approver_list <<<"$approvers"
+                  if ! "$checker" --extra-paths "$extra_paths" "$base" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
+                      echo "::error::The release can't publish. Revert the release pull request, which restores the changesets it consumed, then run the Release hog workflow by hand so someone else approves a new release."
+                      exit 1
+                  fi
+
+    # hog-worker for every target, which ships next to hog. release/build-worker.sh cross-compiles them
+    # in the image hog/release/worker-cross.Dockerfile pins, so a local run builds with the same tools.
+    # Like the build job it holds no secrets, and it reads no cache, because its output is signed.
+    build-worker:
+        name: Compile hog-worker
+        needs: release
+        if: needs.release.outputs.is-release == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        env:
+            VERSION: ${{ needs.release.outputs.version }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /hog/release/
+                      /hog/src/updates/
+                      /hog/worker/
+                  sparse-checkout-cone-mode: false
+
+            - name: Compile every target
+              working-directory: hog
+              run: release/build-worker.sh --version "$VERSION"
+
+            - name: Check the Linux build reports its version
+              working-directory: hog
+              run: release/check-worker.sh dist/release/bin/linux-x64/hog-worker "$VERSION"
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: hog-worker-binaries
+                  path: hog/dist/release/bin/
+                  if-no-files-found: error
+
+    # Signing, packaging and the upload under hog/v<version>/ run here. hog-publish holds the Apple
+    # secrets and the App key, and the release bucket's role trusts only this environment. It has no
+    # reviewers: the approval happened in hog-release, before the version bump. Nothing here runs the
+    # build, because a run executes every bundled dependency next to these secrets.
+    publish:
+        name: Sign, package and upload
+        needs: [release, build, build-worker, late-approvers]
+        runs-on: macos-15
+        timeout-minutes: 60
+        environment: hog-publish
+        concurrency:
+            group: release-hog-publish-${{ needs.release.outputs.version }}
+            cancel-in-progress: false
+        permissions:
+            contents: read
+            # AssumeRoleWithWebIdentity into the release bucket's publisher role.
+            id-token: write
+        env:
+            VERSION: ${{ needs.release.outputs.version }}
+            BUILD_DATE: ${{ needs.release.outputs.build-date }}
+            BUCKET: ${{ vars.AWS_CLI_RELEASES_BUCKET }}
+            DISTRIBUTION_ID: ${{ vars.AWS_CLI_RELEASES_CLOUDFRONT_ID }}
+        steps:
+            - name: Check the release configuration
+              env:
+                  ROLE_ARN: ${{ vars.AWS_HOG_RELEASES_ROLE_ARN }}
+                  CERT_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+                  CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+                  API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+                  API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+                  API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+                  APPLE_ID: ${{ vars.APPLE_ID }}
+                  APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+              run: |
+                  missing=()
+                  [ -n "$ROLE_ARN" ] || missing+=('variable AWS_HOG_RELEASES_ROLE_ARN')
+                  [ -n "$BUCKET" ] || missing+=('variable AWS_CLI_RELEASES_BUCKET')
+                  [ -n "$DISTRIBUTION_ID" ] || missing+=('variable AWS_CLI_RELEASES_CLOUDFRONT_ID')
+                  [ -n "$CERT_BASE64" ] || missing+=('secret APPLE_CODESIGN_CERT_BASE64')
+                  [ -n "$CERT_PASSWORD" ] || missing+=('secret APPLE_CODESIGN_CERT_PASSWORD')
+                  if [ -z "$API_KEY" ] || [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER_ID" ]; then
+                      if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+                          missing+=('notarization credentials: secrets APPLE_API_KEY_P8_BASE64, APPLE_API_KEY_ID and APPLE_API_ISSUER_ID, or variable APPLE_ID, secret APPLE_APP_SPECIFIC_PASSWORD and variable APPLE_TEAM_ID')
+                      fi
+                  fi
+                  if [ "${#missing[@]}" -gt 0 ]; then
+                      for item in "${missing[@]}"; do echo "::error::The hog-publish environment has no $item"; done
+                      exit 1
+                  fi
+
+            - name: Configure AWS credentials for the release bucket
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.AWS_HOG_RELEASES_ROLE_ARN }}
+                  # The bucket and its distribution live in the prod-us account, us-east-1.
+                  aws-region: us-east-1
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /hog/package.json
+                      /hog/tsconfig.json
+                      /hog/release/
+                      /hog/src/updates/
+                  sparse-checkout-cone-mode: false
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
+
+            # Files under a version never change. A rerun after the upload reuses what the bucket has,
+            # because signing again would give the same version different bytes.
+            - name: Check whether the bucket has this version
+              id: existing
+              # head-object fails the same way for a missing marker and for a timeout or a denied
+              # read, and a read error must not let a rerun sign and upload over a finished version.
+              # A listing tells them apart: an error stops the job, and an empty listing is absent.
+              run: |
+                  set -euo pipefail
+                  key="hog/v$VERSION/.upload-complete"
+                  listing=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$key" --output json)
+                  [ -n "$listing" ] || listing='{}'
+                  found=$(jq --arg key "$key" '[.Contents[]? | select(.Key == $key)] | length' <<<"$listing")
+                  if [ "$found" -gt 0 ]; then
+                      echo "uploaded=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "uploaded=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              if: steps.existing.outputs.uploaded == 'false'
+              with:
+                  name: hog-binaries
+                  path: hog/dist/release/bin
+
+            # Into the same folders, so each target's folder holds hog and its hog-worker.
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              if: steps.existing.outputs.uploaded == 'false'
+              with:
+                  name: hog-worker-binaries
+                  path: hog/dist/release/bin
+
+            - name: Sign and notarize the macOS builds
+              if: steps.existing.outputs.uploaded == 'false'
+              env:
+                  CERT_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+                  CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+                  API_KEY: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+                  API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+                  API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+                  APPLE_ID: ${{ vars.APPLE_ID }}
+                  APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+              run: |
+                  set -euo pipefail
+
+                  keychain="$RUNNER_TEMP/signing.keychain-db"
+                  keychain_password=$(uuidgen)
+                  printf '%s' "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+                  security create-keychain -p "$keychain_password" "$keychain"
+                  security set-keychain-settings -lut 3600 "$keychain"
+                  security unlock-keychain -p "$keychain_password" "$keychain"
+                  security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+                  security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+                  security list-keychains -d user -s "$keychain"
+                  rm "$RUNNER_TEMP/cert.p12"
+
+                  identity=$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ { print $2; exit }')
+                  [ -n "$identity" ] || { echo "::error::The certificate holds no Developer ID Application identity"; exit 1; }
+
+                  # An App Store Connect API key when there is one, otherwise an Apple ID.
+                  if [ -n "$API_KEY" ] && [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ]; then
+                      printf '%s' "$API_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+                      notary=(--key "$RUNNER_TEMP/notary.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID")
+                  else
+                      notary=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+                  fi
+
+                  for target in darwin-arm64 darwin-x64; do
+                      folder="hog/dist/release/bin/$target"
+                      for binary in "$folder"/*; do
+                          name=$(basename "$binary")
+                          chmod +x "$binary"
+                          sign=(codesign --force --timestamp --options runtime
+                              --identifier "com.posthog.$name" --sign "$identity")
+                          # The entitlements let Bun's JIT write and run machine code. hog-worker is
+                          # compiled Rust, so it gets the hardened runtime with none of them.
+                          if [ "$name" = hog ]; then
+                              sign+=(--entitlements hog/release/entitlements.plist)
+                          fi
+                          "${sign[@]}" "$binary"
+                          codesign --verify --strict --verbose=2 "$binary"
+                          # The Authority lines need --verbose=2, and the output goes through a variable because
+                          # grep -q closing a pipe early fails the pipeline under pipefail.
+                          signature=$(codesign -d --verbose=2 "$binary" 2>&1)
+                          grep -q 'Authority=Developer ID Application' <<<"$signature" \
+                              || { echo "::error::$name for $target is not signed with a Developer ID"; exit 1; }
+                      done
+
+                      # A bare executable can't be stapled, so Gatekeeper checks the ticket online. One
+                      # submission holds the target's folder, which is every file the archive ships.
+                      ditto -c -k "$folder" "$RUNNER_TEMP/hog-$target.zip"
+                      status=$(xcrun notarytool submit "$RUNNER_TEMP/hog-$target.zip" "${notary[@]}" \
+                          --wait --timeout 20m --output-format json | jq -r '.status')
+                      if [ "$status" != Accepted ]; then
+                          echo "::error::Apple did not notarize the $target build: $status"
+                          exit 1
+                      fi
+                  done
+
+                  rm -f "$RUNNER_TEMP/notary.p8"
+                  security delete-keychain "$keychain"
+
+            - name: Package
+              working-directory: hog
+              env:
+                  UPLOADED: ${{ steps.existing.outputs.uploaded }}
+              run: |
+                  set -euo pipefail
+                  if [ "$UPLOADED" = true ]; then
+                      mkdir -p "$RUNNER_TEMP/published"
+                      aws s3 cp "s3://$BUCKET/hog/v$VERSION/" "$RUNNER_TEMP/published/" --recursive \
+                          --exclude .upload-complete --only-show-errors
+                      bun release/package.ts --reuse "$RUNNER_TEMP/published"
+                  else
+                      bun release/package.ts --version "$VERSION" --build-date "$BUILD_DATE"
+                  fi
+
+            # Before the GitHub release, so the bucket has the files before anything links to them.
+            # The role can't delete, so nothing here removes an object.
+            # The marker goes last. Without it, a rerun signs and uploads the version again, over the
+            # files a failed upload left. Nothing reads them before latest points at this version.
+            - name: Upload to the release bucket
+              if: steps.existing.outputs.uploaded == 'false'
+              run: |
+                  set -euo pipefail
+                  immutable="public, max-age=31536000, immutable"
+                  aws s3 cp hog/dist/release/out/assets/ "s3://$BUCKET/hog/v$VERSION/" --recursive \
+                      --cache-control "$immutable" --only-show-errors
+                  printf '%s\n' "$GITHUB_RUN_ID" | aws s3 cp - "s3://$BUCKET/hog/v$VERSION/.upload-complete" \
+                      --cache-control "$immutable" --only-show-errors
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: hog-release
+                  path: |
+                      hog/dist/release/out/assets/
+                      hog/dist/release/out/npm/
+                      hog/dist/release/out/hog.rb
+                  if-no-files-found: error
+
+    # Runs the signed Apple silicon build, in a job with no secrets, no environment and no OIDC token,
+    # so the dependencies it bundles never run next to the signing identity or the release session.
+    # The inject run starts the signed hog-worker from the signed hog, as an install does.
+    check-macos-build:
+        name: Check the signed macOS build runs
+        needs: [release, publish]
+        runs-on: macos-15
+        timeout-minutes: 10
+        permissions: {}
+        steps:
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: hog-release
+                  path: release
+
+            - name: Check the signed build reports its version
+              env:
+                  VERSION: ${{ needs.release.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  mkdir unpacked
+                  tar -xzf release/assets/hog-darwin-arm64.tar.gz -C unpacked
+                  for binary in unpacked/*; do
+                      codesign --verify --strict --verbose=2 "$binary"
+                  done
+                  # HOG_CHECK_INSTALL makes hog start the hog-worker next to it and compare versions, as the installers do.
+                  test "$(HOG_CHECK_INSTALL=1 HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog --version)" = "$VERSION"
+
+            # symbol-set mode keeps the release out of the bundle, so the run needs no login and no network.
+            - name: Check the signed build injects with its hog-worker
+              run: |
+                  set -euo pipefail
+                  mkdir site
+                  printf 'console.log(1)\n//# sourceMappingURL=app.js.map\n' > site/app.js
+                  printf '{"version":3,"file":"app.js","sources":["app.ts"],"names":[],"mappings":"AAAA"}\n' > site/app.js.map
+                  HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog error-tracking inject site --release-mode symbol-set
+                  grep -q '^//# chunkId=' site/app.js
+
+    # Creates the GitHub release, then moves latest, the install scripts, the formula and npm's latest tag
+    # when this version is the newest. One promotion runs at a time across versions, and each reads the
+    # manifest latest names from the bucket itself, past CloudFront's cache, inside that boundary. So two
+    # releases can't both pass the check and leave the older one as latest. GitHub keeps one pending job
+    # per group: a third release cancels the promotion still waiting, notify-publish-failed reports it,
+    # and re-running the failed jobs finishes it.
+    promote:
+        name: Promote and publish
+        needs: [release, publish, check-macos-build]
+        runs-on: ubuntu-24.04
+        # Up to 45 minutes of that is waiting for npm to serve the packages.
+        timeout-minutes: 75
+        environment: hog-publish
+        concurrency:
+            group: release-hog-promote
+            cancel-in-progress: false
+        permissions:
+            contents: read
+            # The release bucket's role, and npm trusted publishing, which exchanges the job's OIDC token
+            # so no npm token is stored. Each package's trusted publisher names hog-publish.
+            id-token: write
+        outputs:
+            latest: ${{ steps.latest.outputs.latest }}
+        env:
+            VERSION: ${{ needs.release.outputs.version }}
+            BUCKET: ${{ vars.AWS_CLI_RELEASES_BUCKET }}
+            DISTRIBUTION_ID: ${{ vars.AWS_CLI_RELEASES_CLOUDFRONT_ID }}
+            AWS_REGION: us-east-1
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /.nvmrc
+                      /hog/release/is-latest.ts
+                      /hog/src/updates/version.ts
+                  sparse-checkout-cone-mode: false
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
+
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: hog-release
+                  path: hog/dist/release/out
+
+            # Credentials as step outputs rather than job env, so setup-node and npm never see them.
+            - name: Configure AWS credentials for the release bucket
+              id: aws
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.AWS_HOG_RELEASES_ROLE_ARN }}
+                  aws-region: us-east-1
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+                  output-env-credentials: false
+                  output-credentials: true
+
+            # A listing proves the manifest is missing. A read can't: S3 answers a missing key with 403
+            # unless the role may list the whole bucket, and this role may list only under hog/. Any
+            # failed call stops the job, so nothing is promoted on a guess.
+            - name: Check whether this is the latest release
+              id: latest
+              working-directory: hog
+              env:
+                  AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+                  AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+                  AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+              run: |
+                  set -euo pipefail
+                  key=hog/latest/manifest.json
+                  listing=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$key" --output json)
+                  [ -n "$listing" ] || listing='{}'
+                  found=$(jq --arg key "$key" '[.Contents[]? | select(.Key == $key)] | length' <<<"$listing")
+
+                  if [ "$found" -eq 0 ]; then
+                      echo "The bucket has no $key yet, so hog $VERSION becomes the first latest release"
+                      latest=true
+                  else
+                      aws s3api get-object --bucket "$BUCKET" --key "$key" "$RUNNER_TEMP/current-manifest.json" >/dev/null
+                      latest=$(bun release/is-latest.ts --version "$VERSION" --current "$RUNNER_TEMP/current-manifest.json")
+                  fi
+
+                  # npm publishes before the manifest moves, so a release that stopped in between leaves
+                  # npm ahead of the manifest. Comparing with both keeps npm's latest from moving back.
+                  npm_latest=$(curl -fsS --max-time 30 https://registry.npmjs.org/-/package/hog/dist-tags | jq -r '.latest')
+                  jq -n --arg version "$npm_latest" '{version: $version}' > "$RUNNER_TEMP/npm-latest.json"
+                  if [ "$latest" = true ]; then
+                      latest=$(bun release/is-latest.ts --version "$VERSION" --current "$RUNNER_TEMP/npm-latest.json")
+                  fi
+
+                  case "$latest" in
+                      true | false) echo "latest=$latest" >> "$GITHUB_OUTPUT" ;;
+                      *) echo "::error::release/is-latest.ts printed '$latest' instead of true or false"; exit 1 ;;
+                  esac
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  registry-url: 'https://registry.npmjs.org'
+
+            - name: Ensure modern npm (OIDC support)
+              run: npm install -g npm@11.6.4
+
+            - name: Notify Slack - Publishing to npm
+              if: needs.release.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'Publishing hog ${{ needs.release.outputs.version }} to npm. npm takes a few minutes to serve a new version, so the GitHub release, the manifest and Homebrew wait until `npm install` gets it.'
+
+            # Before the GitHub release, the manifest and Homebrew, so nothing names this version before npm
+            # can install it. npm accepts a publish minutes before it serves the file, and an install in
+            # between skips the missing platform package, an optional dependency, without an error. So the
+            # wrapper waits until npm serves every platform package. In this job because npm sets the
+            # dist-tag at publish time, and trusted publishing can't move it later. A version npm already
+            # has is skipped, so a rerun finishes what a failed run started.
+            - name: Publish the npm packages
+              working-directory: hog/dist/release/out
+              env:
+                  DIST_TAG: ${{ steps.latest.outputs.latest == 'true' && 'latest' || 'backfill' }}
+                  NPM_CONFIG_PROVENANCE: true
+                  NODE_AUTH_TOKEN: ''
+              run: |
+                  set -euo pipefail
+                  deadline=$((SECONDS + 45 * 60))
+
+                  publish() {
+                      local folder=$1 name
+                      chmod +x "$folder"/bin/* 2>/dev/null || true
+                      name=$(jq -r '.name' "$folder/package.json")
+                      if timeout 60 npm view "$name@$VERSION" version --prefer-online >/dev/null 2>&1; then
+                          echo "$name@$VERSION is already on npm"
+                          return
+                      fi
+                      # ./ makes npm read the folder: npm/hog-linux-x64 alone is GitHub shorthand.
+                      npm publish "./$folder" --access public --tag "$DIST_TAG" --ignore-scripts
+                  }
+
+                  wait_until_served() {
+                      local name url
+                      name=$(jq -r '.name' "$1/package.json")
+                      until url=$(timeout 60 npm view "$name@$VERSION" dist.tarball --prefer-online 2>/dev/null) \
+                          && [ -n "$url" ] && curl -fsI --max-time 30 -o /dev/null "$url"; do
+                          if [ "$SECONDS" -ge "$deadline" ]; then
+                              echo "::error::npm doesn't serve $name@$VERSION yet. Rerun this job to finish the release."
+                              return 1
+                          fi
+                          sleep 20
+                      done
+                      echo "npm serves $name@$VERSION"
+                  }
+
+                  for folder in npm/hog-*; do publish "$folder"; done
+                  for folder in npm/hog-*; do wait_until_served "$folder"; done
+                  publish npm/hog
+                  wait_until_served npm/hog
+
+            # Installs the version the way a person does, with an empty cache and no user npmrc, so a
+            # package npm doesn't serve fails the job before the release, the manifest or Homebrew name it.
+            # It compares the binary npm serves with the one this run built and never runs it: this job can
+            # publish, and a run executes every dependency the binary bundles.
+            - name: Check npm installs this version
+              run: |
+                  set -euo pipefail
+                  project="$RUNNER_TEMP/npm-install-check"
+                  mkdir -p "$project"
+                  cd "$project"
+                  touch "$RUNNER_TEMP/empty-npmrc"
+                  npm init -y >/dev/null
+                  npm install "hog@$VERSION" --ignore-scripts --userconfig "$RUNNER_TEMP/empty-npmrc" \
+                      --cache "$RUNNER_TEMP/npm-install-check-cache" --no-audit --no-fund
+
+                  installed=$(jq -r '.version' node_modules/hog/package.json)
+                  if [ "$installed" != "$VERSION" ]; then
+                      echo "::error::npm install hog@$VERSION installed hog $installed."
+                      exit 1
+                  fi
+                  installed_bin=node_modules/@posthog/hog-linux-x64/bin
+                  if [ ! -d "$installed_bin" ]; then
+                      echo "::error::npm install hog@$VERSION left out @posthog/hog-linux-x64, which holds the binaries."
+                      exit 1
+                  fi
+                  for built in "$GITHUB_WORKSPACE"/hog/dist/release/out/npm/hog-linux-x64/bin/*; do
+                      if ! cmp -s "$installed_bin/$(basename "$built")" "$built"; then
+                          echo "::error::npm serves no $(basename "$built") for $VERSION, or a different one than this run built."
+                          exit 1
+                      fi
+                  done
+                  echo "npm install hog@$VERSION installs the binaries this run built"
+
+            - name: Notify Slack - npm installs the release
+              if: needs.release.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'npm installs hog ${{ needs.release.outputs.version }}. Moving the GitHub release, the manifest and Homebrew to it.'
+
+            - name: Get the hog releaser token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: posthog,homebrew-tap
+                  permission-contents: write
+
+            # After npm and before latest moves, so the GitHub mirror the install scripts fall back to has
+            # the files. Creating the release creates the tag. A rerun uploads the files to the existing release.
+            - name: Create or update the GitHub release
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_REPO: ${{ github.repository }}
+                  RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
+                  RELEASE_COMMIT: ${{ needs.release.outputs.release-commit }}
+              run: |
+                  set -euo pipefail
+                  assets=hog/dist/release/out/assets
+                  if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                      gh release upload "$RELEASE_TAG" "$assets"/* --clobber
+                      exit 0
+                  fi
+
+                  # Every hog release is hog's latest. --latest=false only leaves the repository's own
+                  # Latest release to the other products released from this repository.
+                  gh release create "$RELEASE_TAG" "$assets"/* \
+                      --target "$RELEASE_COMMIT" --latest=false \
+                      --title "hog $VERSION" \
+                      --notes "hog $VERSION. hog/README.md describes how to install it, and hog/CHANGELOG.md lists the changes."
+
+            # Rewritten for every release, so they get a short cache lifetime and an invalidation.
+            # A rerun of an older version leaves them alone.
+            - name: Point latest at this release
+              if: steps.latest.outputs.latest == 'true'
+              env:
+                  AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+                  AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+                  AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+              run: |
+                  set -euo pipefail
+                  assets=hog/dist/release/out/assets
+                  rolling="public, max-age=60"
+                  aws s3 cp "$assets/manifest.json" "s3://$BUCKET/hog/latest/manifest.json" \
+                      --cache-control "$rolling" --content-type application/json --only-show-errors
+                  aws s3 cp "$assets/install.sh" "s3://$BUCKET/hog/install.sh" \
+                      --cache-control "$rolling" --content-type text/plain --only-show-errors
+                  aws s3 cp "$assets/install.ps1" "s3://$BUCKET/hog/install.ps1" \
+                      --cache-control "$rolling" --content-type text/plain --only-show-errors
+                  aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
+                      --paths /hog/latest/manifest.json /hog/install.sh /hog/install.ps1 \
+                      --query 'Invalidation.Id' --output text
+
+            # Through the contents API, which signs the commit as the App. The tap has one formula and
+            # no channels, so only the latest release moves it.
+            - name: Update the Homebrew formula
+              if: steps.latest.outputs.latest == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  set -euo pipefail
+                  path=Formula/hog.rb
+                  current_sha=$(gh api "repos/PostHog/homebrew-tap/contents/$path?ref=main" --jq '.sha' 2>/dev/null || true)
+                  current=$(gh api "repos/PostHog/homebrew-tap/contents/$path?ref=main" --jq '.content' 2>/dev/null | base64 --decode || true)
+                  if [ "$current" = "$(cat hog/dist/release/out/hog.rb)" ]; then
+                      echo "The formula already names hog $VERSION"
+                      exit 0
+                  fi
+                  args=(-X PUT "repos/PostHog/homebrew-tap/contents/$path" \
+                      -f message="chore: update hog formula to $VERSION" \
+                      -f content="$(base64 < hog/dist/release/out/hog.rb | tr -d '\n')" \
+                      -f branch=main)
+                  [ -z "$current_sha" ] || args+=(-f sha="$current_sha")
+                  gh api "${args[@]}" >/dev/null
+
+    notify-released:
+        name: Notify Slack - Release published
+        needs: [release, promote]
+        if: needs.release.outputs.slack-ts != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Write the message
+              id: message
+              env:
+                  VERSION: ${{ needs.release.outputs.version }}
+                  LATEST: ${{ needs.promote.outputs.latest }}
+              run: |
+                  if [ "$LATEST" = true ]; then
+                      echo "text=hog $VERSION is published to the release bucket, GitHub, npm and Homebrew." >> "$GITHUB_OUTPUT"
+                  else
+                      echo "text=hog $VERSION is published. A newer release is out, so latest, npm latest and Homebrew stay on it." >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Notify Slack - Release published
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: ${{ steps.message.outputs.text }}
+                  emoji_reaction: 'rocket'
+
+    # A cancelled job counts too: a retired runner label, a timeout or a newer promotion ends a job as
+    # cancelled.
+    notify-publish-failed:
+        name: Notify - Publish failed
+        needs: [release, build, build-worker, late-approvers, publish, check-macos-build, promote]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: >-
+            always() && (contains(fromJSON('["failure", "cancelled"]'), needs.release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-worker.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.late-approvers.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.check-macos-build.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.promote.result))
+        steps:
+            - name: Collect failed jobs
+              id: failed
+              env:
+                  NEEDS_JSON: ${{ toJSON(needs) }}
+              run: |
+                  failed=$(printf '%s' "$NEEDS_JSON" | jq -r 'to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")')
+                  echo "jobs=${failed:-unknown}" >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "failure",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "hog",
+                        "jobName": "publish",
+                        "failedJobs": "${{ steps.failed.outputs.jobs }}",
+                        "packageName": "hog",
+                        "packageVersion": "${{ needs.release.outputs.version || 'unknown' }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to publish hog@v${{ needs.release.outputs.version || 'unknown' }} :rotating_light:",
+                        "alertContext": "The release commit landed. Re-run the failed jobs: each step skips what is already published. Failed jobs: ${{ steps.failed.outputs.jobs }}."
+                      }
+
+            - name: Notify Slack - Failed
+              if: needs.release.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: "❌ Failed to publish `hog@v${{ needs.release.outputs.version || 'unknown' }}` (${{ steps.failed.outputs.jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
+                  emoji_reaction: 'x'

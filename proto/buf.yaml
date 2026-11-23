@@ -18,6 +18,10 @@ lint:
 breaking:
     use:
         - FILE
+        # FILE rejects every field deletion. Where ignore_only lifts
+        # FIELD_NO_DELETE, this rule still fails the check unless the deleted
+        # field's number is reserved, so a later field cannot reuse it.
+        - FIELD_NO_DELETE_UNLESS_NUMBER_RESERVED
     # Temporary: allows deleting a retired RPC and its messages. Safe to
     # remove once the deletion is on master, which these checks compare
     # against.

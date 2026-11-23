@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4905,6 +4905,31 @@ export const ErrorTrackingExternalReferencesCreateBody = () => zod
     })
     .describe('Payload for creating a new provider issue and linking it to an error tracking issue.')
 
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const ErrorTrackingExternalReferencesLinkIssueCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingExternalReferencesLinkIssueCreateBody = () => zod.object({
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
+    external_context: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue."
+        ),
+})
+
 export const ErrorTrackingGroupingRulesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -8857,6 +8882,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .optional()
         .describe(
             'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
+    ai_issue_summaries_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds."
         ),
 })
 
@@ -15412,6 +15443,386 @@ export const ErrorTrackingSymbolSetsRetrieveParams = () => zod.object({
  * Return a presigned URL for downloading the symbol set's source map.
  */
 export const ErrorTrackingSymbolSetsDownloadRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingTagRulesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ErrorTrackingTagRulesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingTagRulesCreateBodyLabelMax = 128
+
+export const errorTrackingTagRulesCreateBodyDescriptionDefault = ``
+export const errorTrackingTagRulesCreateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyOrderKeyDefault = 0
+export const errorTrackingTagRulesCreateBodyOrderKeyMin = -2147483648
+export const errorTrackingTagRulesCreateBodyOrderKeyMax = 2147483647
+
+export const ErrorTrackingTagRulesCreateBody = () => zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyLabelMax)
+        .describe('Display name of the tag the rule applies to matching issues.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyDescriptionMax)
+        .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
+        .describe('What the tag means. Shown with the tag. Defaults to empty.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .describe(
+            'Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+        ),
+    order_key: zod
+        .number()
+        .min(errorTrackingTagRulesCreateBodyOrderKeyMin)
+        .max(errorTrackingTagRulesCreateBodyOrderKeyMax)
+        .default(errorTrackingTagRulesCreateBodyOrderKeyDefault)
+        .describe('Position in the list of tag rules. Lower values come first. Defaults to 0.'),
+})
+
+export const ErrorTrackingTagRulesPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingTagRulesPartialUpdateBodyLabelMax = 128
+
+export const errorTrackingTagRulesPartialUpdateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+
+export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
+        .optional()
+        .describe('Replacement display name for the tag. Omit to keep the existing label.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .optional()
+        .describe(
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+        ),
+})
+
+export const ErrorTrackingTagRulesDestroyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()

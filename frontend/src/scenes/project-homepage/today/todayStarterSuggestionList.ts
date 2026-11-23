@@ -1,4 +1,4 @@
-import type { NewSessionSuggestion } from 'products/tasks/frontend/spaces/newSessionSuggestionDefaults'
+import type { NewSessionSuggestion } from 'products/today/frontend/spaces/newSessionSuggestionDefaults'
 
 export const TODAY_STARTER_SUGGESTIONS: NewSessionSuggestion[] = [
     {

@@ -10,6 +10,11 @@ import {
     AccountPropertyOption,
     MAX_PINNED_ACCOUNT_PROPERTIES,
 } from './accountPropertyTypes'
+import {
+    addedAccountPropertyKeys,
+    reorderedAccountPropertyKeys,
+    selectedAccountPropertyOptions,
+} from './pinnedAccountPropertyKeys'
 
 export interface AccountPropertySelectionProps {
     options: AccountPropertyOption[]
@@ -28,21 +33,7 @@ export function AccountPropertySelection({
     emptyLabel = 'No properties pinned.',
     limitDisabledReason,
 }: AccountPropertySelectionProps): JSX.Element {
-    const optionsByKey = new Map(options.map((option) => [option.key, option]))
-    const selectedOptions = selectedKeys.map(
-        (key): AccountPropertyOption =>
-            optionsByKey.get(key) ?? {
-                key,
-                label: key,
-                kind: key.startsWith('account:')
-                    ? 'account'
-                    : key.startsWith('field:')
-                      ? 'account_field'
-                      : key.startsWith('relationship:')
-                        ? 'relationship'
-                        : 'custom',
-            }
-    )
+    const selectedOptions = selectedAccountPropertyOptions(options, selectedKeys)
     const availableOptions = options.filter((option) => !selectedKeys.includes(option.key))
     const limitReached = selectedKeys.length >= MAX_PINNED_ACCOUNT_PROPERTIES
     return (
@@ -57,15 +48,10 @@ export function AccountPropertySelection({
                         if (saving || !over) {
                             return
                         }
-                        const from = selectedKeys.indexOf(String(active.id))
-                        const to = selectedKeys.indexOf(String(over.id))
-                        if (from < 0 || to < 0 || from === to) {
-                            return
+                        const reordered = reorderedAccountPropertyKeys(selectedKeys, String(active.id), String(over.id))
+                        if (reordered) {
+                            onChange(reordered)
                         }
-                        const reordered = [...selectedKeys]
-                        const [moved] = reordered.splice(from, 1)
-                        reordered.splice(to, 0, moved)
-                        onChange(reordered)
                     }}
                 >
                     <SortableContext items={selectedKeys} strategy={verticalListSortingStrategy}>
@@ -92,9 +78,9 @@ export function AccountPropertySelection({
                 limit={1}
                 value={[]}
                 onChange={(keys) => {
-                    const key = keys[0]
-                    if (key && !saving && !limitReached && !selectedKeys.includes(key)) {
-                        onChange([...selectedKeys, key])
+                    const added = addedAccountPropertyKeys(selectedKeys, keys[0], saving || limitReached)
+                    if (added) {
+                        onChange(added)
                     }
                 }}
                 options={availableOptions.map((option) => ({

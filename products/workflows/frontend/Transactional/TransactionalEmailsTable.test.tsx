@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, PreflightStatus } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -36,6 +36,7 @@ describe('TransactionalEmailsTable', () => {
     afterEach(() => {
         cleanup()
         Reflect.deleteProperty(navigator, 'clipboard')
+        Reflect.deleteProperty(window.POSTHOG_APP_CONTEXT ?? {}, 'preflight')
     })
 
     it.each([
@@ -170,13 +171,16 @@ describe('TransactionalEmailsTable', () => {
                 '/api/projects/:team_id/transactional_code_emails/': [],
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
-                ...(selfHosted ? { '/_preflight': { cloud: false, is_debug: false } } : {}),
                 ...get,
             } as Record<string, any>,
         })
         if (!flagsLoaded) {
             window.localStorage.clear()
         }
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            preflight: { cloud: !selfHosted } as PreflightStatus,
+        } as AppContext
         initKeaTests()
         if (flagsLoaded) {
             loadFlags(wizardOffered)
@@ -187,6 +191,34 @@ describe('TransactionalEmailsTable', () => {
             </Provider>
         )
     }
+
+    it.each([
+        ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
+        ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
+    ])('%s', async (_case, selfHosted) => {
+        renderWithCodeSends(
+            {
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+            },
+            { selfHosted }
+        )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+
+        expect(
+            Boolean(
+                screen.queryByText(
+                    "Transactional emails count toward your daily sending allowance and are still sent after it's used up."
+                )
+            )
+        ).toBe(!selfHosted)
+        expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
+            selfHosted
+                ? undefined
+                : 'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+        )
+    })
 
     it('keeps the first send from code on screen in the empty tab', async () => {
         jest.useFakeTimers()
@@ -239,18 +271,16 @@ describe('TransactionalEmailsTable', () => {
         const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
         await waitFor(() => {
             expect(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')).toBeInTheDocument()
-            expect(
-                container
-                    .querySelector('[data-attr=wizard-command-block]')
-                    ?.textContent?.includes('transactional-email') ?? false
-            ).toBe(wizardShown)
+            if (wizardShown) {
+                expect(container.querySelector('[data-attr=wizard-command-block]')).toHaveTextContent(
+                    'npx @posthog/wizard email'
+                )
+            }
         })
-        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
-        if (wizardShown) {
-            const wizardBlock = container.querySelector('[data-attr=wizard-command-block]')!
-            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
-            expect(wizardBlock.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        if (!wizardShown) {
+            expect(container.querySelector('[data-attr=wizard-command-block]')).not.toBeInTheDocument()
         }
+        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
         const clipboard = {
@@ -260,6 +290,14 @@ describe('TransactionalEmailsTable', () => {
             },
         }
         Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+        if (wizardShown) {
+            const wizardButton = screen.getByLabelText('Copy wizard command')
+            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
+            expect(wizardButton.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+            fireEvent.click(wizardButton)
+            await waitFor(() => expect(clipboard.text).toBe('npx -y @posthog/wizard@latest email'))
+        }
+
         fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
         await waitFor(() => expect(clipboard.text).toContain('PostHog project token: phc_default-team-api-token'))
         expect(clipboard.text).toContain('Leave out the from address.')

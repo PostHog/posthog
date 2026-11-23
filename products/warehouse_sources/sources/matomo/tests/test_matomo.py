@@ -158,6 +158,11 @@ class TestDrivenEndpoints:
             ("pages", "Actions.getPageUrls", ["1"]),
             ("entry_pages", "Actions.getEntryPageUrls", ["1"]),
             ("exit_pages", "Actions.getExitPageUrls", ["1"]),
+            # Titles nest under category rows when the site sets a title category delimiter.
+            ("page_titles", "Actions.getPageTitles", ["1"]),
+            ("product_skus", "Goals.getItemsSku", None),
+            ("site_search_keywords", "Actions.getSiteSearchKeywords", None),
+            ("visits_by_days_since_last", "VisitorInterest.getNumberOfVisitsByDaysSinceLast", None),
             ("event_names", "Events.getName", None),
             # Flattening would emit one row per referring URL, not per website.
             ("referrer_websites", "Referrers.getWebsites", None),
@@ -183,6 +188,66 @@ class TestDrivenEndpoints:
             ["-1"],
         )
         assert body.get("flat") == expected_flat
+
+    @pytest.mark.parametrize(
+        "endpoint,rows,expected_keys",
+        [
+            # Matomo maps region codes to names for the label, so two codes can share one label.
+            (
+                "regions",
+                [
+                    {"label": "Northshire, Exampleland", "country": "ex", "region": "NS"},
+                    {"label": "Northshire, Exampleland", "country": "ex", "region": "NSH"},
+                    {"label": "Others"},
+                ],
+                ["ex|NS", "ex|NSH", "|"],
+            ),
+            (
+                "cities",
+                [
+                    {
+                        "label": "Rivertown, Northshire, Exampleland",
+                        "country": "ex",
+                        "region": "NS",
+                        "city_name": "Rivertown",
+                        "lat": 10.5,
+                        "long": -2.25,
+                    },
+                    {
+                        "label": "Rivertown, Northshire, Exampleland",
+                        "country": "ex",
+                        "region": "NSH",
+                        "city_name": "Rivertown",
+                        "lat": 11.0,
+                        "long": -2.0,
+                    },
+                    {
+                        "label": "Unknown",
+                        "country": "xx",
+                        "region": "xx",
+                        "city_name": "Unknown",
+                        "lat": None,
+                        "long": None,
+                    },
+                    {"label": "Others"},
+                ],
+                ["ex|NS|Rivertown", "ex|NSH|Rivertown", "xx|xx|Unknown", "||"],
+            ),
+        ],
+    )
+    def test_geo_rows_keyed_on_codes_not_label(
+        self, endpoint: str, rows: list[dict[str, Any]], expected_keys: list[str]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=rows)],
+            resume_state=MatomoResumeConfig(next_date=datetime.now(tz=UTC).date().isoformat()),
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["_date", "_row_key"]
+        assert [row["_row_key"] for row in result.rows] == expected_keys
 
     @pytest.mark.parametrize(
         "goals",

@@ -116,16 +116,20 @@ class TestTeamsTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("rejected card", 400, False),
-            ("bad signature", 401, True),
-            ("deleted flow", 404, True),
+            ("rejected card", 400, b'{"error": {"code": "InvalidRequestContent"}}', False),
+            ("turned-off flow", 400, b'{"error": {"code": "WorkflowTriggerIsNotEnabled"}}', True),
+            ("bad signature", 401, b"", True),
+            ("deleted flow", 404, b"", True),
         ]
     )
-    def test_only_a_client_error_the_owner_can_fix_is_a_refusal(self, _name: str, status: int, refused: bool) -> None:
+    def test_only_a_client_error_the_owner_can_fix_is_a_refusal(
+        self, _name: str, status: int, body: bytes, refused: bool
+    ) -> None:
         target = cast(AlertDestinationData, {"type": "teams", "webhook_url": TEAMS_URL})
 
-        with pinned_post(status):
+        with pinned_post(status, body=body) as adapter:
             with pytest.raises(DeliveryError) as raised:
                 TeamsTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert isinstance(raised.value, DestinationRefused) is refused
+        assert adapter.sent[0].headers["Accept-Encoding"] == "identity"

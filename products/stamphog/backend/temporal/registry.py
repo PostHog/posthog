@@ -6,6 +6,8 @@ stable import target: ``from products.stamphog.backend.temporal.registry import 
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from products.stamphog.backend.temporal.activities import (
     checkout_review_sandbox,
     destroy_review_sandbox,
@@ -26,9 +28,12 @@ from products.stamphog.backend.temporal.activities import (
 )
 from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [StamphogReviewWorkflow]
 
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     dismiss_stale_approvals,
     signal_review_started,
     reuse_withheld_verdict,

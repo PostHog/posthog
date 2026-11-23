@@ -70,7 +70,12 @@ class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
 
 
 class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Key of the tag. Pass it as `issueTag.key` to filter the issue list.")
+    key = serializers.CharField(
+        help_text=(
+            "Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, "
+            "or in `issueTags.hasNot` to keep the issues that do not."
+        )
+    )
     label = serializers.CharField(help_text="Short name of the tag.")  # type: ignore[assignment]  # shadows DRF Field.label
     description = serializers.CharField(help_text="What the tag means, for a tooltip.")
 
@@ -415,7 +420,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
         try:
-            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id, with_tags=True)
+            issue = facade_api.get_issue(
+                issue_id=issue_id, team_id=self.team.id, with_tags_for=cast(User, request.user)
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
 
@@ -466,7 +473,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(responses={200: ErrorTrackingIssueTagDefinitionsResponseSerializer})
     @action(methods=["GET"], detail=False)
     def tag_definitions(self, request: request.Request, **kwargs: object) -> Response:
-        definitions = facade_api.list_issue_tag_definitions(self.team.id)
+        definitions = facade_api.list_issue_tag_definitions(self.team.id, cast(User, request.user))
         return Response(ErrorTrackingIssueTagDefinitionsResponseSerializer({"results": definitions}).data)
 
     @validated_request(

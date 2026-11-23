@@ -1,4 +1,4 @@
-import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
+import { browserSupportsWebAuthnAutofill, startAuthentication, WebAuthnAbortService } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 jest.mock('@simplewebauthn/browser', () => ({
     startAuthentication: jest.fn(),
     browserSupportsWebAuthnAutofill: jest.fn(),
+    WebAuthnAbortService: { cancelCeremony: jest.fn() },
 }))
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
@@ -158,6 +159,70 @@ describe('passkeyLogic', () => {
             expect(onSuccess).toHaveBeenCalledTimes(1)
             expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
             expect(logic.values.isReauth).toBe(false)
+        })
+    })
+
+    describe('cancelled by a password login', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+        let completeHandler: jest.Mock
+
+        beforeEach(() => {
+            completeHandler = jest.fn(() => [200, { success: true }])
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': completeHandler,
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            ['while the challenge loads', false],
+            ['while the passkey prompt is open', true],
+        ])('closes the passkey sign-in without an error %s', async (_, cancelDuringPrompt) => {
+            ;(startAuthentication as jest.Mock).mockImplementation(
+                () =>
+                    new Promise((_resolve, reject) => {
+                        ;(WebAuthnAbortService.cancelCeremony as jest.Mock).mockImplementation(() =>
+                            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+                        )
+                        if (cancelDuringPrompt) {
+                            logic.actions.cancelPasskeyLogin()
+                        }
+                    })
+            )
+
+            logic.actions.beginPasskeyLogin()
+            if (!cancelDuringPrompt) {
+                logic.actions.cancelPasskeyLogin()
+            }
+            await expectLogic(logic)
+                .toDispatchActions(['passkeyAuthenticationCancelled', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+
+            expect(startAuthentication).toHaveBeenCalledTimes(cancelDuringPrompt ? 1 : 0)
+            expect(WebAuthnAbortService.cancelCeremony).toHaveBeenCalledTimes(cancelDuringPrompt ? 1 : 0)
+            expect(completeHandler).not.toHaveBeenCalled()
+            expect(loginLogic.values.generalError).toBeNull()
+            expect(logic.values.isLoading).toBe(false)
         })
     })
 

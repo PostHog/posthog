@@ -22,7 +22,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
-import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,6 +32,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { impactTab } from '../Transactional/impact/impactTab'
 import { openEmailMetricSends } from '../Transactional/log/emailMetricSends'
 import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
@@ -99,6 +100,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -176,12 +178,19 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const tabs = (
         <LemonTabs
-            activeKey={!sendLinks && transactionalTab === 'sends' ? 'runs' : transactionalTab}
+            activeKey={
+                !sendLinks && transactionalTab === 'sends'
+                    ? 'runs'
+                    : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
+                      ? 'design'
+                      : transactionalTab
+            }
             onChange={setTransactionalTab}
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
+                impact && !!transactionalHogFlowId && impactTab(transactionalHogFlowId),
                 ...(transactionalHogFlowId
                     ? [
                           {
@@ -228,7 +237,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                             <div className="font-semibold">Protect sensitive data</div>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 For emails with login codes or reset links. PostHog keeps no copy of
-                                                what each email contained, and doesn&apos;t track link clicks.
+                                                what each email contained, and records only the site address of a
+                                                clicked link.
                                             </p>
                                         </div>
                                     </div>
@@ -278,7 +288,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Transactional
                                 </LemonTag>
                                 {originalTemplate.sensitive && (
-                                    <Tooltip title="PostHog keeps no copy of what each email contained, and doesn't track link clicks.">
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and records only the site address of a clicked link.">
                                         <LemonTag
                                             type="highlight"
                                             icon={<IconLock />}
@@ -318,7 +328,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 saving={isTemplateSubmitting || templateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
                                 onDiscard={() => resetTemplate(originalTemplate)}
-                                onSave={submitTemplate}
+                                onSave={() => void saveWithLatestEmailEdit(submitTemplate)}
                                 onSaveAsNew={() => setIsSaveTemplateModalOpen(true)}
                                 onDuplicate={duplicateTemplate}
                                 onDelete={deleteTemplate}
@@ -349,7 +359,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     type="primary"
                                     htmlType="submit"
                                     form="template"
-                                    onClick={submitTemplate}
+                                    onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
                                     loading={isTemplateSubmitting || templateLoading}
                                     disabledReason={saveDisabledReason}
                                     size="small"

@@ -111,17 +111,7 @@ def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | N
     )
 
 
-def progressive_metrics(
-    context: Context,
-    excluded: Collection[str],
-    budget: int,
-    items: Sequence[ViewedItem],
-    *,
-    fill_popular: bool = False,
-) -> list[contracts.HighlightMetric]:
-    if budget <= 0:
-        return []
-    deadline = monotonic() + BLOCKING_SECONDS
+def _pulse_candidates(context: Context, items: Sequence[ViewedItem]) -> list[PulseCandidate]:
     candidates: list[PulseCandidate] = []
     for item in items:
         if item.kind == "insight":
@@ -135,17 +125,36 @@ def progressive_metrics(
                     PulseCandidate(viewed=item, short_id=tile.insight_short_id, dashboard=dashboard, tile=tile)
                     for tile in dashboard.tiles
                 )
-    choices, popular_room = _with_popular(
-        context, excluded, _eligible_choices(context, excluded, candidates), fill_popular
-    )
+    return candidates
+
+
+def progressive_metrics(
+    context: Context,
+    excluded: Collection[str],
+    budget: int,
+    items: Sequence[ViewedItem],
+    *,
+    fill_popular: bool = False,
+) -> list[contracts.HighlightMetric]:
+    if budget <= 0:
+        return []
+    deadline = monotonic() + BLOCKING_SECONDS
+    choices = _eligible_choices(context, excluded, _pulse_candidates(context, items))
+    popular_room = 0
+    popular_tried = not fill_popular
     selected: dict[str, PulseChoice] = {}
     tried: set[str] = set()
     slots: dict[str, contracts.PulseSlot] = {}
     pending: dict[str, PulseCandidate] = {}
 
     def fill() -> None:
+        nonlocal popular_room, popular_tried
         while len(selected) < budget:
             choice = _next_choice(choices, tried, selected.values(), allow_popular=len(selected) < popular_room)
+            if choice is None and not selected and not popular_tried:
+                popular_tried = True
+                popular_room = _popular_fallback(context, excluded, choices)
+                continue
             if choice is None:
                 return
             tried.add(choice.key)
@@ -278,15 +287,11 @@ def _is_popular(choice: PulseChoice) -> bool:
     return choice.candidate.viewed.reason == HighlightMetricReason.POPULAR
 
 
-def _with_popular(
-    context: Context, excluded: Collection[str], own: list[PulseChoice], fill_popular: bool
-) -> tuple[list[PulseChoice], int]:
-    if not fill_popular:
-        return own, 0
-    room = ROW_TILES - len(context.pinned) - (0 if own or context.pinned else _key_metric_places(context))
-    if room <= 0:
-        return own, 0
-    return [*own, *_popular_choices(context, excluded, own)], room
+def _popular_fallback(context: Context, excluded: Collection[str], choices: list[PulseChoice]) -> int:
+    if context.pinned or _key_metric_places(context):
+        return 0
+    choices.extend(_popular_choices(context, excluded, choices))
+    return ROW_TILES
 
 
 def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[PulseChoice]) -> list[PulseChoice]:

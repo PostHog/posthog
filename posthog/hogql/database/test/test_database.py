@@ -52,6 +52,7 @@ from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
@@ -69,6 +70,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.schema.traffic_type import (
+    create_is_bot_field,
+    create_traffic_type_field,
+    log_traffic_fields,
+)
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_MAX_ENTRY_WEIGHT,
     SOURCES_CACHE_TTL_SECONDS,
@@ -82,6 +88,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types_from_table
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
@@ -436,6 +443,26 @@ class TestUnknownTableSuggestions(TestCase):
         assert str(error.exception) == expected_message
 
 
+class TestResolveTypesFromTable(TestCase):
+    @parameterized.expand(
+        [
+            ("logs", log_traffic_fields()["$virt_traffic_type"], ast.StringType(nullable=True)),
+            ("events", create_traffic_type_field("$virt_traffic_type"), ast.StringType(nullable=False)),
+            ("events", create_is_bot_field("$virt_is_bot"), ast.BooleanType(nullable=True)),
+        ]
+    )
+    def test_traffic_field_resolves_to_its_declared_type_without_expanding(
+        self, table_name: str, field: ExpressionField, expected_type: ast.ConstantType
+    ):
+        context = HogQLContext(team_id=1, database=Database())
+
+        resolved = resolve_types_from_table(field.expr, [table_name], context, "hogql")
+
+        assert resolved.type is not None
+        assert resolved.type.resolve_constant_type(context) == expected_type
+        assert resolved.to_hogql() == field.expr.to_hogql()
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
     allow_dual_schema_snapshots = True
@@ -515,6 +542,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     team=self.team,
                     pretty=False,
                 )
+
+    def test_survey_response_keeps_the_type_of_its_expansion(self):
+        context = HogQLContext(team_id=self.team.pk, team=self.team, database=Database())
+
+        resolved = resolve_types_from_table(
+            parse_expr("getSurveyResponse(0, 'question-id', true)"), ["events"], context, "hogql"
+        )
+
+        assert resolved.type is not None
+        assert isinstance(resolved.type.resolve_constant_type(context), ast.ArrayType)
 
     def test_serialize_database_posthog_table(self):
         database = Database.create_for(team=self.team)
@@ -651,9 +688,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
         serialized = database.serialize(context, include_hidden_posthog_tables=True)
 
-        for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
-            assert hidden_table not in serialized
-            assert database.has_table(hidden_table)
+        assert "posthog.error_tracking_recent_issue_state" not in serialized
+        assert database.has_table("posthog.error_tracking_recent_issue_state")
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -1171,6 +1207,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database.has_table("self_managed")
         assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
         assert serialized["self_managed"].id == str(table.id)
+
+    def test_table_with_another_teams_credential_does_not_print(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        credential = DataWarehouseCredential.objects.create(team=other_team, access_key="k", access_secret="s")
+        self._create_warehouse_table(
+            name="self_managed", url_pattern="https://bucket.example.com/data/*", credential=credential
+        )
+
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        with self.assertRaises(ExposedHogQLError):
+            database.get_table("self_managed").to_printed_clickhouse(context)
+
+    def test_view_does_not_resolve_to_another_teams_backing_table(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        backing_table = DataWarehouseTable.objects.create(
+            name="backing_table",
+            format="Parquet",
+            team=other_team,
+            url_pattern="https://bucket.example.com/other/*",
+            columns={"id": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="a_view",
+            query={"query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+            table=backing_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+        )
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("a_view"), SavedQuery)
 
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
@@ -2342,9 +2417,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database._direct_connection_metadata.get("engine") == "postgres"
         assert database._direct_connection_metadata.get("pgcrypto_schema") == "crypto"
 
-    def test_direct_source_keeps_introspected_function_passthrough(self):
+    @parameterized.expand([("no_hidden_columns", None, True), ("a_table_hides_columns", ["id"], False)])
+    def test_direct_source_introspected_function_passthrough(
+        self, _name: str, enabled_columns: list[str] | None, keeps_functions: bool
+    ):
         # A DIRECT source is the user's own connected DB (full access by design), so introspected
-        # passthrough is not a privilege escalation and stays available.
+        # passthrough stays available, unless the column picker hides columns that query_to_xml would read.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="direct_pg_fn_source",
@@ -2359,11 +2437,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="public.users", enabled_columns=enabled_columns, deleted=None
+        )
+
         database = Database.create_for(team=self.team, connection_id=str(source.id))
 
         assert database._direct_connection_metadata is not None
-        assert database._direct_connection_metadata.get("available_functions") == ["query_to_xml"]
-        assert database._direct_connection_metadata.get("available_table_functions") == ["some_set_returning_fn"]
+        assert ("available_functions" in database._direct_connection_metadata) is keeps_functions
+        assert ("available_table_functions" in database._direct_connection_metadata) is keeps_functions
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
@@ -3254,6 +3336,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         loaded_tables = preload_mock.call_args.args[0]
 
         assert [table.id for table in loaded_tables] == [first_table.id]
+
+    @parameterized.expand([("not_preloaded", False, True), ("preloaded_without_hidden_columns", True, False)])
+    def test_direct_table_column_restriction_fails_closed(self, _name: str, preload: bool, expected: bool):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="restriction_source_id",
+            connection_id="restriction_connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name="orders", table=table)
+        if preload:
+            _preload_active_external_data_schemas([table])
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectSQLTable)
+        assert definition.column_restricted is expected
 
     def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -4589,7 +4698,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "session_replay_events",
             "cohort_people",
             "static_cohort_people",
-            "cohort_membership",
             "precalculated_events",
             "precalculated_person_properties",
             "log_entries",

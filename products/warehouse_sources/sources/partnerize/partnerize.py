@@ -180,6 +180,23 @@ def _make_row_map(
     return explode
 
 
+def _make_fanout_child_unwrap(item_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Strip the item wrapper of a fan-out child row and keep the parent fields beside it.
+
+    The fan-out helper adds the parent fields next to the wrapper key, so a plain unwrap would
+    drop them. The parent fields win so the primary key always carries the parent id.
+    """
+    unwrap = _make_unwrap(item_key)
+
+    def unwrap_child(item: dict[str, Any]) -> dict[str, Any]:
+        inner = unwrap(item)
+        if inner is item:
+            return item
+        return {**inner, **{key: value for key, value in item.items() if key != item_key}}
+
+    return unwrap_child
+
+
 def _client_config(application_key: str, user_api_key: str, paginator: BasePaginator) -> ClientConfig:
     return {
         "base_url": PARTNERIZE_BASE_URL,
@@ -210,7 +227,7 @@ def _fanout_resource(
         if state:
             resumable_source_manager.save_state(PartnerizeResumeConfig(fanout_state=state))
 
-    return cast(
+    resource = cast(
         Resource,
         build_dependent_resource(
             endpoint_configs={config.name: config, parent.name: parent},
@@ -237,6 +254,9 @@ def _fanout_resource(
             initial_paginator_state=initial_fanout_state,
         ),
     )
+    if config.item_key:
+        resource = resource.add_map(_make_fanout_child_unwrap(config.item_key))
+    return resource
 
 
 def partnerize_source(

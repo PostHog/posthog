@@ -88,6 +88,37 @@ check_read absent 0 0 None
 check_read integrity-mismatch 0 0 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 check_read unknown 1 1 "$EXPECTED_DIGEST"
 check_read unknown 0 1 invalid
+
+while IFS='|' read -r tag outcome expected_status reported_outcome; do
+    status=0
+    bash "$helper" require "$tag" "$outcome" > "$scratch/annotations" 2>&1 || status=$?
+    if [ "$status" != "$expected_status" ]; then
+        echo "FAIL require tag=${tag:-empty} outcome=${outcome:-empty} expected status=$expected_status, got $status" >&2
+        exit 1
+    fi
+    if [ "$expected_status" = 0 ]; then
+        if grep -Fq '::error' "$scratch/annotations"; then
+            echo 'FAIL require emitted an error for a verified alias' >&2
+            exit 1
+        fi
+    else
+        grep -Eq "^::error title=Ordered image alias missing::.*\\(outcome: ${reported_outcome:-$outcome}\\)" "$scratch/annotations"
+    fi
+    echo "PASS require tag=${tag:-empty} outcome=${outcome:-empty} status=$status"
+done <<CASES
+$ORDERED_ALIAS|present-at-expected-digest|0|
+$ORDERED_ALIAS|absent|1|
+$ORDERED_ALIAS|integrity-mismatch|1|
+$ORDERED_ALIAS|unknown|1|
+$ORDERED_ALIAS|skipped|1|
+$ORDERED_ALIAS|failure|1|
+$ORDERED_ALIAS|source-digest-unavailable|1|
+$ORDERED_ALIAS|destination-unavailable|1|
+$ORDERED_ALIAS|unverified-aliases|1|
+$ORDERED_ALIAS||1|outcome-not-reported
+|present-at-expected-digest|1|tag-unavailable
+CASES
+
 export COPY_TIMEOUT_SECONDS=120 READBACK_TIMEOUT_SECONDS=30
 check present-at-expected-digest
 check_read present-at-expected-digest 0 0 "$EXPECTED_DIGEST"

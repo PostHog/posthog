@@ -39,6 +39,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "phone": "Customer phone number in E.164 format.",
         },
     },
+    "customer_payment_methods": {
+        "description": "Payment methods saved for each customer and authorised for future charges.",
+        "docs_url": "https://developer.revolut.com/docs/api/merchant#retrieve-payment-method-list-of-a-customer",
+        "columns": {
+            "id": "Identifier of the saved payment method.",
+            "customer_id": "Identifier of the customer the payment method is saved for.",
+            "type": "Type of payment method, such as card, revolut_pay or sepa_direct_debit.",
+            "saved_for": "Who can initiate payments with this method: the customer or the merchant.",
+            "created_at": "Time the payment method was saved.",
+            "last_four": "Last four digits of the card number.",
+            "brand": "Card brand, such as visa or mastercard.",
+            "funding": "Card funding type, such as credit or debit.",
+            "expiry_month": "Card expiry month.",
+            "expiry_year": "Card expiry year.",
+            "issuer_country": "Country code of the card issuer.",
+        },
+    },
     "subscriptions": {
         "description": "Customer subscriptions and their current billing status.",
         "docs_url": "https://developer.revolut.com/docs/api/merchant#retrieve-subscription-list",

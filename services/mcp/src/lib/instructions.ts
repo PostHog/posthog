@@ -1,3 +1,4 @@
+import { EXEC_READ_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec-names'
 import type { CachedOrg, CachedProject } from '@/tools/types'
 
 /** Bounds the onboarded-products line for intent-heavy teams; the environment
@@ -131,8 +132,13 @@ export function buildActiveEnvironmentContextPrompt(
  * callable tools — so a model that reads `scout|survey|…` as the tool list has no
  * callable name to reach for. `render-ui` is listed only where it is mounted.
  */
-export function buildAvailableToolsBlock(renderUiEnabled?: boolean): string {
-    const lines = ['exec – run any PostHog command; its `command` description has the syntax.']
+export function buildAvailableToolsBlock(renderUiEnabled?: boolean, splitWrites?: boolean): string {
+    const lines = splitWrites
+        ? [
+              `${EXEC_READ_TOOL_NAME} – run any PostHog command that reads; its \`command\` description has the syntax.`,
+              `${EXEC_WRITE_TOOL_NAME} – run a \`call\` that changes PostHog data.`,
+          ]
+        : ['exec – run any PostHog command; its `command` description has the syntax.']
     if (renderUiEnabled) {
         lines.push('render-ui – show a tool result as an interactive app.')
     }
@@ -236,6 +242,7 @@ export class ToolDomainExtractor {
         'publish',
         'record',
         'refresh',
+        'remove',
         'rename',
         'reset',
         'restore',
@@ -451,4 +458,11 @@ export class QueryToolCatalog {
 
 export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
     return new QueryToolCatalog(tools).toMarkdown()
+}
+
+/** The shared templates name `exec`, which a split connection replaces with `exec-read`. */
+export function nameExecRead(text: string): string {
+    return text
+        .replaceAll('posthog:exec(', `posthog:${EXEC_READ_TOOL_NAME}(`)
+        .replaceAll('`exec`', `\`${EXEC_READ_TOOL_NAME}\``)
 }

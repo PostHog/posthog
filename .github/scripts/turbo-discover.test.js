@@ -15,7 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets, testlessProducts } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOW = '.depot/workflows/ci-backend.yml'
@@ -175,4 +175,17 @@ test('every events_json path holds a test module', () => {
             `${target} is listed but holds no test module`
         )
     }
+})
+
+test('only a product whose backend:test is a bare echo leaves the matrix', () => {
+    const task = (pkg, command) => ({ package: pkg, command })
+    const tasks = [
+        task('@posthog/products-replay', "echo 'No backend tests'"),
+        task('@posthog/products-surveys', 'pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short'),
+        task('@posthog/products-canvas', "echo 'building' && pytest backend/"),
+        task('@posthog/products-alerts', "echo $(pytest backend/)"),
+        task('@posthog/products-logs', 'echo hi\npytest backend/'),
+        task('@posthog/personhog-proto', "echo 'personhog-proto has no tests'"),
+    ]
+    assert.deepEqual([...testlessProducts(tasks)], ['replay'])
 })

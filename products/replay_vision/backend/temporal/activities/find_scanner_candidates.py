@@ -20,7 +20,6 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
-    ScannerType,
     SweepPauseReason,
     initial_watermark,
 )
@@ -44,6 +43,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.scanner_access import unrunnable_reason
+from products.replay_vision.backend.scope.load import experiment_id_of, scope_for
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -99,14 +99,13 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     None when the scanner watches no experiment or the experiment is running. A pause turns the
     flag off, so an exposed user's sessions from then on show no variant, and attributing them to
     one would mislabel the readout. An archived experiment with no end date has no known end to
-    sweep up to, so it stops like a pause. Only the experiment type is judged: a legacy scanner
-    targeting an experiment through the column predates this gate, and changing those on deploy
-    is not its call.
+    sweep up to, so it stops like a pause.
+
+    Judged on the scope rather than the scanner type, so a scanner narrowed only by the `scope`
+    column stops with its experiment. That also ends the carve-out legacy column-targeted scanners
+    had: they now stop when their experiment ends, where before they swept on.
     """
-    if scanner.scanner_type != ScannerType.EXPERIMENT:
-        return None
-    scope = scanner.experiment_scope()
-    experiment_id = (scope or {}).get("experiment_id")
+    experiment_id = experiment_id_of(scanner)
     if experiment_id is None:
         return None
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
@@ -167,9 +166,10 @@ def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabled
     """Turn the scanner off so the reconciler drops its schedule and the owner sees it off, not silently idle.
 
     An experiment scanner's scouts are paused first: a disabled scanner has no schedule left to retry a
-    failed pause, so a failure keeps the scanner on and the next tick tries again.
+    failed pause, so a failure keeps the scanner on and the next tick tries again. Judged on the
+    scope, so a scanner narrowed only by the `scope` column pauses its scouts too.
     """
-    if scanner.scanner_type == ScannerType.EXPERIMENT and not stop_variant_analysis(scanner):
+    if experiment_id_of(scanner) is not None and not stop_variant_analysis(scanner):
         record_sweep_outcome(f"{reason}_pause_failed")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
     scanner.turn_off(reason)
@@ -224,10 +224,11 @@ def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerC
         # sweeping with the horizon capped at the end, so the readout gets the whole run.
         sweep_until = end
 
-    if scanner.scanner_type == ScannerType.EXPERIMENT and scanner.created_by is None:
+    if experiment_id_of(scanner) is not None and scanner.created_by is None:
         # The exposure filter runs as the creator and refuses a userless caller, as each scan's
         # variant lookup does. Skip before any read instead of building a query that can only be
-        # refused. The watermark holds, like any other skipped tick.
+        # refused. The watermark holds, like any other skipped tick. Judged on the scope, because a
+        # scanner narrowed only by the `scope` column now carries an exposure filter too.
         record_sweep_outcome("no_principal")
         pause_sweep(scanner, SweepPauseReason.NO_PRINCIPAL, timezone.now() + SWEEP_PAUSE_RECHECK)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
@@ -252,8 +253,7 @@ def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerC
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     variant_plan = variant_sampling_plan_for_scope(
         scanner.team,
-        scanner_type=scanner.scanner_type,
-        scope=scanner.experiment_scope(),
+        scope=scope_for(scanner),
         scanner_config=scanner.scanner_config,
         sampling_rate=scanner.sampling_rate,
         user=scanner.created_by,

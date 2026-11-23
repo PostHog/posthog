@@ -337,6 +337,60 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == latest_run.id
 
+    @parameterized.expand([("tagged", False, True), ("untagged_question", True, False)])
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_repo_task_starts_and_warns_when_personal_github_cannot_open_the_repository(
+        self, _name, untagged_question, expect_warning, mock_slack_cls, mock_execute_workflow
+    ):
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="999", config={"account": {"name": "example"}}
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={},
+            sensitive_config={"user_access_token": "fake-user-token", "user_refresh_token": "fake-refresh-token"},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = replace(_make_inputs(self.integration.id, self.user.id), untagged_question=untagged_question)
+        with (
+            patch(
+                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories", return_value=[]
+            ),
+            patch("posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository", return_value=None),
+        ):
+            created = create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                inputs.event,
+                [SlackThreadMessage(user="U_ALICE", text="fix the tests")],
+                "example/project",
+            )
+
+        assert created is True
+        assert self.Task.objects.filter(team=self.team, repository="example/project").exists()
+        mock_execute_workflow.assert_called_once()
+        posted = [c.kwargs.get("text", "") for c in mock_slack_instance.client.chat_postMessage.call_args_list]
+        assert not any("can't access `example/project`" in text for text in posted)
+        warnings = [
+            c.kwargs
+            for c in mock_slack_instance.client.chat_postEphemeral.call_args_list
+            if "can't access `example/project`" in c.kwargs.get("text", "")
+        ]
+        assert bool(warnings) is expect_warning
+        assert all(w["user"] == "U_ALICE" for w in warnings)
+
     @parameterized.expand(
         [
             ("report_notification_thread", True, False, None, False, "channel"),
@@ -451,10 +505,20 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 admission.assert_not_called()
                 return [{"full_name": "example/project"}]
 
-            with patch(
-                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
-                side_effect=refresh_repositories,
-            ) as refresh:
+            with (
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
+                    side_effect=refresh_repositories,
+                ) as refresh,
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository",
+                    return_value="example/project",
+                ),
+                patch(
+                    "posthog.models.github_integration_base.GitHubIntegrationBase.installation_can_access_repository",
+                    return_value=True,
+                ),
+            ):
                 assert create_posthog_code_task_for_repo_activity(*args) is True
             if refresh_repository:
                 refresh.assert_called_once()
@@ -1232,6 +1296,61 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert (self.task_run.state.get("billing_product") == "posthog_ai") is allowed
         assert SignalReportTask.objects.filter(report=report, task=self.task).exists() is allowed
         assert mock_prompt.called is prompted
+
+    @parameterized.expand(
+        [
+            ("reply_in_converted_channel", "public_channel", {"channel_type": "group"}, None, "private_channel"),
+            (
+                "mention_in_converted_channel",
+                "public_channel",
+                {},
+                {"channel": {"is_private": True}},
+                "private_channel",
+            ),
+            (
+                "mention_with_failed_lookup",
+                "public_channel",
+                {},
+                SlackApiError("ratelimited", {"error": "ratelimited"}),
+                "unknown",
+            ),
+            ("mention_in_public_channel", "public_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+            ("channel_made_public", "private_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_resumed_run_refreshes_the_conversation_type(
+        self,
+        _name,
+        stored_type,
+        event_fields,
+        conversations_info,
+        expected_type,
+        mock_slack_cls,
+        _mock_execute_workflow,
+    ):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        mapping = self._create_mapping()
+        mapping.conversation_type = stored_type
+        mapping.save()
+        mock_slack_instance = MagicMock()
+        if isinstance(conversations_info, Exception):
+            mock_slack_instance.client.conversations_info.side_effect = conversations_info
+        else:
+            mock_slack_instance.client.conversations_info.return_value = conversations_info
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, **event_fields})
+        assert forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        mapping.refresh_from_db()
+        assert mapping.conversation_type == expected_type
+        assert self.TaskRun.objects.filter(task=self.task).count() == 2
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

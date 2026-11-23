@@ -5,7 +5,8 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 
 # Which root listing a fan-out endpoint enumerates its parents from. Environments are
 # discovered project-by-project, so their prerequisite is the projects listing. The rest are
-# multi-level parents: identities are listed per environment; the feature-segments and version
+# multi-level parents: identities are listed per environment; multivariate options per project
+# feature (only features that carry options); the feature-segments and version
 # listings need an environment and a feature together, both enumerated per project (the versioned
 # variant keeps only the environments that run v2 feature versioning, the only ones that serve a
 # version listing); and the last two need three identifiers, a project plus a resource inside it
@@ -15,6 +16,7 @@ ParentResource = Literal[
     "project",
     "environment",
     "identity",
+    "project_feature",
     "environment_feature",
     "versioned_environment_feature",
     "project_feature_environment",
@@ -40,6 +42,9 @@ class FlagsmithEndpointConfig:
     child_field: str | None = None
     # Same, for the third identifier of a three-level parent (the ``{extra}`` path placeholder).
     extra_field: str | None = None
+    # Lift the client labels of a usage row into scalar key columns. Usage rows are split per day and
+    # per label combination, and a nested object can't be part of a primary key.
+    flatten_labels: bool = False
     # Static query params for the initial request. Only params the endpoint's OpenAPI spec
     # documents get one (page size, cursor limit, lookback window), because DRF silently
     # ignores anything else and adding one would imply support for it.
@@ -110,6 +115,35 @@ FLAGSMITH_ENDPOINTS: dict[str, FlagsmithEndpointConfig] = {
         parent="project",
         parent_field="_project_id",
     ),
+    # Daily API request volume for the organisation. Rows are one per day and per client label
+    # combination (application name, version, user agent). The 90-day window needs no billing
+    # subscription, unlike the billing-period choices, and merge accumulates history across syncs.
+    # The spec types the 200 body as a single object, but the endpoint returns a plain JSON array.
+    "usage_data": FlagsmithEndpointConfig(
+        name="usage_data",
+        path="/organisations/{parent}/usage-data/",
+        primary_keys=[
+            "_organisation_id",
+            "day",
+            "_client_application_name",
+            "_client_application_version",
+            "_user_agent",
+        ],
+        parent="organisation",
+        parent_field="_organisation_id",
+        flatten_labels=True,
+        params={"period": "90_day_period"},
+        partition_key="day",
+    ),
+    # Variant definitions and weights of multivariate features.
+    "multivariate_options": FlagsmithEndpointConfig(
+        name="multivariate_options",
+        path="/projects/{parent}/features/{child}/mv-options/",
+        primary_keys=["id"],
+        parent="project_feature",
+        parent_field="_project_id",
+        child_field="_feature_id",
+    ),
     # Current flag values per environment (environment defaults and segment overrides).
     "feature_states": FlagsmithEndpointConfig(
         name="feature_states",
@@ -130,6 +164,28 @@ FLAGSMITH_ENDPOINTS: dict[str, FlagsmithEndpointConfig] = {
         parent="versioned_environment_feature",
         parent_field="_environment_id",
         child_field="_feature_id",
+        params={"page_size": 100},
+        partition_key="created_at",
+    ),
+    # Identity overrides: per-identity flag values. The environment listing returns them with
+    # ``anyIdentity`` set, so this is one walk per environment, not one request per identity. Only
+    # identities stored in the core database have them; Edge identities keep overrides elsewhere.
+    "identity_feature_states": FlagsmithEndpointConfig(
+        name="identity_feature_states",
+        path="/environments/{parent}/featurestates/?anyIdentity=1",
+        primary_keys=["id"],
+        parent="environment",
+        parent_field="_environment_api_key",
+        partition_key="created_at",
+    ),
+    # Flag change approval records per environment. Change requests are a paid-plan feature, so
+    # accounts without it get an error on this table only.
+    "change_requests": FlagsmithEndpointConfig(
+        name="change_requests",
+        path="/environments/{parent}/list-change-requests/",
+        primary_keys=["id"],
+        parent="environment",
+        parent_field="_environment_api_key",
         params={"page_size": 100},
         partition_key="created_at",
     ),

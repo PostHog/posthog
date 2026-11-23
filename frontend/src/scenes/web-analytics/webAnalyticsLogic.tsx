@@ -164,7 +164,7 @@ export interface webAnalyticsLogicValues {
     isDev: boolean | undefined // preflightLogic
     baseCurrency: CurrencyCode // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     appliedPresetFilters: WebAnalyticsFiltersConfig | null // webAnalyticsFilterLogic
     appliedPresetShortId: string | null // webAnalyticsFilterLogic
@@ -219,7 +219,7 @@ export interface webAnalyticsLogicValues {
     focusModeModalOpen: boolean
     focusModeOnboardingModalOpen: boolean
     geographyTab: string
-    getNewInsightUrl: (tileId: TileId, tabId?: string | undefined) => string | undefined
+    getNewInsightUrl: (tileId: TileId, tabId?: string) => string | undefined
     graphsTab: string
     hasCountryFilter: boolean
     hasIncompatibleFilters: boolean
@@ -336,12 +336,12 @@ export interface webAnalyticsLogicActions {
         key: string
         tabChange:
             | {
-                  activeHoursTab?: string | undefined
-                  deviceTab?: string | undefined
-                  geographyTab?: string | undefined
-                  graphsTab?: string | undefined
-                  pathTab?: string | undefined
-                  sourceTab?: string | undefined
+                  activeHoursTab?: string
+                  deviceTab?: string
+                  geographyTab?: string
+                  graphsTab?: string
+                  pathTab?: string
+                  sourceTab?: string
               }
             | undefined
         type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
@@ -577,7 +577,7 @@ export interface webAnalyticsLogicMeta {
         activeHoursTab: (_activeHoursTab: string | null) => string
         isPathCleaningEnabled: (
             _isPathCleaningEnabled: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         currentFiltersConfig: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
@@ -735,9 +735,7 @@ export interface webAnalyticsLogicMeta {
             tilesWithoutQueryModifiers: WebAnalyticsTile[],
             effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebAnalyticsTile[]
-        getNewInsightUrl: (
-            tiles: WebAnalyticsTile[]
-        ) => (tileId: TileId, tabId?: string | undefined) => string | undefined
+        getNewInsightUrl: (tiles: WebAnalyticsTile[]) => (tileId: TileId, tabId?: string) => string | undefined
     }
 }
 

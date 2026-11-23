@@ -16,7 +16,7 @@ from django.test import SimpleTestCase
 
 import httpx
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
@@ -147,6 +147,22 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def _keep_the_team_on_insight(self) -> None:
         create_insight_alert(self.team, name="Kept on insight", enabled=False)
 
+    def test_validate_uses_loaded_alert_without_refetching(self) -> None:
+        alert = create_insight_alert(self.team, created_by=self.user)
+        serializer = AlertSerializer(
+            instance=alert,
+            context={
+                "get_team": lambda: self.team,
+                "request": mock.Mock(user=self.user, successful_authenticator=None),
+            },
+        )
+        with self.assertNumQueries(0):
+            assert serializer.validate({"name": "Renamed alert"}) == {"name": "Renamed alert"}
+
+        alert.config = {"type": "TrendsAlertConfig", "series_index": 99}
+        with self.assertNumQueries(0), pytest.raises(serializers.ValidationError):
+            serializer.validate({"name": "Renamed alert"})
+
     def test_create_and_delete_alert(self) -> None:
         self._keep_the_team_on_insight()
         creation_request = {
@@ -173,6 +189,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "insight_display_name": mock.ANY,
             "llm_detector_available": None,
             "pagerduty_available": False,
+            "destination_count": 0,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",

@@ -35,10 +35,10 @@ export const PlatformAlertsListQueryParams = () => zod.object({
         .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     source_kind: zod
-        .enum(['logs', 'insight', 'warehouse_source', 'warehouse_destination', 'metrics', 'traces'])
+        .enum(['logs', 'insight', 'warehouse_source', 'warehouse_destination', 'metrics', 'traces', 'error_tracking'])
         .optional()
         .describe(
-            'Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces'
+            'Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces\n\* `error_tracking` - Error tracking'
         ),
 })
 
@@ -58,50 +58,15 @@ export const platformAlertsCreateBodyOneNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyOneNameMax = 255
 
 export const platformAlertsCreateBodyOneEnabledDefault = true
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
-export const platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
-export const platformAlertsCreateBodyOneSourceConfigOneConditionThresholdCountMin = 0
-export const platformAlertsCreateBodyOneSourceConfigOneConditionThresholdCountMax = 2147483647
-
 export const platformAlertsCreateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyOneEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyOneEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyOneEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyOneDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyOneDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyOneDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyOneCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyOneCooldownMinutesMin = 0
@@ -111,18 +76,50 @@ export const platformAlertsCreateBodyTwoNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyTwoNameMax = 255
 
 export const platformAlertsCreateBodyTwoEnabledDefault = true
-export const platformAlertsCreateBodyTwoSourceConfigOneQueryMax = 10000
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const platformAlertsCreateBodyTwoSourceConfigOneConditionThresholdCountMin = 0
+export const platformAlertsCreateBodyTwoSourceConfigOneConditionThresholdCountMax = 2147483647
 
-export const platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyTwoEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyTwoEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyTwoEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyTwoDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyTwoDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyTwoDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyTwoCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyTwoCooldownMinutesMin = 0
@@ -132,49 +129,18 @@ export const platformAlertsCreateBodyThreeNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyThreeNameMax = 255
 
 export const platformAlertsCreateBodyThreeEnabledDefault = true
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
-export const platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
-export const platformAlertsCreateBodyThreeSourceConfigOneConditionThresholdMin = 0
+export const platformAlertsCreateBodyThreeSourceConfigOneQueryMax = 10000
 
+export const platformAlertsCreateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyThreeEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyThreeEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyThreeEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyThreeDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyThreeDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyThreeDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyThreeCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyThreeCooldownMinutesMin = 0
@@ -184,18 +150,49 @@ export const platformAlertsCreateBodyFourNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyFourNameMax = 255
 
 export const platformAlertsCreateBodyFourEnabledDefault = true
-export const platformAlertsCreateBodyFourSourceConfigOneDestinationIdsMax = 100
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const platformAlertsCreateBodyFourSourceConfigOneConditionThresholdMin = 0
 
-export const platformAlertsCreateBodyFourSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsCreateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyFourEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyFourDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyFourDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyFourDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyFourCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyFourCooldownMinutesMin = 0
@@ -205,30 +202,51 @@ export const platformAlertsCreateBodyFiveNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyFiveNameMax = 255
 
 export const platformAlertsCreateBodyFiveEnabledDefault = true
-export const platformAlertsCreateBodyFiveSourceConfigOneSourceIdsMax = 100
+export const platformAlertsCreateBodyFiveSourceConfigOneDestinationIdsMax = 100
 
-export const platformAlertsCreateBodyFiveSourceConfigOneGroupByDefault = `source`
-export const platformAlertsCreateBodyFiveSourceConfigOneIncludeBillingLimitsDefault = false
 export const platformAlertsCreateBodyFiveSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsCreateBodyFiveGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyFiveEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyFiveEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyFiveEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyFiveDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyFiveDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyFiveDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyFiveCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyFiveCooldownMinutesMin = 0
 export const platformAlertsCreateBodyFiveCooldownMinutesMax = 2147483647
 
+export const platformAlertsCreateBodySixNameDefault = `Untitled alert`
+export const platformAlertsCreateBodySixNameMax = 255
+
+export const platformAlertsCreateBodySixEnabledDefault = true
+export const platformAlertsCreateBodySixSourceConfigOneSourceIdsMax = 100
+
+export const platformAlertsCreateBodySixSourceConfigOneGroupByDefault = `source`
+export const platformAlertsCreateBodySixSourceConfigOneIncludeBillingLimitsDefault = false
+export const platformAlertsCreateBodySixSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsCreateBodySixGroupingOneMaxInstancesDefault = 100
+export const platformAlertsCreateBodySixGroupingOneMaxInstancesMax = 100
+
+export const platformAlertsCreateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodySixEvaluationPeriodsDefault = 1
+export const platformAlertsCreateBodySixEvaluationPeriodsMax = 1441
+
+export const platformAlertsCreateBodySixDatapointsToAlarmDefault = 1
+export const platformAlertsCreateBodySixDatapointsToAlarmMax = 1441
+
+export const platformAlertsCreateBodySixCooldownMinutesDefault = 0
+export const platformAlertsCreateBodySixCooldownMinutesMin = 0
+export const platformAlertsCreateBodySixCooldownMinutesMax = 2147483647
+
 export const PlatformAlertsCreateBody = () => zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['logs'])
+                .enum(['error_tracking'])
                 .describe('Product whose data the alert evaluates. It cannot change after the create.'),
             name: zod
                 .string()
@@ -238,6 +256,141 @@ export const PlatformAlertsCreateBody = () => zod.union([
             enabled: zod
                 .boolean()
                 .default(platformAlertsCreateBodyOneEnabledDefault)
+                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
+            source_config: zod
+                .object({
+                    filters: zod
+                        .object({
+                            properties: zod
+                                .array(zod.record(zod.string(), zod.unknown()))
+                                .optional()
+                                .describe('Property filters on the exception event. Every filter must match.'),
+                        })
+                        .optional()
+                        .describe('The issues and exceptions the alert announces.'),
+                    condition: zod
+                        .object({
+                            triggers: zod
+                                .array(zod.enum(['issue_created', 'issue_reopened', 'issue_assigned']))
+                                .min(1)
+                                .describe(
+                                    'The issue changes the alert announces. Each matching change is announced once.'
+                                ),
+                        })
+                        .describe('The issue changes the alert announces.'),
+                })
+                .describe(
+                    'Settings for a error_tracking alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsCreateBodyOneGroupingOneMaxInstancesMax)
+                        .default(platformAlertsCreateBodyOneGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsCreateBodyOneGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyOneEvaluationPeriodsMax)
+                .default(platformAlertsCreateBodyOneEvaluationPeriodsDefault)
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyOneDatapointsToAlarmMax)
+                .default(platformAlertsCreateBodyOneDatapointsToAlarmDefault)
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsCreateBodyOneCooldownMinutesMin)
+                .max(platformAlertsCreateBodyOneCooldownMinutesMax)
+                .default(platformAlertsCreateBodyOneCooldownMinutesDefault)
+                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['logs'])
+                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
+            name: zod
+                .string()
+                .max(platformAlertsCreateBodyTwoNameMax)
+                .default(platformAlertsCreateBodyTwoNameDefault)
+                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
+            enabled: zod
+                .boolean()
+                .default(platformAlertsCreateBodyTwoEnabledDefault)
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
@@ -302,12 +455,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -373,7 +526,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
                                                                 )
                                                                 .describe('Person properties'),
                                                             value: zod
@@ -439,7 +592,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person_metadata')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Top-level columns on the persons table (e.g. created_at), not properties JSON'
@@ -507,7 +660,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('element')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -572,7 +725,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('event_metadata')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -637,7 +790,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('session')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -674,7 +827,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             key: zod
                                                                 .literal('id')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
                                                                 ),
                                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
@@ -723,12 +876,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('cohort')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
                                                                 ),
                                                             value: zod.number(),
                                                         }),
@@ -786,7 +939,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('recording')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -851,7 +1004,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('log_entry')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -925,7 +1078,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('group')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -990,7 +1143,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('feature')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Event property with \"$feature\/\" prepended'
@@ -1017,7 +1170,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             operator: zod
                                                                 .literal('flag_evaluates_to')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
                                                                 )
                                                                 .describe(
                                                                     'Only flag_evaluates_to operator is allowed for flag dependencies'
@@ -1025,7 +1178,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('flag')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
                                                                 )
                                                                 .describe('Feature flag dependency'),
                                                             value: zod
@@ -1040,7 +1193,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('hogql')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1062,7 +1215,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('empty')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
                                                                 ),
                                                         }),
                                                         zod.object({
@@ -1112,7 +1265,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1177,7 +1330,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse_person_property')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1242,7 +1395,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('error_tracking_issue')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1372,7 +1525,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('metric_attribute')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1502,7 +1655,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('revenue_analytics')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1567,7 +1720,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('account_custom_property')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -1635,7 +1788,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('workflow_variable')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -1709,12 +1862,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                         zod.null(),
                                                                                     ])
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
                                                                                     ),
                                                                                 type: zod
                                                                                     .literal('event')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
                                                                                     )
                                                                                     .describe('Event properties'),
                                                                                 value: zod
@@ -1782,7 +1935,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('person')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
                                                                                     )
                                                                                     .describe('Person properties'),
                                                                                 value: zod
@@ -1855,7 +2008,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('element')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -1922,7 +2075,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('feature')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
                                                                                     )
                                                                                     .describe(
                                                                                         'Event property with \"$feature\/\" prepended'
@@ -1951,7 +2104,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('hogql')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                                        platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -2069,7 +2222,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('behavioral')
                                                                 .default(
-                                                                    platformAlertsCreateBodyOneSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                                    platformAlertsCreateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
                                                                 )
                                                                 .describe(
                                                                     "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
@@ -2102,8 +2255,8 @@ export const PlatformAlertsCreateBody = () => zod.union([
                         .object({
                             threshold_count: zod
                                 .number()
-                                .min(platformAlertsCreateBodyOneSourceConfigOneConditionThresholdCountMin)
-                                .max(platformAlertsCreateBodyOneSourceConfigOneConditionThresholdCountMax)
+                                .min(platformAlertsCreateBodyTwoSourceConfigOneConditionThresholdCountMin)
+                                .max(platformAlertsCreateBodyTwoSourceConfigOneConditionThresholdCountMax)
                                 .describe(
                                     'Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.'
                                 ),
@@ -2123,145 +2276,6 @@ export const PlatformAlertsCreateBody = () => zod.union([
                         .describe('The bound the count is checked against.'),
                 })
                 .describe('Settings for a logs alert. The bound the alert is evaluated against is under condition.'),
-            grouping: zod
-                .object({
-                    mode: zod
-                        .enum(['single', 'by_result_labels'])
-                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
-                        .describe(
-                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
-                        ),
-                    keys: zod
-                        .array(zod.string())
-                        .optional()
-                        .describe(
-                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
-                        ),
-                    max_instances: zod
-                        .number()
-                        .min(1)
-                        .max(platformAlertsCreateBodyOneGroupingOneMaxInstancesMax)
-                        .default(platformAlertsCreateBodyOneGroupingOneMaxInstancesDefault)
-                        .describe(
-                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
-                        ),
-                    on_overflow: zod
-                        .enum(['degrade_visible'])
-                        .describe('\* `degrade_visible` - Degrade visible')
-                        .default(platformAlertsCreateBodyOneGroupingOneOnOverflowDefault)
-                        .describe(
-                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
-                        ),
-                })
-                .optional()
-                .describe('How the alert splits its results into instances. Defaults to mode single.'),
-            schedule_restriction: zod
-                .union([
-                    zod.object({
-                        blocked_windows: zod
-                            .array(
-                                zod.object({
-                                    start: zod
-                                        .string()
-                                        .describe(
-                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                                        ),
-                                    end: zod
-                                        .string()
-                                        .describe(
-                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                                        ),
-                                })
-                            )
-                            .describe(
-                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                            ),
-                    }),
-                    zod.null(),
-                ])
-                .optional()
-                .describe(
-                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
-                ),
-            evaluation_periods: zod
-                .number()
-                .min(1)
-                .max(platformAlertsCreateBodyOneEvaluationPeriodsMax)
-                .default(platformAlertsCreateBodyOneEvaluationPeriodsDefault)
-                .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
-                ),
-            datapoints_to_alarm: zod
-                .number()
-                .min(1)
-                .max(platformAlertsCreateBodyOneDatapointsToAlarmMax)
-                .default(platformAlertsCreateBodyOneDatapointsToAlarmDefault)
-                .describe(
-                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
-                ),
-            cooldown_minutes: zod
-                .number()
-                .min(platformAlertsCreateBodyOneCooldownMinutesMin)
-                .max(platformAlertsCreateBodyOneCooldownMinutesMax)
-                .default(platformAlertsCreateBodyOneCooldownMinutesDefault)
-                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
-            labels: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
-                ),
-            annotations: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
-                ),
-        })
-        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
-    zod
-        .object({
-            source_kind: zod
-                .enum(['metrics'])
-                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
-            name: zod
-                .string()
-                .max(platformAlertsCreateBodyTwoNameMax)
-                .default(platformAlertsCreateBodyTwoNameDefault)
-                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
-            enabled: zod
-                .boolean()
-                .default(platformAlertsCreateBodyTwoEnabledDefault)
-                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
-            source_config: zod
-                .object({
-                    query: zod
-                        .string()
-                        .min(1)
-                        .max(platformAlertsCreateBodyTwoSourceConfigOneQueryMax)
-                        .describe(
-                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
-                        ),
-                    condition: zod
-                        .object({
-                            kind: zod
-                                .enum(['threshold', 'present'])
-                                .default(platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault)
-                                .describe(
-                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
-                                ),
-                            operator: zod
-                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
-                                .optional()
-                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('The value a series is compared with. Required for a threshold.'),
-                        })
-                        .describe('When a series is in breach.'),
-                })
-                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
                 .object({
                     mode: zod
@@ -2328,7 +2342,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .max(platformAlertsCreateBodyTwoEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyTwoEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2343,6 +2357,145 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .min(platformAlertsCreateBodyTwoCooldownMinutesMin)
                 .max(platformAlertsCreateBodyTwoCooldownMinutesMax)
                 .default(platformAlertsCreateBodyTwoCooldownMinutesDefault)
+                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['metrics'])
+                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
+            name: zod
+                .string()
+                .max(platformAlertsCreateBodyThreeNameMax)
+                .default(platformAlertsCreateBodyThreeNameDefault)
+                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
+            enabled: zod
+                .boolean()
+                .default(platformAlertsCreateBodyThreeEnabledDefault)
+                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
+            source_config: zod
+                .object({
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsCreateBodyThreeSourceConfigOneQueryMax)
+                        .describe(
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
+                        ),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsCreateBodyThreeSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
+                })
+                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax)
+                        .default(platformAlertsCreateBodyThreeGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsCreateBodyThreeGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyThreeEvaluationPeriodsMax)
+                .default(platformAlertsCreateBodyThreeEvaluationPeriodsDefault)
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyThreeDatapointsToAlarmMax)
+                .default(platformAlertsCreateBodyThreeDatapointsToAlarmDefault)
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsCreateBodyThreeCooldownMinutesMin)
+                .max(platformAlertsCreateBodyThreeCooldownMinutesMax)
+                .default(platformAlertsCreateBodyThreeCooldownMinutesDefault)
                 .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
             labels: zod
                 .record(zod.string(), zod.string())
@@ -2372,12 +2525,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .describe('Product whose data the alert evaluates. It cannot change after the create.'),
             name: zod
                 .string()
-                .max(platformAlertsCreateBodyThreeNameMax)
-                .default(platformAlertsCreateBodyThreeNameDefault)
+                .max(platformAlertsCreateBodyFourNameMax)
+                .default(platformAlertsCreateBodyFourNameDefault)
                 .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
             enabled: zod
                 .boolean()
-                .default(platformAlertsCreateBodyThreeEnabledDefault)
+                .default(platformAlertsCreateBodyFourEnabledDefault)
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
@@ -2446,12 +2599,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -2517,7 +2670,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
                                                                 )
                                                                 .describe('Person properties'),
                                                             value: zod
@@ -2583,7 +2736,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person_metadata')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Top-level columns on the persons table (e.g. created_at), not properties JSON'
@@ -2651,7 +2804,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('element')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -2716,7 +2869,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('event_metadata')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -2781,7 +2934,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('session')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -2818,7 +2971,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             key: zod
                                                                 .literal('id')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
                                                                 ),
                                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
@@ -2867,12 +3020,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('cohort')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
                                                                 ),
                                                             value: zod.number(),
                                                         }),
@@ -2930,7 +3083,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('recording')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -2995,7 +3148,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('log_entry')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3069,7 +3222,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('group')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3134,7 +3287,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('feature')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Event property with \"$feature\/\" prepended'
@@ -3161,7 +3314,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             operator: zod
                                                                 .literal('flag_evaluates_to')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
                                                                 )
                                                                 .describe(
                                                                     'Only flag_evaluates_to operator is allowed for flag dependencies'
@@ -3169,7 +3322,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('flag')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
                                                                 )
                                                                 .describe('Feature flag dependency'),
                                                             value: zod
@@ -3184,7 +3337,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('hogql')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3206,7 +3359,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('empty')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
                                                                 ),
                                                         }),
                                                         zod.object({
@@ -3256,7 +3409,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3321,7 +3474,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse_person_property')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3386,7 +3539,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('error_tracking_issue')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3516,7 +3669,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('metric_attribute')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3646,7 +3799,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('revenue_analytics')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3711,7 +3864,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('account_custom_property')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -3779,7 +3932,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('workflow_variable')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -3853,12 +4006,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                         zod.null(),
                                                                                     ])
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
                                                                                     ),
                                                                                 type: zod
                                                                                     .literal('event')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
                                                                                     )
                                                                                     .describe('Event properties'),
                                                                                 value: zod
@@ -3926,7 +4079,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('person')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
                                                                                     )
                                                                                     .describe('Person properties'),
                                                                                 value: zod
@@ -3999,7 +4152,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('element')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -4066,7 +4219,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('feature')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
                                                                                     )
                                                                                     .describe(
                                                                                         'Event property with \"$feature\/\" prepended'
@@ -4095,7 +4248,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('hogql')
                                                                                     .default(
-                                                                                        platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                                        platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -4213,7 +4366,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('behavioral')
                                                                 .default(
-                                                                    platformAlertsCreateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                                    platformAlertsCreateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
                                                                 )
                                                                 .describe(
                                                                     "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
@@ -4253,7 +4406,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                                 .describe('The latency percentile. Required for latency.'),
                             threshold: zod
                                 .number()
-                                .min(platformAlertsCreateBodyThreeSourceConfigOneConditionThresholdMin)
+                                .min(platformAlertsCreateBodyFourSourceConfigOneConditionThresholdMin)
                                 .describe(
                                     'The bound: a count for request_count and error_count, a fraction from 0 to 1 for error_rate, milliseconds for latency.'
                                 ),
@@ -4273,135 +4426,6 @@ export const PlatformAlertsCreateBody = () => zod.union([
                         .describe('The bound the measure is checked against.'),
                 })
                 .describe('Settings for a traces alert. The bound the alert is evaluated against is under condition.'),
-            grouping: zod
-                .object({
-                    mode: zod
-                        .enum(['single', 'by_result_labels'])
-                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
-                        .describe(
-                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
-                        ),
-                    keys: zod
-                        .array(zod.string())
-                        .optional()
-                        .describe(
-                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
-                        ),
-                    max_instances: zod
-                        .number()
-                        .min(1)
-                        .max(platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax)
-                        .default(platformAlertsCreateBodyThreeGroupingOneMaxInstancesDefault)
-                        .describe(
-                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
-                        ),
-                    on_overflow: zod
-                        .enum(['degrade_visible'])
-                        .describe('\* `degrade_visible` - Degrade visible')
-                        .default(platformAlertsCreateBodyThreeGroupingOneOnOverflowDefault)
-                        .describe(
-                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
-                        ),
-                })
-                .optional()
-                .describe('How the alert splits its results into instances. Defaults to mode single.'),
-            schedule_restriction: zod
-                .union([
-                    zod.object({
-                        blocked_windows: zod
-                            .array(
-                                zod.object({
-                                    start: zod
-                                        .string()
-                                        .describe(
-                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                                        ),
-                                    end: zod
-                                        .string()
-                                        .describe(
-                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                                        ),
-                                })
-                            )
-                            .describe(
-                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                            ),
-                    }),
-                    zod.null(),
-                ])
-                .optional()
-                .describe(
-                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
-                ),
-            evaluation_periods: zod
-                .number()
-                .min(1)
-                .max(platformAlertsCreateBodyThreeEvaluationPeriodsMax)
-                .default(platformAlertsCreateBodyThreeEvaluationPeriodsDefault)
-                .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
-                ),
-            datapoints_to_alarm: zod
-                .number()
-                .min(1)
-                .max(platformAlertsCreateBodyThreeDatapointsToAlarmMax)
-                .default(platformAlertsCreateBodyThreeDatapointsToAlarmDefault)
-                .describe(
-                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
-                ),
-            cooldown_minutes: zod
-                .number()
-                .min(platformAlertsCreateBodyThreeCooldownMinutesMin)
-                .max(platformAlertsCreateBodyThreeCooldownMinutesMax)
-                .default(platformAlertsCreateBodyThreeCooldownMinutesDefault)
-                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
-            labels: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
-                ),
-            annotations: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
-                ),
-        })
-        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
-    zod
-        .object({
-            source_kind: zod
-                .enum(['warehouse_destination'])
-                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
-            name: zod
-                .string()
-                .max(platformAlertsCreateBodyFourNameMax)
-                .default(platformAlertsCreateBodyFourNameDefault)
-                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
-            enabled: zod
-                .boolean()
-                .default(platformAlertsCreateBodyFourEnabledDefault)
-                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
-            source_config: zod
-                .object({
-                    destination_ids: zod
-                        .array(zod.string())
-                        .max(platformAlertsCreateBodyFourSourceConfigOneDestinationIdsMax)
-                        .optional()
-                        .describe(
-                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
-                        ),
-                    email_project_members: zod
-                        .boolean()
-                        .default(platformAlertsCreateBodyFourSourceConfigOneEmailProjectMembersDefault)
-                        .describe(
-                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
-                        ),
-                })
-                .describe(
-                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
-                ),
             grouping: zod
                 .object({
                     mode: zod
@@ -4468,7 +4492,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .max(platformAlertsCreateBodyFourEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyFourEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -4501,7 +4525,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_source'])
+                .enum(['warehouse_destination'])
                 .describe('Product whose data the alert evaluates. It cannot change after the create.'),
             name: zod
                 .string()
@@ -4514,24 +4538,12 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
-                    source_ids: zod
+                    destination_ids: zod
                         .array(zod.string())
-                        .max(platformAlertsCreateBodyFiveSourceConfigOneSourceIdsMax)
+                        .max(platformAlertsCreateBodyFiveSourceConfigOneDestinationIdsMax)
                         .optional()
                         .describe(
-                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
-                        ),
-                    group_by: zod
-                        .enum(['schema', 'source'])
-                        .default(platformAlertsCreateBodyFiveSourceConfigOneGroupByDefault)
-                        .describe(
-                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
-                        ),
-                    include_billing_limits: zod
-                        .boolean()
-                        .default(platformAlertsCreateBodyFiveSourceConfigOneIncludeBillingLimitsDefault)
-                        .describe(
-                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
                         ),
                     email_project_members: zod
                         .boolean()
@@ -4541,7 +4553,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                         ),
                 })
                 .describe(
-                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
                 ),
             grouping: zod
                 .object({
@@ -4609,7 +4621,7 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .max(platformAlertsCreateBodyFiveEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyFiveEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -4624,6 +4636,147 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .min(platformAlertsCreateBodyFiveCooldownMinutesMin)
                 .max(platformAlertsCreateBodyFiveCooldownMinutesMax)
                 .default(platformAlertsCreateBodyFiveCooldownMinutesDefault)
+                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['warehouse_source'])
+                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
+            name: zod
+                .string()
+                .max(platformAlertsCreateBodySixNameMax)
+                .default(platformAlertsCreateBodySixNameDefault)
+                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
+            enabled: zod
+                .boolean()
+                .default(platformAlertsCreateBodySixEnabledDefault)
+                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
+            source_config: zod
+                .object({
+                    source_ids: zod
+                        .array(zod.string())
+                        .max(platformAlertsCreateBodySixSourceConfigOneSourceIdsMax)
+                        .optional()
+                        .describe(
+                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
+                        ),
+                    group_by: zod
+                        .enum(['schema', 'source'])
+                        .default(platformAlertsCreateBodySixSourceConfigOneGroupByDefault)
+                        .describe(
+                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
+                        ),
+                    include_billing_limits: zod
+                        .boolean()
+                        .default(platformAlertsCreateBodySixSourceConfigOneIncludeBillingLimitsDefault)
+                        .describe(
+                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                        ),
+                    email_project_members: zod
+                        .boolean()
+                        .default(platformAlertsCreateBodySixSourceConfigOneEmailProjectMembersDefault)
+                        .describe(
+                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
+                        ),
+                })
+                .describe(
+                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsCreateBodySixGroupingOneMaxInstancesMax)
+                        .default(platformAlertsCreateBodySixGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsCreateBodySixGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodySixEvaluationPeriodsMax)
+                .default(platformAlertsCreateBodySixEvaluationPeriodsDefault)
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodySixDatapointsToAlarmMax)
+                .default(platformAlertsCreateBodySixDatapointsToAlarmDefault)
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsCreateBodySixCooldownMinutesMin)
+                .max(platformAlertsCreateBodySixCooldownMinutesMax)
+                .default(platformAlertsCreateBodySixCooldownMinutesDefault)
                 .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
             labels: zod
                 .record(zod.string(), zod.string())
@@ -4669,174 +4822,187 @@ export const PlatformAlertsPartialUpdateParams = () => zod.object({
 
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
-
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
-export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyOneDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyOneDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyOneCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyOneCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyTwoNameMax = 255
 
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdCountMin = 0
-export const platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdCountMax = 2147483647
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneSkipWeekendDefault = false
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsDefault = 0
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsMin = 0
 
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyThreeNameMax = 255
 
-export const platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax = 10000
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionThresholdCountMin = 0
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionThresholdCountMax = 2147483647
 
-export const platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyThreeDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyThreeDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyThreeCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyThreeCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyFourNameMax = 255
 
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneConditionThresholdMin = 0
+export const platformAlertsPartialUpdateBodyFourSourceConfigOneQueryMax = 10000
 
+export const platformAlertsPartialUpdateBodyFourSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyFiveNameMax = 255
 
-export const platformAlertsPartialUpdateBodyFiveSourceConfigOneDestinationIdsMax = 100
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault = `person_metadata`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault = `element`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault = `event_metadata`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault = `session`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault = `id`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault = `in`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault = `cohort`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault = `recording`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `log_entry`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `group`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `feature`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault = `flag_evaluates_to`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `flag`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `hogql`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `empty`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `data_warehouse_person_property`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneConditionThresholdMin = 0
 
-export const platformAlertsPartialUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodySixNameMax = 255
 
-export const platformAlertsPartialUpdateBodySixSourceConfigOneSourceIdsMax = 100
+export const platformAlertsPartialUpdateBodySixSourceConfigOneDestinationIdsMax = 100
 
-export const platformAlertsPartialUpdateBodySixSourceConfigOneGroupByDefault = `source`
-export const platformAlertsPartialUpdateBodySixSourceConfigOneIncludeBillingLimitsDefault = false
 export const platformAlertsPartialUpdateBodySixSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsPartialUpdateBodySixGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodySixGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodySixEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodySixEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodySixDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodySixDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodySixCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodySixCooldownMinutesMax = 2147483647
+
+export const platformAlertsPartialUpdateBodySevenNameMax = 255
+
+export const platformAlertsPartialUpdateBodySevenSourceConfigOneSourceIdsMax = 100
+
+export const platformAlertsPartialUpdateBodySevenSourceConfigOneGroupByDefault = `source`
+export const platformAlertsPartialUpdateBodySevenSourceConfigOneIncludeBillingLimitsDefault = false
+export const platformAlertsPartialUpdateBodySevenSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesDefault = 100
+export const platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesMax = 100
+
+export const platformAlertsPartialUpdateBodySevenGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsPartialUpdateBodySevenEvaluationPeriodsMax = 1441
+
+export const platformAlertsPartialUpdateBodySevenDatapointsToAlarmMax = 1441
+
+export const platformAlertsPartialUpdateBodySevenCooldownMinutesMin = 0
+export const platformAlertsPartialUpdateBodySevenCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsPartialUpdateBody = () => zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['insight'])
+                .enum(['error_tracking'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -4848,99 +5014,30 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    insight_id: zod
-                        .number()
-                        .describe('The insight the alert checks. It cannot change through this API.'),
+                    filters: zod
+                        .object({
+                            properties: zod
+                                .array(zod.record(zod.string(), zod.unknown()))
+                                .optional()
+                                .describe('Property filters on the exception event. Every filter must match.'),
+                        })
+                        .optional()
+                        .describe('The issues and exceptions the alert announces.'),
                     condition: zod
                         .object({
-                            threshold: zod
-                                .union([
-                                    zod.object({
-                                        bounds: zod
-                                            .union([
-                                                zod.object({
-                                                    lower: zod
-                                                        .union([zod.number(), zod.null()])
-                                                        .optional()
-                                                        .describe(
-                                                            'Alert fires when the value drops below this number.'
-                                                        ),
-                                                    upper: zod
-                                                        .union([zod.number(), zod.null()])
-                                                        .optional()
-                                                        .describe('Alert fires when the value exceeds this number.'),
-                                                }),
-                                                zod.null(),
-                                            ])
-                                            .optional(),
-                                        type: zod
-                                            .enum(['absolute', 'percentage'])
-                                            .describe(
-                                                'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
+                            triggers: zod
+                                .array(zod.enum(['issue_created', 'issue_reopened', 'issue_assigned']))
+                                .min(1)
                                 .describe(
-                                    "The bounds the insight's value is checked against, absolute or as a percentage change."
-                                ),
-                            comparison: zod
-                                .object({
-                                    type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
-                                })
-                                .describe(
-                                    'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
-                                ),
-                            detector: zod
-                                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
-                                .optional()
-                                .describe(
-                                    "The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API."
+                                    'The issue changes the alert announces. Each matching change is announced once.'
                                 ),
                         })
-                        .describe("The bound the insight's value is checked against."),
-                    config: zod
-                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
-                        .optional()
-                        .describe(
-                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
-                        ),
-                    skip_weekend: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault)
-                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
-                    evaluation_delay_intervals: zod
-                        .number()
-                        .min(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin)
-                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
-                        .describe(
-                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
-                        ),
-                    investigation_agent_enabled: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
-                        .describe(
-                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
-                        ),
-                    investigation_gates_notifications: zod
-                        .boolean()
-                        .default(
-                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault
-                        )
-                        .describe(
-                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
-                        ),
-                    investigation_inconclusive_action: zod
-                        .enum(['notify', 'suppress'])
-                        .default(
-                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault
-                        )
-                        .describe(
-                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
-                        ),
+                        .describe('The issue changes the alert announces.'),
                 })
                 .optional()
-                .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
+                .describe(
+                    'Settings for a error_tracking alert. The bound the alert is evaluated against is under condition.'
+                ),
             grouping: zod
                 .object({
                     mode: zod
@@ -5007,7 +5104,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .max(platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -5040,13 +5137,217 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['logs'])
+                .enum(['insight'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
             name: zod
                 .string()
                 .max(platformAlertsPartialUpdateBodyTwoNameMax)
+                .optional()
+                .describe('Human-readable name of the alert.'),
+            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
+            source_config: zod
+                .object({
+                    insight_id: zod
+                        .number()
+                        .describe('The insight the alert checks. It cannot change through this API.'),
+                    condition: zod
+                        .object({
+                            threshold: zod
+                                .union([
+                                    zod.object({
+                                        bounds: zod
+                                            .union([
+                                                zod.object({
+                                                    lower: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Alert fires when the value drops below this number.'
+                                                        ),
+                                                    upper: zod
+                                                        .union([zod.number(), zod.null()])
+                                                        .optional()
+                                                        .describe('Alert fires when the value exceeds this number.'),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        type: zod
+                                            .enum(['absolute', 'percentage'])
+                                            .describe(
+                                                'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe(
+                                    "The bounds the insight's value is checked against, absolute or as a percentage change."
+                                ),
+                            comparison: zod
+                                .object({
+                                    type: zod.enum(['absolute_value', 'relative_increase', 'relative_decrease']),
+                                })
+                                .describe(
+                                    'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
+                                ),
+                            detector: zod
+                                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API."
+                                ),
+                        })
+                        .describe("The bound the insight's value is checked against."),
+                    config: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
+                        ),
+                    skip_weekend: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyTwoSourceConfigOneSkipWeekendDefault)
+                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
+                    evaluation_delay_intervals: zod
+                        .number()
+                        .min(platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsMin)
+                        .default(platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsDefault)
+                        .describe(
+                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(
+                            platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationGatesNotificationsDefault
+                        )
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(
+                            platformAlertsPartialUpdateBodyTwoSourceConfigOneInvestigationInconclusiveActionDefault
+                        )
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
+                        ),
+                })
+                .optional()
+                .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesMax)
+                        .default(platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsPartialUpdateBodyTwoGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax)
+                .optional()
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax)
+                .optional()
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsPartialUpdateBodyTwoCooldownMinutesMin)
+                .max(platformAlertsPartialUpdateBodyTwoCooldownMinutesMax)
+                .optional()
+                .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['logs'])
+                .describe(
+                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
+                ),
+            name: zod
+                .string()
+                .max(platformAlertsPartialUpdateBodyThreeNameMax)
                 .optional()
                 .describe('Human-readable name of the alert.'),
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
@@ -5113,12 +5414,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -5184,7 +5485,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
                                                                 )
                                                                 .describe('Person properties'),
                                                             value: zod
@@ -5250,7 +5551,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person_metadata')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Top-level columns on the persons table (e.g. created_at), not properties JSON'
@@ -5318,7 +5619,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('element')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5383,7 +5684,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('event_metadata')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5448,7 +5749,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('session')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5485,7 +5786,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             key: zod
                                                                 .literal('id')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
                                                                 ),
                                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
@@ -5534,12 +5835,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('cohort')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
                                                                 ),
                                                             value: zod.number(),
                                                         }),
@@ -5597,7 +5898,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('recording')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5662,7 +5963,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('log_entry')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5736,7 +6037,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('group')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5801,7 +6102,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('feature')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Event property with \"$feature\/\" prepended'
@@ -5828,7 +6129,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             operator: zod
                                                                 .literal('flag_evaluates_to')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
                                                                 )
                                                                 .describe(
                                                                     'Only flag_evaluates_to operator is allowed for flag dependencies'
@@ -5836,7 +6137,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('flag')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
                                                                 )
                                                                 .describe('Feature flag dependency'),
                                                             value: zod
@@ -5851,7 +6152,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('hogql')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5873,7 +6174,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('empty')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
                                                                 ),
                                                         }),
                                                         zod.object({
@@ -5923,7 +6224,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -5988,7 +6289,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse_person_property')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -6053,7 +6354,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('error_tracking_issue')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -6183,7 +6484,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('metric_attribute')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -6313,7 +6614,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('revenue_analytics')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -6378,7 +6679,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('account_custom_property')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -6446,7 +6747,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('workflow_variable')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -6520,12 +6821,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                         zod.null(),
                                                                                     ])
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
                                                                                     ),
                                                                                 type: zod
                                                                                     .literal('event')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
                                                                                     )
                                                                                     .describe('Event properties'),
                                                                                 value: zod
@@ -6593,7 +6894,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('person')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
                                                                                     )
                                                                                     .describe('Person properties'),
                                                                                 value: zod
@@ -6666,7 +6967,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('element')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -6733,7 +7034,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('feature')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
                                                                                     )
                                                                                     .describe(
                                                                                         'Event property with \"$feature\/\" prepended'
@@ -6762,7 +7063,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('hogql')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -6880,7 +7181,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('behavioral')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyTwoSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyThreeSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
                                                                 )
                                                                 .describe(
                                                                     "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
@@ -6913,8 +7214,8 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                         .object({
                             threshold_count: zod
                                 .number()
-                                .min(platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdCountMin)
-                                .max(platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdCountMax)
+                                .min(platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionThresholdCountMin)
+                                .max(platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionThresholdCountMax)
                                 .describe(
                                     'Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.'
                                 ),
@@ -6935,145 +7236,6 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 })
                 .optional()
                 .describe('Settings for a logs alert. The bound the alert is evaluated against is under condition.'),
-            grouping: zod
-                .object({
-                    mode: zod
-                        .enum(['single', 'by_result_labels'])
-                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
-                        .describe(
-                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
-                        ),
-                    keys: zod
-                        .array(zod.string())
-                        .optional()
-                        .describe(
-                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
-                        ),
-                    max_instances: zod
-                        .number()
-                        .min(1)
-                        .max(platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesMax)
-                        .default(platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesDefault)
-                        .describe(
-                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
-                        ),
-                    on_overflow: zod
-                        .enum(['degrade_visible'])
-                        .describe('\* `degrade_visible` - Degrade visible')
-                        .default(platformAlertsPartialUpdateBodyTwoGroupingOneOnOverflowDefault)
-                        .describe(
-                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
-                        ),
-                })
-                .optional()
-                .describe('How the alert splits its results into instances.'),
-            schedule_restriction: zod
-                .union([
-                    zod.object({
-                        blocked_windows: zod
-                            .array(
-                                zod.object({
-                                    start: zod
-                                        .string()
-                                        .describe(
-                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                                        ),
-                                    end: zod
-                                        .string()
-                                        .describe(
-                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                                        ),
-                                })
-                            )
-                            .describe(
-                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                            ),
-                    }),
-                    zod.null(),
-                ])
-                .optional()
-                .describe(
-                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
-                ),
-            evaluation_periods: zod
-                .number()
-                .min(1)
-                .max(platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax)
-                .optional()
-                .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
-                ),
-            datapoints_to_alarm: zod
-                .number()
-                .min(1)
-                .max(platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax)
-                .optional()
-                .describe(
-                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
-                ),
-            cooldown_minutes: zod
-                .number()
-                .min(platformAlertsPartialUpdateBodyTwoCooldownMinutesMin)
-                .max(platformAlertsPartialUpdateBodyTwoCooldownMinutesMax)
-                .optional()
-                .describe('Minimum minutes between notifications for the same alert.'),
-            labels: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
-                ),
-            annotations: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
-                ),
-        })
-        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
-    zod
-        .object({
-            source_kind: zod
-                .enum(['metrics'])
-                .describe(
-                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
-                ),
-            name: zod
-                .string()
-                .max(platformAlertsPartialUpdateBodyThreeNameMax)
-                .optional()
-                .describe('Human-readable name of the alert.'),
-            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
-            source_config: zod
-                .object({
-                    query: zod
-                        .string()
-                        .min(1)
-                        .max(platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax)
-                        .describe(
-                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
-                        ),
-                    condition: zod
-                        .object({
-                            kind: zod
-                                .enum(['threshold', 'present'])
-                                .default(platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault)
-                                .describe(
-                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
-                                ),
-                            operator: zod
-                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
-                                .optional()
-                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('The value a series is compared with. Required for a threshold.'),
-                        })
-                        .describe('When a series is in breach.'),
-                })
-                .optional()
-                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
                 .object({
                     mode: zod
@@ -7140,7 +7302,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .max(platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -7154,6 +7316,145 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .number()
                 .min(platformAlertsPartialUpdateBodyThreeCooldownMinutesMin)
                 .max(platformAlertsPartialUpdateBodyThreeCooldownMinutesMax)
+                .optional()
+                .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['metrics'])
+                .describe(
+                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
+                ),
+            name: zod
+                .string()
+                .max(platformAlertsPartialUpdateBodyFourNameMax)
+                .optional()
+                .describe('Human-readable name of the alert.'),
+            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
+            source_config: zod
+                .object({
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyFourSourceConfigOneQueryMax)
+                        .describe(
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
+                        ),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsPartialUpdateBodyFourSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
+                })
+                .optional()
+                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesMax)
+                        .default(platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsPartialUpdateBodyFourGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax)
+                .optional()
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax)
+                .optional()
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsPartialUpdateBodyFourCooldownMinutesMin)
+                .max(platformAlertsPartialUpdateBodyFourCooldownMinutesMax)
                 .optional()
                 .describe('Minimum minutes between notifications for the same alert.'),
             labels: zod
@@ -7186,7 +7487,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 ),
             name: zod
                 .string()
-                .max(platformAlertsPartialUpdateBodyFourNameMax)
+                .max(platformAlertsPartialUpdateBodyFiveNameMax)
                 .optional()
                 .describe('Human-readable name of the alert.'),
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
@@ -7257,12 +7558,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwoTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -7328,7 +7629,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemThreeTypeDefault
                                                                 )
                                                                 .describe('Person properties'),
                                                             value: zod
@@ -7394,7 +7695,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('person_metadata')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFourTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Top-level columns on the persons table (e.g. created_at), not properties JSON'
@@ -7462,7 +7763,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('element')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemFiveTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7527,7 +7828,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('event_metadata')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7592,7 +7893,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('session')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemSevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7629,7 +7930,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             key: zod
                                                                 .literal('id')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightKeyDefault
                                                                 ),
                                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
@@ -7678,12 +7979,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('cohort')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemEightTypeDefault
                                                                 ),
                                                             value: zod.number(),
                                                         }),
@@ -7741,7 +8042,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('recording')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemNineTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7806,7 +8107,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('log_entry')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnezeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7880,7 +8181,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('group')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneoneTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -7945,7 +8246,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('feature')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Event property with \"$feature\/\" prepended'
@@ -7972,7 +8273,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             operator: zod
                                                                 .literal('flag_evaluates_to')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeOperatorDefault
                                                                 )
                                                                 .describe(
                                                                     'Only flag_evaluates_to operator is allowed for flag dependencies'
@@ -7980,7 +8281,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('flag')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnethreeTypeDefault
                                                                 )
                                                                 .describe('Feature flag dependency'),
                                                             value: zod
@@ -7995,7 +8296,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('hogql')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8017,7 +8318,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('empty')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnefiveTypeDefault
                                                                 ),
                                                         }),
                                                         zod.object({
@@ -8067,7 +8368,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesixTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8132,7 +8433,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('data_warehouse_person_property')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOnesevenTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8197,7 +8498,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('error_tracking_issue')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemOneeightTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8327,7 +8628,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('metric_attribute')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwozeroTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8457,7 +8758,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('revenue_analytics')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwotwoTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8522,7 +8823,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('account_custom_property')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                                 )
                                                                 .describe(
                                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -8590,7 +8891,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('workflow_variable')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                                 ),
                                                             value: zod
                                                                 .union([
@@ -8664,12 +8965,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                         zod.null(),
                                                                                     ])
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
                                                                                     ),
                                                                                 type: zod
                                                                                     .literal('event')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
                                                                                     )
                                                                                     .describe('Event properties'),
                                                                                 value: zod
@@ -8737,7 +9038,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('person')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
                                                                                     )
                                                                                     .describe('Person properties'),
                                                                                 value: zod
@@ -8810,7 +9111,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('element')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -8877,7 +9178,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('feature')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
                                                                                     )
                                                                                     .describe(
                                                                                         'Event property with \"$feature\/\" prepended'
@@ -8906,7 +9207,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                                                 type: zod
                                                                                     .literal('hogql')
                                                                                     .default(
-                                                                                        platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                                        platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
                                                                                     ),
                                                                                 value: zod
                                                                                     .union([
@@ -9024,7 +9325,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                                             type: zod
                                                                 .literal('behavioral')
                                                                 .default(
-                                                                    platformAlertsPartialUpdateBodyFourSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                                    platformAlertsPartialUpdateBodyFiveSourceConfigOneFiltersFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
                                                                 )
                                                                 .describe(
                                                                     "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
@@ -9064,7 +9365,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                 .describe('The latency percentile. Required for latency.'),
                             threshold: zod
                                 .number()
-                                .min(platformAlertsPartialUpdateBodyFourSourceConfigOneConditionThresholdMin)
+                                .min(platformAlertsPartialUpdateBodyFiveSourceConfigOneConditionThresholdMin)
                                 .describe(
                                     'The bound: a count for request_count and error_count, a fraction from 0 to 1 for error_rate, milliseconds for latency.'
                                 ),
@@ -9085,135 +9386,6 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 })
                 .optional()
                 .describe('Settings for a traces alert. The bound the alert is evaluated against is under condition.'),
-            grouping: zod
-                .object({
-                    mode: zod
-                        .enum(['single', 'by_result_labels'])
-                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
-                        .describe(
-                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
-                        ),
-                    keys: zod
-                        .array(zod.string())
-                        .optional()
-                        .describe(
-                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
-                        ),
-                    max_instances: zod
-                        .number()
-                        .min(1)
-                        .max(platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesMax)
-                        .default(platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesDefault)
-                        .describe(
-                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
-                        ),
-                    on_overflow: zod
-                        .enum(['degrade_visible'])
-                        .describe('\* `degrade_visible` - Degrade visible')
-                        .default(platformAlertsPartialUpdateBodyFourGroupingOneOnOverflowDefault)
-                        .describe(
-                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
-                        ),
-                })
-                .optional()
-                .describe('How the alert splits its results into instances.'),
-            schedule_restriction: zod
-                .union([
-                    zod.object({
-                        blocked_windows: zod
-                            .array(
-                                zod.object({
-                                    start: zod
-                                        .string()
-                                        .describe(
-                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
-                                        ),
-                                    end: zod
-                                        .string()
-                                        .describe(
-                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
-                                        ),
-                                })
-                            )
-                            .describe(
-                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
-                            ),
-                    }),
-                    zod.null(),
-                ])
-                .optional()
-                .describe(
-                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
-                ),
-            evaluation_periods: zod
-                .number()
-                .min(1)
-                .max(platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax)
-                .optional()
-                .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
-                ),
-            datapoints_to_alarm: zod
-                .number()
-                .min(1)
-                .max(platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax)
-                .optional()
-                .describe(
-                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
-                ),
-            cooldown_minutes: zod
-                .number()
-                .min(platformAlertsPartialUpdateBodyFourCooldownMinutesMin)
-                .max(platformAlertsPartialUpdateBodyFourCooldownMinutesMax)
-                .optional()
-                .describe('Minimum minutes between notifications for the same alert.'),
-            labels: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
-                ),
-            annotations: zod
-                .record(zod.string(), zod.string())
-                .optional()
-                .describe(
-                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
-                ),
-        })
-        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
-    zod
-        .object({
-            source_kind: zod
-                .enum(['warehouse_destination'])
-                .describe(
-                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
-                ),
-            name: zod
-                .string()
-                .max(platformAlertsPartialUpdateBodyFiveNameMax)
-                .optional()
-                .describe('Human-readable name of the alert.'),
-            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
-            source_config: zod
-                .object({
-                    destination_ids: zod
-                        .array(zod.string())
-                        .max(platformAlertsPartialUpdateBodyFiveSourceConfigOneDestinationIdsMax)
-                        .optional()
-                        .describe(
-                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
-                        ),
-                    email_project_members: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault)
-                        .describe(
-                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
-                        ),
-                })
-                .optional()
-                .describe(
-                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
-                ),
             grouping: zod
                 .object({
                     mode: zod
@@ -9280,7 +9452,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .max(platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -9313,7 +9485,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_source'])
+                .enum(['warehouse_destination'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -9325,24 +9497,12 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    source_ids: zod
+                    destination_ids: zod
                         .array(zod.string())
-                        .max(platformAlertsPartialUpdateBodySixSourceConfigOneSourceIdsMax)
+                        .max(platformAlertsPartialUpdateBodySixSourceConfigOneDestinationIdsMax)
                         .optional()
                         .describe(
-                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
-                        ),
-                    group_by: zod
-                        .enum(['schema', 'source'])
-                        .default(platformAlertsPartialUpdateBodySixSourceConfigOneGroupByDefault)
-                        .describe(
-                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
-                        ),
-                    include_billing_limits: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodySixSourceConfigOneIncludeBillingLimitsDefault)
-                        .describe(
-                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
                         ),
                     email_project_members: zod
                         .boolean()
@@ -9353,7 +9513,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 })
                 .optional()
                 .describe(
-                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
                 ),
             grouping: zod
                 .object({
@@ -9421,7 +9581,7 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .max(platformAlertsPartialUpdateBodySixEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -9435,6 +9595,147 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .number()
                 .min(platformAlertsPartialUpdateBodySixCooldownMinutesMin)
                 .max(platformAlertsPartialUpdateBodySixCooldownMinutesMax)
+                .optional()
+                .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['warehouse_source'])
+                .describe(
+                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
+                ),
+            name: zod
+                .string()
+                .max(platformAlertsPartialUpdateBodySevenNameMax)
+                .optional()
+                .describe('Human-readable name of the alert.'),
+            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
+            source_config: zod
+                .object({
+                    source_ids: zod
+                        .array(zod.string())
+                        .max(platformAlertsPartialUpdateBodySevenSourceConfigOneSourceIdsMax)
+                        .optional()
+                        .describe(
+                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
+                        ),
+                    group_by: zod
+                        .enum(['schema', 'source'])
+                        .default(platformAlertsPartialUpdateBodySevenSourceConfigOneGroupByDefault)
+                        .describe(
+                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
+                        ),
+                    include_billing_limits: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodySevenSourceConfigOneIncludeBillingLimitsDefault)
+                        .describe(
+                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                        ),
+                    email_project_members: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodySevenSourceConfigOneEmailProjectMembersDefault)
+                        .describe(
+                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
+                        ),
+                })
+                .optional()
+                .describe(
+                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesMax)
+                        .default(platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsPartialUpdateBodySevenGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodySevenEvaluationPeriodsMax)
+                .optional()
+                .describe(
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
+                ),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodySevenDatapointsToAlarmMax)
+                .optional()
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsPartialUpdateBodySevenCooldownMinutesMin)
+                .max(platformAlertsPartialUpdateBodySevenCooldownMinutesMax)
                 .optional()
                 .describe('Minimum minutes between notifications for the same alert.'),
             labels: zod

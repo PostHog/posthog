@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import SimpleTestCase
 
+import httpx
+from openai import APIStatusError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
@@ -41,11 +43,11 @@ from products.error_tracking.backend.logic.issue_summaries import (
     parse_summary_response,
     unsafe_summary_fields,
 )
-from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG, ISSUE_SUMMARY_ON_WRITE_FLAG
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueSummary,
+    ErrorTrackingSettings,
 )
 from products.error_tracking.backend.temporal.lifecycle import summary_worker
 from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
@@ -58,6 +60,9 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowInputs,
 )
 from products.event_definitions.backend.models import PropertyDefinition
+
+from ee.billing import quota_limiting
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 SUMMARY_REPLY = {
     "what_happened": "Checkout throws when the cart is empty.",
@@ -72,6 +77,11 @@ def _completion(content: str) -> MagicMock:
     response = MagicMock()
     response.choices = [MagicMock(message=MagicMock(content=content))]
     return response
+
+
+def _payment_required(headers: dict[str, str]) -> APIStatusError:
+    request = httpx.Request("POST", "https://gateway.example.com/v1/chat/completions")
+    return APIStatusError("Payment required", response=httpx.Response(402, headers=headers, request=request), body=None)
 
 
 class TestIssueSummaryParsing(SimpleTestCase):
@@ -168,6 +178,18 @@ FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
         IssueSummaryOutcome.MODEL_ERROR,
     ),
     (
+        "gateway_refuses_for_credits",
+        lambda test: test.completions.configure_mock(
+            side_effect=_payment_required({"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"})
+        ),
+        IssueSummaryOutcome.OUT_OF_CREDITS,
+    ),
+    (
+        "provider_refuses_payment",
+        lambda test: test.completions.configure_mock(side_effect=_payment_required({})),
+        IssueSummaryOutcome.MODEL_ERROR,
+    ),
+    (
         "llm_invalid_output",
         lambda test: test.completions.configure_mock(return_value=_completion("not json")),
         IssueSummaryOutcome.INVALID_OUTPUT,
@@ -190,6 +212,7 @@ class TestIssueSummaryGeneration(BaseTest):
         TEST_clear_clients()
         TEST_reset_scripts()
         self.issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        self.summary_settings = ErrorTrackingSettings.objects.create(team=self.team, ai_issue_summaries_enabled=True)
         self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash="hash-1")
         self.client_mock = MagicMock()
         self.client_mock.with_options.return_value.chat.completions.create.return_value = _completion(
@@ -230,6 +253,17 @@ class TestIssueSummaryGeneration(BaseTest):
     def _disapprove_ai(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
+
+    def _turn_summaries_off(self) -> None:
+        self.summary_settings.ai_issue_summaries_enabled = False
+        self.summary_settings.save()
+
+    def _exhaust_ai_credits(self) -> None:
+        add_limited_team_tokens(
+            QuotaResource.AI_CREDITS,
+            {self.team.api_token: int(datetime.now(UTC).timestamp()) + 3600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
 
     def _drain_write_budget(self, team_id: int) -> None:
         tiny = Budget(burst=1, per_hour=1)
@@ -285,19 +319,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert properties["trigger"] == "write"
         assert stages <= {key for key in properties if key.endswith("_ms")}
 
-    @parameterized.expand(
-        [
-            (
-                "flag_off",
-                lambda test: test.enterContext(
-                    patch.object(team_flags, "feature_enabled_or_false", return_value=False)
-                ),
-                IssueSummaryOutcome.DISABLED,
-            ),
-            ("ai_not_approved", lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
-            *FAILURE_CASES,
-        ]
-    )
+    @parameterized.expand(FAILURE_CASES)
     def test_no_summary_when_blocked_or_failed(self, _name: str, arrange: Any, expected: IssueSummaryOutcome) -> None:
         arrange(self)
 
@@ -343,26 +365,38 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            ("on_write_flag_off", {ISSUE_SUMMARY_ON_WRITE_FLAG}, None, IssueSummaryOutcome.DISABLED),
-            ("read_flag_off", {ISSUE_SUMMARY_FLAG}, None, IssueSummaryOutcome.DISABLED),
-            ("ai_not_approved", set(), lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
+            (
+                "flag_off",
+                lambda test: test.enterContext(
+                    patch.object(team_flags, "feature_enabled_or_false", return_value=False)
+                ),
+                IssueSummaryOutcome.DISABLED,
+                False,
+            ),
+            ("setting_off", lambda test: test._turn_summaries_off(), IssueSummaryOutcome.SETTING_OFF, False),
+            ("no_settings_row", lambda test: test.summary_settings.delete(), IssueSummaryOutcome.SETTING_OFF, False),
+            ("ai_not_approved", lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED, True),
+            ("out_of_credits", lambda test: test._exhaust_ai_credits(), IssueSummaryOutcome.OUT_OF_CREDITS, True),
+            (
+                "credit_lookup_fails",
+                lambda test: test.enterContext(
+                    patch.object(quota_limiting, "get_client", side_effect=RedisError("down"))
+                ),
+                IssueSummaryOutcome.GENERATED,
+                True,
+            ),
             (
                 "write_budget_drained",
-                set(),
                 lambda test: test._drain_write_budget(test.team.id),
                 IssueSummaryOutcome.RATE_LIMITED,
+                True,
             ),
-            ("all_checks_pass", set(), None, IssueSummaryOutcome.GENERATED),
+            ("all_checks_pass", None, IssueSummaryOutcome.GENERATED, True),
         ]
     )
-    def test_issue_created_summary_activity_fails_closed(
-        self, _name: str, flags_off: set[str], arrange: Any, expected: IssueSummaryOutcome
+    def test_issue_created_summary_activity_gates_generation(
+        self, _name: str, arrange: Any, expected: IssueSummaryOutcome, reported: bool
     ) -> None:
-        self.enterContext(
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag not in flags_off
-            )
-        )
         fetch = self.enterContext(
             patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
         )
@@ -370,13 +404,20 @@ class TestIssueSummaryGeneration(BaseTest):
         self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         if arrange is not None:
             arrange(self)
+        counter_labels = {"outcome": expected.value, "trigger": "write"}
+        counted_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
-        outcome = generate_issue_created_summary_activity(self._issue_created_inputs())
+        with self.assertNumQueries(0) if expected == IssueSummaryOutcome.DISABLED else nullcontext():
+            outcome = generate_issue_created_summary_activity(self._issue_created_inputs())
 
         assert outcome == expected.value
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
         assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
-        assert capture.called is (ISSUE_SUMMARY_ON_WRITE_FLAG not in flags_off)
+        assert capture.called is reported
+        counted = (
+            REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
+        ) - counted_before
+        assert counted == (0 if expected == IssueSummaryOutcome.DISABLED else 1)
 
     def test_issue_created_summary_activity_skips_while_worker_summary_slots_are_full(self) -> None:
         self.enterContext(
@@ -390,7 +431,8 @@ class TestIssueSummaryGeneration(BaseTest):
         skips_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
         slots.acquire()
-        assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "rate_limited"
+        with self.assertNumQueries(0):
+            assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "rate_limited"
         assert self.llm_calls == 0
         capture.assert_called_once()
         assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
