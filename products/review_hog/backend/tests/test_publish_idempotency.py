@@ -17,6 +17,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
@@ -152,6 +153,10 @@ def _pr_metadata(head_sha: str) -> PRMetadata:
         deletions=0,
         changed_files=1,
     )
+
+
+_DRAFT_NOTE = "This is the only automatic review while this pull request is a draft."
+_LAST_NOTE = "This is the last automatic review of this pull request."
 
 
 class TestPublishIdempotency(BaseTest):
@@ -308,31 +313,55 @@ class TestPublishIdempotency(BaseTest):
 
     @parameterized.expand(
         [
-            ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
+            (
+                "automatic_draft_with_commands",
+                "automatic",
+                True,
+                True,
+                False,
+                _DRAFT_NOTE,
+                "Comment `@posthog review`",
+                False,
+            ),
             (
                 "automatic_draft_without_commands",
                 "automatic",
                 True,
                 False,
-                "Start a review in PostHog Review to",
+                False,
+                _DRAFT_NOTE,
+                "Start a review in PostHog Review",
                 False,
             ),
-            ("automatic_ready", "automatic", False, True, None, False),
-            # A Stamphog handoff also runs for authors without automatic reviews, so it cannot promise one on ready.
-            ("stamphog_draft", "stamphog", True, True, None, True),
-            ("comment_ready", "comment", False, True, None, True),
-            ("ui_ready", "ui", False, True, None, True),
-            ("inbox_ready", "inbox", False, True, None, False),
+            (
+                "automatic_draft_with_push_reviews",
+                "automatic",
+                True,
+                True,
+                True,
+                _DRAFT_NOTE,
+                "Comment `@posthog review`",
+                False,
+            ),
+            ("automatic_ready", "automatic", False, True, False, _LAST_NOTE, "Comment `@posthog review`", False),
+            ("automatic_ready_with_push_reviews", "automatic", False, True, True, None, None, False),
+            ("automatic_ready_unknown_cadence", "automatic", False, True, None, None, None, False),
+            ("stamphog_draft", "stamphog", True, True, False, None, None, True),
+            ("comment_ready", "comment", False, True, False, None, None, True),
+            ("ui_ready", "ui", False, True, False, None, None, True),
+            ("inbox_ready", "inbox", False, True, False, None, None, False),
         ]
     )
     @patch(_PUBLISH)
     @patch(_AUTH, return_value=("tok", None))
-    def test_the_publish_notes_follow_the_trigger(
+    def test_the_publish_notes_follow_the_trigger_and_the_cadence(
         self,
         _name: str,
         trigger_source: str,
         draft: bool,
         commands_on: bool,
+        review_pushes: bool | None,
+        expected_note: str | None,
         expected_trigger: str | None,
         expects_reply: bool,
         _auth,
@@ -346,19 +375,24 @@ class TestPublishIdempotency(BaseTest):
             pr_comments=[],
             pr_files=[],
         )
+        cadence = None if review_pushes is None else ReviewCadence(review_drafts=True, review_pushes=review_pushes)
         with (
             patch(_SNAPSHOT, return_value=snapshot),
+            patch(f"{_ACTIVITIES}.load_pr_snapshot", return_value=snapshot),
             patch(f"{_ACTIVITIES}.comment_commands_enabled", return_value=commands_on),
+            patch(f"{_ACTIVITIES}.ReviewCadence.load", return_value=cadence),
         ):
             _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source=trigger_source))
 
         assert mock_publish.call_args.kwargs["answers_request"] is expects_reply
         findings_footer = mock_publish.call_args.kwargs["findings_footer"]
-        if expected_trigger is None:
+        if expected_note is None:
             assert findings_footer == ""
         else:
-            assert findings_footer.startswith("This is the only automatic review while this pull request is a draft.")
+            assert findings_footer.startswith(expected_note)
             assert expected_trigger in findings_footer
+        if trigger_source == "automatic":
+            assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).automatic_reviewed_draft is draft
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

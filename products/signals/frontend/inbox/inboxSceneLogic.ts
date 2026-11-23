@@ -12,7 +12,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -59,7 +58,7 @@ import {
     SignalScoutRunSummary,
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
-import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { inboxBackPath, inboxTabRedirectPath } from './utils/inboxReportUrls'
 import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
@@ -1088,9 +1087,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // A report page is a Reports-tab surface even when reached from a scout page, so its
-            // back button returns to the report list.
-            if (values.activeTab !== 'reports') {
+            // Keep Monitoring or Scouts behind its report so closing the report does not add a Reports entry to browser history.
+            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring' && values.activeTab !== 'scouts') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
@@ -1331,7 +1329,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // Opened from triage mode: the report page's back control returns to the spot in the
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
-                ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
+                ? { back: inboxBackPath(router.values.location) }
                 : withoutLinkParams(router.values.searchParams),
             router.values.hashParams,
             // Replace, so Back does not return to the link URL and its `link_source`.
@@ -1515,9 +1513,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (tab !== 'reports') {
                     router.actions.replace(urls.inboxReport('reports', reportId), searchParams, hashParams)
                     return
-                }
-                if (values.activeTab !== 'reports') {
-                    actions.setActiveTab('reports')
                 }
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full

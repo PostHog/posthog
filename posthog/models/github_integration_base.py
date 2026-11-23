@@ -250,6 +250,11 @@ class GitHubIntegrationError(Exception):
         self.status_code = status_code
 
 
+class GitHubInstallationUnavailableError(GitHubIntegrationError):
+    """The installation is suspended or uninstalled, so only a reconnect fixes the call (see
+    :meth:`GitHubIntegrationBase.installation_unavailable`). A retry can't."""
+
+
 class ReauthorizationRequired(Exception):
     """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 

@@ -95,6 +95,32 @@ cost 1,000 in total, and a retention query costs 8 per day, so the window must s
   `{r1d..r90d, count, paid, total_amount}`, which becomes one row with a `metric` label.
   Primary key: `["date", "metric"]`.
 
+### `lookup_tables` — `/api/3/lookup_table`
+
+- Grain: one lookup table definition. Primary key: `name` (tables are named uniquely per project).
+  Sync mode: full refresh.
+- Lookup Table API 2, on its own host: US `https://data-api.amplitude.com`, EU
+  `https://data-api.eu.amplitude.com`. Same HTTP Basic auth as the other project endpoints.
+- Returns a bare JSON array with no paging. Needs a Growth or Enterprise plan with the Govern add-on.
+- The table contents (`/api/3/lookup_table/:name/csv`) are not synced: each table has its own CSV columns.
+- The v1 API (`/api/2/lookup_table`) is deprecated, so it is not used.
+
+### Experiment Management API: `experiments`, `flags`, `deployments`
+
+- Paths: `/api/1/experiments`, `/api/1/flags`, `/api/1/deployments`. Primary key: `id`. Sync mode: full refresh.
+- Own host: US `https://experiment.amplitude.com`, EU `https://experiment.eu.amplitude.com`.
+- Auth: `Authorization: Bearer <management API key>`. This key is separate from the project API key and
+  secret key, so the source has an optional `management_api_key` field. Without it these tables report a
+  permission error in the schema picker, and a sync fails with a non-retryable error. `401`/`403` mean the
+  key is invalid or has no access to the project.
+- Responses are wrapped in `{"experiments" | "flags" | "deployments": [...], "nextCursor": ...}`. We send
+  `limit=1000` (the cap) and pass `nextCursor` back as `cursor` until it is absent, empty, or repeats.
+- `experiments` and `flags` send `includeArchived=true`, so archived items stay in the table. Lists are
+  ordered newest first and have no timestamp filter.
+- `deployments` drops the `key` field: it is the deployment key that SDKs use, and a server deployment key
+  is a secret.
+- Rate limit: 100 requests per second and 100,000 per day, per project.
+
 ## Not synced
 
 - `GET /api/2/release` — the Releases API documents only `POST` (create a release). There is no list call.

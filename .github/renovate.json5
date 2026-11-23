@@ -123,7 +123,6 @@
         '@oxfmt/*',
         '@shadcn/react',
         'kea-typegen',
-        '@typescript/native-preview*',
         'shiki',
         'shadcn',
         '@shikijs/*',
