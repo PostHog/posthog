@@ -2153,6 +2153,13 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "ORDER BY l.live",
             [(0, 10), (1, 20)],
         ),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT 'c'), rows AS (SELECT ['a', 'b', 'd'] AS items) "
+            "SELECT arrayFilter(x -> x NOT IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded WHERE v = 'z'), items) FROM rows",
+            [(["a", "d"], ["b"], ["a", "b", "d"])],
+        ),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
@@ -3405,6 +3412,10 @@ def test_removes_noop_sample_one_for_trino() -> None:
     ("query", "feature_code"),
     [
         ("SELECT user_id FROM users SAMPLE 0.5", "TRINO_SAMPLE_UNSUPPORTED"),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT user_id FROM users WHERE id = x), [user_id]) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_CORRELATED",
+        ),
         (
             "SELECT * FROM users PIVOT(uniq(user_id) FOR created_at IN ('2026-01-01'))",
             "TRINO_PIVOT_AGGREGATE_UNSUPPORTED",
