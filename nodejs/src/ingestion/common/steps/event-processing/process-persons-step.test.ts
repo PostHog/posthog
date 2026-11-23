@@ -12,10 +12,13 @@ import { InternalPerson, Team } from '~/types'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
+type EventFields = Pick<PluginEvent, 'event' | 'properties'>
+
 describe('createProcessPersonsStep with the personhog store', () => {
     const TEAM_ID = 1
     const DISTINCT_ID = 'known-id'
     const PERSON_ID = '7'
+    const TIMESTAMP = '2026-08-07T00:00:00Z'
 
     const options: EventPipelineRunnerOptions = {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
@@ -86,24 +89,24 @@ describe('createProcessPersonsStep with the personhog store', () => {
         return await pending
     }
 
-    const runStep = async (event: Partial<PluginEvent>, { prefetch }: { prefetch: boolean }) => {
-        const normalizedEvent = {
+    const runStep = async (event: EventFields, { prefetch }: { prefetch: boolean }) => {
+        const normalizedEvent: PluginEvent = {
             uuid: 'event-uuid',
             distinct_id: DISTINCT_ID,
             team_id: TEAM_ID,
             ip: null,
             site_url: '',
-            now: '2026-08-07T00:00:00Z',
-            timestamp: '2026-08-07T00:00:00Z',
+            now: TIMESTAMP,
+            timestamp: TIMESTAMP,
             ...event,
-        } as PluginEvent
+        }
         if (prefetch) {
             await store.prefetchPersons([{ teamId: TEAM_ID, distinctId: DISTINCT_ID, batchId: 0 }])
         }
         const input: ProcessPersonsInput = {
             normalizedEvent,
             team: { id: TEAM_ID } as Team,
-            timestamp: DateTime.fromISO(normalizedEvent.timestamp!),
+            timestamp: DateTime.fromISO(TIMESTAMP),
             personsStoreForBatch: store.forBatch(0),
             mergeFold: { type: 'immediate' },
         }
@@ -115,7 +118,7 @@ describe('createProcessPersonsStep with the personhog store', () => {
     }
 
     const refusal = 'stored person properties cannot be parsed'
-    const events: [string, Partial<PluginEvent>][] = [
+    const events: [string, EventFields][] = [
         ['a $set event', { event: '$set', properties: { $set: { plan: 'pro' } } }],
         ['an $identify', { event: '$identify', properties: { $anon_distinct_id: 'anon-id', $set: { plan: 'pro' } } }],
     ]
