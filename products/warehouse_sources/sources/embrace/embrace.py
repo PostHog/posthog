@@ -10,11 +10,12 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.embrace.settings import (
     AUTH_ERRORS,
     ENDPOINTS,
+    HOUR_SECONDS,
     MAX_SYNC_SECONDS,
     PRIMARY_KEYS,
     REGION_HOSTS,
     STEP_SECONDS,
-    WINDOW_SECONDS,
+    WINDOW_POINTS,
 )
 from products.warehouse_sources.sources.sdk import RESTAPIConfig, SourceResponse, frozen, rest_api_resource
 
@@ -34,6 +35,10 @@ class MetricRow(TypedDict):
     timestamp: datetime
     value: float | None
     labels: dict[str, str]
+
+
+def latest_complete_point(step: int) -> int:
+    return int(datetime.now(UTC).timestamp()) // step * step - step
 
 
 class EmbraceClient:
@@ -68,7 +73,7 @@ class EmbraceClient:
                     "endpoint": {
                         "path": "query_range",
                         "data_selector": "$",
-                        "params": {"query": query, "start": start, "end": end, "step": STEP_SECONDS},
+                        "params": {"query": query, "start": start, "end": end, "step": STEP_SECONDS[endpoint]},
                     },
                 }
             ],
@@ -106,7 +111,7 @@ def validate_credentials(
 ) -> tuple[bool, str | None]:
     try:
         client = EmbraceClient(config, team_id, "", api_version)
-        timestamp = int(datetime.now(UTC).timestamp()) // STEP_SECONDS * STEP_SECONDS - STEP_SECONDS
+        timestamp = latest_complete_point(STEP_SECONDS.get(endpoint, HOUR_SECONDS))
         client.query(endpoint, timestamp, timestamp)
     except HTTPError as error:
         status = error.response.status_code if error.response is not None else None
@@ -130,26 +135,27 @@ def embrace_source(
     if endpoint not in ENDPOINTS:
         raise ValueError("Unknown Embrace table. Select a supported table.")
     client = EmbraceClient(config, team_id, job_id, api_version)
+    step = STEP_SECONDS[endpoint]
 
     def get_rows() -> Iterator[list[MetricRow]]:
-        end = int(datetime.now(UTC).timestamp()) // STEP_SECONDS * STEP_SECONDS - STEP_SECONDS
-        start = end - MAX_SYNC_SECONDS + STEP_SECONDS
+        end = latest_complete_point(step)
+        start = end - MAX_SYNC_SECONDS + step
         if last_value is not None:
             watermark = datetime.fromisoformat(last_value) if isinstance(last_value, str) else last_value
             watermark = watermark.replace(tzinfo=UTC) if watermark.tzinfo is None else watermark
-            start = max(start, int(watermark.timestamp()) // STEP_SECONDS * STEP_SECONDS - STEP_SECONDS)
+            start = max(start, int(watermark.timestamp()) // step * step - step)
         state = manager.load_state() if manager.can_resume() else None
         if state is not None:
             start = state.start
             end = state.end
         while end >= start:
-            window_start = max(start, end - WINDOW_SECONDS + STEP_SECONDS)
+            window_start = max(start, end - (WINDOW_POINTS - 1) * step)
             rows = client.query(endpoint, window_start, end)
-            manager.save_state(EmbraceResumeConfig(start=start, end=window_start - STEP_SECONDS))
+            manager.save_state(EmbraceResumeConfig(start=start, end=window_start - step))
             if rows:
                 yield rows
             manager.safe_point()
-            end = window_start - STEP_SECONDS
+            end = window_start - step
 
     return SourceResponse(
         name=endpoint,

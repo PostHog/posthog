@@ -23393,9 +23393,14 @@ export namespace Schemas {
     } as const;
 
     export interface BookActivityMatrixCell {
+      /** People active in this product through AI agents, such as MCP tool calls. */
+      agentUsers?: number | null;
       column: string;
       row: string;
       series: string;
+      /** People active in this product in the app. */
+      uiUsers?: number | null;
+      /** People active in this product through any channel. Each person counts once. */
       users: number;
     }
 
@@ -23491,6 +23496,8 @@ export namespace Schemas {
       actionCount: number;
       /** Every action event that qualified this person, most frequent first. */
       actions: BookActivityPersonAction[];
+      /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+      agentCalls?: number | null;
       /** Bucket start, the same as `AccountActivityMatrixColumn.key`. */
       column: string;
       engagedSeconds: number;
@@ -45395,7 +45402,7 @@ export namespace Schemas {
     }
 
     /**
-     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
      * @nullable
      */
     export type ErrorTrackingIssueTagRuleDisabledData = {
@@ -45420,20 +45427,20 @@ export namespace Schemas {
       /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
       readonly key: string;
       /**
-         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * Display name of the tag the rule applies to matching issues.
          * @maxLength 128
          */
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
       readonly version: number;
       /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
       order_key: number;
       /**
-         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
          * @nullable
          */
       readonly disabled_data: ErrorTrackingIssueTagRuleDisabledData;
@@ -45445,7 +45452,7 @@ export namespace Schemas {
 
     export interface ErrorTrackingIssueTagRuleCreateRequest {
       /**
-         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * Display name of the tag the rule applies to matching issues.
          * @maxLength 128
          */
       label: string;
@@ -45454,7 +45461,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
          * Position in the list of tag rules. Lower values come first. Defaults to 0.
@@ -45480,7 +45487,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
@@ -48332,8 +48339,6 @@ export namespace Schemas {
       median: number | null;
       /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
       medianComparison: PeriodComparison | null;
-      /** Median pass rate per bucket, aligned with `buckets`. */
-      medianTrend: (number | null)[];
     }
 
     export interface EvaluationsOverview {
@@ -65127,29 +65132,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface TagDefinition {
-      /**
-         * Tag identifier
-         * @maxLength 100
-         */
-      name: string;
-      /**
-         * Description to help the LLM classify
-         * @maxLength 500
-         */
-      description?: string;
-    }
-
-    export interface HogTaggerConfig {
-      /**
-         * Hog source code to classify a generation into tags.
-         * @minLength 1
-         */
-      source: string;
-      /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-      tags?: TagDefinition[];
-    }
-
     export interface HoglakeConnect {
       /** The hoglake catalog (warehouse) these credentials reach */
       catalog: string;
@@ -68956,32 +68938,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    /**
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible
-     */
-    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
-
-
-    export const LLMCompletionProviderEnum = {
-      Openai: 'openai',
-      Anthropic: 'anthropic',
-      Gemini: 'gemini',
-      Openrouter: 'openrouter',
-      Fireworks: 'fireworks',
-      AzureOpenai: 'azure_openai',
-      TogetherAi: 'together_ai',
-      Minimax: 'minimax',
-      OpenaiCompatible: 'openai_compatible',
-    } as const;
-
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -68994,7 +68950,7 @@ export namespace Schemas {
       provider: string;
       /** How many of this provider's models appear in `models`. */
       model_count: number;
-      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
       requires_provider_key: boolean;
     }
 
@@ -69877,27 +69833,6 @@ export namespace Schemas {
       generations: number;
       /** Number of $ai_generation events in attributed_cost_usd. */
       attributed_generations: number;
-    }
-
-    export interface LLMTaggerConfig {
-      /**
-         * Prompt instructing the LLM how to tag generations
-         * @minLength 1
-         */
-      prompt: string;
-      /** Available tags the LLM can assign */
-      tags: TagDefinition[];
-      /**
-         * Minimum number of tags to apply
-         * @minimum 0
-         */
-      min_tags?: number;
-      /**
-         * Maximum number of tags to apply (null = no limit)
-         * @minimum 1
-         * @nullable
-         */
-      max_tags?: number | null;
     }
 
     export interface LabelSummary {
@@ -86398,96 +86333,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `llm` - LLM
-     * * `hog` - Hog
-     */
-    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
-
-
-    export const TaggerTypeEnum = {
-      Llm: 'llm',
-      Hog: 'hog',
-    } as const;
-
-    export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig;
-
-    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
-
-    export interface TaggerCondition {
-      /**
-         * Stable identifier for this condition
-         * @maxLength 100
-         */
-      id: string;
-      /**
-         * Percentage of matching events to apply this condition to
-         * @minimum 0
-         * @maximum 100
-         */
-      rollout_percentage?: number;
-      /** Property filters that scope when this condition fires */
-      properties?: TaggerConditionPropertiesItem[];
-    }
-
-    export interface TaggerModelConfiguration {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
-         * @nullable
-         */
-      provider_key_id: string | null;
-      /** @nullable */
-      readonly provider_key_name: string | null;
-    }
-
-    export interface Tagger {
-      readonly id: string;
-      readonly name: string;
-      readonly description: string;
-      readonly enabled: boolean;
-      readonly tagger_type: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      readonly tagger_config: TaggerConfig;
-      /** Conditions that scoped when the tagger ran */
-      readonly conditions: readonly TaggerCondition[];
-      readonly model_configuration: TaggerModelConfiguration | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly created_by: UserBasic;
-      readonly deleted: boolean;
-      /**
-         * The evaluation that replaced this tagger when it was migrated. Null until then.
-         * @nullable
-         */
-      readonly migrated_to_evaluation_id: string | null;
-    }
-
-    export interface PaginatedTaggerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Tagger[];
-    }
-
-    /**
      * * `anthropic` - anthropic
      * * `openai` - openai
      */
@@ -92481,7 +92326,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
@@ -122314,7 +122159,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -122328,6 +122173,8 @@ export namespace Schemas {
       team_ids: number[];
       /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
+      /** Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it. */
+      keep_writing_flag_calls_to_events?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
     }
@@ -122351,8 +122198,12 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes unless they are kept, and either way the events copy lacks the calls from before the writes stopped or were kept. */
       running_experiments_needing_flag_calls_in_events: number;
+      /** True when ingestion kept writing $feature_flag_called to events for the organization before the write. */
+      current_keeps_events_writes: boolean;
+      /** True when ingestion keeps writing $feature_flag_called to events for the organization after the write. */
+      target_keeps_events_writes: boolean;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -122396,7 +122247,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -150080,6 +149931,10 @@ export namespace Schemas {
      */
     plan?: string;
     /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
@@ -150388,6 +150243,10 @@ export namespace Schemas {
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
     needs_you?: boolean;
+    /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
@@ -151170,44 +151029,6 @@ export namespace Schemas {
      * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string;
-    };
-
-    export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
     };
 
     export type TagsListParams = {

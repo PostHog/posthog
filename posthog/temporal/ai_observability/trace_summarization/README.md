@@ -194,9 +194,9 @@ Key constants in `constants.py`:
 | `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55           | Max coordinator workflow duration               |
 | `SAMPLE_TIMEOUT_SECONDS`                    | 900          | Sampling activity timeout (per attempt)         |
 | `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s         | Fetch + format activity timeout (per attempt)   |
-| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s          | Heartbeat window for fetch activity             |
+| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 90s          | Heartbeat window for fetch activity             |
 | `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s         | Summarize + save activity timeout (per attempt) |
-| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s          | Heartbeat window for summarize activity         |
+| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 90s          | Heartbeat window for summarize activity         |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
 
