@@ -999,6 +999,45 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('triggerRecalculation', () => {
+        it.each([
+            ['fails', 429, { detail: 'Metrics were recalculated less than 5 minutes ago.' }],
+            ['returns a finished run', 201, completedRecalculation],
+        ])('stops without an error when the create %s after the logic unmounts', async (_, status, body) => {
+            let createStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                createStarted = resolve
+            })
+            let releaseCreate: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                releaseCreate = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async () => {
+                        createStarted()
+                        await held
+                        return [status, body]
+                    },
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+
+            const triggered = logic.asyncActions.triggerRecalculation('manual')
+            await started
+            logic.unmount()
+            logic = undefined as unknown as typeof logic
+            releaseCreate()
+
+            await expect(triggered).resolves.toBeUndefined()
+        })
+
         it('does not create a recalculation for a draft experiment', async () => {
             const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
             const createMock = jest.fn(() => [201, pendingRecalculation])

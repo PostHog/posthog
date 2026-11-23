@@ -1083,6 +1083,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         trigger,
                         is_existing: recalculation.is_existing,
                     })
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
 
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed ||
@@ -1125,6 +1128,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     /**
                      * re enable the reload button.
                      */
