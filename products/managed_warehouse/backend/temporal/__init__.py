@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.managed_warehouse.backend.temporal.compaction_workflow import (
     DucklakeCompactionWorkflow,
     run_ducklake_compaction,
@@ -38,6 +40,9 @@ from products.managed_warehouse.backend.temporal.view_translation_workflow impor
     prepare_managed_warehouse_view_translation_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     ReconcileModelAliasesWorkflow,
     DucklakeCompactionWorkflow,
@@ -46,7 +51,7 @@ WORKFLOWS = [
     DuckLakeRegisterDataImportsWorkflow,
     ManagedWarehouseViewTranslationWorkflow,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     reconcile_trino_model_aliases_activity,
     cleanup_data_imports_staging_activity,
     cleanup_data_modeling_staging_activity,

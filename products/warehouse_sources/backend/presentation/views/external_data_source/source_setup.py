@@ -1201,6 +1201,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
+    )
 
 
 class SourceSetupResponseSerializer(serializers.Serializer):
@@ -2576,7 +2581,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 

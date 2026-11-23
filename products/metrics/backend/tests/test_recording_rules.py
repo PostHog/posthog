@@ -19,10 +19,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
-from posthog.temporal.schedule import schedules
 
 from products.metrics.backend.facade.contracts import MAX_RECORDING_RULES_PER_TEAM, RecordingRuleError
-from products.metrics.backend.facade.temporal import create_metrics_recording_rules_schedule
+from products.metrics.backend.facade.temporal import TEMPORAL, create_metrics_recording_rules_schedule
 from products.metrics.backend.models import MetricRecordingRule
 from products.metrics.backend.recording_rules.evaluation import (
     MAX_SERIES,
@@ -432,4 +431,4 @@ async def test_a_team_whose_rules_fail_does_not_stop_the_other_teams() -> None:
 
 
 def test_recording_rules_schedule_is_registered() -> None:
-    assert create_metrics_recording_rules_schedule in schedules
+    assert create_metrics_recording_rules_schedule in TEMPORAL.schedules

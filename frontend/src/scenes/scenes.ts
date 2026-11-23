@@ -239,6 +239,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of all user sessions with your app or website.',
         iconType: 'session_replay',
     },
+    [Scene.ExploreFlagCalls]: {
+        projectBased: true,
+        name: 'Flag calls',
+        description: 'Feature flag calls from your app or website, across all flags.',
+        iconType: 'feature_flag',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -363,10 +369,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AnalyticsSpaces]: {
         projectBased: true,
         name: 'Collections',
-    },
-    [Scene.AnalyticsProductHome]: {
-        projectBased: true,
-        name: 'Product analytics',
     },
     [Scene.Tools]: {
         projectBased: true,
@@ -655,6 +657,7 @@ export const redirects: Record<
     [urls.analytics()]: urls.analyticsList(),
     // Collections were called spaces; this keeps old links working.
     '/analytics/spaces': urls.analyticsSpaces(),
+    '/analytics/product-analytics': urls.insights(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -678,6 +681,16 @@ export const redirects: Record<
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
+    // No scene lives under /data-pipelines/*. These entries send guessed and bookmarked subpaths to the
+    // matching page, because the bare '/data-pipelines' entry above does not match a subpath.
+    '/data-pipelines/overview': urls.sources(),
+    '/data-pipelines/sources': urls.sources(),
+    '/data-pipelines/destinations': urls.destinations(),
+    '/data-pipelines/transformations': urls.transformations(),
+    '/data-pipelines/batch-exports': urls.destinations('batch'),
+    '/data-pipelines/new/source': urls.dataPipelinesNew('source'),
+    '/data-pipelines/new/destination': urls.dataPipelinesNew('destination'),
+    '/data-pipelines/new/transformation': urls.dataPipelinesNew('transformation'),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
@@ -828,6 +841,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
     [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
+    [urls.activity(ActivityTab.ExploreFlagCalls)]: [Scene.ExploreFlagCalls, 'exploreFlagCalls'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
@@ -881,7 +895,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
     [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
-    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
@@ -985,3 +998,21 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }
+
+const redirectPaths = new Set(Object.keys(redirects))
+
+/**
+ * Route and redirect paths with no `:param`, `*`, query or hash, whose parent path is a redirect.
+ * A section root that only redirects to its default tab, such as /data-management, marks the static
+ * paths under it as tabs. A section root that is a real page, such as /tracing, can have detail pages
+ * under it that need a query string, so its children are not included.
+ */
+export const sectionTabPaths: ReadonlySet<string> = new Set(
+    [...Object.keys(routes), ...redirectPaths].filter((path) => {
+        if (/[:*?#]/.test(path)) {
+            return false
+        }
+        const withoutTrailingSlash = path.replace(/\/+$/, '')
+        return redirectPaths.has(withoutTrailingSlash.slice(0, withoutTrailingSlash.lastIndexOf('/')))
+    })
+)

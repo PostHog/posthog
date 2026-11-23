@@ -8,6 +8,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
+import type { MenuState } from '~/toolbar/shared/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
@@ -86,8 +87,8 @@ export interface flagComparisonLogicActions {
     checkLocalOverrides: () => {
         value: true
     } // flagsToolbarLogic
-    setVisibleMenu: (visibleMenu: import('~/toolbar/shared/bar/toolbarLogic').MenuState) => {
-        visibleMenu: import('~/toolbar/shared/bar/toolbarLogic').MenuState
+    setVisibleMenu: (visibleMenu: MenuState) => {
+        visibleMenu: MenuState
     } // toolbarLogic
     closeComparison: () => {
         value: true

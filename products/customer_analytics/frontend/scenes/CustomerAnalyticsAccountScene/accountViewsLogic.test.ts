@@ -400,6 +400,26 @@ describe('accountViewsLogic tracking', () => {
         expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
     })
 
+    it('clears the SQL error once the query becomes valid', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {
+                kind: 'sql_query',
+                config: { query: 'select * from invented_table where org_id = ' },
+                accountId: 'account-one',
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeTruthy()
+
+        await expectLogic(logic, () => {
+            logic.actions.setTileEditorConfig({
+                query: 'select * from invented_table where org_id = {account_external_id}',
+            })
+        })
+            .toDispatchActions(['validateTileEditorConfigSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeNull()
+    })
+
     it('keeps the SQL editor open when the placeholder is only in a comment', async () => {
         await expectLogic(logic, () => {
             logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {

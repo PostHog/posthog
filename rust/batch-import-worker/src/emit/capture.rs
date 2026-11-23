@@ -18,6 +18,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{Emitter, Transaction};
+use crate::error::UserError;
 
 pub fn client_options(api_key: String, host: &str) -> Result<ClientOptions, Error> {
     ClientOptionsBuilder::default()
@@ -211,7 +212,12 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
                 .increment(batch_count as u64);
             counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
                 .increment(1);
-            return Err(Error::msg(format!("capture batch failed: {e}")));
+            let user_msg = user_message(&e);
+            let err = Error::new(e).context("capture batch failed");
+            return Err(match user_msg {
+                Some(msg) => err.context(UserError::new(msg)),
+                None => err,
+            });
         }
 
         // Count success once per fully-committed chunk. A mid-chunk failure rolls the offset
@@ -242,6 +248,17 @@ fn failure_reason(err: &PosthogError) -> &'static str {
         PosthogError::Connection(_) => "transport",       // network / unexpected status
         PosthogError::Serialization(_) => "serialization", // local encode failure
         _ => "other",
+    }
+}
+
+const BILLING_LIMIT_USER_MESSAGE: &str = "Import paused because this project reached its billing \
+    limit. Raise or remove the billing limit, or wait for it to reset at the start of the next \
+    billing period, then resume the import.";
+
+fn user_message(err: &PosthogError) -> Option<&'static str> {
+    match err {
+        PosthogError::BillingLimitExceeded(_) => Some(BILLING_LIMIT_USER_MESSAGE),
+        _ => None,
     }
 }
 
@@ -794,12 +811,15 @@ mod tests {
         let client = make_client(&server.url()).await;
         let txn = make_transaction(&client);
 
-        let result = txn.commit_write().await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
+        let err = txn.commit_write().await.unwrap_err();
+        let err_msg = format!("{err:#}");
         assert!(
             err_msg.contains("Billing Limit Exceeded"),
             "expected billing error, got: {err_msg}"
+        );
+        assert_eq!(
+            crate::error::get_user_message(&err),
+            BILLING_LIMIT_USER_MESSAGE
         );
         mock.assert();
     }

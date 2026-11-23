@@ -36,6 +36,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'
@@ -182,10 +183,10 @@ export interface commandKSearchLogicActions {
         tab: SidePanelTab
     } // sidePanelStateLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     activateRow: (
@@ -315,7 +316,7 @@ export interface commandKSearchLogicMeta {
         remoteContext: (
             currentTeamId: number | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             featureFlags: FeatureFlagsSet
         ) => RemoteContext
         requestQueries: (

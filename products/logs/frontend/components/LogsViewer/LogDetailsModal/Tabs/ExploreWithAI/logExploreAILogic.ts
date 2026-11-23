@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import type { OrganizationType } from '~/types'
+
 import { LogExplanation } from './types'
 
 export interface LogExploreAILogicProps {
@@ -43,7 +45,7 @@ export interface logExploreAILogicActions {
 export interface logExploreAILogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        dataProcessingAccepted: (currentOrganization: null | import('~/types').OrganizationType) => boolean
+        dataProcessingAccepted: (currentOrganization: OrganizationType | null) => boolean
     }
 }
 

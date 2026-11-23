@@ -45,14 +45,14 @@ This read never builds a ranking, never calls a language model, and never gather
 Read three things in the response:
 
 - **`ranker`**. `personal` means the stored ranking ordered the page.
-  Any other value (`priority`, `open`, `action`, `fix`, or null) means no stored ranking applied, and the page is in the recommended order.
+  `priority` means no stored ranking applied, and the page is in priority order.
   Do not call that page personal. See [Other routes](#other-routes).
 - **`ranking_id`**. Keep it from the first page.
   For the next page, pass the same `view`, `sort`, filters, and `limit`, with `offset` and this `ranking_id`, so a rebuild between calls does not reorder the pages.
   The response's `next` link does not carry `ranking_id`, so do not follow it as it is.
 - **Per-row `personal_tier` and `personal_reason`**.
   They are set on each report the language model ranked: `top`, `worth_a_look`, or `later`, with a short reason.
-  After the ranked reports come the reports the ranking folded in, then every other report in the recommended order.
+  After the ranked reports come the reports the ranking folded in, then every other report in priority order.
   A row the language model did not rank has null tier and reason, even when the stored ranking placed it.
   `inbox_merge_key` is the row's position in that combined order, from 0.
 
@@ -65,7 +65,7 @@ Keep the returned order.
 You can point out a row that looks done, such as an already merged pull request or `already_addressed: true`, but do not move it without saying so.
 Do not replace the order with your own score.
 
-Lead with one line on the source: "From your personal ranking" when `ranker` is `personal`, else say that no personal ranking applied and the list is in the recommended order.
+Lead with one line on the source: "From your personal ranking" when `ranker` is `personal`, else say that no personal ranking applied and the list is in priority order.
 Then the list, in order.
 For each report:
 
@@ -94,15 +94,15 @@ After the list, add at most three lines:
 
 Each of these costs more than the list read. Use one only when the request or the response calls for it, and say which one you used.
 
-| Situation                                                                                              | Do                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ranker` is not `personal`                                                                             | Show the recommended order and say that no personal ranking exists yet. Offer `inbox-reports-for-me` with `wait_seconds` to start a build, or the hand-built ranking in [references/pool-and-score.md](references/pool-and-score.md). |
-| The person needs a list newer than the last build ("anything new since this morning?")                 | `inbox-reports-for-me` with `max_age_minutes`, or `refresh: true` with `wait_seconds`. It can take up to 30 seconds.                                                                                                                  |
-| A soft focus ("focus on anomaly scoring")                                                              | `inbox-reports-for-me` with `focus` and `wait_seconds`. For a hard filter ("only error tracking"), add the filter to the list call instead.                                                                                           |
-| Next steps for the top entries                                                                         | `inbox-reports-for-me` returns them with each entry.                                                                                                                                                                                  |
-| Custom weights ("ignore the model", "weight fix chances higher") or ranking by activity-summary themes | [references/pool-and-score.md](references/pool-and-score.md). Say that you built the order yourself.                                                                                                                                  |
-| "What's waiting on me"                                                                                 | `inbox-reports-list` with `view: "needs_input"` and `scope: "for_me"`, plus `assignee: "mine"` for their claims.                                                                                                                      |
-| The list is empty                                                                                      | Run the setup check in `inbox-exploration` before you say the inbox is empty.                                                                                                                                                         |
+| Situation                                                                                              | Do                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ranker` is not `personal`                                                                             | Show the priority order and say that no personal ranking exists yet. Offer `inbox-reports-for-me` with `wait_seconds` to start a build, or the hand-built ranking in [references/pool-and-score.md](references/pool-and-score.md). |
+| The person needs a list newer than the last build ("anything new since this morning?")                 | `inbox-reports-for-me` with `max_age_minutes`, or `refresh: true` with `wait_seconds`. It can take up to 30 seconds.                                                                                                               |
+| A soft focus ("focus on anomaly scoring")                                                              | `inbox-reports-for-me` with `focus` and `wait_seconds`. For a hard filter ("only error tracking"), add the filter to the list call instead.                                                                                        |
+| Next steps for the top entries                                                                         | `inbox-reports-for-me` returns them with each entry.                                                                                                                                                                               |
+| Custom weights ("ignore the model", "weight fix chances higher") or ranking by activity-summary themes | [references/pool-and-score.md](references/pool-and-score.md). Say that you built the order yourself.                                                                                                                               |
+| "What's waiting on me"                                                                                 | `inbox-reports-list` with `view: "needs_input"` and `scope: "for_me"`, plus `assignee: "mine"` for their claims.                                                                                                                   |
+| The list is empty                                                                                      | Run the setup check in `inbox-exploration` before you say the inbox is empty.                                                                                                                                                      |
 
 ## Guardrails
 

@@ -18,6 +18,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
   The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
+  `source_issue_urls` lists the issues a report was filed from: GitHub issue signals and `source_issue` artefacts. Research and actionability prompts exempt these issues, and their assignees, from the in-flight check, in both prompt variants. A link that another source quotes exempts nothing.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
@@ -149,6 +150,15 @@ The presentation step can also return `tags`, the report's whole slug tag set. T
 
 - **A bad tag never fails the run.** `ReportPresentationOutput` coerces `tags` through `report_tags.coerce_report_tags`: it drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning. A value that is not a list reads as omitted.
 - **Each pass replaces the whole set, atomically with the prose.** The ready and pending-input transitions write `tags` with the title and summary. `None` (an omitted field, the no-repo branch, or an older workflow history) keeps the stored set.
+
+### Suggested prompts
+
+The presentation step can also return up to three `suggested_prompts`, the follow-ups the inbox offers above the report's Ask AI box. The authoring guidance is `report_prompts.suggested_prompts_guidance`, shared with the scout report tools. The prompt shows the report's stored prompts, including ones a scout wrote, so a run can keep the ones that still fit.
+
+- **Judged with the report text before they are stored.** The pipeline judges input signals before research runs, so research-written text and prompts need their own pass. A reader's click sends a prompt to an agent run that reads the report. `_judge_research_output` normalizes the set, checks its bounds, and sends it with the title and summary as one signal through `report_safety_judge.judge_suggested_prompts`. A safe verdict covers both.
+- **Unsafe text fails the report, and unsafe prompts only drop.** When the prompt verdict is unsafe or missing, `judge_report_prose` judges the text alone. Unsafe text, a refusal, or a judge error sets `unsafe_prose_explanation`, and the summary workflow fails the report with `research_safety_judge_rejected`. Otherwise the run stores `[]` and logs why.
+- **Never raises.** A raise would make Temporal retry the activity and repeat the whole research.
+- **Each pass replaces the whole set, atomically with the prose.** The run always returns a list, because stored prompts describe the summary the run replaces. The no-repo branch keeps the prose, so it keeps the prompts.
 
 ### Fleet steering
 

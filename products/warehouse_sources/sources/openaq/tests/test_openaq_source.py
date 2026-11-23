@@ -27,6 +27,7 @@ class TestOpenAQSchemas:
             ("measurements_daily", True, False),
             ("measurements_yearly", True, False),
             ("location_latest", False, False),
+            ("parameter_latest", False, False),
             ("location_flags", False, False),
             ("sensor_flags", False, False),
             ("locations", False, True),

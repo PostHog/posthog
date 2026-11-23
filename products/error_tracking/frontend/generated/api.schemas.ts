@@ -956,7 +956,7 @@ export interface ErrorTrackingIssueCohortReadApi {
 }
 
 export interface ErrorTrackingIssueTagReadApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string
@@ -1192,7 +1192,7 @@ export interface PatchedErrorTrackingIssueTagWriteApi {
 }
 
 export interface ErrorTrackingIssueTagCorrectionApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string
@@ -1240,7 +1240,7 @@ export interface ErrorTrackingIssueExistsResponseApi {
 }
 
 export interface ErrorTrackingIssueTagDefinitionApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string
@@ -2739,6 +2739,121 @@ export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
 export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
+}
+
+export interface ErrorTrackingIssueTagRuleFilterGroupApi {
+    type: FilterLogicalOperatorApi
+    values: EventPropertyFilterApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleFiltersApi {
+    type: FilterLogicalOperatorApi
+    values: (ErrorTrackingIssueTagRuleFilterGroupApi | EventPropertyFilterApi)[]
+}
+
+/**
+ * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
+ * @nullable
+ */
+export type ErrorTrackingIssueTagRuleApiDisabledData = {
+    readonly message?: string
+    readonly issue?: { [key: string]: unknown }
+    readonly properties?: { [key: string]: unknown }
+} | null
+
+export interface ErrorTrackingIssueTagRuleApi {
+    /** Unique identifier of the tag rule. */
+    readonly id: string
+    /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
+    readonly key: string
+    /**
+     * Display name of the tag the rule applies to matching issues.
+     * @maxLength 128
+     */
+    label: string
+    /** What the tag means. Shown with the tag. */
+    description: string
+    /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /** Starts at 1, and goes up by one each time the filters change. */
+    readonly version: number
+    /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
+    order_key: number
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
+     * @nullable
+     */
+    readonly disabled_data: ErrorTrackingIssueTagRuleApiDisabledData
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface ErrorTrackingIssueTagRuleListResponseApi {
+    /** Tag rules in ascending order key. */
+    results: ErrorTrackingIssueTagRuleApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleCreateRequestApi {
+    /**
+     * Display name of the tag the rule applies to matching issues.
+     * @maxLength 128
+     */
+    label: string
+    /**
+     * What the tag means. Shown with the tag. Defaults to empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /**
+     * Position in the list of tag rules. Lower values come first. Defaults to 0.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+}
+
+export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+/**
+ * Mapping from tag rule UUID to its new order key.
+ */
+export type PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingIssueTagRuleReorderRequestApi {
+    /** Mapping from tag rule UUID to its new order key. */
+    orders?: PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders
 }
 
 export type ErrorTrackingAlertsListParams = {

@@ -910,12 +910,15 @@ class DockerSandbox(AgentServerLaunchMixin):
         branch: str | None = None,
         blobless: bool = False,
         gitlab_token: str | None = None,
+        baked_repo_clone: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch, blobless, gitlab_token)
+        return super().clone_repository(
+            repository, github_token, shallow, branch, blobless, gitlab_token, baked_repo_clone
+        )
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -983,6 +986,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         repo_ready_file: str | None = None,
+        shell_waits_for_repo: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         pi_acp_conversation: bool = False,

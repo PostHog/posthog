@@ -6,6 +6,7 @@ import { ExportType, ExportedData } from '~/exporter/types'
 import __dataTableEvents from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import __dataTableHogQL from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
 import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import __metricsQueryLine from '../../mocks/fixtures/api/projects/team_id/insights/metricsQueryLine.json'
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
 import __sqlLineChart from '../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
@@ -138,6 +139,12 @@ export const AdhocQueryExportWithLegend: Story = {
         query_results: { results: (__trendsBarBreakdown as any).result },
         legend: true,
     },
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
+}
+
+export const MetricsInsightImageExport: Story = {
+    args: { type: ExportType.Image, insight: __metricsQueryLine as any },
     decorators: [adhocExportViewport],
     parameters: adhocExportParameters,
 }

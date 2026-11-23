@@ -508,42 +508,44 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # Ingestion still writes every flag call to events, and to flag_evaluations only for some teams.
-            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
-            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            # Ingestion still writes every flag call to events. On Cloud it also writes every flag call to flag_evaluations.
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
         ]
     )
     def test_reads_the_flag_reasons_where_the_mode_keeps_every_flag_call(
-        self, _name: str, mode: FlagEvaluationsMode, calls_in_flag_evaluations: bool
+        self, _name: str, mode: FlagEvaluationsMode
     ) -> None:
         # A team on the native JSON events table reads flag calls from flag_evaluations on every mode.
-        calls_in_flag_evaluations = calls_in_flag_evaluations or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        calls_only_in_flag_evaluations = (
+            mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        )
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         person = create_person(team=self.team, distinct_ids=["person-1"])
+        # The events copy names no matched condition, so only a scan of flag_evaluations counts the call.
         call = {
             "$feature_flag": "new-checkout",
-            "$feature_flag_reason": "Matched condition set 1",
+            "$feature_flag_reason": "No condition sets matched",
             "$feature/new-checkout": True,
         }
         _create_event(
             team=self.team,
-            event="$pageview" if calls_in_flag_evaluations else "$feature_flag_called",
+            event="$pageview" if calls_only_in_flag_evaluations else "$feature_flag_called",
             distinct_id="person-1",
             timestamp=START + timedelta(minutes=1),
-            properties={"$feature/new-checkout": True} if calls_in_flag_evaluations else call,
+            properties={"$feature/new-checkout": True} if calls_only_in_flag_evaluations else call,
         )
         flush_persons_and_events()
-        if calls_in_flag_evaluations:
-            _create_flag_evaluations(
-                self.team.pk,
-                "new-checkout",
-                timestamp=START + timedelta(minutes=1),
-                distinct_id="person-1",
-                person_id=person.uuid,
-                properties={"$feature_flag_reason": "Matched condition set 1"},
-            )
+        _create_flag_evaluations(
+            self.team.pk,
+            "new-checkout",
+            timestamp=START + timedelta(minutes=1),
+            distinct_id="person-1",
+            person_id=person.uuid,
+            properties={"$feature_flag_reason": "Matched condition set 1"},
+        )
         edit = dataclasses.replace(BOOLEAN, conditions=(EVERYONE,))
 
         exposure = exposure_by_bucket(self.team, [edit], START, START + BUCKET, BUCKET)

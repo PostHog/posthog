@@ -11,7 +11,7 @@ import asyncio
 import datetime
 import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from django.core.cache import cache
@@ -45,6 +45,8 @@ from products.signals.backend.anomaly_scores.artifacts import ArtifactUnavailabl
 from products.signals.backend.anomaly_scores.config import (
     ANOMALY_SCORING_FLAG_DISTINCT_ID,
     DEFAULT_LIMITS,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     ScoringLimits,
     ScoringRun,
     read_config,
@@ -53,6 +55,7 @@ from products.signals.backend.anomaly_scores.config import (
 )
 from products.signals.backend.anomaly_scores.due_list import first_listed_at, record_failed, record_scored
 from products.signals.backend.anomaly_scores.emission import emit, score_events
+from products.signals.backend.anomaly_scores.judging import JUDGING_TIMEOUT, NO_AI_CHECKS, JudgeCounts, judge_flags
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
@@ -107,9 +110,12 @@ _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
 # No team starts to load after this time. The rest of the plan scales with the loaded teams, so it needs the other half.
 # A timed-out attempt does not stop its thread, so a plan that ends in time also keeps its retry from overlapping it.
 _PLAN_LOAD_BUDGET = _PLAN_TIMEOUT / 2
-# All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
-# and the failure classification. A query timeout must reach the classification, so that its cooldown grows.
-_INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
+# All the scoring queries of one insight stop within their budget. The rest is detection, the AI judge of
+# `default-v2`, the capture request, and the failure classification. A query timeout must reach the
+# classification, so that its cooldown grows.
+_INSIGHT_TIMEOUT = (
+    datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + JUDGING_TIMEOUT + datetime.timedelta(seconds=90)
+)
 _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
 # No batch of insights starts after this time, in any shard. The picks that are left wait for a later tick.
@@ -159,14 +165,17 @@ class AnomalyScoringTickPlan:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    due_unread: int | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
+    ai_judge: AIJudgeConfig = NO_AI_JUDGE
 
 
 @frozen
 class ScoreInsightInput:
     pick: InsightPick
     limits: ScoringLimits = DEFAULT_LIMITS
+    ai_judge: AIJudgeConfig = NO_AI_JUDGE
 
 
 @frozen
@@ -179,6 +188,7 @@ class ScoreInsightResult:
     # Series of a score step with no stored artifact, and stored series missing from its result.
     unmatched_series: int = 0
     missing_series: int = 0
+    ai_checks: JudgeCounts = NO_AI_CHECKS
 
 
 @frozen
@@ -232,6 +242,8 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    # Due rows that the read caps left out, so the backlog counts above do not include them.
+    due_unread: int | None = None
     first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
@@ -239,6 +251,8 @@ class AnomalyScoringTickResult:
     shards: int = 0
     max_shard_picks: int = 0
     longest_shard_ms: int = 0
+    # Model calls of the AI judge in `default-v2`, summed over the picks. See `judging.JudgeCounts`.
+    ai_checks: JudgeCounts = NO_AI_CHECKS
 
 
 @frozen(frozen=False)
@@ -249,6 +263,7 @@ class _ShardRun:
     events: int = 0
     deferred: int = 0
     duration_ms: int = 0
+    ai_checks: JudgeCounts = NO_AI_CHECKS
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -289,8 +304,10 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        due_unread=selection.due_unread,
         first_train=selection.first_train,
         cpu=selection.cpu,
+        ai_judge=config.ai_judge,
     )
 
 
@@ -413,6 +430,10 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         unmatched_series=result.unmatched_series,
         missing_series=result.missing_series,
         empty_train_streak=empty_train,
+        ai_checks_made=result.ai_checks.made,
+        ai_checks_rejected=result.ai_checks.rejected,
+        ai_checks_skipped=result.ai_checks.skipped,
+        ai_checks_failed=result.ai_checks.failed,
     )
     record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
     if pick.first_train and result.series and result.run != ScoringRun.SCORE:
@@ -427,6 +448,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         events=result.events,
         too_expensive=too_expensive,
         empty_train=empty_train,
+        ai_checks=result.ai_checks,
     )
     return result
 
@@ -442,6 +464,7 @@ def capture_pick(
     events: int = 0,
     too_expensive: int = 0,
     empty_train: int = 0,
+    ai_checks: JudgeCounts = NO_AI_CHECKS,
 ) -> None:
     """One event per pick, with the ids that the SDK metrics leave out, so cost and outcome break down per project."""
     ph_background_capture()(
@@ -460,8 +483,18 @@ def capture_pick(
             "queries": pick.query_cost,
             "too_expensive_streak": too_expensive,
             "empty_train_streak": empty_train,
+            **_ai_check_properties(ai_checks),
         },
     )
+
+
+def _ai_check_properties(ai_checks: JudgeCounts) -> dict[str, int]:
+    return {
+        "ai_checks_made": ai_checks.made,
+        "ai_checks_rejected": ai_checks.rejected,
+        "ai_checks_skipped": ai_checks.skipped,
+        "ai_checks_failed": ai_checks.failed,
+    }
 
 
 def _first_train_key(team_id: int) -> str:
@@ -552,11 +585,11 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
-    profile = resolve_profile(team, insight).name
+    profile = resolve_profile(team, insight, input.ai_judge).name
     split = None
     if pick.run is not None:
         split = SplitRun()
-        state = load_state(team, insight) if pick.run == ScoringRun.SCORE else None
+        state = load_state(team, insight, input.ai_judge) if pick.run == ScoringRun.SCORE else None
         if state is not None:
             try:
                 split = SplitRun(state=state, artifacts=load_artifacts(state.artifact_key, state.artifact_sha256))
@@ -578,7 +611,9 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         after=min(pick.scored_through.values()) if pick.scored_through else None,
         limits=input.limits,
         split=split,
+        ai_judge=input.ai_judge,
     )
+    scores, ai_checks = judge_flags(scores, team=team, insight=insight, ai_judge=input.ai_judge)
     if scores.artifacts and scores.state is not None:
         # The blob goes first, so every event of this visit names a model that exists.
         stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)
@@ -613,7 +648,15 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         run=scores.run,
         unmatched_series=scores.unmatched_series,
         missing_series=scores.state.missing_series if scores.state else 0,
+        ai_checks=ai_checks,
     )
+
+
+def _sum_ai_checks(counts: Iterable[JudgeCounts]) -> JudgeCounts:
+    totals = Counter[str]()
+    for count in counts:
+        totals.update(dataclasses.asdict(count))
+    return JudgeCounts(**totals)
 
 
 def capture_tick(result: AnomalyScoringTickResult) -> None:
@@ -652,11 +695,13 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
+        due_unread=result.due_unread,
         first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
         longest_shard_ms=result.longest_shard_ms,
         cpu=result.cpu,
+        ai_checks=result.ai_checks,
     )
     cpu = result.cpu
     first_train = result.first_train
@@ -698,6 +743,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
+            "due_unread": result.due_unread,
             "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
             "picked_first_train": first_train.picked if first_train else None,
             "never_scored_due": first_train.never_scored_due if first_train else None,
@@ -710,6 +756,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "teams_over_cpu_limit": cpu.teams_over_limit if cpu else None,
             "train_skipped_for_cpu": cpu.train_skipped if cpu else None,
             "score_skipped_for_cpu": cpu.score_skipped if cpu else None,
+            **_ai_check_properties(result.ai_checks),
         },
     )
 
@@ -810,11 +857,13 @@ class AnomalyScoringTickWorkflow:
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
+            due_unread=plan.due_unread,
             first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),
             longest_shard_ms=max((shard.duration_ms for shard in shards), default=0),
             cpu=plan.cpu,
+            ai_checks=_sum_ai_checks(shard.ai_checks for shard in shards),
         )
         await self._capture(result)
         return result
@@ -838,7 +887,7 @@ class AnomalyScoringTickWorkflow:
                 *(
                     workflow.execute_activity(
                         score_anomaly_insight_activity,
-                        ScoreInsightInput(pick=pick, limits=plan.limits),
+                        ScoreInsightInput(pick=pick, limits=plan.limits, ai_judge=plan.ai_judge),
                         start_to_close_timeout=_INSIGHT_TIMEOUT,
                         heartbeat_timeout=_INSIGHT_HEARTBEAT_TIMEOUT,
                         # A failed insight waits for its cooldown and a later tick, not a retry in this one.
@@ -854,6 +903,7 @@ class AnomalyScoringTickWorkflow:
                     continue
                 shard.statuses[outcome.status] += 1
                 shard.events += outcome.events
+                shard.ai_checks = _sum_ai_checks((shard.ai_checks, outcome.ai_checks))
             if shard.statuses[STATUS_AT_CAPACITY]:
                 self._at_capacity = True
         shard.duration_ms = round((workflow.now() - shard_started).total_seconds() * 1000)

@@ -1,6 +1,10 @@
 // Compare-against-previous series render at half opacity so they recede behind the current period.
 export const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
 
+export function compareLegendTag(r: { compare_label?: string | null }): string | undefined {
+    return r.compare_label === 'previous' ? 'Previous' : undefined
+}
+
 // Inlined hex math (mirrors `lib/utils` `hexToRGBA`) so this module stays free of `lib/`/`~/`/`scenes/`
 // deps and compiles in the MCP Vite bundle, which only resolves `products/*` and `@posthog/*`. 3/4-digit
 // shorthand is expanded to 6/8-digit first; anything that isn't ultimately a 6- or 8-digit hex is returned

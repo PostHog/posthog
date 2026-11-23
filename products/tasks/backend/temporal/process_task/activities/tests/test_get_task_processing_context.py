@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,10 +20,11 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
+    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
@@ -39,6 +41,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressEnrollmentConfig
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import (
@@ -55,10 +58,12 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _agent_egress_enrollment_selected,
     _agent_egress_observation_config,
     _ensure_subscription_allowed,
     _fetch_run_flags,
     _is_agent_shadow_enabled,
+    _is_baked_repo_clone_enabled,
     _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_desktop_workspace_warm_enabled,
@@ -176,6 +181,83 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
 
 
 @pytest.mark.parametrize(
+    "case",
+    [
+        "enabled",
+        "flag_off",
+        "implicit_provider",
+        "empty_provider",
+        "docker_provider",
+        "hogland_provider",
+        "small_memory",
+        "missing",
+        "disabled",
+        "region",
+        "resumed",
+        "snapshot",
+        "interactive",
+        "restricted",
+        "gvisor",
+        "hogland",
+    ],
+)
+def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case: str, tmp_path: Path) -> None:
+    context = TaskProcessingContext(
+        task_id=str(uuid4()),
+        run_id=str(uuid4()),
+        team_id=1,
+        team_uuid=str(uuid4()),
+        organization_id=str(uuid4()),
+        github_integration_id=None,
+        repository=None,
+        distinct_id="enrollment",
+        environment="cloud",
+        use_modal_vm_sandbox=True,
+    )
+    path = tmp_path / "enrollment.json"
+    path.write_text(
+        AgentEgressEnrollmentConfig(
+            endpoint_domain="egress.example.com",
+            region="test-us",
+            relay_image_id="im-example",
+            server_ca_file=tmp_path / "server.pem",
+            client_ca_file=tmp_path / "client.pem",
+            client_ca_key_file=tmp_path / "client-key.pem",
+        ).model_dump_json()
+    )
+    if case == "missing":
+        path.unlink()
+    elif case == "small_memory":
+        context.state = {"sandbox_memory_gb": 1}
+    elif case == "snapshot":
+        context.state = {"same_run_resume": True, "snapshot_external_id": "snapshot-example"}
+    elif case == "interactive":
+        context.state = {"mode": "interactive"}
+    elif case == "restricted":
+        context.allowed_domains = []
+    elif case == "gvisor":
+        context.use_modal_vm_sandbox = False
+    elif case == "hogland":
+        context.sandbox_backend = "hogland"
+    with override_settings(
+        DEBUG=False,
+        CLOUD_DEPLOYMENT="DEV",
+        SANDBOX_PROVIDER={
+            "implicit_provider": None,
+            "empty_provider": "",
+            "docker_provider": "docker",
+            "hogland_provider": "hogland",
+        }.get(case, "modal"),
+        AGENT_EGRESS_REGION="test-eu" if case == "region" else "test-us",
+        AGENT_EGRESS_PROBE_CONFIG_DIR=str(tmp_path),
+        AGENT_EGRESS_ENROLLMENT_CONFIG="" if case == "disabled" else str(path),
+    ):
+        assert _agent_egress_enrollment_selected(
+            context, flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: case != "flag_off"}), resumed=case == "resumed"
+        ) is (case in {"enabled", "implicit_provider", "empty_provider"})
+
+
+@pytest.mark.parametrize(
     "state,expected",
     [
         ({}, False),
@@ -253,14 +335,16 @@ def test_a_run_drops_a_model_outside_its_gateway_products_pin(
     assert context.model == expected
 
 
+@pytest.mark.parametrize(
+    "flag_check,flag_key",
+    [
+        (_is_desktop_workspace_warm_enabled, DESKTOP_WORKSPACE_WARM_FEATURE_FLAG),
+        (_is_baked_repo_clone_enabled, BAKED_REPO_CLONE_FEATURE_FLAG),
+    ],
+)
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
-def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
-    assert (
-        _is_desktop_workspace_warm_enabled(
-            flags=_flags({DESKTOP_WORKSPACE_WARM_FEATURE_FLAG: flag_value}), run_id="run-id"
-        )
-        is expected
-    )
+def test_organization_rollout_flags_follow_the_flag_value(flag_check, flag_key, flag_value, expected):
+    assert flag_check(flags=_flags({flag_key: flag_value}), run_id="run-id") is expected
 
 
 def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
@@ -294,6 +378,7 @@ def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
     [
         (lambda flags: _is_agent_shadow_enabled(flags=flags), False),
         (lambda flags: _is_desktop_workspace_warm_enabled(flags=flags, run_id="run-id"), False),
+        (lambda flags: _is_baked_repo_clone_enabled(flags=flags, run_id="run-id"), False),
         (lambda flags: _is_rtk_enabled(flags=flags, run_id="run-id"), True),
         (
             lambda flags: _is_benjamin_enabled(
@@ -311,7 +396,15 @@ def test_run_flags_keep_local_results_and_ask_remotely_only_for_the_rest():
         ),
         (lambda flags: _preview_gate(flags=flags), False),
     ],
-    ids=["agent_shadow", "desktop_workspace_warm", "rtk", "benjamin", "modal_vm_sandbox", "dev_stack_preview"],
+    ids=[
+        "agent_shadow",
+        "desktop_workspace_warm",
+        "baked_repo_clone",
+        "rtk",
+        "benjamin",
+        "modal_vm_sandbox",
+        "dev_stack_preview",
+    ],
 )
 def test_flags_fall_back_to_defaults_when_the_flags_request_fails(read_flag, expected):
     assert read_flag(_failed_flags()) is expected
@@ -848,7 +941,8 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "configuration", ["disabled", "valid", "missing", "unconfigured_directory", "malformed", "outside_directory"]
+        "configuration",
+        ["disabled", "valid", "missing", "unconfigured_directory", "malformed", "outside_directory", "enrollment"],
     )
     def test_get_task_processing_context_keeps_full_access_unrestricted(
         self, activity_environment, test_task, tmp_path: Path, configuration: str
@@ -870,32 +964,57 @@ class TestGetTaskProcessingContextActivity:
             run_id=str(task_run.id),
         )
         marker = "synthetic-observation-private-material"
+        if configuration == "enrollment":
+            Path(path).write_text(
+                AgentEgressEnrollmentConfig(
+                    endpoint_domain="egress.example.com",
+                    region="test-us",
+                    relay_image_id="im-example",
+                    server_ca_file=directory / "server.pem",
+                    client_ca_file=directory / "client.pem",
+                    client_ca_key_file=directory / "client-key.pem",
+                ).model_dump_json()
+            )
         if configuration == "missing":
             Path(path).unlink()
         elif configuration == "malformed":
             Path(path).write_text('{"unexpected":"' + marker + '",')
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), launches_agent=True)
+
+        def all_flags(_distinct_id: str, *, flag_keys_to_evaluate: list[str], **_kwargs: object) -> FlagsAndPayloads:
+            return _flags(
+                flags={
+                    key: configuration == "enrollment"
+                    for key in flag_keys_to_evaluate
+                    if key == AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
+                },
+                payloads={
+                    key: '{"default_base_origin_products": ["user_created"]}'
+                    for key in flag_keys_to_evaluate
+                    if key == MODAL_VM_SANDBOX_FEATURE_FLAG
+                },
+            )
+
         with (
             capture_logs() as logs,
             override_settings(
-                DEBUG=True,
-                SANDBOX_PROVIDER="MODAL_DOCKER",
+                DEBUG=configuration != "enrollment",
+                CLOUD_DEPLOYMENT="DEV",
+                SANDBOX_PROVIDER="modal" if configuration == "enrollment" else "MODAL_DOCKER",
+                AGENT_EGRESS_REGION="test-us",
+                AGENT_EGRESS_ENROLLMENT_CONFIG=path if configuration == "enrollment" else "",
                 AGENT_EGRESS_PROBE_CONFIG_DIR="" if configuration == "unconfigured_directory" else str(directory),
                 AGENT_EGRESS_OBSERVATION_CONFIG="" if configuration == "disabled" else path,
             ),
-            patch(
-                ALL_FLAGS_TARGET,
-                return_value=_flags(
-                    payloads={MODAL_VM_SANDBOX_FEATURE_FLAG: '{"default_base_origin_products": ["user_created"]}'}
-                ),
-            ),
+            patch(ALL_FLAGS_TARGET, side_effect=all_flags),
         ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
-        assert result.agent_egress_observation_config == (path if configuration == "valid" else None)
-        invalid = configuration not in {"disabled", "valid"}
+        assert result.agent_egress_observation_config == (path if configuration in {"valid", "enrollment"} else None)
+        assert result.agent_egress_enrollment_enabled is (configuration == "enrollment")
+        invalid = configuration not in {"disabled", "valid", "enrollment"}
         warnings = [record for record in logs if record["event"] == "agent_egress_observation_disabled"]
         assert len(warnings) == int(invalid)
         assert marker not in str(logs)
@@ -1222,7 +1341,7 @@ class TestGetTaskProcessingContextActivity:
 
     SUBSCRIPTION_CASES = [
         ("claude", CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "Claude plan", "Claude"),
-        ("codex", CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "ChatGPT plan", "Codex"),
+        ("codex", None, "ChatGPT plan", "Codex"),
     ]
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
@@ -1236,6 +1355,9 @@ class TestGetTaskProcessingContextActivity:
                 run_id="run-id",
             )
 
+        if adapter == "codex":
+            feature_enabled_mock.assert_not_called()
+            return
         feature_enabled_mock.assert_called_once_with(
             flag_key,
             distinct_id="distinct-id",
@@ -1248,15 +1370,20 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
     @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
     def test_subscription_model_access_never_changes_requested_billing(
-        self, adapter: str, flag_key: str, plan_name: str, runtime_name: str, flag_value: object
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str, flag_value: object
     ) -> None:
+        expected_error = (
+            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable")
+            if adapter == "claude"
+            else nullcontext()
+        )
         with (
             patch(
                 FEATURE_ENABLED_TARGET,
                 return_value=flag_value,
                 side_effect=flag_value if isinstance(flag_value, Exception) else None,
             ),
-            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable"),
+            expected_error,
         ):
             _ensure_subscription_allowed(
                 adapter=adapter,
@@ -1267,7 +1394,9 @@ class TestGetTaskProcessingContextActivity:
             )
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
-    def test_subscription_rejects_a_pi_task(self, adapter: str, flag_key: str, plan_name: str, runtime_name: str):
+    def test_subscription_rejects_a_pi_task(
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str
+    ):
         with pytest.raises(ProcessTaskFatalError, match=f"requires the {runtime_name} runtime"):
             _ensure_subscription_allowed(
                 adapter=adapter,

@@ -209,6 +209,23 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         # Account-wide change log for every record type, so it can be very large. Opt in only.
         should_sync_default=False,
     ),
+    # Staff comments on an idea in the Aha! app. Portal comments are in `idea_comments`.
+    "idea_internal_comments": AhaIdeasEndpointConfig(
+        name="idea_internal_comments",
+        path="/ideas/{idea_id}/comments",
+        response_key="comments",
+        # "List comments on an idea" documents only `page`/`per_page`.
+        supports_incremental=False,
+        primary_keys=["id", "idea_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="ideas",
+            resolve_param="idea_id",
+            resolve_field="id",
+            # Comment rows identify their record only through the nested `commentable` object.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "idea_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(AHA_IDEAS_ENDPOINTS.keys())

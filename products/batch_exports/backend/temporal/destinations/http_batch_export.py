@@ -13,12 +13,12 @@ from temporalio.common import RetryPolicy
 
 from posthog.hogql.printer.events_json_document import event_document_sql
 
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
@@ -222,7 +222,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not isinstance(model, BatchExportEventsModel):
             raise NotImplementedError("HTTP export only supports the events model")
 
-        use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
+        use_native_schema = batch_exports_read_new_events_table()
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 

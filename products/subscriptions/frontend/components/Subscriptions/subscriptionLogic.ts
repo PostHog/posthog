@@ -412,68 +412,68 @@ export interface subscriptionLogicActions {
     }
     loadSubscriptionSuccess: (
         subscription: {
-            ai_prompt_config?: AIPromptConfigApi | null | undefined
+            ai_prompt_config?: AIPromptConfigApi | null
             bysetpos?: number | null | undefined
             byweekday?: WeekdayType[] | null | undefined
             created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard?: number | undefined
-            dashboard_export_insights?: number[] | undefined
-            deleted?: boolean | undefined
-            delivery_config?: DeliveryConfigApi | undefined
-            enabled?: boolean | undefined
+            created_by?: UserBasicType | null
+            dashboard?: number
+            dashboard_export_insights?: number[]
+            deleted?: boolean
+            delivery_config?: DeliveryConfigApi
+            enabled?: boolean
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
-            insight?: number | undefined
-            insight_short_id?: string | null | undefined
-            integration_id?: number | null | undefined
+            insight?: number
+            insight_short_id?: string | null
+            integration_id?: number | null
             interval?: number | undefined
             next_delivery_date?: string | null | undefined
-            prompt?: string | null | undefined
-            resource_name?: string | null | undefined
+            prompt?: string | null
+            resource_name?: string | null
             resource_type?: SubscriptionResourceType | undefined
-            send_test_now?: boolean | undefined
+            send_test_now?: boolean
             start_date?: string | undefined
             summary?: string | undefined
-            summary_enabled?: boolean | undefined
-            summary_prompt_guide?: string | undefined
+            summary_enabled?: boolean
+            summary_prompt_guide?: string
             target_type?: string | undefined
             target_value?: string | undefined
             title?: string | undefined
-            until_date?: string | undefined
+            until_date?: string
         },
         payload?: any
     ) => {
         subscription: {
-            ai_prompt_config?: AIPromptConfigApi | null | undefined
+            ai_prompt_config?: AIPromptConfigApi | null
             bysetpos?: number | null | undefined
             byweekday?: WeekdayType[] | null | undefined
             created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard?: number | undefined
-            dashboard_export_insights?: number[] | undefined
-            deleted?: boolean | undefined
-            delivery_config?: DeliveryConfigApi | undefined
-            enabled?: boolean | undefined
+            created_by?: UserBasicType | null
+            dashboard?: number
+            dashboard_export_insights?: number[]
+            deleted?: boolean
+            delivery_config?: DeliveryConfigApi
+            enabled?: boolean
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
-            insight?: number | undefined
-            insight_short_id?: string | null | undefined
-            integration_id?: number | null | undefined
+            insight?: number
+            insight_short_id?: string | null
+            integration_id?: number | null
             interval?: number | undefined
             next_delivery_date?: string | null | undefined
-            prompt?: string | null | undefined
-            resource_name?: string | null | undefined
+            prompt?: string | null
+            resource_name?: string | null
             resource_type?: SubscriptionResourceType | undefined
-            send_test_now?: boolean | undefined
+            send_test_now?: boolean
             start_date?: string | undefined
             summary?: string | undefined
-            summary_enabled?: boolean | undefined
-            summary_prompt_guide?: string | undefined
+            summary_enabled?: boolean
+            summary_prompt_guide?: string
             target_type?: string | undefined
             target_value?: string | undefined
             title?: string | undefined
-            until_date?: string | undefined
+            until_date?: string
         }
         payload?: any
     }

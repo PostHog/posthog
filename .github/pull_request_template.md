@@ -62,6 +62,14 @@
 
 **Skills:** `/skill`
 
+<!-- What the person who directed the work checked themselves: the diff or the files they read, the behavior they ran, the design they decided. Record only what that person stated in the session, and update the line when they check more.
+     - Do not infer it. Approving a plan, answering a question, or saying "looks good" to a summary is not a check of the code. Checks the agent ran go under "How did you test this code?", never here.
+     - Write "Not yet checked by the driver" when the person has stated nothing. That is a complete answer, and it tells the reviewer no person has read the diff yet.
+     - Write "No human driver" when Autonomy is "Fully autonomous".
+     - A person editing this body by hand fills the line with what they checked. -->
+
+**Driver checked:** [what the driver read, ran or decided, or "Not yet checked by the driver"]
+
 <!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
 
 **Security review:** [needed or not needed]

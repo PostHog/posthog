@@ -33,6 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import type { CollectionNodeLoadMeta } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { getRegexFilterPatterns, hasInvalidRegexPattern } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
@@ -238,7 +239,7 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
         return marketingAnalyticsConcurrencyController
     }
 
-    if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
+    if (activeScene === Scene.SavedInsights) {
         return productAnalyticsHomeConcurrencyController
     }
 
@@ -409,10 +410,10 @@ export interface dataNodeLogicActions {
     } // dataNodeCollectionLogic
     collectionNodeLoadDataSuccess: (
         id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta?: CollectionNodeLoadMeta | undefined
     ) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta: CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     mountDataNode: (
         id: string,

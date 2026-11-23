@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import feedback from '@/commands/feedback'
+import { SHORTCUTS } from '@/commands/shortcuts'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
 import { inCIWithoutAPerson } from '@/core/approval'
 import {
@@ -42,7 +43,49 @@ import { VERSION } from '@/version'
 
 const CODE_WIDTH = Math.max(...EXIT_CODES.map(({ code }) => String(code).length))
 
-const ROOT_HELP = `
+// What `hog` alone shows a person: the commands most people start with. `hog help` lists them all.
+const OVERVIEW: readonly (readonly [heading: string, commands: readonly (readonly [string, string])[]])[] = [
+    [
+        'Get started',
+        [
+            ['setup', 'Add PostHog to the app in this folder'],
+            ['auth login', 'Log in to PostHog'],
+            ['whoami', 'Show who hog is logged in as'],
+        ],
+    ],
+    [
+        'Use PostHog',
+        [
+            ['query run <query>', 'Run a HogQL query'],
+            ['api search <words...>', 'Find a PostHog API tool, then run it with hog api call'],
+            ['et process [paths...]', 'Upload source maps and debug symbols after a build'],
+            ['mcp add', "Connect PostHog's MCP server to your coding agent"],
+            ['skills add <skill...>', 'Add PostHog skills for your coding agent'],
+        ],
+    ],
+]
+
+function overview(out: Output): string {
+    const width = Math.max(...OVERVIEW.flatMap(([, commands]) => commands.map(([usage]) => usage.length))) + 6
+    const sections = OVERVIEW.map(
+        ([heading, commands]) =>
+            `${out.style(heading, 'bold')}\n` +
+            commands.map(([usage, text]) => `  ${out.style(`hog ${usage}`.padEnd(width), 'bold')}${text}`).join('\n')
+    )
+    return (
+        [
+            `hog ${VERSION}, the PostHog command line`,
+            ...sections,
+            `Run ${out.style('hog help', 'bold')} to see every command and option, or ${out.style('hog help <command>', 'bold')} for one command.`,
+        ].join('\n\n') + '\n'
+    )
+}
+
+// A person reads the help at a terminal, so it leaves out what only agents and scripts use.
+const PEOPLE_HELP = `
+Run \`hog help <command>\` for a command's options and examples, and \`hog --version\` for the version.`
+
+const AGENT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
 Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
 HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.
@@ -290,12 +333,16 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
         })
         .exitOverride()
         .showSuggestionAfterError(true)
-        .addHelpText('after', ROOT_HELP)
+        .addHelpText('after', mode.format === 'json' ? AGENT_HELP : PEOPLE_HELP)
     for (const [name, spec] of Object.entries(GLOBAL_OPTIONS)) {
         program.addOption(toOption(name, spec))
     }
     for (const [name, node] of Object.entries(COMMANDS)) {
         addNode(program, name, node)
+    }
+    // Listed in help only: run() turns a shortcut into the command it names before commander parses.
+    for (const [name, shortcut] of SHORTCUTS) {
+        program.command(name).description(`${shortcut.description}, the same as hog ${shortcut.use}`)
     }
     return program
 }
@@ -344,6 +391,15 @@ interface ResolvedRoute {
     node: Command | Group | undefined
 }
 
+function expandShortcut(argv: readonly string[]): string[] {
+    const index = preParse(argv).tokens.find((token) => token.kind === 'positional')?.index
+    const shortcut = index === undefined ? undefined : SHORTCUTS.get(argv[index]!)
+    if (index === undefined || !shortcut) {
+        return [...argv]
+    }
+    return [...argv.slice(0, index), ...shortcut.use.split(' '), ...argv.slice(index + 1)]
+}
+
 function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
     const route: ResolvedRoute = { names: [], node: undefined }
@@ -388,8 +444,9 @@ function feedbackCommand(route: ResolvedRoute, failure: HogError): string | unde
     return `hog feedback ${area}"<what happened>"`
 }
 
-// posthog-cli commands that hog groups under a new name, with the flags that changed.
-const RENAMED: Record<string, { to: string; hint: string }> = {
+// posthog-cli commands that hog groups under a new name, with the flags that changed. It helps people and
+// agents move off posthog-cli, so delete it when posthog-cli stops working on 2027-02-27.
+const RENAMED: Readonly<Record<string, { to: string; hint: string }>> = {
     sourcemap: {
         to: 'error-tracking inject|upload|process',
         hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
@@ -434,7 +491,8 @@ function toHogError(caught: unknown): HogError {
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
-            const renamed = RENAMED[name]
+            // The name comes from the command line, so only RENAMED's own keys count, never `constructor`.
+            const renamed = Object.hasOwn(RENAMED, name) ? RENAMED[name] : undefined
             if (renamed) {
                 return new HogError(
                     'unknown_command',
@@ -569,7 +627,11 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     )
     const program = createProgram(runtime, mode, state, telemetry)
     if (argv.length === 0) {
-        program.outputHelp()
+        if (mode.format === 'json') {
+            program.outputHelp()
+        } else {
+            runtime.writeStdout(overview(new Output(runtime, mode)))
+        }
         return EXIT_SUCCESS
     }
     const started = runtime.now()
@@ -583,7 +645,9 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         return EXIT_SUCCESS
     }
     const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
-    const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
+    const args = expandShortcut(
+        isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : argv
+    )
     // Help and --version answer at once, so they don't wait for a request to finish.
     const answersAtOnce =
         isHelp || tokens.some((token) => token.kind === 'option' && ['help', 'h', 'version', 'V'].includes(token.name))
@@ -595,8 +659,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
           )
     await removeReplacedBinary(runtime)
 
-    const routeTokens = isHelp ? preParse(args).tokens : tokens
-    const route = resolveRoute(routeTokens)
+    const route = resolveRoute(preParse(args).tokens)
     let exitCode: number
     let failure: HogError | undefined
     try {

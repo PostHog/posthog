@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 
 import { IconChat, IconPerson, IconSearch, IconSparkles } from '@posthog/icons'
 
@@ -12,6 +12,7 @@ import { useHogFlowStep } from '../../steps/HogFlowSteps'
 import { isFunctionAction } from '../../steps/types'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { customStepName, stepKindName } from '../../workflowStepCatalog'
+import { CanvasPreviewPersonContext } from './CanvasPreviewPersonContext'
 import { StepFacts, stepView } from './stepFacts'
 import type { StepPresentation } from './stepPresentation'
 
@@ -64,6 +65,7 @@ export function useTileStep(action: HogFlowAction, workflow: HogFlow): TileStep 
     const step = useHogFlowStep(action)
     const { hogFunctionTemplatesById, actionValidationErrorsById } = useValues(workflowLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const previewPerson = useContext(CanvasPreviewPersonContext)
 
     return useMemo(() => {
         const templateId = isFunctionAction(action) ? action.config.template_id : undefined
@@ -71,7 +73,7 @@ export function useTileStep(action: HogFlowAction, workflow: HogFlow): TileStep 
             action.type === 'trigger' && 'template_id' in action.config ? action.config.template_id : undefined
         const templateName = hogFunctionTemplatesById[templateId ?? triggerTemplateId ?? '']?.name
         const look = templateId ? TEMPLATE_LOOKS[templateId] : undefined
-        const view = stepView(workflow, action, templateName)
+        const view = stepView(workflow, action, templateName, previewPerson)
         return {
             label: ENDPOINT_LABELS[action.type] ?? stepKindName(action) ?? templateName ?? 'Step',
             customName: customStepName(action, [templateName, view.facts.headline]),
@@ -83,5 +85,5 @@ export function useTileStep(action: HogFlowAction, workflow: HogFlow): TileStep 
             invalid: actionValidationErrorsById[action.id]?.valid === false,
             shape: action.type === 'trigger' ? 'start' : action.type === 'exit' ? 'end' : 'step',
         }
-    }, [action, workflow, step, hogFunctionTemplatesById, actionValidationErrorsById, isDarkModeOn])
+    }, [action, workflow, step, hogFunctionTemplatesById, actionValidationErrorsById, isDarkModeOn, previewPerson])
 }

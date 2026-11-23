@@ -54,6 +54,7 @@ On time-series charts the legend lists the user's series only, and hiding a seri
 - Long labels clip with an ellipsis only when they run out of available space. A vertical legend truncates at the column edge. A horizontal legend caps each row at an equal share of the line floored at 180px, because flexbox wraps before it shrinks and one long label would otherwise take a whole line. The full text is always in a native `title` tooltip.
 - When a legend shows, the layout root carries `data-legend-position` with the legend's side, so a host can keep its own edge controls off the legend.
 - `LegendItem.secondaryLabel` shows muted trailing text (a slope chart's per-series change).
+- `Series.legendTag` shows a small pill after the label, in the legend only (a comparison series' "Previous").
 
 ## Value table
 

@@ -4,6 +4,7 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import PropertyMock, patch
 
 from django.apps import apps
 from django.db.models import Model
@@ -30,7 +31,9 @@ from products.authorization.backend.logic import session
 from products.authorization.backend.presentation.querysets import (
     can_filter_queryset,
     filter_file_system_queryset,
+    filter_projects,
     filter_queryset,
+    filter_visible_projects,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -259,14 +262,36 @@ class TestListsMatchCurrentRules(BaseTest):
         assert entries.exists()
         assert not filtered.exists()
 
-    @parameterized.expand([("member", False, False), ("private_project", True, False), ("org_admin", True, True)])
-    def test_project_list_matches_visible_teams(self, _name: str, private: bool, admin: bool) -> None:
+    @parameterized.expand(
+        [
+            ("member", False, False, False, False),
+            ("private_project", True, False, False, False),
+            ("org_admin", True, True, False, False),
+            ("member_of_another_organization", True, False, True, False),
+            ("effective_org_admin", True, False, False, True),
+        ]
+    )
+    def test_project_list_matches_visible_teams(
+        self, _name: str, private: bool, admin: bool, member_elsewhere: bool, effective_admin: bool
+    ) -> None:
         private_team = Team.objects.create(organization=self.organization, name="Private")
-        Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Foreign")
+        elsewhere = Organization.objects.create(name="Elsewhere")
+        Team.objects.create(organization=elsewhere, name="Foreign")
+        if member_elsewhere:
+            self.user.join(organization=elsewhere)
         if private:
             self._rule("project", "none", str(private_team.id), team=private_team)
         if admin:
             self._make_org_admin()
+        if effective_admin:
+            self.enterContext(
+                patch.object(
+                    OrganizationMembership,
+                    "effective_level",
+                    new_callable=PropertyMock,
+                    return_value=OrganizationMembership.Level.ADMIN,
+                )
+            )
 
         result = authorization.list_objects(
             resource=Resource(type=ResourceType.PROJECT, organization_id=self.organization.id),
@@ -281,6 +306,20 @@ class TestListsMatchCurrentRules(BaseTest):
         )
         assert not result.excluded
         assert result.ids == {str(team_id) for team_id in expected.values_list("id", flat=True)}
+        if admin or effective_admin:
+            assert str(private_team.id) in result.ids
+        projects = filter_projects(
+            Team.objects.filter(organization=self.organization),
+            organization_id=self.organization.id,
+            subject=Subject(user_id=self.user.id),
+        )
+        assert set(projects.values_list("id", flat=True)) == set(expected.values_list("id", flat=True))
+
+        second = Organization.objects.create(name="Second")
+        OrganizationMembership.objects.create(user=self.user, organization=second)
+        Team.objects.create(organization=second, name="Second")
+        visible = filter_visible_projects(Team.objects.all(), subject=Subject(user_id=self.user.id))
+        assert set(visible.values_list("id", flat=True)) == set(UserPermissions(self.user).team_ids_visible_for_user)
 
     def test_list_over_the_limit_allows_nothing(self) -> None:
         self._rule("dashboard", "none")
@@ -303,7 +342,6 @@ class TestListsMatchCurrentRules(BaseTest):
             ("one_object", Resource(type=ResourceType.DASHBOARD, id="1", project_id=1), Action.VIEW, ValueError),
             ("no_project", Resource(type=ResourceType.DASHBOARD), Action.VIEW, ValueError),
             ("organizations", Resource(type=ResourceType.ORGANIZATION), Action.VIEW, ValueError),
-            ("project_without_organization", Resource(type=ResourceType.PROJECT), Action.VIEW, ValueError),
             ("project_query", Resource(type=ResourceType.PROJECT), Action.QUERY, NotImplementedError),
             (
                 "falls_back_to_a_parent",

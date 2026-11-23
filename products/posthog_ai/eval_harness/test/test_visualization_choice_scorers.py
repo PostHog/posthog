@@ -255,6 +255,35 @@ PAGEVIEWS_BY_BROWSER = {
         ([_filtered_call(series_key="file_name")], {"filtered_on": ["file_name"]}, 1.0, []),
         ([_filtered_call(query_key="$pathname")], {"filtered_on": ["$pathname", "$current_url"]}, 1.0, []),
         ([_filtered_call()], {"filtered_on": ["file_name"]}, 0.0, ["filtered_on"]),
+        (
+            [
+                (
+                    "mcp__posthog__query-trends",
+                    {**_trends_call()[1], "dateRange": {"date_from": "-56d"}, "interval": "week"},
+                    "ok",
+                )
+            ],
+            {"date_from": ["-8w", "-56d"], "interval": "week"},
+            1.0,
+            [],
+        ),
+        ([_trends_call()], {"date_from": ["-8w"], "interval": "week"}, 0.0, ["date_from", "interval"]),
+        ([_funnel_call(["signed_up", "uploaded_file"], include_filter=False)], {"funnel_window": "14 day"}, 1.0, []),
+        (
+            [
+                (
+                    "mcp__posthog__query-funnel",
+                    {
+                        **_funnel_call(["signed_up", "uploaded_file"])[1],
+                        "funnelsFilter": {"funnelWindowInterval": 7, "funnelWindowIntervalUnit": "day"},
+                    },
+                    "ok",
+                )
+            ],
+            {"funnel_window": "14 day"},
+            0.0,
+            ["funnel_window"],
+        ),
     ],
 )
 def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismatched) -> None:
