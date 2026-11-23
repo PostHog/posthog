@@ -1343,7 +1343,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             _TagRow(issue_id=self.issue_id_five, key=OTHER_TAG.key, value=True),
         )
         filter_group = self._status_is_set_filter() if legacy_shape else None
-        filters = {
+        filters: dict[str, dict[str, ErrorTrackingIssueTagFilter | ErrorTrackingIssueTagsFilter]] = {
             "legacy_applied": {"issueTag": ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=True)},
             "legacy_not_applied": {"issueTag": ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=False)},
             "has_all_and_not": {
