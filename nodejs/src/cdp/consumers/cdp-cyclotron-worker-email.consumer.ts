@@ -30,6 +30,7 @@ const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
 const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
 const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
 const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
+const LONGEST_SLOT_HOLD_MS = ATTACHMENT_SEND_DEADLINE_MS + CALLS_SETTLE_BEFORE_WRITE_MS + RESULT_WRITE_MARGIN_MS
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
@@ -177,7 +178,13 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         if (!this.config.CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL || !this.sendsWithFiles.admitsFiles()) {
             return options
         }
-        return { ...options, sendsWithFiles: { room: () => this.sendsWithFiles.room() } }
+        return {
+            ...options,
+            sendsWithFiles: {
+                room: () => this.sendsWithFiles.room(),
+                stalled: () => this.sendsWithFiles.fullForMs() > LONGEST_SLOT_HOLD_MS,
+            },
+        }
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {

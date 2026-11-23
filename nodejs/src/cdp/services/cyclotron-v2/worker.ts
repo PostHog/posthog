@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { ANY_ROW_POLL_SQL, COUNT_FILES_WORK_SQL, DEQUEUE_FILES_SQL, PollSql, plainRowPollSql } from './due-rows-sql'
+import { ANY_ROW_POLL_SQL, PollSql, filesRowPollSql, plainRowPollSql } from './due-rows-sql'
 import { SqlRunner, allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -341,6 +341,7 @@ export class CyclotronV2Worker {
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
     private readonly releaseRetrySlots: ReleaseRetrySlots
     private readonly pollSql: PollSql
+    private readonly filesPollSql: PollSql
     protected readonly sendsWithFiles: CyclotronV2SendsWithFiles | undefined
 
     constructor(private config: CyclotronV2WorkerConfig) {
@@ -376,6 +377,7 @@ export class CyclotronV2Worker {
         this.fairDequeue = config.queueName === 'email'
         this.sendsWithFiles = config.sendsWithFiles
         this.pollSql = config.sendsWithFiles ? plainRowPollSql(config.queueName) : ANY_ROW_POLL_SQL
+        this.filesPollSql = filesRowPollSql(config.queueName)
     }
 
     private assertBackOffFitsHeartbeat(): void {
@@ -404,7 +406,9 @@ export class CyclotronV2Worker {
     ): Promise<void> {
         while (this.isConsuming) {
             try {
-                this.lastFilesPollTime = new Date()
+                if (!sendsWithFiles.stalled()) {
+                    this.lastFilesPollTime = new Date()
+                }
                 const decision = await this.filesBatchLimit(Math.min(sendsWithFiles.room(), this.batchMaxSize))
                 const rows = decision.limit > 0 ? await this.dequeueFiles(decision.limit) : []
                 if (rows.length === 0) {
@@ -425,12 +429,18 @@ export class CyclotronV2Worker {
     }
 
     protected async countFilesWork(limit: number): Promise<number> {
-        const result = await this.pool.query<{ n: number }>(COUNT_FILES_WORK_SQL, [this.config.queueName, limit])
+        const result = await this.pool.query<{ n: number }>(
+            this.boundedPolls ? this.filesPollSql.countWork : this.filesPollSql.legacyCountWork,
+            [this.config.queueName, limit]
+        )
         return result.rows[0].n
     }
 
     private async dequeueFiles(limit: number): Promise<RawJobRow[]> {
-        const result = await this.pool.query<RawJobRow>(DEQUEUE_FILES_SQL, [this.config.queueName, limit, uuidv7()])
+        const result = await this.pool.query<RawJobRow>(
+            this.boundedFairDequeue ? this.filesPollSql.fairDequeueJobs : this.filesPollSql.legacyFairDequeueJobs,
+            [this.config.queueName, limit, uuidv7()]
+        )
         return result.rows
     }
 

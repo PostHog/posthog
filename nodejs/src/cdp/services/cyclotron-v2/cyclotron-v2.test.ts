@@ -2869,7 +2869,7 @@ describe('Cyclotron V2', () => {
                             queueName: 'email',
                             boundedFairDequeue: true,
                             batchMaxSize,
-                            sendsWithFiles: { room: () => 2 },
+                            sendsWithFiles: { room: () => 2, stalled: () => false },
                         }),
                         bucket
                     )
@@ -2879,21 +2879,20 @@ describe('Cyclotron V2', () => {
             )
         })
 
-        it('turns unhealthy when its poll for sends with files stops while the plain poll keeps going', async () => {
+        it.each([
+            ['its poll for sends with files hangs on a batch', 1, false],
+            ['a send holds its slot longer than any send can take', 0, true],
+        ])('turns unhealthy while the plain poll keeps going when %s', async (_label, room, stalled) => {
             await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', fileBytes: 1000 }])
-            const worker = createWorker('email', { heartbeatTimeoutMs: 300, sendsWithFiles: { room: () => 1 } })
-            const filesBatch = createPromise()
-            const stuck = createPromise()
-            await worker.connect((batch) => {
-                if (batch.length === 0) {
-                    return Promise.resolve()
-                }
-                filesBatch.resolve()
-                return stuck.promise
+            const worker = createWorker('email', {
+                heartbeatTimeoutMs: 300,
+                sendsWithFiles: { room: () => room, stalled: () => stalled },
             })
-            await filesBatch.promise
+            const stuck = createPromise()
+            await worker.connect((batch) => (batch.length === 0 ? Promise.resolve() : stuck.promise))
 
             try {
+                expect(worker.isHealthy()).toBe(true)
                 await waitForExpect(() => expect(worker.isHealthy()).toBe(false), 2_000, 50)
             } finally {
                 stuck.resolve()
@@ -3872,7 +3871,22 @@ describe('Cyclotron V2', () => {
                         const [plain] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE }])
                         return plain
                     },
-                    overrides: { sendsWithFiles: { room: () => 0 } },
+                    overrides: { sendsWithFiles: { room: () => 0, stalled: () => false } },
+                },
+                {
+                    label: 'the poll for sends with files passes a parked lower-sequence row with files',
+                    seed: async (): Promise<string> => {
+                        const later = new Date(Date.now() + 3_600_000)
+                        await manager.bulkCreateJobs([
+                            { teamId: 200, queueName: EMAIL_QUEUE, fileBytes: 1000, scheduled: later },
+                            { teamId: 300, queueName: EMAIL_QUEUE, scheduled: later },
+                        ])
+                        const [due] = await manager.bulkCreateJobs([
+                            { teamId: 100, queueName: EMAIL_QUEUE, fileBytes: 1000 },
+                        ])
+                        return due
+                    },
+                    overrides: { sendsWithFiles: { room: () => 1, stalled: () => false } },
                 },
             ])('claims the lowest-sequence due row when $label', async ({ seed, overrides }) => {
                 const expected = await seed()

@@ -162,6 +162,7 @@ export class InFlightRegistry {
     private reservedBytes = 0
     private heapBytes = 0
     private inFlight = 0
+    private fullSinceMs: number | null = null
 
     constructor(
         private readonly limits: InFlightLimits | null,
@@ -175,6 +176,10 @@ export class InFlightRegistry {
     // How many more sends with files the cap lets start. Their memory is checked when each one starts.
     public room(): number {
         return this.limits ? Math.max(0, this.limits.maxInFlight - this.inFlight) : 0
+    }
+
+    public fullForMs(now: number = Date.now()): number {
+        return this.fullSinceMs === null ? 0 : now - this.fullSinceMs
     }
 
     public tryStart<T>(
@@ -219,6 +224,8 @@ export class InFlightRegistry {
         this.inFlight += sends
         this.reservedBytes += sends * estimate.reservedBytes
         this.heapBytes += sends * estimate.heapBytes
+        const full = this.limits !== null && this.inFlight >= this.limits.maxInFlight
+        this.fullSinceMs = full ? (this.fullSinceMs ?? Date.now()) : null
         sendsInFlight.set(this.inFlight)
         reservedBytesInFlight.set(this.reservedBytes)
     }

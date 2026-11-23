@@ -45,6 +45,27 @@ describe('InFlightRegistry', () => {
         expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
     })
 
+    it('counts how long every slot has stayed taken, and starts over once one frees', async () => {
+        jest.useFakeTimers({ now: 1_000_000, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        try {
+            const registry = new InFlightRegistry({ ...roomFor(5, MIB), maxInFlight: 2 })
+            const first = pending()
+            const { started } = registry.tryStart(MIB, () => first.promise) as { started: Promise<void> }
+            jest.setSystemTime(1_005_000)
+            registry.tryStart(MIB, () => pending().promise)
+            jest.setSystemTime(1_065_000)
+            expect(registry.fullForMs()).toBe(60_000)
+
+            first.resolve()
+            await started
+            await new Promise(setImmediate)
+
+            expect(registry.fullForMs()).toBe(0)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('defers every send when the worker refused sends with files', () => {
         expect(new InFlightRegistry(null).tryStart(1, () => Promise.resolve())).toEqual({ deferred: 'refused' })
     })

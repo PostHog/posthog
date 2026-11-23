@@ -47,12 +47,12 @@ const PRIORITY_CLASSES_CTE = priorityClassesCte('$1')
 type RowFilter = (alias: string) => string
 
 const anyRow: RowFilter = () => ''
-// The fair dequeue hides the queue name from the planner, so the literal is what lets the due scan read
-// idx_cyclotron_jobs_email_plain_due instead of reading every due send with files and discarding it.
-const plainRow =
-    (queueName: string): RowFilter =>
+// The fair dequeue hides the queue name from the planner, so the literal is what lets each due scan read the
+// partial email index for its kind of send instead of reading every due send of the other kind and discarding it.
+const emailRows =
+    (queueName: string, fileBytes: 'IS NULL' | 'IS NOT NULL'): RowFilter =>
     (alias) =>
-        `AND ${alias}queue_name = ${escapeLiteral(queueName)} AND ${alias}file_bytes IS NULL`
+        `AND ${alias}queue_name = ${escapeLiteral(queueName)} AND ${alias}file_bytes ${fileBytes}`
 
 const countWorkSql = (only: RowFilter): string => `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
 SELECT COUNT(*)::int AS n FROM (
@@ -220,23 +220,5 @@ const pollSql = (only: RowFilter): PollSql => ({
 })
 
 export const ANY_ROW_POLL_SQL = pollSql(anyRow)
-export const plainRowPollSql = (queueName: string): PollSql => pollSql(plainRow(queueName))
-
-// Must match the predicate of idx_cyclotron_jobs_email_files_fair_dequeue, or the files poll scans the table.
-const FILES_DUE = `status = 'available' AND queue_name = $1 AND file_bytes IS NOT NULL AND scheduled <= NOW()`
-
-export const COUNT_FILES_WORK_SQL = `SELECT COUNT(*)::int AS n FROM (
-    SELECT 1 FROM cyclotron_jobs WHERE ${FILES_DUE} LIMIT $2
-) sub`
-
-export const DEQUEUE_FILES_SQL = `WITH available AS (
-    SELECT id FROM cyclotron_jobs
-    WHERE ${FILES_DUE}
-    ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
-    LIMIT $2
-    FOR UPDATE SKIP LOCKED
-)
-${CLAIM_UPDATE}
-FROM available
-WHERE cyclotron_jobs.id = available.id
-${CLAIM_RETURNING}`
+export const plainRowPollSql = (queueName: string): PollSql => pollSql(emailRows(queueName, 'IS NULL'))
+export const filesRowPollSql = (queueName: string): PollSql => pollSql(emailRows(queueName, 'IS NOT NULL'))
