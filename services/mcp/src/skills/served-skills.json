@@ -52,6 +52,9 @@
         "debugging-failed-data-quality-checks": {},
         "designing-email-templates": {},
         "designing-replay-vision-scanners": {},
+        "diagnosing-ci-and-merge-bottlenecks": {
+            "feature_flag": "engineering-analytics"
+        },
         "diagnosing-endpoint-performance": {},
         "diagnosing-experiment-health": {},
         "diagnosing-failed-warehouse-syncs": {},
@@ -91,6 +94,9 @@
         "installing-posthog-from-chat": {},
         "installing-posthog-in-a-codebase": {},
         "investigate-metric": {},
+        "investigating-ci-failures": {
+            "feature_flag": "engineering-analytics"
+        },
         "investigating-error-issue": {},
         "investigating-logs": {},
         "investigating-metric-anomalies": {
@@ -144,7 +150,13 @@
         "syncing-migrated-self-managed-tables": {},
         "transcribing-slack-audio": {},
         "triaging-error-issues": {},
+        "triaging-visual-review-runs": {
+            "feature_flag": "visual-review"
+        },
         "tuning-incremental-sync-config": {},
+        "turning-engineering-analytics-into-insights": {
+            "feature_flag": "engineering-analytics"
+        },
         "understanding-billing-usage": {},
         "validating-and-publishing-canvases": {
             "feature_flag": "today-rail-nav"
