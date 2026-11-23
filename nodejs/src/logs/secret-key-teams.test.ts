@@ -22,6 +22,6 @@ describe('SecretKeyTeams', () => {
             getTeam: (id) => Promise.resolve(id === 7 ? team : null),
         })
 
-        expect(await teams.getTeam('phs_example')).toEqual(expected)
+        expect(await teams.getTeam(exampleKeyHash)).toEqual(expected)
     })
 })

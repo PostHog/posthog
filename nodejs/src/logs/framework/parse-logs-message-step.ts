@@ -15,7 +15,7 @@ import {
     parseMinTimestampHeader,
     parseSizeHeader,
 } from '../logs-ingestion-consumer'
-import { AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX, isSecretKey } from '../secret-key-teams'
+import { AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX, isSecretKey, isSecretKeyDigest } from '../secret-key-teams'
 import type { LogsIngestionMessage } from '../types'
 import { LogsPipelineContext, quarantineLogMessage, retryOnDependencyUnavailable } from './logs-pipeline-context'
 
@@ -42,7 +42,8 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 countDropped('missing_token')
                 return drop('missing_token')
             }
-            const sentSecretKey = isSecretKey(token)
+            const sentSecretKey = isSecretKeyDigest(token)
+            const sentUnhashedKey = isSecretKey(token)
 
             let team: Team | null
             try {
@@ -53,7 +54,9 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                         ? deps.teamManager.getTeam(1)
                         : sentSecretKey
                           ? (deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
-                          : deps.teamManager.getTeamByToken(token)
+                          : sentUnhashedKey
+                            ? Promise.resolve(null)
+                            : deps.teamManager.getTeamByToken(token)
                 )
             } catch (e) {
                 logger.error('team_lookup_error', { error: e })
@@ -63,15 +66,14 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
 
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
-                // A secret key is never logged or recorded, because a real key without the scope also lands here.
-                logger.warn('team_not_found', { token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : token })
-                if (!sentSecretKey) {
+                logger.warn('team_not_found', { token_with_no_team: sentUnhashedKey ? SECRET_KEY_PREFIX : token })
+                if (!sentUnhashedKey) {
                     context.unknownTokens?.record(token)
                 }
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }
-            // Everything after this step sees the public token, so the secret key stays out of the outputs.
+            // Quota, output headers and the DLQ are keyed by the public token.
             if (sentSecretKey) {
                 token = team.api_token
             }

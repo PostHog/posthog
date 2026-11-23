@@ -4,9 +4,11 @@ use ingestion_framework::{drop, ok, KafkaMessage, Outcome, PipelineResult, Proce
 use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
-use crate::secret_key::{is_secret_key, AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX};
+use crate::secret_key::{
+    is_secret_key, is_secret_key_digest, AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX,
+};
 
-use super::context::{kafka_header, quarantine_log_message, LogsPipelineContext};
+use super::context::{kafka_header, quarantine_log_message, AppSource, LogsPipelineContext};
 use super::deps::Team;
 use super::errors::NamedError;
 use super::types::{parse_min_timestamp_header, parse_size_header, LogsIngestionMessage};
@@ -37,10 +39,15 @@ async fn parse(
 
     // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
     // every team whose token is not cached yet. Only an outage past the backoff drops.
-    let sent_secret_key = is_secret_key(&token);
+    let sent_secret_key = is_secret_key_digest(&token);
+    let sent_unhashed_key = is_secret_key(&token);
+    // The key scope is `logs:write`, so a key does not authenticate another signal.
+    let logs = context.identity.app_source == AppSource::Logs;
     let team: Option<Team> = match context
         .retry(|| async {
-            if sent_secret_key {
+            if sent_unhashed_key || (sent_secret_key && !logs) {
+                Ok(None)
+            } else if sent_secret_key {
                 context
                     .deps
                     .team_manager
@@ -60,8 +67,7 @@ async fn parse(
         }
     };
     let Some(team) = team else {
-        // A secret key is never logged, because a real key without the scope also lands here.
-        let logged_token = if sent_secret_key {
+        let logged_token = if sent_unhashed_key {
             SECRET_KEY_PREFIX
         } else {
             token.as_str()
@@ -70,7 +76,7 @@ async fn parse(
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
     };
-    // Everything after this step sees the public token, so the secret key stays out of the outputs.
+    // Quota, output headers and the DLQ are keyed by the public token.
     if sent_secret_key {
         token = team.api_token.clone();
     }

@@ -23,7 +23,7 @@ use crate::retention::{
     MAX_ENABLED_RETENTION_RULES,
 };
 use crate::sampling::{compile_rule_set, CompiledRuleSet, SamplingRuleRow};
-use crate::secret_key::{hash_secret_key, SECRET_KEY_SCOPE};
+use crate::secret_key::SECRET_KEY_SCOPE;
 
 use super::lazy_loader::{LazyLoader, LazyLoaderOptions};
 
@@ -102,8 +102,8 @@ fn token_key(token: &str) -> String {
     format!("token:{token}")
 }
 
-fn secret_key(secret_key: &str) -> String {
-    format!("secret:{}", hash_secret_key(secret_key))
+fn secret_key(digest: &str) -> String {
+    format!("secret:{digest}")
 }
 
 #[derive(Debug, Clone)]
