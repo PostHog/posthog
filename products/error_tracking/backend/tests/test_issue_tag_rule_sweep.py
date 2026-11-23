@@ -1,4 +1,5 @@
 import uuid
+import itertools
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
@@ -31,6 +32,7 @@ from products.error_tracking.backend.models import (
 Source = ErrorTrackingIssueTag.Source
 
 QUERY = "products.error_tracking.backend.logic.issue_tags.sweep.execute_hogql_query"
+LABEL_WRITE_BATCH_SIZE = "products.error_tracking.backend.logic.issue_tags.sweep.LABEL_WRITE_BATCH_SIZE"
 WINDOW = timedelta(hours=25)
 
 
@@ -75,6 +77,7 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
         self._exception(home_only, "/home", hours_ago=2)
         match_before_window = self._issue()
         self._exception(match_before_window, "/checkout/pay", hours_ago=30)
+        self._exception(self._issue(), "/settings", hours_ago=2)
         flush_persons_and_events()
 
         result = self._sweep()
@@ -147,24 +150,31 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("deleted", lambda rules: rules.delete()),
-            ("edited", lambda rules: rules.update(version=F("version") + 1)),
-            ("disabled", lambda rules: rules.update(disabled_data={"message": "broken"})),
+            ("deleted", lambda rules: rules.delete(), 0),
+            ("edited", lambda rules: rules.update(version=F("version") + 1), 0),
+            ("disabled", lambda rules: rules.update(disabled_data={"message": "broken"}), 0),
+            ("deleted_between_label_batches", lambda rules: rules.delete(), 1),
         ]
     )
-    def test_a_rule_changed_during_the_run_writes_nothing(
-        self, _name: str, change: Callable[[QuerySet[ErrorTrackingIssueTagRule]], object]
+    def test_a_rule_changed_during_the_run_stops_its_labels(
+        self, _name: str, change: Callable[[QuerySet[ErrorTrackingIssueTagRule]], object], labels_before_change: int
     ) -> None:
-        issue = self._issue()
-        self._exception(issue, "/checkout/pay", hours_ago=2)
+        for _ in range(2):
+            self._exception(self._issue(), "/checkout/pay", hours_ago=2)
         flush_persons_and_events()
         rules = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).filter(id=self.rule.id)
+        progress = itertools.count()
 
-        # The sweep reports progress after its query and before its writes, which is where a person's change lands.
-        result = self._sweep(on_progress=lambda: change(rules))
+        # The sweep reports progress after its query and after each label, which is where a person's change lands.
+        def on_progress() -> None:
+            if next(progress) == labels_before_change:
+                change(rules)
 
-        assert result == self._result(dry_run=False, matching=1, to_write=1, written=0)
-        assert self._answers() == []
+        with patch(LABEL_WRITE_BATCH_SIZE, 1):
+            result = self._sweep(on_progress=on_progress)
+
+        assert result == self._result(dry_run=False, matching=2, to_write=2, written=labels_before_change)
+        assert len(self._answers()) == labels_before_change
 
     def test_a_team_without_issue_tags_reads_no_rule_or_event(self) -> None:
         self.enabled_flags.clear()

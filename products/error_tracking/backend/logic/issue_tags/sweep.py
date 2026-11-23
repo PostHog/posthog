@@ -40,21 +40,25 @@ QUERY_MAX_EXECUTION_SECONDS = 300
 # retry of a run then cuts the same issues, and the next day's run cuts different issues.
 MAX_ISSUES = MAX_SELECT_RETURNED_ROWS
 TAG_READ_BATCH_SIZE = 1000
+# The sweep reads the rule again before each batch of this many labels, so that an edit or a delete stops the writes
+# within one batch.
+LABEL_WRITE_BATCH_SIZE = 100
 # How many ids of matching issues with no answer for the rule's tag each error_tracking_tag_rule_sweep_rule log line
 # lists, so that a person can check some labels by hand.
 SAMPLE_ISSUES = 10
 
 # One row per issue with an exception in the window that matches at least one rule. `match_counts` holds the number
 # of matching exceptions per rule, in rule order. `issue_id` maps an event to its issue through the fingerprint, so an
-# exception of a merged issue counts for the issue it merged into.
+# exception of a merged issue counts for the issue it merged into. `any_rule` drops the events that match no rule before
+# the grouping, so that the grouping holds only the matching issues.
 _MATCHING_ISSUES = """
     SELECT issue_id, {match_counts} AS match_counts
     FROM events
     WHERE event = '$exception'
       AND timestamp >= {start} AND timestamp < {end}
       AND isNotNull(issue_id)
+      AND {any_rule}
     GROUP BY issue_id
-    HAVING arrayMax(match_counts) > 0
     ORDER BY cityHash64(concat(toString(issue_id), {order_seed}))
     LIMIT {max_issues}
 """
@@ -181,6 +185,7 @@ def _matching_issues(team: Team, rules: Sequence[_SweepableRule], *, start: date
         query=_MATCHING_ISSUES,
         placeholders={
             "match_counts": ast.Array(exprs=[ast.Call(name="countIf", args=[rule.match]) for rule in rules]),
+            "any_rule": ast.Or(exprs=[rule.match for rule in rules]),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "order_seed": ast.Constant(value=start.date().isoformat()),
@@ -236,22 +241,24 @@ def _label_issues(
 def _write_labels(
     team: Team, rule: _SweepableRule, issue_ids: Sequence[UUID], on_progress: Callable[[], object]
 ) -> int:
-    # A person can edit or delete the rule while the query runs. A label from the edited rule would carry an answer to
-    # the old filters, and a label from the deleted rule would stay after the delete removed the rule's tags.
-    definition = active_rule_definition(team.id, rule.id)
-    if definition is None or definition.question_version != rule.version or definition.key != rule.key:
-        logger.info("error_tracking_tag_rule_sweep_rule_changed", team_id=team.id, rule_id=str(rule.id))
-        return 0
     answer = TagAnswer(value=True, probability=None, model=str(rule.id), question_version=rule.version, set_by=None)
     written = 0
-    for issue_id in issue_ids:
-        try:
-            if set_issue_tag(team.id, issue_id, definition, answer, ErrorTrackingIssueTag.Source.RULE):
-                written += 1
-        except ErrorTrackingIssue.DoesNotExist:
-            # A merge or a delete removed the issue after ClickHouse read the fingerprint's issue.
-            pass
-        on_progress()
+    for batch in batched(issue_ids, LABEL_WRITE_BATCH_SIZE, strict=False):
+        # A person can edit or delete the rule while the query or the writes run. A label from the edited rule would
+        # carry an answer to the old filters, and a label from the deleted rule would stay after the delete removed the
+        # rule's tags.
+        definition = active_rule_definition(team.id, rule.id)
+        if definition is None or definition.question_version != rule.version or definition.key != rule.key:
+            logger.info("error_tracking_tag_rule_sweep_rule_changed", team_id=team.id, rule_id=str(rule.id))
+            return written
+        for issue_id in batch:
+            try:
+                if set_issue_tag(team.id, issue_id, definition, answer, ErrorTrackingIssueTag.Source.RULE):
+                    written += 1
+            except ErrorTrackingIssue.DoesNotExist:
+                # A merge or a delete removed the issue after ClickHouse read the fingerprint's issue.
+                pass
+            on_progress()
     return written
 
 
