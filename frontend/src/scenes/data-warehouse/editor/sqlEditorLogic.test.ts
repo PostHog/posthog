@@ -22,6 +22,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
@@ -2111,6 +2112,49 @@ describe('sqlEditorLogic', () => {
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(approvals).toEqual(1)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        const updateOpenMetric = (): void => {
+            logic.actions.setEditingMetricName(PREFILL.name)
+            logic.actions.updateEditingMetric()
+        }
+
+        it.each([
+            ['saving a new metric', {}, (): void => logic.actions.saveAsMetricSubmit(PREFILL)],
+            [
+                'updating a metric on a direct connection',
+                { connectionId: 'connection-1', sendRawQuery: true },
+                updateOpenMetric,
+            ],
+            ['updating a metric on managed Trino', { executionTarget: 'managed_trino' as const }, updateOpenMetric],
+        ])('leaves editor state out of the definition when %s', async (_case, engineFields, save) => {
+            const definitions: Record<string, unknown>[] = []
+            const recordDefinition: MockSignature = async ({ request }) => {
+                definitions.push(((await request.json()) as Record<string, any>).definition)
+                return [200, { name: PREFILL.name }]
+            }
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': recordDefinition,
+                    '/api/projects/:team_id/data_catalog/metrics/:name/approve/': () => [200, {}],
+                },
+                patch: { '/api/projects/:team_id/data_catalog/metrics/:name/': recordDefinition },
+            })
+            mountEditor()
+            router.actions.push(urls.sqlEditor())
+            await expectLogic(logic).toDispatchActions(['createTab'])
+            logic.actions.setQueryInput('SELECT count() FROM events')
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, variables: {}, filters: {}, ...engineFields },
+            })
+
+            save()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(definitions).toEqual([
+                { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events', ...engineFields },
+            ])
         })
 
         it('asks before it overwrites a taken name, and lands the overwrite as proposed', async () => {

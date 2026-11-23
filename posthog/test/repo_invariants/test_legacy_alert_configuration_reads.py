@@ -42,10 +42,9 @@ READERS: dict[str, str] = {
     "products/pulse/backend/models.py": "Pulse links keep a foreign key to the row (G3)",
     "products/alerts/backend/admin.py": "Django admin for the model (G3)",
     "products/alerts/backend/platform_ownership.py": "ownership layer: create, mirror and owner checks (E1, E2)",
-    "products/logs/backend/platform_ownership.py": "ownership layer: create and mirror (E1, E2)",
-    "products/logs/backend/facade/platform_ownership.py": "ownership facade for the platform API (E2)",
+    "products/logs/backend/platform_ownership.py": "ownership layer: create (E1)",
+    "products/logs/backend/facade/platform_ownership.py": "ownership facade for the logs API's creates (E1)",
     "products/alerts/backend/platform_cutover.py": "cutover and rollback (E2)",
-    "products/logs/backend/platform_cutover.py": "cutover and rollback (E2)",
     "products/logs/backend/destination_conversion.py": "moves destinations off HogFunctions under the row's lock (H5)",
     "products/alerts/backend/management/commands/cut_over_insight_alerts_to_platform.py": "cut command (E2)",
     "products/alerts/backend/platform_alert_backfill.py": "builds copies from rows",
@@ -60,20 +59,19 @@ READERS: dict[str, str] = {
     "products/logs/backend/management/commands/delete_orphaned_platform_logs_alert_copies.py": (
         "finds copies whose row is gone"
     ),
+    "products/alerts/backend/legacy_history_copy.py": "G1 history copy",
+    "products/logs/backend/legacy_history_copy.py": "G1 history copy",
     "products/alerts/backend/platform_native_cleanup.py": "tells native alerts from copies by row existence (E2)",
     "products/alerts/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
-    "products/logs/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
-    "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
     "products/alerts/backend/platform_insight_alert.py": (
         "investigations and firing signals of a copy load its row (D1 follow-up)"
     ),
     "products/logs/backend/alert_source_cycle.py": (
         "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
     ),
-    "products/logs/backend/alert_incidents.py": "incident close reads `owner` from the row (E4)",
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
     "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
     "products/logs/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",

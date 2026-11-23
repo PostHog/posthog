@@ -3,15 +3,22 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.amplitude._config import AmplitudeSourceConfig
 from products.warehouse_sources.sources.amplitude.amplitude import (
     AMPLITUDE_INVALID_ARCHIVE_ERROR,
+    AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR,
+    AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR,
     AmplitudeResumeConfig,
     amplitude_source,
     validate_credentials as validate_amplitude_credentials,
+    validate_management_api_key,
 )
 from products.warehouse_sources.sources.amplitude.settings import (
     AMPLITUDE_ENDPOINTS,
     COMPOSITION_ENDPOINT,
     DASHBOARD_LOOKBACK_DAYS,
+    DEPLOYMENTS_ENDPOINT,
     EVENTS_ENDPOINT,
+    EXPERIMENTS_ENDPOINT,
+    FLAGS_ENDPOINT,
+    LOOKUP_TABLES_ENDPOINT,
     RETENTION_ENDPOINT,
     REVENUE_LTV_ENDPOINT,
 )
@@ -39,12 +46,22 @@ from products.warehouse_sources.sources.sdk import (
 AMPLITUDE_READ_TIMEOUT_ERROR = "Read timed out"
 
 _DASHBOARD_WINDOW_DESCRIPTION = f"Covers the last {DASHBOARD_LOOKBACK_DAYS} days. Each sync replaces the table."
+_MANAGEMENT_KEY_DESCRIPTION = "Needs a Management API key."
+
+MISSING_MANAGEMENT_KEY_MESSAGE = (
+    "This table needs an Amplitude Management API key. Create one under Experiment → Management API in "
+    "Amplitude, then add it to the source."
+)
 
 SCHEMA_DESCRIPTIONS: dict[str, str] = {
     EVENTS_ENDPOINT: "Only syncs the last 30 days on initial sync",
     RETENTION_ENDPOINT: f"Daily retention of new users who return with any event. {_DASHBOARD_WINDOW_DESCRIPTION}",
     COMPOSITION_ENDPOINT: f"Unique users per value of each built-in user property. {_DASHBOARD_WINDOW_DESCRIPTION}",
     REVENUE_LTV_ENDPOINT: f"Daily lifetime value of new users for each revenue metric. {_DASHBOARD_WINDOW_DESCRIPTION}",
+    LOOKUP_TABLES_ENDPOINT: "Lookup table definitions. Needs a Growth or Enterprise plan with the Govern add-on.",
+    EXPERIMENTS_ENDPOINT: f"Feature and web experiments, including archived ones. {_MANAGEMENT_KEY_DESCRIPTION}",
+    FLAGS_ENDPOINT: f"Feature flags, including archived ones. {_MANAGEMENT_KEY_DESCRIPTION}",
+    DEPLOYMENTS_ENDPOINT: f"Deployments that flags and experiments are assigned to. {_MANAGEMENT_KEY_DESCRIPTION}",
 }
 
 AMPLITUDE_SLOW_RESPONSE_MESSAGE = (
@@ -178,6 +195,11 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "401 Client Error: Unauthorized": message,
             "403 Client Error: Forbidden": message,
             "Invalid API Key": message,
+            AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR: MISSING_MANAGEMENT_KEY_MESSAGE,
+            AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR: (
+                "Amplitude rejected the Management API key. Create a new key under Experiment → Management API "
+                "in Amplitude and update the source."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -235,7 +257,28 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_amplitude_credentials(config.api_key, config.secret_key, config.region)
+        endpoint = AMPLITUDE_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and endpoint.requires_management_api_key:
+            if not config.management_api_key:
+                return False, MISSING_MANAGEMENT_KEY_MESSAGE
+            return validate_management_api_key(config.management_api_key, config.region)
+
+        valid, error = validate_amplitude_credentials(config.api_key, config.secret_key, config.region)
+        if valid and schema_name is None and config.management_api_key:
+            return validate_management_api_key(config.management_api_key, config.region)
+        return valid, error
+
+    def get_endpoint_permissions(
+        self, config: AmplitudeSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return {
+            endpoint: MISSING_MANAGEMENT_KEY_MESSAGE
+            if not config.management_api_key
+            and endpoint in AMPLITUDE_ENDPOINTS
+            and AMPLITUDE_ENDPOINTS[endpoint].requires_management_api_key
+            else None
+            for endpoint in endpoints
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AmplitudeResumeConfig]:
         return ResumableSourceManager[AmplitudeResumeConfig](inputs, AmplitudeResumeConfig)
@@ -250,6 +293,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             api_key=config.api_key,
             secret_key=config.secret_key,
             region=config.region,
+            management_api_key=config.management_api_key,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
@@ -269,7 +313,9 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
                 "Connect Amplitude with your project's **API key** and **secret key**, found in Amplitude under "
                 "**Settings → Organization settings → Projects**. These authenticate the Export API (raw events), "
                 "the Cohorts API, the Annotations API, the Taxonomy API (event and property definitions), and the "
-                "Dashboard REST API (retention, user composition, and revenue LTV charts).\n\n"
+                "Dashboard REST API (retention, user composition, and revenue LTV charts), and the Lookup Table API.\n\n"
+                "To sync experiments, flags, and deployments, also add a **Management API key**. Create one under "
+                "**Experiment → Management API** in Amplitude.\n\n"
                 "The events stream uses Amplitude's Export API, which enforces a ~2 hour data latency and only "
                 "syncs the last 30 days on the initial sync."
             ),
@@ -303,6 +349,14 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
                             SourceFieldSelectConfigOption(label="US (amplitude.com)", value="us"),
                             SourceFieldSelectConfigOption(label="EU (analytics.eu.amplitude.com)", value="eu"),
                         ],
+                    ),
+                    SourceFieldInputConfig(
+                        name="management_api_key",
+                        label="Management API key (optional)",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

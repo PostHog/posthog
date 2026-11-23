@@ -310,6 +310,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
+    "posthog.api.sso.ChatGPTOpenIdConnect",
     "django.contrib.auth.backends.ModelBackend",
     "posthog.auth.WebauthnBackend",
 ]
@@ -375,6 +376,9 @@ SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+
+SOCIAL_AUTH_CHATGPT_KEY: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_KEY")
+SOCIAL_AUTH_CHATGPT_SECRET: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_SECRET")
 
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
@@ -1247,6 +1251,11 @@ WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_T
 # tier: this many separate days on which the team sent at least this fraction of its daily cap.
 WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
 WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
+# An established paying customer starts from a floor instead of tier 0, so its first real send is not
+# capped at the probation allowance. A floor tier of 0 disables the floor. Billing scores an organization
+# 7 or more once it has paid an invoice, and an active trial reads as a subscription, so the bar is the score.
+WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER", 3))
+WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE", 7))
 # app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
 # means the signal contributes nothing, so the decision rests on rates and staff suspensions.
 WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(

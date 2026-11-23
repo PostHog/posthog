@@ -1,4 +1,4 @@
-import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -99,6 +99,7 @@ import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scene
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
+import { SettingStatusTag } from './components/SettingStatusTag'
 import {
     ActivityLogNotifications,
     ActivityLogOrgLevelSettings,
@@ -210,6 +211,7 @@ import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
+import { CustomizationIRL } from './user/CustomizationIRL'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { LoginSessions } from './user/LoginSessions'
 import { OptOutCapture } from './user/OptOutCapture'
@@ -306,16 +308,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'js-snippet-version',
                 title: (
                     <>
-                        Snippet version{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
+                        Snippet version <SettingStatusTag status="experimental" />
                     </>
                 ),
                 description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
-                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js', 'experimental'],
             },
         ],
     },
@@ -1359,6 +1358,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
+                // This setting and logs-metric-rules load logs-scoped rules on mount. Hide both from a
+                // member without logs access, because the request returns a 403 for that member.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
@@ -1368,6 +1370,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
                 flag: 'METRICS',
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
@@ -1519,7 +1522,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-filter-test-accounts',
                 title: 'Filter out internal and test users from revenue analytics',
                 description: 'Exclude test accounts from revenue calculations and reports.',
-                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration hideTitle />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
             },
             {
@@ -1528,7 +1531,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
                 docsUrl: 'https://posthog.com/docs/revenue-analytics',
-                component: <EventConfiguration />,
+                component: <EventConfiguration hideTitle />,
                 keywords: ['purchase', 'payment', 'subscription', 'charge'],
             },
             {
@@ -1536,7 +1539,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 description: 'Connect external data sources like Stripe for revenue tracking.',
-                component: <ExternalDataSourceConfiguration />,
+                component: <ExternalDataSourceConfiguration hideTitle />,
                 keywords: ['stripe', 'import', 'sync', 'data warehouse'],
             },
         ],
@@ -1679,9 +1682,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
+                        <SettingStatusTag status="beta" />
                     </>
                 ),
                 description:
@@ -2872,15 +2873,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'customization-irl',
                 title: 'Customization IRL',
-                component: (
-                    <div>
-                        Grab some{' '}
-                        <Link to="https://posthog.com/merch" target="_blank">
-                            PostHog merch
-                        </Link>{' '}
-                        to customize yourself outside of the app
-                    </div>
-                ),
+                component: <CustomizationIRL />,
             },
         ],
     },

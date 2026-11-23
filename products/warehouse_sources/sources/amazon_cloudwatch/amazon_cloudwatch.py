@@ -33,6 +33,7 @@ from products.warehouse_sources.sources.amazon_cloudwatch.settings import (
     AMAZON_CLOUDWATCH_ENDPOINTS,
     LOG_EVENTS_PAGE_SIZE,
     LOG_GROUPS_PAGE_SIZE,
+    LOGS_DESCRIBE_PAGE_SIZE,
     LOGS_SERVICE,
     MAX_DISCOVERED_LOG_GROUPS,
     METRIC_DATA_MAX_DATAPOINTS,
@@ -380,6 +381,12 @@ def send_operation(
     return parsed
 
 
+ACCESS_DENIED_MESSAGE = (
+    "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:DescribeLogStreams, "
+    "logs:DescribeMetricFilters, logs:FilterLogEvents, logs:ListAnomalies, cloudwatch:DescribeAlarms, "
+    "cloudwatch:DescribeAlarmHistory, cloudwatch:GetMetricData and cloudwatch:ListMetrics to the IAM user or role."
+)
+
 # AWS error code -> the message the setup wizard shows. A denial names the calling identity's
 # IAM ARN, so the raw AWS text never reaches the user.
 VALIDATION_ERROR_MESSAGES: dict[str, str] = {
@@ -389,11 +396,11 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
     "ExpiredTokenException": "The AWS session token has expired. Reconnect with fresh credentials.",
     "ExpiredToken": "The AWS session token has expired. Reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
-    "AccessDenied": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
+    "AccessDeniedException": ACCESS_DENIED_MESSAGE,
+    "AccessDenied": ACCESS_DENIED_MESSAGE,
     # A rejection without an error body reaches `_error_from` as its bare status.
     "HTTP 401": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
-    "HTTP 403": "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:FilterLogEvents, cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory and cloudwatch:GetMetricData to the IAM user or role.",
+    "HTTP 403": ACCESS_DENIED_MESSAGE,
 }
 
 TRANSIENT_VALIDATION_ERROR = "Amazon CloudWatch is busy or temporarily unavailable. Wait a moment and try again."
@@ -587,6 +594,50 @@ def log_event_rows(log_group_name: str, body: dict[str, Any]) -> list[dict[str, 
     ]
 
 
+def log_stream_rows(log_group_name: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for stream in body.get("logStreams") or []:
+        row = _snake_keys(stream)
+        row["log_group_name"] = log_group_name
+        # AWS stopped filling these for log streams in 2019 and sends zero or an ignored token.
+        row.pop("stored_bytes", None)
+        row.pop("upload_sequence_token", None)
+        for key in ("creation_time", "first_event_timestamp", "last_event_timestamp", "last_ingestion_time"):
+            row[key] = _from_millis(row.get(key))
+        rows.append(row)
+    return rows
+
+
+def metric_filter_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric_filter in body.get("metricFilters") or []:
+        row = _snake_keys(metric_filter)
+        row["creation_time"] = _from_millis(row.get("creation_time"))
+        rows.append(row)
+    return rows
+
+
+def anomaly_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for anomaly in body.get("anomalies") or []:
+        row = _snake_keys(anomaly)
+        for key in ("first_seen", "last_seen", "suppressed_date", "suppressed_until"):
+            row[key] = _from_millis(row.get(key))
+        rows.append(row)
+    return rows
+
+
+def metric_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric in body.get("Metrics") or []:
+        row = _snake_keys(metric)
+        dimensions = sorted((d.get("Name"), d.get("Value")) for d in row.get("dimensions") or [])
+        identity = [row.get("namespace"), row.get("metric_name"), dimensions]
+        row["metric_id"] = hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
+        rows.append(row)
+    return rows
+
+
 def alarm_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for alarm_type, key in (("MetricAlarm", "MetricAlarms"), ("CompositeAlarm", "CompositeAlarms")):
@@ -659,7 +710,7 @@ def _slices(
     logger: FilteringBoundLogger,
 ) -> list[tuple[str, Optional[str]]]:
     """The request series of one run: (slice key, log group) pairs for logs, window starts otherwise."""
-    if endpoint_config.operation == "FilterLogEvents":
+    if endpoint_config.per_log_group:
         groups = log_group_names or client.list_log_group_names(logger)
         return [(name, name) for name in groups]
     if endpoint_config.lookback_days is None:
@@ -682,17 +733,25 @@ def _params(
         if next_token:
             params["nextToken"] = next_token
         return params
-    if operation == "FilterLogEvents":
-        params = {
-            "logGroupName": log_group,
-            "startTime": _to_millis(window.start),
-            "endTime": _to_millis(window.end),
-            "limit": LOG_EVENTS_PAGE_SIZE,
-        }
+    if endpoint_config.service == LOGS_SERVICE:
+        if operation == "FilterLogEvents":
+            params = {
+                "logGroupName": log_group,
+                "startTime": _to_millis(window.start),
+                "endTime": _to_millis(window.end),
+                "limit": LOG_EVENTS_PAGE_SIZE,
+            }
+        elif operation == "DescribeLogStreams":
+            params = {"logGroupName": log_group, "limit": LOGS_DESCRIBE_PAGE_SIZE}
+        else:
+            # DescribeMetricFilters and ListAnomalies with no log group or detector list the whole region.
+            params = {"limit": LOGS_DESCRIBE_PAGE_SIZE}
         if next_token:
             params["nextToken"] = next_token
         return params
-    if operation == "DescribeAlarms":
+    if operation == "ListMetrics":
+        params = {}
+    elif operation == "DescribeAlarms":
         params = {"AlarmTypes": ALARM_TYPES, "MaxRecords": ALARMS_PAGE_SIZE}
     elif operation == "DescribeAlarmHistory":
         params = {
@@ -727,6 +786,14 @@ def _rows(
         return log_group_rows(body)
     if operation == "FilterLogEvents":
         return log_event_rows(log_group or "", body)
+    if operation == "DescribeLogStreams":
+        return log_stream_rows(log_group or "", body)
+    if operation == "DescribeMetricFilters":
+        return metric_filter_rows(body)
+    if operation == "ListAnomalies":
+        return anomaly_rows(body)
+    if operation == "ListMetrics":
+        return metric_rows(body)
     if operation == "DescribeAlarms":
         return alarm_rows(body)
     if operation == "DescribeAlarmHistory":

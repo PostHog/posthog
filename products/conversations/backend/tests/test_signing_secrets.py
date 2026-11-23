@@ -1,4 +1,8 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.models import ActivityLog
 from posthog.models.utils import mask_key_value
@@ -21,8 +25,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
 
-        self.assertTrue(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        self.assertTrue(retirement.replaced)
+        self.assertFalse(retirement.grace_window_ended)
         row.refresh_from_db()
         self.assertNotEqual(row.secret, "phs_leaked")
         self.assertTrue(row.rotated_independently)
@@ -31,20 +37,25 @@ class TestRetireLeakedSigningSecret(BaseTest):
         # Team members can read this trail, so the new live secret must arrive masked.
         self.assertEqual(changes[0]["after"], mask_key_value(row.secret))
 
-    def test_clears_a_previous_secret_holding_the_token(self):
+    @parameterized.expand([("active_grace", timedelta(0), True), ("expired_grace", timedelta(hours=72), False)])
+    def test_clears_a_previous_secret_holding_the_token(self, _name, rotated_ago, expected_grace_window_ended):
         from django.utils import timezone
 
         row = SigningSecret.objects.for_team(self.team.id).create(
             team=self.team,
             secret="phs_rotated_fresh",
             previous_secret="phs_leaked",
-            previous_secret_rotated_at=timezone.now(),
+            previous_secret_rotated_at=timezone.now() - rotated_ago,
             rotated_independently=True,
         )
 
-        # The active secret stays, so nothing was "replaced" for the exposure email.
-        self.assertFalse(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        # The active secret stays, so nothing was "replaced" for the exposure email. The
+        # grace window only "ended" if the widget still accepted the previous secret;
+        # an already-expired one is cleared silently.
+        self.assertFalse(retirement.replaced)
+        self.assertIs(retirement.grace_window_ended, expected_grace_window_ended)
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_rotated_fresh")
         self.assertIsNone(row.previous_secret)
@@ -54,8 +65,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_leaves_an_unrelated_row_untouched(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_unrelated")
 
-        self.assertFalse(retire_leaked_signing_secret(self.team.id, "phs_leaked"))
+        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
 
+        self.assertFalse(retirement.replaced)
+        self.assertFalse(retirement.grace_window_ended)
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_unrelated")
         self.assertFalse(row.rotated_independently)

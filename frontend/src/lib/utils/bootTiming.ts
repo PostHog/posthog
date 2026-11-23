@@ -12,10 +12,14 @@ export type BootPhase =
     | 'app_first_render'
     | 'app_ready'
     | 'scene_loaded'
+    | 'empty_state_gate_mounted'
+    | 'empty_state_gate_flags_ready'
+    | 'empty_state_gate_resolved'
     | 'scene_rendered'
 
 export interface BootContext {
     scene?: string
+    empty_state_gate_render?: 'scene' | 'setup'
     prefetched_scene?: string
     logged_in?: boolean
     deferred_app_context?: boolean

@@ -233,6 +233,35 @@ class TestAssessReleaseMajorRules(SimpleTestCase):
         assert result.is_outdated is True
 
 
+class TestNewMajorGracePeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("server_inside_grace", "posthog-node", "3.35.0", 10, False),
+            ("server_after_grace", "posthog-node", "3.35.0", 20, True),
+            ("mobile_inside_grace", "posthog-ios", "3.35.0", 50, False),
+            ("mobile_after_grace", "posthog-ios", "3.35.0", 60, True),
+            ("behind_previous_major_inside_grace", "posthog-ios", "3.30.0", 10, True),
+        ]
+    )
+    def test_new_major_waits_for_grace_period(
+        self, _name: str, sdk_type: str, in_use: str, major_age_days: int, expected_outdated: bool
+    ) -> None:
+        assessment = assess_sdk(
+            sdk_type,
+            "4.0.0",
+            [_entry(in_use, 100, days_ago=200), _entry("3.29.0", 10, days_ago=250)],
+            now=NOW,
+            release_dates={
+                "3.29.0": _days_ago(250),
+                "3.30.0": _days_ago(200),
+                "3.35.0": _days_ago(200),
+                "4.0.0": _days_ago(major_age_days),
+            },
+        )
+        assert assessment is not None
+        assert assessment.is_outdated is expected_outdated
+
+
 class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
     def test_current_version_not_outdated(self):
         entry = _entry("1.5.0", 100, is_latest=True)
@@ -327,6 +356,8 @@ class TestAssessReleaseIsOld(SimpleTestCase):
             ("posthog-aspnetcore",),
             ("posthog-rs",),
             ("posthog-rs-mcp",),
+            ("posthog-rs-ffi",),
+            ("posthog-electron",),
             ("posthog-go-mcp",),
             ("posthog-ruby-mcp",),
             ("js",),
@@ -456,6 +487,8 @@ class TestComputeSdkHealth(SimpleTestCase):
             ("posthog-aspnetcore", "ASP.NET Core"),
             ("posthog-rs", "Rust"),
             ("posthog-rs-mcp", "Rust MCP"),
+            ("posthog-rs-ffi", "C/C++"),
+            ("posthog-electron", "Electron"),
             ("posthog-godot", "Godot"),
             ("posthog-unreal", "Unreal Engine"),
             ("posthog-go-mcp", "Go MCP"),
@@ -616,6 +649,42 @@ class TestComputeSdkHealth(SimpleTestCase):
         }
         report = compute_sdk_health(data, now=NOW)
         assert report.team_sdk_count == 0
+
+
+class TestMobileMajorUpgrade(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mobile", "posthog-ios", "warning", "https://github.com/PostHog/posthog-ios/blob/main/MIGRATION.md"),
+            ("server", "posthog-node", "danger", None),
+        ]
+    )
+    def test_major_behind_severity_and_migration_guide(
+        self, _name: str, sdk_type: str, expected_severity: str, expected_guide: str | None
+    ) -> None:
+        report = compute_sdk_health(
+            {
+                sdk_type: {
+                    "latest_version": "4.0.0",
+                    "release_dates": {"3.35.0": _days_ago(200), "4.0.0": _days_ago(100)},
+                    "usage": [
+                        {
+                            "lib_version": "3.35.0",
+                            "count": 100,
+                            "max_timestamp": NOW.isoformat(),
+                            "release_date": _days_ago(200),
+                        }
+                    ],
+                }
+            },
+            now=NOW,
+        )
+        sdk = report.sdks[0]
+        assert sdk.needs_updating is True
+        assert sdk.severity == expected_severity
+        assert report.health == expected_severity
+        assert sdk.migration_guide_url == expected_guide
+        if expected_guide:
+            assert expected_guide in sdk.reason
 
 
 class TestUiParityStrings(SimpleTestCase):

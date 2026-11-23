@@ -46,8 +46,8 @@ export interface composeTicketLogicActions {
     openComposeModal: (prefill?: { distinctId?: string; email?: string }) => {
         prefill:
             | {
-                  distinctId?: string | undefined
-                  email?: string | undefined
+                  distinctId?: string
+                  email?: string
               }
             | undefined
     }

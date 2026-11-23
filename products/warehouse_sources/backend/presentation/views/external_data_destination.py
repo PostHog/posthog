@@ -135,6 +135,9 @@ USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
 # The prefix is filled with batch exports' `str.format` renderer, which also reads format specs and indexing,
 # and a prefix cannot change after creation. Only the documented names are let through.
 PREFIX_TEMPLATE = re.compile(r"(?:[^{}]|\{(?:year|month|day|hour|minute|second|table)\})*")
+# An object key is at most 1024 bytes, so a longer prefix can never make a valid key.
+MAX_PREFIX_LENGTH = 1024
+PREFIX_TOO_LONG_DETAIL = f"The prefix can be at most {MAX_PREFIX_LENGTH} characters. Shorten it, then try again."
 INVALID_PREFIX_DETAIL = (
     "The prefix can only use {year}, {month}, {day}, {hour}, {minute}, {second} and {table}. "
     "Remove any other braces, then try again."
@@ -587,6 +590,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise ValidationError('Config must be an object of settings, such as {"database": "analytics"}.')
         prefix = value.get("prefix")
+        if isinstance(prefix, str) and len(prefix) > MAX_PREFIX_LENGTH:
+            raise ValidationError(PREFIX_TOO_LONG_DETAIL)
         if isinstance(prefix, str) and not PREFIX_TEMPLATE.fullmatch(prefix):
             raise ValidationError(INVALID_PREFIX_DETAIL)
         return value

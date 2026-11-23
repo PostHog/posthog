@@ -76,7 +76,7 @@ export interface addSavedInsightsModalLogicValues {
     hasSmartDefaults: boolean
     insights: {
         count: number
-        results: InsightModel<Node<Record<string, any>>>[]
+        results: InsightModel[]
     }
     insightsLoading: boolean
     insightsPerPage: number
@@ -114,7 +114,7 @@ export interface addSavedInsightsModalLogicActions {
     loadInsightsSuccess: (
         insights: {
             count: number
-            results: InsightModel<Node<Record<string, any>>>[]
+            results: InsightModel[]
         },
         payload?: {
             value: true
@@ -122,7 +122,7 @@ export interface addSavedInsightsModalLogicActions {
     ) => {
         insights: {
             count: number
-            results: InsightModel<Node<Record<string, any>>>[]
+            results: InsightModel[]
         }
         payload?: {
             value: true
@@ -182,7 +182,7 @@ export interface addSavedInsightsModalLogicMeta {
         filters: (rawModalFilters: Partial<SavedInsightFilters> | null) => SavedInsightFilters
         hasFilteredUI: (featureFlags: FeatureFlagsSet) => boolean
         hasSmartDefaults: (featureFlags: FeatureFlagsSet) => boolean
-        count: (insights: { count: number; results: InsightModel<Node<Record<string, any>>>[] }) => number
+        count: (insights: { count: number; results: InsightModel[] }) => number
         sorting: (filters: SavedInsightFilters) => Sorting | null
         modalPage: (filters: SavedInsightFilters) => number
     }
