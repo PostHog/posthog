@@ -11083,23 +11083,23 @@ export namespace Schemas {
         activation: string | null;
     };
     /**
-     * * `bayesian` - bayesian
-     * * `frequentist` - frequentist
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist
      */
     export type StatsMethodEnum = "bayesian" | "frequentist";
     /**
-     * * `exclude` - exclude
-     * * `first_seen` - first_seen
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant
      */
-    export type ExperimentWatchMultipleVariantHandlingEnum =
+    export type ExperimentHealthMultipleVariantHandlingEnum =
         | "exclude"
         | "first_seen";
     export type ExperimentHealthAnalysisSetup = {
         /**
          * The statistical method of the results.
          *
-         * * `bayesian` - bayesian
-         * * `frequentist` - frequentist
+         * * `bayesian` - Bayesian
+         * * `frequentist` - Frequentist
          */
         stats_method: StatsMethodEnum;
         /**
@@ -11137,11 +11137,11 @@ export namespace Schemas {
         /**
          * What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
          *
-         * * `exclude` - exclude
-         * * `first_seen` - first_seen
+         * * `exclude` - Exclude from analysis
+         * * `first_seen` - Use first seen variant
          */
         multiple_variant_handling:
-            | ExperimentWatchMultipleVariantHandlingEnum
+            | ExperimentHealthMultipleVariantHandlingEnum
             | NullEnum;
         /**
          * Whether a user counts only after their conversion or retention window is complete.
