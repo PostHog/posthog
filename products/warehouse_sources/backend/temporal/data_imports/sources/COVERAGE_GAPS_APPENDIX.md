@@ -1237,10 +1237,10 @@ Note: The main gap list for Attio is in COVERAGE_GAPS.md. `GET /v2/emails` was n
 
 Re-audited 2026-11-19 against: <https://api.attio.com/openapi/api>
 
-- [ ] `List entries (POST /v2/lists/{list}/entries/query)` — the records inside each list we already sync, with entry values such as pipeline stage; fan-out per list (high)
-- [ ] `Attributes (GET /v2/{target}/{identifier}/attributes)` — schema for every object and list, needed to read custom field values in records (high)
-- [ ] `Select options and statuses (GET /v2/{target}/{identifier}/attributes/{attribute}/options; GET /v2/{target}/{identifier}/attributes/{attribute}/statuses)` — resolve option and status ids on deals and list entries to titles (high)
-- [ ] `Objects (GET /v2/objects)` — lists system and custom objects, so custom objects can be discovered and their records synced (high)
+- [x] `List entries (POST /v2/lists/{list}/entries/query)` — the records inside each list we already sync, with entry values such as pipeline stage; fan-out per list (high)
+- [x] `Attributes (GET /v2/{target}/{identifier}/attributes)` — schema for every object and list, needed to read custom field values in records (high)
+- [x] `Select options and statuses (GET /v2/{target}/{identifier}/attributes/{attribute}/options; GET /v2/{target}/{identifier}/attributes/{attribute}/statuses)` — resolve option and status ids on deals and list entries to titles (high)
+- [x] `Objects (GET /v2/objects)` — lists system and custom objects, so custom objects can be discovered and their records synced (high)
 - [ ] `Threads (GET /v2/threads; GET /v2/threads/{thread_id})` — comment threads on records and entries, with comments per thread (medium)
 - [ ] `Meetings (GET /v2/meetings)` — calendar meetings with participants and linked records; beta (medium)
 - [ ] `Call recordings (GET /v2/meetings/{meeting_id}/call_recordings; GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}/transcript)` — recordings and transcripts per meeting; fan-out under meetings (low)
