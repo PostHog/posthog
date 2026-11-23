@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     HistoryFinalizeResult,
     finalize,
     stage,
+    stage_seed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
@@ -136,6 +137,36 @@ class TestHistoryUpsert:
         await tables.finalize()
 
         assert [row[1] for row in tables.rows()] == ["fresh"]
+
+    @pytest.mark.parametrize("chunk_kwargs", [{}, _TINY_CHUNKS])
+    @pytest.mark.asyncio
+    async def test_seeded_rows_give_way_to_the_rows_a_sync_staged(
+        self, tmp_path: Path, chunk_kwargs: dict[str, int]
+    ) -> None:
+        tables = _Tables(tmp_path)
+        await tables.stage(_batch([(1, "re-read", _at(1)), (2, "changed", _at(3))]), "run-1", 0)
+        seed = [_keys(20, "seed", _at(1)), _batch([(key, "seed", _at(1)) for key in range(20, 40)])]
+
+        staged = await stage_seed(
+            tables.staging,
+            seed[0].schema,
+            iter(seed),
+            key_columns=["id"],
+            naming=HISTORY_NAMING,
+            run_uuid="run-1-seed",
+            batch_index=0,
+        )
+        result = await tables.finalize(**chunk_kwargs)
+
+        assert staged == 40
+        assert tables.rows() == [
+            (0, "seed", _at(1), None, "current"),
+            (1, "re-read", _at(1), None, "current"),
+            (2, "seed", _at(1), _at(3), "2026-03"),
+            (2, "changed", _at(3), None, "current"),
+            *[(key, "seed", _at(1), None, "current") for key in range(3, 40)],
+        ]
+        assert result is not None and (result.calls > 1) == bool(chunk_kwargs)
 
     @pytest.mark.asyncio
     async def test_a_null_key_part_matches_its_open_version(self, tmp_path: Path) -> None:

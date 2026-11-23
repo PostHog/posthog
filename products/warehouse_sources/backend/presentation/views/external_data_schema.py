@@ -56,6 +56,8 @@ from products.warehouse_sources.backend.facade.contracts import (
 from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
+    HISTORY_SEED_PENDING_KEY,
+    HISTORY_TRACKED_SINCE_KEY,
     INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
@@ -367,6 +369,7 @@ def _apply_incremental_history_mode(
         return False
     if mode == "consolidated":
         payload.pop(INCREMENTAL_HISTORY_KEY, None)
+        payload.pop(HISTORY_SEED_PENDING_KEY, None)
     else:
         if not is_incremental_history_enabled_for_team(instance.team):
             raise ValidationError("History tables for incremental syncs are not enabled for this organization.")
@@ -377,10 +380,18 @@ def _apply_incremental_history_mode(
         _refuse_a_legacy_history_table(instance)
         _refuse_ineligible_incremental_history(payload)
         payload[INCREMENTAL_HISTORY_KEY] = True
+        payload.setdefault(HISTORY_TRACKED_SINCE_KEY, dt.datetime.now(dt.UTC).isoformat())
     payload["cdc_table_mode"] = mode
-    if instance.table is None or not _cdc_table_mode_change_needs_resnapshot(
-        history_mode_before or "consolidated", mode
-    ):
+    if instance.table is None:
+        return False
+    added = _CDC_WRITE_TARGETS_BY_TABLE_MODE[mode] - _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(
+        history_mode_before or "consolidated", frozenset()
+    )
+    if added == {"cdc_history"}:
+        # The next run copies the synced rows into the history table, so the source is not read again.
+        payload[HISTORY_SEED_PENDING_KEY] = dt.datetime.now(dt.UTC).isoformat()
+        return False
+    if not added:
         return False
     if is_any_external_data_schema_paused(instance.team_id):
         raise ValidationError(

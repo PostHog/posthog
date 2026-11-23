@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    HISTORY_SEED_PENDING_KEY,
+    HISTORY_TRACKED_SINCE_KEY,
     INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
@@ -167,6 +169,8 @@ __all__ = [
     "self_managed_table_ref",
     "CDC_SNAPSHOT_LANE_KEY",
     "INCREMENTAL_HISTORY_KEY",
+    "HISTORY_SEED_PENDING_KEY",
+    "HISTORY_TRACKED_SINCE_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

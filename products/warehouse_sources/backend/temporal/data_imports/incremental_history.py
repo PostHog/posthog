@@ -3,22 +3,28 @@
 Each version starts at the row's incremental field value, and the lane writes versions once per run (see `history_upsert`).
 """
 
+import asyncio
 import functools
-from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
-from typing import TypeVar
+from collections.abc import Iterator, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypeVar
 
 import pyarrow as pa
 import deltalake
 import structlog
 import pyarrow.compute as pc
+from asgiref.sync import sync_to_async
 
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    HISTORY_SEED_PENDING_KEY,
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CAPTURE_COLUMNS,
@@ -41,11 +47,14 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.enabl
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
     HistoryFinalizeResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_runs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_dwh_columns_by_enabled_columns,
 )
@@ -58,6 +67,9 @@ INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 # while the consolidated table takes each of them.
 HISTORY_CURSOR_TYPES = frozenset({IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp})
 _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
+_SEED_BATCH_ROWS = 50_000
+_MAX_SEED_HISTORY_SCAN = 2000
+_VACUUM_MARGIN = timedelta(hours=1)
 
 _TColumn = TypeVar("_TColumn")
 
@@ -226,13 +238,125 @@ async def stage_history_batch(
 
 
 async def finalize_history_lane(
-    table: DeltaTableRef, primary_keys: Sequence[str], *, run_uuid: str, batch_index: int
+    table: DeltaTableRef,
+    primary_keys: Sequence[str],
+    *,
+    schema: ExternalDataSchema,
+    run_uuid: str,
+    batch_index: int,
 ) -> HistoryFinalizeResult | None:
-    """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing."""
-    return await history_upsert.finalize(
+    """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing.
+
+    When history was turned on for a table that already holds rows, the main table's rows are staged
+    too and become the first versions. The request stays until the finalize completes, and a retry
+    stages them again, which makes no second version.
+    """
+    seed_requested_at = schema.sync_type_config.get(HISTORY_SEED_PENDING_KEY)
+    if isinstance(seed_requested_at, str):
+        await _stage_seed(table, schema, primary_keys, run_uuid, datetime.fromisoformat(seed_requested_at))
+    result = await history_upsert.finalize(
         table,
         _staging_ref(table),
         key_columns=primary_keys,
         naming=HISTORY_NAMING,
         commit_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)},
+    )
+    if isinstance(seed_requested_at, str):
+        await sync_to_async(_clear_seed_request)(schema, seed_requested_at)
+    return result
+
+
+def _clear_seed_request(schema: ExternalDataSchema, requested_at: str) -> None:
+    def _clear(config: dict) -> None:
+        # History turned off and on again during the run asks for a seed of its own.
+        if config.get(HISTORY_SEED_PENDING_KEY) == requested_at:
+            config.pop(HISTORY_SEED_PENDING_KEY)
+
+    update_sync_type_config_keys(schema.id, schema.team_id, mutate=_clear)
+
+
+async def _stage_seed(
+    table: DeltaTableRef,
+    schema: ExternalDataSchema,
+    primary_keys: Sequence[str],
+    run_uuid: str,
+    requested_at: datetime,
+) -> None:
+    """Stage the main table's rows as they were before this run, each version starting at its cursor.
+
+    A row without a cursor starts when history was turned on.
+    """
+    main = DeltaTableRef(resource_name=schema.name, job=table.job, logger=table.logger)
+    rows = await _rows_before_run(main, run_uuid)
+    if rows is None:
+        return
+    if schema.incremental_field is None:
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps a history table, which needs an incremental field"
+        )
+    stamp = functools.partial(
+        stamp_history_batch,
+        schema_name=schema.name,
+        cursor=normalize_column_name(schema.incremental_field),
+        naming=HISTORY_NAMING,
+        tracked_since=requested_at,
+    )
+    dataset = rows.to_pyarrow_dataset()
+    columns = [name for name in dataset.schema.names if name != PARTITION_KEY]
+
+    def _tables() -> Iterator[pa.Table]:
+        scanner = dataset.scanner(
+            columns=columns, batch_size=_SEED_BATCH_ROWS, batch_readahead=1, fragment_readahead=1, use_threads=False
+        )
+        for batch in scanner.to_batches():
+            if batch.num_rows:
+                yield stamp(pa.Table.from_batches([batch]))
+
+    staged = await history_upsert.stage_seed(
+        _staging_ref(table),
+        stamp(dataset.schema.empty_table().select(columns)).schema,
+        _tables(),
+        key_columns=primary_keys,
+        naming=HISTORY_NAMING,
+        # Its own tag, so the redelivery check of the run's real batches never finds the seed.
+        run_uuid=f"{run_uuid}-seed",
+        batch_index=0,
+    )
+    await table.logger.ainfo("history_seed_staged", rows=staged, main_table_version=rows.version())
+
+
+async def _rows_before_run(main: DeltaTableRef, run_uuid: str) -> deltalake.DeltaTable | None:
+    """The main table at its last version before this run wrote to it. None when this run created it.
+
+    Falls back to the current version when the run's first write is old enough that a vacuum may have
+    removed the files it replaced.
+    """
+    current = await main.get_delta_table()
+    if current is None:
+        return None
+    commits = await asyncio.to_thread(current.history, _MAX_SEED_HISTORY_SCAN)
+    first: dict[str, Any] | None = None
+    # Newest first. The pipeline lock keeps other runs from writing while this one loads.
+    for commit in commits:
+        runs = commit_runs(commit)
+        if run_uuid in runs:
+            first = commit
+        elif runs:
+            break
+    if first is None:
+        return current
+    version = int(first["version"])
+    if len(commit_runs(first)) == 1:
+        version -= 1
+    if version < 0:
+        return None
+    written_at = datetime.fromtimestamp(int(first["timestamp"]) / 1000, UTC)
+    if datetime.now(UTC) - written_at > VACUUM_RETENTION - _VACUUM_MARGIN:
+        await main.logger.awarning("history_seed_reads_current_version", run_first_write=written_at.isoformat())
+        return current
+    return await asyncio.to_thread(
+        deltalake.DeltaTable,
+        await main.get_table_uri(),
+        version=version,
+        storage_options=main.get_storage_options(),
     )

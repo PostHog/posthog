@@ -594,6 +594,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             await finalize_history_lane(
                 delta_table_ref,
                 export_signal.primary_keys or [],
+                schema=schema,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -1277,6 +1278,7 @@ def _finalize_run(
             async_to_sync(finalize_history_lane)(
                 delta_table_ref,
                 run_signal.primary_keys or [],
+                schema=schema,
                 run_uuid=run_signal.run_uuid,
                 batch_index=run_signal.batch_index,
             )

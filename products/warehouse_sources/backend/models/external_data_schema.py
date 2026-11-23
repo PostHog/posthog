@@ -294,6 +294,11 @@ FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
 # because a schema that left CDC keeps the mode it had there.
 INCREMENTAL_HISTORY_KEY = "incremental_history"
+# Late events can land before it, so the history table cannot tell when tracking began.
+HISTORY_TRACKED_SINCE_KEY = "history_tracked_since"
+# When history was turned on for a table that already holds rows. The next run copies them into the history
+# table, and clears it only if it still holds the same time.
+HISTORY_SEED_PENDING_KEY = "history_seed_pending"
 
 
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key

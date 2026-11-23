@@ -18,7 +18,7 @@ import tempfile
 import functools
 import contextlib
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +63,8 @@ STAGED_BATCH_COLUMN = "_ph_staged_batch"
 # Append order, `staging version << 32 | row`: breaks ties on key and order value, across runs too.
 STAGED_ROW_COLUMN = "_ph_staged_row"
 _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
+# Below every row `stage` numbers, whose first is `1 << 32`.
+_SEED_FIRST_ROW = -(1 << 62)
 # deltalite refuses a source above this, counted with its key map.
 _SOURCE_GUARD_BYTES = 2 * 1024 * 1024 * 1024
 # The staged size is an estimate, so one call takes at most half of deltalite's source guard.
@@ -135,20 +137,11 @@ async def stage(
     staging_table = await staging.get_delta_table()
     if data.num_rows == 0 and staging_table is not None:
         return
-    key_columns = _normalized_keys(key_columns)
-    data = relax_batch_nullability(realign_decimal_buffers(data))
-    missing = [c for c in (*key_columns, naming.valid_from) if c not in data.column_names]
-    if missing:
-        raise ValueError(f"History batch is missing column(s) {missing}")
-    taken = [c for c in _STAGING_COLUMNS if c in data.column_names]
-    if taken:
-        raise ValueError(f"History batch has column(s) {taken}, which the staging table writes itself")
-    data = data.drop_columns([c for c in (naming.valid_to, naming.partition_column) if c in data.column_names])
     # Creating the table commits version 0, so the first append is version 1.
     first_row = (staging_table.version() + 1 if staging_table is not None else 1) << 32
-    data = data.append_column(
-        STAGED_BATCH_COLUMN, pa.repeat(pa.scalar(f"{run_uuid}:{batch_index}"), data.num_rows)
-    ).append_column(STAGED_ROW_COLUMN, pa.array(np.arange(first_row, first_row + data.num_rows, dtype=np.int64)))
+    data = _with_staging_columns(
+        data, _normalized_keys(key_columns), naming, tag=f"{run_uuid}:{batch_index}", first_row=first_row
+    )
 
     if staging_table is None:
         staging_table = await asyncio.to_thread(
@@ -175,6 +168,76 @@ async def stage(
         commit_properties=deltalake.CommitProperties(
             custom_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)}
         ),
+    )
+
+
+async def stage_seed(
+    staging: "DeltaTableRef",
+    schema: pa.Schema,
+    tables: Iterable[pa.Table],
+    *,
+    key_columns: Sequence[str],
+    naming: HistoryNaming,
+    run_uuid: str,
+    batch_index: int,
+) -> int:
+    """Stage rows of `schema` from `tables` in one commit, read one table at a time. Returns the rows staged.
+
+    A seeded row loses a tie on key and `valid_from` to every row `stage` writes, because the
+    rows a sync read are newer than a copy of the table taken before it.
+    """
+    key_columns = _normalized_keys(key_columns)
+    tag = f"{run_uuid}:{batch_index}"
+    empty = _with_staging_columns(schema.empty_table(), key_columns, naming, tag=tag, first_row=_SEED_FIRST_ROW)
+    staging_table = await staging.get_delta_table()
+    if staging_table is None:
+        staging_table = await asyncio.to_thread(
+            deltalake.DeltaTable.create,
+            table_uri=await staging.get_table_uri(),
+            schema=empty.schema,
+            storage_options=staging.get_storage_options(),
+            configuration=DELTA_TABLE_PROPERTIES,
+        )
+        staging.adopt_created_table(staging_table)
+    else:
+        staging_table = await evolve_delta_schema(staging_table, empty.schema)
+    staging_schema = staging_table.schema()
+    target = align_incoming_decimals_to_delta(empty, staging_schema).schema
+    staged = 0
+
+    def _batches() -> Iterator[pa.RecordBatch]:
+        nonlocal staged
+        for table in tables:
+            rows = _with_staging_columns(table, key_columns, naming, tag=tag, first_row=_SEED_FIRST_ROW + staged)
+            staged += table.num_rows
+            yield from align_incoming_decimals_to_delta(rows, staging_schema).cast(target).to_batches()
+
+    await asyncio.to_thread(
+        deltalake.write_deltalake,
+        table_or_uri=staging_table,
+        data=pa.RecordBatchReader.from_batches(target, _batches()),
+        mode="append",
+        schema_mode="merge",
+        commit_properties=deltalake.CommitProperties(
+            custom_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)}
+        ),
+    )
+    return staged
+
+
+def _with_staging_columns(
+    data: pa.Table, key_columns: Sequence[str], naming: HistoryNaming, *, tag: str, first_row: int
+) -> pa.Table:
+    data = relax_batch_nullability(realign_decimal_buffers(data))
+    missing = [c for c in (*key_columns, naming.valid_from) if c not in data.column_names]
+    if missing:
+        raise ValueError(f"History batch is missing column(s) {missing}")
+    taken = [c for c in _STAGING_COLUMNS if c in data.column_names]
+    if taken:
+        raise ValueError(f"History batch has column(s) {taken}, which the staging table writes itself")
+    data = data.drop_columns([c for c in (naming.valid_to, naming.partition_column) if c in data.column_names])
+    return data.append_column(STAGED_BATCH_COLUMN, pa.repeat(pa.scalar(tag), data.num_rows)).append_column(
+        STAGED_ROW_COLUMN, pa.array(np.arange(first_row, first_row + data.num_rows, dtype=np.int64))
     )
 
 
