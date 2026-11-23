@@ -1,14 +1,15 @@
 import { IconNotification } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { destinationTypeLabel } from './destinations/platformAlertDestinations'
 import { DestinationTypeEnumApi } from './generated/api.schemas'
 
-const DESTINATION_TYPES: Partial<Record<DestinationTypeEnumApi, { label: string; iconUrl: string }>> = {
-    slack: { label: 'Slack', iconUrl: '/static/services/slack.png' },
-    teams: { label: 'Microsoft Teams', iconUrl: '/static/services/microsoft-teams.png' },
-    discord: { label: 'Discord', iconUrl: '/static/services/discord.png' },
-    pagerduty: { label: 'PagerDuty', iconUrl: '/static/services/pagerduty.png' },
-    webhook: { label: 'Webhook', iconUrl: '/static/services/webhook.svg' },
+const ICON_URLS: Partial<Record<DestinationTypeEnumApi, string>> = {
+    slack: '/static/services/slack.png',
+    teams: '/static/services/microsoft-teams.png',
+    discord: '/static/services/discord.png',
+    pagerduty: '/static/services/pagerduty.png',
+    webhook: '/static/services/webhook.svg',
 }
 
 export function PlatformAlertDestinationIcons({
@@ -29,8 +30,8 @@ export function PlatformAlertDestinationIcons({
     return (
         <div className="flex flex-wrap items-center gap-1.5">
             {[...counts].map(([type, count]) => {
-                const label = DESTINATION_TYPES[type]?.label ?? type
-                const iconUrl = DESTINATION_TYPES[type]?.iconUrl
+                const label = destinationTypeLabel(type)
+                const iconUrl = ICON_URLS[type]
                 const title = count > 1 ? `${count} ${label}` : label
                 return (
                     <Tooltip key={type} title={title}>

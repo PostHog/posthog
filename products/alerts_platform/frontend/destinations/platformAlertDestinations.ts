@@ -12,6 +12,7 @@ import {
     platformAlertsDestinationsList,
 } from 'products/alerts_platform/frontend/generated/api'
 import {
+    DestinationTypeEnumApi,
     PlatformAlertCreateDestinationApi,
     PlatformAlertDestinationApi,
     PlatformAlertDestinationTypeEnumApi,
@@ -57,10 +58,9 @@ export const DESTINATION_TYPE_OPTIONS: { label: string; value: PlatformAlertDest
     { label: 'Webhook', value: PlatformAlertDestinationTypeEnumApi.Webhook },
 ]
 
-const TYPE_LABELS = Object.fromEntries(DESTINATION_TYPE_OPTIONS.map(({ value, label }) => [value, label])) as Record<
-    PlatformAlertDestinationTypeEnumApi,
-    string
->
+const TYPE_LABELS: Partial<Record<DestinationTypeEnumApi, string>> = Object.fromEntries(
+    DESTINATION_TYPE_OPTIONS.map(({ value, label }) => [value, label])
+)
 
 const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotificationUrlInput>> = {
     [PlatformAlertDestinationTypeEnumApi.Teams]: {
@@ -74,7 +74,7 @@ const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotif
     [PlatformAlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
 }
 
-export function destinationTypeLabel(type: PlatformAlertDestinationTypeEnumApi): string {
+export function destinationTypeLabel(type: DestinationTypeEnumApi): string {
     return TYPE_LABELS[type] ?? type
 }
 
