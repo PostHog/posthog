@@ -24,6 +24,7 @@ import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
 import { TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
+import { TodayTakeTourMenuItem } from './TodayTakeTourMenuItem'
 import { todayTourLogic } from './todayTourLogic'
 
 /**
@@ -119,6 +120,7 @@ export function TodayMoreMenu({
                 >
                     Health
                 </DropdownMenuItem>
+                <TodayTakeTourMenuItem />
                 {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
