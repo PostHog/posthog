@@ -591,6 +591,47 @@ describe('SourceWebhooksConsumer', () => {
                 expect(producedRuns()[0].job.state.state.triggerMetricPending).toBe(true)
             })
 
+            it('seals a webhook run with a sensitive step on the intake topic when sealing is on', async () => {
+                hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
+                const sealingApi = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue,
+                })
+                await sealingApi.start()
+                const sealingApp = setupExpressApp()
+                sealingApp.use('/', sealingApi.router())
+                const sealingServer = sealingApp.listen(0, () => {})
+                const sensitiveFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: hogFlow.trigger },
+                            email: {
+                                type: 'function_email',
+                                config: { template_id: 'template-email', inputs: {}, sensitive: true },
+                            },
+                        },
+                        edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, sensitiveFlow)
+
+                try {
+                    const res = await supertest(sealingApp)
+                        .post(`/public/webhooks/${sensitiveFlow.id}`)
+                        .set('Content-Type', 'application/json')
+                        .send({ distinct_id: 'test-distinct-id' })
+
+                    expect(res.status).toEqual(201)
+                    const [run] = producedRuns()
+                    expect(run.job.state.sealed).toEqual(expect.any(String))
+                    expect(run.job.state.state.event.properties).toBeUndefined()
+                } finally {
+                    sealingServer.close()
+                    await sealingApi.stop()
+                }
+            })
+
             it('should add logs and metrics', async () => {
                 const res = await doPostRequest({
                     webhookId: hogFlow.id,
