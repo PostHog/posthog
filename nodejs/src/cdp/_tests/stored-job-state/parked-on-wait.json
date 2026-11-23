@@ -21,7 +21,8 @@
             "currentAction": {
                 "id": "park",
                 "startedAtTimestamp": "$RUN_TIME_MS",
-                "parkedMaxWaitDuration": "1h"
+                "parkedMaxWaitDuration": "1h",
+                "parkedConditionHash": "e7c69c8f72cb7e3b"
             }
         }
     }
