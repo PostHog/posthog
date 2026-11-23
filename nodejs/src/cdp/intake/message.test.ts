@@ -57,10 +57,16 @@ const validWireMessage = {
 describe('intake message', () => {
     it.each([
         ['without files, with no file size field', undefined, validWireMessage],
+        ['without files, with a null size, with no file size field', null, validWireMessage],
         [
             'with files, with their size',
             1000,
             { ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 1000 } },
+        ],
+        [
+            'with one empty file, with a size of zero',
+            0,
+            { ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 0 } },
         ],
     ])(
         'carries the job state as JSON, keyed and headed by the run, and decodes to the same job, for a send %s',

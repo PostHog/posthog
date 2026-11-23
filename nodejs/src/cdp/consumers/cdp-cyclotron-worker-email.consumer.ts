@@ -10,12 +10,12 @@ import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.inter
 import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
 import { DAY_MS } from '../services/messaging/attachment-store'
 import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service'
+import { fileBytesOf } from '../services/messaging/file-bytes'
 import {
     InFlightRegistry,
     callsSettledWithin,
     deferralDelayMs,
     exceedsLargestSend,
-    fileBytesOf,
     firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'

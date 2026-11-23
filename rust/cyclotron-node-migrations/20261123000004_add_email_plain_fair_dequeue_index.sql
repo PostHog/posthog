@@ -8,8 +8,9 @@
 -- idx_cyclotron_jobs_email_plain_due keeps serving the due scan, which orders by scheduled instead.
 --
 -- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID, and a rerun's IF NOT EXISTS
--- does not rebuild it. sqlx runs a no-transaction file as one batch, so a drop cannot share this file. Recover by hand:
---   DROP INDEX CONCURRENTLY idx_cyclotron_jobs_email_plain_fair_dequeue;  -- then rerun the migrations
+-- skips it while sqlx records the migration as applied. Rebuild it in place by hand, then check
+-- pg_index.indisvalid:
+--   REINDEX INDEX CONCURRENTLY idx_cyclotron_jobs_email_plain_fair_dequeue;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cyclotron_jobs_email_plain_fair_dequeue
     ON cyclotron_jobs (priority, dequeue_seq NULLS FIRST, scheduled)
     WHERE status = 'available' AND queue_name = 'email' AND file_bytes IS NULL;

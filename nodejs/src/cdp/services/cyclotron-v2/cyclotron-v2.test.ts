@@ -1103,6 +1103,7 @@ describe('Cyclotron V2', () => {
                         state: Buffer.from('v1'),
                         fileBytes: 700,
                     })
+                    expect((await queryJob(id)).file_bytes).toBe('700')
                     const worker = createWorker()
                     const jobs = await dequeueOneBatch(worker)
                     await jobs[0][release]()
@@ -4303,40 +4304,46 @@ describe('Cyclotron V2', () => {
             it.each([
                 ['keeps its state when given none', undefined],
                 ['stores the state it is given', Buffer.from('{"queueMetadata":{"attachmentDeferrals":1}}')],
-            ])('defer() sends a job to the back of its team turn, keeps its poison count, and %s', async (_, given) => {
-                const teamId = 5
-                const state = Buffer.from('{"queueMetadata":{"attachmentLoadTries":3}}')
-                const [deferredId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, state }])
-                const worker = createFairWorker({ batchMaxSize: 1 })
-                try {
-                    const [job] = await dequeueOneBatch(worker)
-                    await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
-                        deferredId,
+            ])(
+                'defer() sends a job to the back of its team turn, keeps its poison count and file size, and %s',
+                async (_, given) => {
+                    const teamId = 5
+                    const state = Buffer.from('{"queueMetadata":{"attachmentLoadTries":3}}')
+                    const [deferredId] = await manager.bulkCreateJobs([
+                        { teamId, queueName: EMAIL_QUEUE, state, fileBytes: 700 },
                     ])
-                    const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
-                    const scheduledAt = new Date(Date.now() - 1_000)
+                    const worker = createFairWorker({ batchMaxSize: 1 })
+                    try {
+                        const [job] = await dequeueOneBatch(worker)
+                        await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
+                            deferredId,
+                        ])
+                        const [newerId] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                        const scheduledAt = new Date(Date.now() - 1_000)
 
-                    await job.defer({ scheduledAt, state: given })
+                        await job.defer({ scheduledAt, state: given })
 
-                    const row = await queryJob(deferredId)
-                    expect(row).toMatchObject({
-                        status: 'available',
-                        lock_id: null,
-                        janitor_touch_count: 2,
-                        state: given ?? state,
-                    })
-                    expect(new Date(row.scheduled)).toEqual(scheduledAt)
+                        const row = await queryJob(deferredId)
+                        expect(row).toMatchObject({
+                            status: 'available',
+                            lock_id: null,
+                            janitor_touch_count: 2,
+                            state: given ?? state,
+                            file_bytes: '700',
+                        })
+                        expect(new Date(row.scheduled)).toEqual(scheduledAt)
 
-                    const arrivals: string[] = []
-                    for (let i = 0; i < 2; i++) {
-                        const batch = await dequeueOneBatch(worker)
-                        arrivals.push(...batch.map((j) => j.id))
+                        const arrivals: string[] = []
+                        for (let i = 0; i < 2; i++) {
+                            const batch = await dequeueOneBatch(worker)
+                            arrivals.push(...batch.map((j) => j.id))
+                        }
+                        expect(arrivals).toEqual([newerId, deferredId])
+                    } finally {
+                        await worker.disconnect()
                     }
-                    expect(arrivals).toEqual([newerId, deferredId])
-                } finally {
-                    await worker.disconnect()
                 }
-            })
+            )
         })
     })
 

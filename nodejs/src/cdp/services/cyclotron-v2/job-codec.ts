@@ -5,7 +5,7 @@ import { logger } from '~/common/utils/logger'
 
 import type { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 import type { EncryptedFields } from '../../utils/encryption-utils'
-import { fileBytesOf } from '../messaging/in-flight-registry'
+import { fileBytesOf } from '../messaging/file-bytes'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 
 /**
