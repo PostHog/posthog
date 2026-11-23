@@ -31,7 +31,9 @@ import {
     externalDataSourcesRepairCdcCreate,
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
+import { CDCEngineApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { MySQLCDCSection } from './MySQLCDCSection'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -163,6 +165,9 @@ export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Elem
     }
     if (source.access_method !== 'warehouse') {
         return null
+    }
+    if (sourceFieldConfig.cdcEngine === CDCEngineApi.Mysql) {
+        return <MySQLCDCSection source={source} />
     }
 
     const cdc = getCdcConfig(source)

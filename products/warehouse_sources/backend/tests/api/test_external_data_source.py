@@ -137,6 +137,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -230,6 +231,9 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
     mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
     mock_get_source.return_value.uploaded_file_name.return_value = None
+
+
+_TEAM_FLAG = "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_team_flag_enabled"
 
 
 @config.config
@@ -9888,6 +9892,16 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert set(response.json().keys()) == expected_keys
 
+    @parameterized.expand([("flag_off", False, None), ("flag_on", True, "mysql")])
+    def test_mysql_cdc_engine_follows_the_release_flag(self, _name, flag_enabled, expected_engine):
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=MySQL,Postgres"
+            )
+        assert response.status_code == 200
+        assert response.json()["MySQL"]["cdcEngine"] == expected_engine
+        assert response.json()["Postgres"]["cdcEngine"] == "postgres"
+
     def test_get_wizard_sources_unknown_source_type_returns_400(self):
         response = self.client.get(
             f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
@@ -11867,6 +11881,17 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
     def test_blank_optional_cdc_names_are_accepted(self, _name, names, _mock_prereqs, _mock_ssh, _mock_host) -> None:
         response = self._post(**names)
         assert response.status_code == 200, response.content
+
+    @parameterized.expand([("flag_off", False, 400), ("flag_on", True, 200)])
+    @patch.object(MySQLSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(MySQLSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(MySQLSource, "check_cdc_prerequisites", return_value=[])
+    def test_mysql_needs_the_release_flag(
+        self, _name, flag_enabled, expected_status, _mock_prereqs, _mock_ssh, _mock_host
+    ) -> None:
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
+            response = self._post(source_type="MySQL", port=3306, database="app", using_ssl="false", tables=["users"])
+        assert response.status_code == expected_status, response.content
 
     def test_unsupported_source_type_is_rejected(self) -> None:
         response = self._post(source_type="Stripe")

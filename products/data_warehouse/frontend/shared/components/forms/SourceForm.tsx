@@ -26,7 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
-import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { CDCEngineApi, SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
@@ -40,6 +40,7 @@ import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
+import { MySQLCDCConfigSection } from './MySQLCDCConfigSection'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
 
@@ -626,9 +627,19 @@ function CDCPrerequisitesCheck(): JSX.Element {
     )
 }
 
-function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
+function CDCConfigSection({
+    sourceName,
+    cdcEngine,
+}: {
+    sourceName: string
+    cdcEngine: CDCEngineApi | null | undefined
+}): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
+
+    if (cdcEngine === CDCEngineApi.Mysql) {
+        return <MySQLCDCConfigSection prerequisitesCheck={<CDCPrerequisitesCheck />} />
+    }
 
     return (
         <Group name="payload">
@@ -1052,7 +1063,7 @@ export function SourceFormComponent({
                 )}
             </Group>
             {!isUpdateMode && showCdcConfig && !!sourceConfig.cdcEngine && selectedAccessMethod === 'warehouse' && (
-                <CDCConfigSection sourceName={sourceConfig.name} />
+                <CDCConfigSection sourceName={sourceConfig.name} cdcEngine={sourceConfig.cdcEngine} />
             )}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField

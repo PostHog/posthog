@@ -1650,6 +1650,29 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config["primary_key_columns"] == expected_pk_columns
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
 
+    def test_switching_to_cdc_needs_the_engine_release_flag(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.MYSQL,
+            job_inputs={"host": "h", "port": 3306, "database": "d", "user": "u", "password": "p", "schema": "d"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders", team=self.team, source=source, sync_type=ExternalDataSchema.SyncType.FULL_REFRESH
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_team_flag_enabled",
+            new=lambda *_args, **_kwargs: False,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
     @parameterized.expand(
         [
             # CDC uses the PK as the UPDATE/DELETE merge key, so it can't be swapped once data has synced.

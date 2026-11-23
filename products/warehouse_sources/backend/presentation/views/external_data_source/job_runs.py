@@ -18,6 +18,7 @@ from posthog.api.utils import action
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
+from products.warehouse_sources.backend.facade.source_management import cdc_engine_for_team
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
@@ -262,8 +263,13 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
                 )
             configs = {st: config for st, config in configs.items() if st in resolved}
 
+        # The shared catalog lists only engines every team has. An engine behind a release flag joins here.
+        for source_type, config in configs.items():
+            if config.get("cdcEngine") is None:
+                config["cdcEngine"] = cdc_engine_for_team(source_type, self.team_id)
+
         response = WizardResponse(status=status.HTTP_200_OK, data=configs)
-        # The catalog is deploy-static and identical for every user (no team/user input), so let the
+        # The catalog changes only on a deploy or a release flag, and the URL carries the team, so let the
         # browser reuse it across navigations instead of re-downloading and re-parsing several hundred
         # KB on each visit to the new-source page. `private` because the route is auth-gated; a new
         # source ships at most once per deploy, so a short freshness window is safe.

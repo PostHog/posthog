@@ -422,7 +422,7 @@ tools:
             idempotent: true
         title: Get CDC health for a source
         description: >
-            Read the live change data capture (CDC) health of a Postgres source. Use this first when a CDC table is
+            Read the live change data capture (CDC) health of a Postgres or MySQL source. Use this first when a CDC table is
             stale, a CDC sync fails, or before choosing between 'external-data-sources-resume-cdc-create' and
             'external-data-sources-repair-cdc-create'. It connects to the source database, so it fails with a 400 if the
             source is unreachable. It changes nothing. Returns {enabled: false} when CDC is off. When CDC is on, returns
@@ -432,7 +432,11 @@ tools:
             publication_exists=true means a failure paused extraction but nothing was lost, so fix the cause and call
             resume. slot_exists=false or publication_exists=false means the replication resources were lost, so call
             repair (it forces a full re-sync). A large and growing lag_bytes means changes are not being consumed and
-            the source database disk can fill up.
+            the source database disk can fill up. For any engine, capture_resources_present=false means repair is
+            needed. MySQL sources return server_uuid, binlog_position, same_server and binlog_file_exists instead of the
+            slot and publication fields: binlog_file_exists=false means the server purged the binary log before
+            PostHog read it, and same_server=false means the source now reaches another server after a failover. Both
+            need repair. On MySQL, lag_bytes counts binary log bytes written since the stored position.
         param_overrides:
             id:
                 aliases:
@@ -447,11 +451,13 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Check Postgres CDC prerequisites
+        title: Check CDC prerequisites
         description: >
-            Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled
-            (wal_level=logical), replication slot available, publication present, and required permissions.
-            Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
+            Validate that a live database meets Change Data Capture prerequisites. Postgres: logical replication enabled
+            (wal_level=logical), replication slot available, publication present, and required permissions. MySQL
+            (released per organization): MySQL 8.0.1 or later, binlog_format=ROW, binlog_row_image=FULL,
+            binlog_row_metadata=FULL, REPLICATION SLAVE, REPLICATION CLIENT and PROCESS grants, at least 24 hours of
+            binary log retention, and a primary key on every table. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
             diagnose why an existing CDC sync has started failing. The connection details (host, port, database, user,
             password, schema, ssh_tunnel) go INSIDE 'payload', the same way as in 'external-data-sources-create'.
             Instead of a password, pass {'credential_id': '<uuid>'} in the payload, referencing connection details the
@@ -699,12 +705,14 @@ tools:
             idempotent: false
         title: Enable CDC on a source
         description: >
-            Enable change data capture (CDC) on an existing Postgres source. Safe order: call this tool, then switch
+            Enable change data capture (CDC) on an existing Postgres or MySQL source. Safe order: call this tool, then switch
             individual tables to sync_type=cdc with 'external-data-schemas-partial-update' (CDC tables need
             primary_key_columns). Do not call 'external-data-sources-check-cdc-prerequisites-create' first: it needs the
             database connection details and cannot read the stored ones. This tool checks the prerequisites itself and
-            lists any that fail. It starts no table sync by itself. It creates the replication slot (and the publication
-            in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use
+            lists any that fail. It starts no table sync by itself. On Postgres it creates the replication slot (and the
+            publication in posthog mode). On MySQL it records the current binary log position, and there is no
+            management mode or slot to name. It stores the CDC settings and creates the extraction and cleanup
+            schedules. Use
             cdc_management_mode='posthog' (default) when the database user can manage replication, or 'self_managed'
             when the customer created the publication already and passes its name in cdc_publication_name. Fails with a
             400 when the source type has no CDC support, the prerequisites are not met (the errors are listed), or the

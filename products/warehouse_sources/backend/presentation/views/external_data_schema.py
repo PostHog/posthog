@@ -93,6 +93,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     add_table_failure_message,
     ambiguous_masked_columns,
     assert_history_table_droppable,
+    cdc_engine_for_team,
     check_access_rules_copy,
     collision_alias_masked_columns,
     drop_history_table,
@@ -1772,7 +1773,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if sync_type == ExternalDataSchema.SyncType.CDC:
             # The publication step below skips types without an adapter, so accepting one here would
             # save a `cdc` label that nothing can read a change stream for.
-            if not source_type_supports_cdc(instance.source.source_type):
+            if cdc_engine_for_team(instance.source.source_type, instance.team_id) is None:
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts

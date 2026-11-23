@@ -125,6 +125,7 @@ def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, st
 
 class PostgresCDCAdapter:
     engine = CDCEngine.POSTGRES
+    release_flag: str | None = None
 
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)

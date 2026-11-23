@@ -83,6 +83,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     add_table_failure_message,
     added_table_root,
     build_default_schemas,
+    cdc_engine_for_team,
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
@@ -96,7 +97,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     pin_history_naming,
     reserved_column_collisions,
     reserved_column_names,
-    source_type_supports_cdc,
     sql_schema_metadata,
     supports_adding_tables,
     validate_and_coerce_row_filters,
@@ -1666,7 +1666,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             source_config = validated_config
 
         api_version = source.default_version
-        cdc_enabled = payload.get("cdc_enabled", False) and source_type_supports_cdc(source_type_model)
+        cdc_enabled = (
+            payload.get("cdc_enabled", False) and cdc_engine_for_team(source_type_model, self.team_id) is not None
+        )
 
         # Schema discovery and the payload checks run before the insert, so a failure leaves no source and
         # no credentials row. Discovery opens its own connection, so it must not run in a transaction.

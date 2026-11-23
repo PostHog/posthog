@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+import pymysql
 import structlog
 from psycopg import OperationalError
 from rest_framework import viewsets
@@ -59,6 +60,7 @@ logger = structlog.get_logger(__name__)
 # 400 without capturing, so they stay out of error tracking.
 _EXPECTED_CONNECTION_ERRORS = (
     OperationalError,
+    pymysql.err.OperationalError,
     BaseSSHTunnelForwarderError,
     SSLRequiredError,
     HostNotAllowedError,

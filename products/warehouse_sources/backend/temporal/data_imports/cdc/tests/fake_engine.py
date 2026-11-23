@@ -148,6 +148,7 @@ class FakeCDCStreamReader:
 class FakeCDCAdapter:
     # The catalog never lists the fake engine, so any member satisfies the interface.
     engine = CDCEngine.POSTGRES
+    release_flag: str | None = None
 
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db

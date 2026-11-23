@@ -36,12 +36,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
+    cdc_engine_for_team,
     cdc_supported_source_types,
     get_cdc_adapter,
     history_tables,
     incremental_history_table,
     repair_cdc_source,
-    source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
@@ -231,6 +231,27 @@ class CdcStatusSerializer(serializers.Serializer):
         required=False,
         help_text="Tables in the publication, when the source was reachable and a publication exists.",
     )
+    capture_resources_present = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether every resource capture reads from is present on the source, when the source was reachable. "
+            "False means changes can't be read until Repair CDC runs."
+        ),
+    )
+    server_uuid = serializers.CharField(
+        required=False, help_text="MySQL: server_uuid of the server whose binary log capture reads."
+    )
+    binlog_position = serializers.CharField(
+        allow_null=True, required=False, help_text="MySQL: the binary log position capture has read up to."
+    )
+    same_server = serializers.BooleanField(
+        required=False,
+        help_text="MySQL: whether the source still reaches the server capture started on. False after a failover.",
+    )
+    binlog_file_exists = serializers.BooleanField(
+        required=False,
+        help_text="MySQL: whether the server still keeps the binary log file of the stored position.",
+    )
 
 
 def parse_cdc_tuning(
@@ -368,7 +389,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         serializer.is_valid(raise_exception=True)
         source_type = serializer.validated_data["source_type"]
 
-        if not source_type_supports_cdc(source_type):
+        if cdc_engine_for_team(source_type, self.team_id) is None:
             supported = ", ".join(sorted(str(supported_type) for supported_type in cdc_supported_source_types()))
             return setup_error_response(
                 SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
@@ -568,6 +589,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if err is not None:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        if cdc_engine_for_team(instance.source_type, self.team_id) is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC is not available for {instance.source_type} sources yet."},
+            )
 
         existing = adapter.parse_cdc_config(instance)
         if existing.enabled:
@@ -1097,6 +1123,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                     "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                     "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
                     "schedule_paused": schedule_paused,
+                    "capture_resources_present": adapter.capture_resources_present(live_status),
                     **live_status,
                 }
             ).data,

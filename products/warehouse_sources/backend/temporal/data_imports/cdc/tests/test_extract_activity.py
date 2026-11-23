@@ -221,7 +221,7 @@ class TestGetCDCAdapter:
         adapter = get_cdc_adapter(source)
         assert isinstance(adapter, PostgresCDCAdapter)
 
-    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    @parameterized.expand([("no_adapter_for_the_type", "Stripe"), ("not_a_source_type_at_all", "UnsupportedDB")])
     def test_raises_a_typed_error_for_an_unsupported_source(self, _name, source_type):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
             CDCUnsupportedSourceTypeError,
@@ -364,7 +364,7 @@ class TestMaskEventColumns:
 
 
 class TestSetupSelfCleansUnrunnableSchedules:
-    @parameterized.expand([("no_adapter_for_the_type", "MySQL"), ("not_a_source_type_at_all", "UnsupportedDB")])
+    @parameterized.expand([("no_adapter_for_the_type", "Stripe"), ("not_a_source_type_at_all", "UnsupportedDB")])
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")

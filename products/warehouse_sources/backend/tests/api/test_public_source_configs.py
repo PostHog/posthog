@@ -176,7 +176,12 @@ class TestPublicSourceConfigs(APIBaseTest):
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
-        wizard_response = self.client.get("/api/environments/@current/external_data_sources/wizard/")
+        # A team with no engine released by flag sees the same catalog as the public endpoint.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.schema_flags.is_team_flag_enabled",
+            new=lambda *_args, **_kwargs: False,
+        ):
+            wizard_response = self.client.get("/api/environments/@current/external_data_sources/wizard/")
         assert wizard_response.status_code == status.HTTP_200_OK
 
         wizard_data = wizard_response.json()

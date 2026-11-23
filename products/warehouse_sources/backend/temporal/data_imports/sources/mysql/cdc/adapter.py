@@ -57,8 +57,13 @@ class MySQLManagementConnection:
         return self.stream.epoch if self.stream is not None else 0
 
 
+# Org-level flag that releases MySQL CDC.
+MYSQL_CDC_FLAG = "warehouse-mysql-cdc"
+
+
 class MySQLCDCAdapter:
     engine = CDCEngine.MYSQL
+    release_flag: str | None = MYSQL_CDC_FLAG
 
     def parse_cdc_config(self, source: ExternalDataSource) -> MySQLCDCConfig:
         return MySQLCDCConfig.from_source(source)
@@ -185,7 +190,7 @@ class MySQLCDCAdapter:
             lag = binlog.lag_bytes(management.conn, position) if position else None
         return {
             "server_uuid": config.server_uuid,
-            "position": config.position,
+            "binlog_position": config.position,
             "same_server": not config.server_uuid or current_uuid == config.server_uuid,
             "binlog_file_exists": position is not None and position.file in files,
             "lag_bytes": lag,

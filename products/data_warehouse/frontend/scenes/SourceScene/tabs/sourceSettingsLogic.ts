@@ -69,6 +69,11 @@ export interface CdcStatus {
     lag_bytes?: number | null
     published_tables?: string[]
     schedule_paused?: boolean
+    capture_resources_present?: boolean
+    server_uuid?: string
+    binlog_position?: string | null
+    same_server?: boolean
+    binlog_file_exists?: boolean
 }
 
 const REFRESH_INTERVAL = 5000
