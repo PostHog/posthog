@@ -9,7 +9,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.slack_app.backend.facade.api import phase_for_key
+from products.slack_app.backend.facade.api import GENERIC_PROGRESS_TITLES, phase_for_key
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
     AppendSlackAgentDesignStepsInput,
     SlackAgentDesignStream,
@@ -136,11 +136,12 @@ class TestSlackAgentDesignRelay:
         assert phase is not None
         relay._line_ids[phase.key] = "line-1"
         relay._phases[phase.key] = phase
+        relay._phase_titles[phase.key] = "Making progress"
         relay._counts[phase.key] = 4
 
         chunk = relay._line_chunk(phase.key, "in_progress")
 
-        assert (chunk.title, chunk.details, chunk.status) == ("Working on it", None, "in_progress")
+        assert (chunk.title, chunk.details, chunk.status) == ("Making progress", None, "in_progress")
 
     @pytest.mark.parametrize("setup_title", [None, "Starting sandbox"])
     @pytest.mark.timeout(60, func_only=True)
@@ -170,11 +171,12 @@ class TestSlackAgentDesignRelay:
             ]
         )
 
-        assert sorted(calls.final_lines().values()) == [
-            ("Working on it", None, "complete"),
-            ("Working on it", None, "complete"),
-            ("Working on it", None, "complete"),
-        ]
+        lines = list(calls.final_lines().values())
+        assert len(lines) == 3
+        assert all(
+            title in GENERIC_PROGRESS_TITLES and details is None and status == "complete"
+            for title, details, status in lines
+        )
         assert calls.answer() == "Signups grew."
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
@@ -242,20 +244,18 @@ class TestSlackAgentDesignRelay:
         assert calls.answer() == "Answer."
 
     @pytest.mark.parametrize(
-        "work, work_lines",
+        "work, has_phase",
         [
             (
                 [("agent_status_update", {"phase": "posthog:Execute SQL query"})],
-                [("Working on it", None, "complete")],
+                True,
             ),
-            ([("agent_text_delta", "Hi! What should I look at?")], []),
+            ([("agent_text_delta", "Hi! What should I look at?")], False),
         ],
         ids=["tool_call", "answer_without_tools"],
     )
     @pytest.mark.timeout(60, func_only=True)
-    async def test_setup_steps_change_in_place_and_complete(
-        self, work: list[tuple[str, Any]], work_lines: list[tuple[str, None, str]]
-    ) -> None:
+    async def test_setup_steps_change_in_place_and_complete(self, work: list[tuple[str, Any]], has_phase: bool) -> None:
         # A later update of a setup step must not add a second line, and a step still open when
         # the agent works must not keep spinning, or end as a failure.
         calls = await _run_relay(
@@ -270,32 +270,31 @@ class TestSlackAgentDesignRelay:
         assert [[(c.title, c.status) for c in s.task_updates] for s in calls.starts] == [
             [("Setting up sandbox", "in_progress")]
         ]
-        assert list(calls.final_lines().values()) == [
-            ("Sandbox ready", None, "complete"),
-            ("Cloning repository", None, "complete"),
-            *work_lines,
-        ]
+        lines = list(calls.final_lines().values())
+        assert lines[:2] == [("Sandbox ready", None, "complete"), ("Cloning repository", None, "complete")]
+        assert len(lines) == 2 + has_phase
+        if has_phase:
+            assert lines[2][0] in GENERIC_PROGRESS_TITLES
+            assert lines[2][1:] == (None, "complete")
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
     @pytest.mark.parametrize(
-        "work, last_line, plan_title",
+        "work, has_generic_phase",
         [
             (
                 [("agent_status_update", {"phase": "posthog:Execute SQL query", "activity": "Count weekly signups"})],
-                ("Working on it", None, "complete"),
-                "Working on it",
+                True,
             ),
             (
                 [("agent_text_delta", "Hi! What should I look at?")],
-                ("Writing the answer", None, "complete"),
-                "Thinking",
+                False,
             ),
         ],
         ids=["tool_call", "answer_without_tools"],
     )
     @pytest.mark.timeout(60, func_only=True)
     async def test_a_line_spins_between_setup_and_work(
-        self, work: list[tuple[str, Any]], last_line: tuple[str, str | None, str], plan_title: str
+        self, work: list[tuple[str, Any]], has_generic_phase: bool
     ) -> None:
         # With setup done and no call yet, nothing else shows that the agent is working. The
         # next line must take over the placeholder, or a finished "Thinking" line stays behind.
@@ -312,12 +311,16 @@ class TestSlackAgentDesignRelay:
         assert ("Thinking", "in_progress") in [(c.title, c.status) for c in calls.sent_chunks()]
         # A collapsed plan shows only its title, so the title must say what happens now.
         assert [s.plan_title for s in calls.starts] == ["Setting up sandbox"]
-        assert [a.plan_title for a in calls.appends if a.plan_title][-1] == plan_title
-        assert list(calls.final_lines().values()) == [
-            ("Sandbox ready", None, "complete"),
-            ("Agent ready", None, "complete"),
-            last_line,
-        ]
+        plan_title = [a.plan_title for a in calls.appends if a.plan_title][-1]
+        lines = list(calls.final_lines().values())
+        assert lines[:2] == [("Sandbox ready", None, "complete"), ("Agent ready", None, "complete")]
+        if has_generic_phase:
+            assert plan_title in GENERIC_PROGRESS_TITLES
+            assert lines[2][0] in GENERIC_PROGRESS_TITLES
+            assert lines[2][1:] == (None, "complete")
+        else:
+            assert plan_title == "Thinking"
+            assert lines[2] == ("Writing the answer", None, "complete")
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_quiet_relay_resends_its_open_line(self) -> None:
@@ -364,7 +367,7 @@ class TestSlackAgentDesignRelay:
 
         titles = [title for title, _details, _status in calls.final_lines().values()]
         assert len(titles) == 7
-        assert titles.count("Working on it") == 7
+        assert all(title in GENERIC_PROGRESS_TITLES for title in titles)
 
     @pytest.mark.parametrize(
         "cancel, expected_status, expected_title",

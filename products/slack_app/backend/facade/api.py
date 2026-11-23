@@ -38,6 +38,7 @@ from products.slack_app.backend.logic.inbox_report_actions import (
 )
 from products.slack_app.backend.logic.progress_phases import (
     ANSWER_LINE_TITLE,
+    GENERIC_PROGRESS_TITLES,
     OTHER_WORK,
     PLAN_TITLE_STOPPED,
     PLAN_TITLE_WORKING,
@@ -51,6 +52,7 @@ from products.slack_app.backend.logic.progress_phases import (
     phase_for_key,
     phase_for_tool_call,
     phase_line_title,
+    random_progress_title,
     tool_call_from_acp_update,
 )
 from products.slack_app.backend.logic.reply_suggestions import (
@@ -72,6 +74,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ANSWER_LINE_TITLE",
+    "GENERIC_PROGRESS_TITLES",
     "OTHER_WORK",
     "PLAN_TITLE_STOPPED",
     "PLAN_TITLE_WORKING",
@@ -86,6 +89,7 @@ __all__ = [
     "phase_for_key",
     "phase_for_tool_call",
     "phase_line_title",
+    "random_progress_title",
     "tool_call_from_acp_update",
     "get_slack_workspace_setup",
     "join_slack_setup_channels",

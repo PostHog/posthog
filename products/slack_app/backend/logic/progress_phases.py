@@ -2,6 +2,7 @@
 
 import re
 from datetime import timedelta
+from random import Random
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -29,6 +30,14 @@ PREPARING_FILES = ProgressPhase(key="preparing_files", title="Working on it", co
 OPENING_PR = ProgressPhase(key="opening_pr", title="Working on it", counter=None)
 # The relay folds phases past its line limit into this line, so the plan stays short.
 OTHER_WORK = ProgressPhase(key="other_work", title="Working on it", counter=None)
+GENERIC_PROGRESS_TITLES = (
+    "Working on it",
+    "Making progress",
+    "Taking care of it",
+    "Still working",
+    "Moving along",
+    "On it",
+)
 
 PHASES: dict[str, ProgressPhase] = {
     phase.key: phase
@@ -199,6 +208,12 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
 def phase_line_title(phase: ProgressPhase, count: int) -> str:
     """The generic plan line for a phase."""
     return phase.title
+
+
+def random_progress_title(generator: Random, previous: str | None = None) -> str:
+    """Choose a generic progress title that differs from the previous one."""
+    choices = tuple(title for title in GENERIC_PROGRESS_TITLES if title != previous)
+    return generator.choice(choices)
 
 
 def done_plan_title(elapsed: timedelta) -> str:
