@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.test.fixtures import create_app_metric2
@@ -166,11 +165,12 @@ class TestEmailSendingTierDecision(SimpleTestCase):
     # its first real demotion.
     @parameterized.expand(
         [
-            ("a recent rate demotion holds further demotion", 1, None, 2, "demotion_cooldown"),
-            ("an expired cooldown lets new evidence demote", 8, None, 1, "rates_above_threshold"),
-            ("a window starting after the demotion lets it demote", 8, timedelta(hours=1), 1, "rates_above_threshold"),
-            ("a window still holding the demotion's hour holds", 8, timedelta(0), 2, "demotion_cooldown"),
-            ("no prior rate demotion demotes immediately", None, None, 1, "rates_above_threshold"),
+            ("a recent rate demotion holds further demotion", 1, None, "", 2, "demotion_cooldown"),
+            ("an expired cooldown lets new evidence demote", 8, None, "", 1, "rates_above_threshold"),
+            ("a window after the demotion lets it demote", 8, timedelta(hours=1), "", 1, "rates_above_threshold"),
+            ("a window still holding the demotion holds", 8, timedelta(0), "", 2, "demotion_cooldown"),
+            ("SES HIGH demotes despite the window", 8, timedelta(0), "HIGH", 1, "ses_reputation_high"),
+            ("no prior rate demotion demotes immediately", None, None, "", 1, "rates_above_threshold"),
         ]
     )
     def test_the_demotion_cooldown_is_armed_by_rate_demotions_only(
@@ -178,6 +178,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         _name: str,
         demoted_days_ago: int | None,
         window_start_after_demotion: timedelta | None,
+        reputation_impact: str,
         expected_tier: int,
         expected_reason: str,
     ) -> None:
@@ -193,6 +194,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
                 if demoted_at is not None and window_start_after_demotion is not None
                 else None
             ),
+            tenant_state=SesTenantState(sending_status="ENABLED", reputation_impact=reputation_impact),
             suspended=False,
         )
         assert decision.new_tier == expected_tier
@@ -698,13 +700,10 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("complaints that fed the last demotion", True, timedelta(hours=-1), 4, "tier_not_used_enough"),
-            # Rows merged within an hour keep any one of their timestamps, so this row can hold
-            # complaints from before the demotion.
-            ("complaints stamped later in the demotion's hour", True, timedelta(minutes=30), 4, "tier_not_used_enough"),
-            ("complaints later on the demotion day", True, timedelta(hours=1), 3, "rates_above_threshold"),
-            ("complaints days after the demotion", True, timedelta(days=2), 3, "rates_above_threshold"),
-            ("a first demotion reads the whole first day", False, timedelta(minutes=30), 3, "rates_above_threshold"),
+            ("complaints that fed the last demotion", True, timedelta(hours=-1), 7, 4, "demotion_cooldown"),
+            ("complaints later on the demotion day", True, timedelta(hours=1), 7, 4, "demotion_cooldown"),
+            ("new complaints, once the demotion day leaves", True, timedelta(days=2), 8, 3, "rates_above_threshold"),
+            ("a first demotion reads the whole first day", False, timedelta(minutes=30), 7, 3, "rates_above_threshold"),
         ]
     )
     def test_one_incident_demotes_once_when_the_cooldown_ends(
@@ -712,6 +711,7 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
         _name: str,
         demoted: bool,
         complaints_after_demotion: timedelta,
+        sweep_days_after_demotion: int,
         expected_tier: int,
         expected_reason: str,
     ) -> None:
@@ -729,43 +729,11 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
             self._metric("email_sent", 200, demotion_hour + timedelta(days=day, hours=5))
         self._metric("email_blocked", 2, demotion_hour + complaints_after_demotion)
 
-        with time_machine.travel(demoted_at + timedelta(days=7, minutes=1), tick=False):
+        with time_machine.travel(demoted_at + timedelta(days=sweep_days_after_demotion, minutes=1), tick=False):
             decisions = recompute_email_sending_tiers(team_ids=[self.team.id])
 
         assert [(d.new_tier, d.reason) for d in decisions] == [(expected_tier, expected_reason)]
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
-
-    def test_a_cooldown_ending_mid_sweep_does_not_demote_twice(self) -> None:
-        demoted_at = datetime(2026, 1, 10, 8, 0, 5, tzinfo=UTC)
-        demotion_hour = demoted_at.replace(second=0)
-        TeamWorkflowsConfig.objects.update_or_create(
-            team=self.team,
-            defaults={
-                "email_sending_tier": 4,
-                "email_sending_tier_updated_at": demoted_at,
-                "email_sending_tier_demoted_at": demoted_at,
-            },
-        )
-        for day in range(-7, 7):
-            self._metric("email_sent", 200, demotion_hour + timedelta(days=day, hours=5))
-        self._metric("email_blocked", 2, demotion_hour)
-
-        with time_machine.travel(demoted_at + timedelta(days=7, seconds=-10), tick=False) as traveller:
-
-            def slow_fetch(**kwargs):
-                # The cooldown ends while the sweep reads metrics, after the window was cut.
-                result = fetch_app_metric_daily_totals_by_team(**kwargs)
-                traveller.shift(timedelta(seconds=11))
-                return result
-
-            with patch(
-                "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
-                side_effect=slow_fetch,
-            ):
-                decisions = recompute_email_sending_tiers(team_ids=[self.team.id])
-
-        assert [(d.new_tier, d.reason) for d in decisions] == [(4, "demotion_cooldown")]
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 4
 
 
 @override_settings(**TIER_SETTINGS)

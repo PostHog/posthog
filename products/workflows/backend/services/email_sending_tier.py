@@ -216,10 +216,10 @@ def decide_tier(
     our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
     HIGH reputation impact demotes, and any non-clean impact blocks promotion.
 
-    `demotion_window_start` is where `recent_history` starts when the sweep cut it on a whole hour
-    (see build_sending_history_windows). The cooldown holds while that window still starts at or
-    before the last rate demotion: the sweep reads the window before it decides, so the cooldown can
-    end in between while the window still holds the demotion's hour.
+    `demotion_window_start` is the first moment `recent_history` covers. The window is cut on whole
+    days, so it can still hold the day of the last rate demotion after the cooldown ends. Until that
+    day leaves it, its rates and auto-pause metrics may be the incident already demoted for, so they
+    do not demote again. An SES HIGH impact is read live, so it still demotes.
 
     `account_trust` lifts an established paying account straight to its trusted floor (see
     trusted_floor_tier), skipping the dwell and the use bar. The backfill omits it.
@@ -257,20 +257,26 @@ def decide_tier(
         # without a cooldown the same incident would demote the team again on every run and
         # cascade it to the bottom. The anchor is the last rate demotion, not the last tier write:
         # a promotion or staff change must not shield a team from its first real demotion. With the
-        # cooldown at least as long as the demotion window, the evidence behind the last demotion
-        # has aged out by the time demotions resume, so a second step needs new evidence.
+        # cooldown at least as long as the demotion window, and the hold below until the window's
+        # first day is after the demotion's day, the evidence behind the last demotion has aged out
+        # by the time demotions resume, so a second step needs new evidence.
         cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
-        if last_rate_demotion_at is not None and (
-            now - last_rate_demotion_at < cooldown
-            or (demotion_window_start is not None and demotion_window_start <= last_rate_demotion_at)
-        ):
+        in_cooldown = last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown
+        window_holds_last_demotion = (
+            last_rate_demotion_at is not None
+            and demotion_window_start is not None
+            and demotion_window_start <= last_rate_demotion_at
+        )
+        if in_cooldown or (window_holds_last_demotion and tenant.impact != "HIGH"):
             return TierDecision(
                 team_id=history.team_id,
                 previous_tier=current_tier,
                 new_tier=current_tier,
                 reason="demotion_cooldown",
             )
-        if recent.auto_paused:
+        if window_holds_last_demotion:
+            demotion_reason = "ses_reputation_high"
+        elif recent.auto_paused:
             demotion_reason = "workflow_auto_paused"
         elif not recent.rates_are_clean:
             demotion_reason = "rates_above_threshold"
@@ -388,44 +394,26 @@ class SendingHistoryWindows:
     recent: dict[int, TeamSendingHistory]
 
 
-def hour_aligned_window_start(recent_after: datetime) -> datetime:
-    return recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-
-
 def build_sending_history_windows(
     *,
     after: datetime,
     recent_after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
-    recently_demoted_team_ids: frozenset[int] = frozenset(),
 ) -> SendingHistoryWindows:
-    """The full promotion window and the shorter demotion window.
+    """The full promotion window and the shorter demotion window, from one query.
 
-    The demotion window is cut on calendar days (UTC), matching the day granularity the metrics are
+    The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
     fetched at, so its edge can be up to a day coarser than `recent_after`.
-
-    That extra day can still hold the incident behind a team's last rate demotion when the cooldown
-    ends, and demote the team for it a second time. For `recently_demoted_team_ids`, the teams
-    demoted inside that day-grained window, the demotion window starts at the first whole hour after
-    `recent_after` instead. app_metrics2 merges rows by hour and a merged row keeps any one of their
-    timestamps, so only an hour boundary keeps the last demotion's hour out once the cooldown ends.
     """
     daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
     recent_key = recent_after.strftime("%Y-%m-%d")
-    recent = {
-        team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day >= recent_key})
-        for team_id, days in daily_by_team.items()
-        if team_id not in recently_demoted_team_ids
-    }
-    if recently_demoted_team_ids:
-        since_demotion = _fetch_daily_metrics(
-            after=hour_aligned_window_start(recent_after), before=before, team_ids=sorted(recently_demoted_team_ids)
-        )
-        recent.update({team_id: _history_from_daily(team_id, days) for team_id, days in since_demotion.items()})
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
-        recent=recent,
+        recent={
+            team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day >= recent_key})
+            for team_id, days in daily_by_team.items()
+        },
     )
 
 
@@ -553,19 +541,9 @@ def recompute_email_sending_tiers(
     now = timezone.now()
     after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
     recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
-    recently_demoted = TeamWorkflowsConfig.objects.filter(
-        email_sending_tier_demoted_at__gte=recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
-    )
-    if team_ids is not None:
-        recently_demoted = recently_demoted.filter(team_id__in=team_ids)
-    recently_demoted_team_ids = frozenset(recently_demoted.values_list("team_id", flat=True))
-    windows = build_sending_history_windows(
-        after=after,
-        recent_after=recent_after,
-        team_ids=team_ids,
-        recently_demoted_team_ids=recently_demoted_team_ids,
-    )
+    windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
     histories = windows.window
+    demotion_window_start = recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
 
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
         email_sending_tier=MIN_EMAIL_SENDING_TIER, email_sending_suspended_at__isnull=True
@@ -635,9 +613,7 @@ def recompute_email_sending_tiers(
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
-            demotion_window_start=(
-                hour_aligned_window_start(recent_after) if team_id in recently_demoted_team_ids else None
-            ),
+            demotion_window_start=demotion_window_start,
             account_trust=AccountTrust.from_organization(config.team.organization),
         )
         if only_reasons is not None and decision.reason not in only_reasons:
