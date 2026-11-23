@@ -27,6 +27,16 @@ from posthog.utils import pluralize
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
+from products.dashboards.backend.prompts import (
+    CREATE_NO_INSIGHTS_PROMPT,
+    DASHBOARD_NOT_FOUND_PROMPT,
+    MISSING_INSIGHT_IDS_PROMPT,
+    PERMISSION_REQUEST_PROMPT,
+    UNKNOWN_VARIABLES_PROMPT,
+    UPDATE_NO_CHANGES_PROMPT,
+    UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
+    UPSERT_DASHBOARD_TOOL_PROMPT,
+)
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insight_variables_for_team,
@@ -39,16 +49,6 @@ from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsigh
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.prompts import (
-    CREATE_NO_INSIGHTS_PROMPT,
-    DASHBOARD_NOT_FOUND_PROMPT,
-    MISSING_INSIGHT_IDS_PROMPT,
-    PERMISSION_REQUEST_PROMPT,
-    UNKNOWN_VARIABLES_PROMPT,
-    UPDATE_NO_CHANGES_PROMPT,
-    UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
-    UPSERT_DASHBOARD_TOOL_PROMPT,
-)
 from ee.hogai.utils.prompt import format_prompt_string
 
 logger = structlog.get_logger(__name__)

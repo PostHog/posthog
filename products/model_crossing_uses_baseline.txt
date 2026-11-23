@@ -565,7 +565,6 @@ product_analytics.Insight ee.hogai.artifacts.types in-collection 1
 product_analytics.Insight ee.hogai.chat_agent.insights.nodes instance-many(order_by) 1
 product_analytics.Insight ee.hogai.context.entity_search.context in-collection 1
 product_analytics.Insight ee.hogai.context.entity_search.context instance-many(order_by) 1
-product_analytics.Insight ee.hogai.tools.upsert_dashboard.tool construct 1
 product_analytics.Insight exports.ExportedAsset.insight reverse-accessor(exportedasset_set) 1
 product_analytics.Insight posthog.SharingConfiguration.insight reverse-accessor(sharingconfiguration_set) 1
 product_analytics.Insight posthog.api.cohort instance-many(order_by) 1
@@ -590,6 +589,7 @@ product_analytics.Insight products.alerts.backend.presentation.views.alert insta
 product_analytics.Insight products.dashboards.backend.facade.api.InsightTilePlacement.create_tiles facade-accepts(insight) 1
 product_analytics.Insight products.dashboards.backend.facade.api.tile_for_render facade-accepts(insight) 1
 product_analytics.Insight products.dashboards.backend.facade.api.update_insight_dashboard_membership facade-accepts(insight) 1
+product_analytics.Insight products.dashboards.backend.max_tools construct 1
 product_analytics.Insight products.dashboards.backend.presentation.views.dashboard drf-model-serializer 1
 product_analytics.Insight products.dashboards.backend.presentation.views.dashboard instance-many(distinct) 1
 product_analytics.Insight products.dashboards.backend.presentation.views.dashboard instance-many(select_related) 1

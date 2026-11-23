@@ -30,6 +30,12 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.max_tools import (
+    CreateDashboardToolArgs,
+    DuplicateDashboardToolArgs,
+    UpdateDashboardToolArgs,
+    UpsertDashboardTool,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
@@ -40,12 +46,6 @@ from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, V
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.tool import (
-    CreateDashboardToolArgs,
-    DuplicateDashboardToolArgs,
-    UpdateDashboardToolArgs,
-    UpsertDashboardTool,
-)
 from ee.hogai.utils.types import AssistantState
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
@@ -212,7 +212,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(soft_deleted_tiles), 2)
 
     @parameterized.expand([("saved",), ("state",), ("artifact",)])
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_add_insights_preserves_existing_dashboard_tiles(self, source: str, mock_report: MagicMock) -> None:
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
         existing_insight = await self._create_insight("Existing insight")
@@ -1805,7 +1805,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(insight_tiles), 1)
         self.assertEqual(insight_tiles[0].insight_id, new_insight.id)
 
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_create_dashboard_reports_dashboard_created(self, mock_report):
         insight = await self._create_insight("Test Insight")
         tool = self._create_tool()
@@ -1985,7 +1985,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
         self.assertFalse(any(call.kwargs.get("event") == "dashboard created" for call in mock_capture.call_args_list))
 
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Existing", created_by=self.user)
         insight = await self._create_insight("Test Insight")
@@ -2004,7 +2004,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(dashboard_updated_calls[0][0][0], self.user)
         self.assertEqual(dashboard_updated_calls[0][0][2]["source"], "posthog_ai")
 
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report):
         state_query = TrendsQuery(series=[EventsNode(name="$pageview")])
         state_content = VisualizationArtifactContent(
@@ -2032,7 +2032,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(insight_created_calls[0][0][2]["source"], "posthog_ai")
         self.assertIn("insight_id", insight_created_calls[0][0][2])
 
-    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    @patch("products.dashboards.backend.max_tools.report_user_action")
     async def test_create_dashboard_does_not_report_insight_created_for_existing_insights(self, mock_report):
         insight = await self._create_insight("Existing Insight")
         tool = self._create_tool()

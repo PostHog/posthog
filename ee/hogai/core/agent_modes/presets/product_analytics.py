@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from posthog.schema import AgentMode
 
 from products.alerts.backend.max_tools import UpsertAlertTool
+from products.dashboards.backend.facade.max_tools import UpsertDashboardTool
 
 from ee.hogai.chat_agent.executables import (
     ChatAgentExecutable,
@@ -11,7 +12,7 @@ from ee.hogai.chat_agent.executables import (
     ChatAgentPlanToolsExecutable,
     ChatAgentToolsExecutable,
 )
-from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
+from ee.hogai.tools import CreateInsightTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
 
 from ..factory import AgentModeDefinition
