@@ -2491,10 +2491,12 @@ describe('Cyclotron V2', () => {
                 const newState = Buffer.from(JSON.stringify({ cursor: 'next-page', totalEnqueued: 500 }))
                 const future = new Date(Date.now() + 60_000)
 
+                const childWithFiles = uuidv7()
+                const plainChild = uuidv7()
                 const result = await job.bulkCreateAndCheckIn({
                     newJobs: [
-                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId, fileBytes: 700 },
-                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId },
+                        { id: childWithFiles, teamId: 1, queueName: 'hogflow', parentRunId: parentId, fileBytes: 700 },
+                        { id: plainChild, teamId: 1, queueName: 'hogflow', parentRunId: parentId },
                     ],
                     selfDisposition: { kind: 'reschedule', scheduledAt: future, state: newState },
                 })
@@ -2517,7 +2519,10 @@ describe('Cyclotron V2', () => {
                 expect(children.rows).toHaveLength(2)
                 expect(children.rows[0].queue_name).toBe('hogflow')
                 expect(children.rows[0].status).toBe('available')
-                expect(children.rows.map((row) => row.file_bytes)).toEqual(expect.arrayContaining(['700', null]))
+                expect(Object.fromEntries(children.rows.map((row) => [row.id, row.file_bytes]))).toEqual({
+                    [childWithFiles]: '700',
+                    [plainChild]: null,
+                })
             })
 
             it('acks self atomically with child inserts', async () => {
