@@ -3,6 +3,7 @@ import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
+import { atLeastOnce, bouncedSuppressed } from '../judge/invariants'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
@@ -190,6 +191,15 @@ const unreadReasonOf = (unread: string): string => `the judge could not read the
 
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
+
+// These checks read the deliveries that converge waits for, so a failed last converge read leaves them unknown.
+const SETTLED_DELIVERY_CHECKS = new Set([atLeastOnce.name, bouncedSuppressed.name])
+
+export const judgedInvariantsOf = (
+    checked: InvariantResult[],
+    { unfinishedJobs }: Pick<Convergence, 'unfinishedJobs'>
+): InvariantResult[] =>
+    unfinishedJobs === null ? checked.filter(({ name }) => !SETTLED_DELIVERY_CHECKS.has(name)) : checked
 
 export function statusOf(verdict: Verdict): { status: Status; statusReason: string; restarts: RoleExit[] } {
     const { exits, timeline } = verdict

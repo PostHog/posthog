@@ -2,10 +2,11 @@ import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
+import type { Convergence, InvariantResult } from '../judge/judge'
 import type { Baseline } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { Admission, Verdict, admissionsOf, statusOf } from './status'
+import { Admission, Verdict, admissionsOf, judgedInvariantsOf, statusOf } from './status'
 
 const HELD: Verdict = {
     admissions: [],
@@ -783,6 +784,25 @@ describe('statusOf', () => {
         })
 
         expect(restarts).toEqual([restart])
+    })
+
+    it.each<[string, Convergence['unfinishedJobs'], string[]]>([
+        [
+            'drops the checks that read deliveries when the judge could not read the job count at the deadline',
+            null,
+            ['duplicate_sends'],
+        ],
+        [
+            'keeps every check when the judge read the job count',
+            0,
+            ['at_least_once', 'bounced_suppressed', 'duplicate_sends'],
+        ],
+    ])('%s', (_story, unfinishedJobs, judged) => {
+        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends'].map(
+            (name): InvariantResult => ({ name, passed: false, observed: 1, unitIds: ['run-1'] })
+        )
+
+        expect(judgedInvariantsOf(checked, { unfinishedJobs }).map(({ name }) => name)).toEqual(judged)
     })
 
     const BASELINE: Baseline = {

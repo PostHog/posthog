@@ -33,7 +33,6 @@ import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '..
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
-import { atLeastOnce } from '../judge/invariants'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -61,7 +60,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
+import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
@@ -648,10 +647,7 @@ export function createRunner(
                 const checked = await judge.check(card.invariants, card.gates, { janitorResets })
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
-                const invariants =
-                    convergence.unfinishedJobs === null
-                        ? checked.filter(({ name }) => name !== atLeastOnce.name)
-                        : checked
+                const invariants = judgedInvariantsOf(checked, convergence)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
