@@ -389,7 +389,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     rankings[index] = self._breakdown_ranking(response.results)
                 finally:
                     if is_parallel:
-                        # This closes the connection of the worker thread only
                         connection.close()
 
             if len(queries) == 1 or settings.IN_UNIT_TESTING:
@@ -406,7 +405,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @staticmethod
     def _breakdown_ranking(rows: list[Any]) -> _BreakdownRanking:
-        # Each row repeats the count of all values and their events, taken before the limit.
         event_counts = {_breakdown_ranking_key(row[0]): int(row[1]) for row in rows}
         values_count = int(rows[0][2]) if rows else 0
         all_values_event_count = int(rows[0][3]) if rows else 0

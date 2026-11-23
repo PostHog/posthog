@@ -71,7 +71,6 @@ export interface InsightsTableModelProps {
 
 export interface InsightsTableModel {
     columns: InsightsTableColumn[]
-    /** Set when a formula breakdown ranked its values by the events of all series. */
     breakdownRankingCaption: string | null
     dataSource: IndexedTrendResult[]
     hasCheckboxes: boolean
