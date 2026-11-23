@@ -115,7 +115,7 @@ ORDER BY period_bucket_date DESC
     group_name="web_analytics_v2",
     description="Accuracy comparison of unique user counts between regular events and V2 pre-aggregated tables",
     partitions_def=WeeklyPartitionsDefinition(start_date="2024-01-01", end_offset=1),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_pre_aggregated_accuracy(context: AssetExecutionContext, config: AccuracyConfig) -> list[dict]:
     team_id = config.team_id

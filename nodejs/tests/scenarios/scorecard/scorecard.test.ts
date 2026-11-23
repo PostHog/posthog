@@ -15,6 +15,7 @@ const NEVER_ABORTED = new AbortController().signal
 const RUN_ID = '6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
 
 const SMOKE: LoadedCard = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
+const BREAKING_POINT: LoadedCard = load(path.join(__dirname, '..', 'cards', 'cyclotron-breaking-point.yaml'))
 
 const PROVENANCE: Provenance = {
     headSha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
@@ -35,8 +36,10 @@ const RESULT: RunResult = {
     cardHash: SMOKE.cardHash,
     profileHash: SMOKE.profileHash,
     origin: 'local-agent',
-    units: { targetUnits: 60, offeredUnits: 58 },
+    target: 'local',
+    units: { targetUnits: 60, offeredUnits: 58, sendRetries: 3, steps: [] },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
+    janitorResets: 2,
     invariants: [
         {
             name: 'at_least_once',
@@ -47,8 +50,40 @@ const RESULT: RunResult = {
         },
         { name: 'duplicate_sends', passed: true, observed: 0, gate: 0, unitIds: [] },
     ],
-    measurements: [],
+    measurements: [
+        { name: 'role_cpu_seconds', key: 'cdp-cyclotron-worker-email', value: 4.5, unit: 's', incomplete: true },
+        { name: 'delivery_latency_ms', key: 'p95', value: 820, unit: 'ms' },
+        { name: 'drain_seconds', value: null, unit: 's', censored: true },
+    ],
+    admissions: [{ name: 'host', passed: true, reason: 'host CPU 41% busy in the baseline, under the 80% ceiling' }],
+    bars: [
+        {
+            name: 'pickup_p99_under',
+            unit: 's',
+            limit: 5,
+            passed: false,
+            breakingPoint: {
+                scale: 10,
+                at: '2026-01-05T10:01:00.000Z',
+                offeredPerSecond: 40,
+                key: 'email',
+                value: 10,
+                part: 'role:cdp-cyclotron-worker-email',
+            },
+        },
+    ],
     timeline: [],
+    restarts: [
+        {
+            role: 'cdp-processed-events',
+            replica: 0,
+            at: '2026-01-05T10:01:10.000Z',
+            code: 1,
+            signal: null,
+            byValve: false,
+            relaunchedAt: '2026-01-05T10:01:15.000Z',
+        },
+    ],
     startedAt: '2026-01-05T10:00:00.000Z',
     endedAt: '2026-01-05T10:02:30.500Z',
     evidenceDir: '/home/example/.cache/posthog-scenarios/6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f',
@@ -93,12 +128,15 @@ describe('scorecard', () => {
                 timestamp: '2026-01-05T10:02:30.500Z',
                 properties: {
                     schema_version: 1,
+                    adapters: ['workflows'],
+                    owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
-                    card_version: 1,
+                    card_version: 2,
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
+                    topology_hash: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
                     origin: 'local-agent',
@@ -117,8 +155,10 @@ describe('scorecard', () => {
                     duration_s: 150.5,
                     units_target: 60,
                     units_offered: 58,
+                    send_retries: 3,
                     converged: true,
                     unfinished_jobs: 0,
+                    janitor_resets: 2,
                     inv_at_least_once_passed: false,
                     inv_at_least_once_observed: 2,
                     inv_at_least_once_gate: null,
@@ -130,7 +170,15 @@ describe('scorecard', () => {
                     inv_duplicate_sends_violation: null,
                     inv_duplicate_sends_ids: [],
                     invariants_failed: ['at_least_once'],
+                    m_role_cpu_seconds_cdp_cyclotron_worker_email: 4.5,
+                    m_role_cpu_seconds_cdp_cyclotron_worker_email_incomplete: true,
+                    m_delivery_latency_ms_p95: 820,
+                    m_drain_seconds: null,
+                    m_drain_seconds_censored: true,
+                    admissions: RESULT.admissions,
+                    bars: RESULT.bars,
                     valve_timeline: [],
+                    role_restarts: RESULT.restarts,
                     evidence_dir: RESULT.evidenceDir,
                 },
             },
@@ -155,10 +203,208 @@ describe('scorecard', () => {
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({
             units_target: null,
             units_offered: null,
+            send_retries: null,
             converged: null,
             unfinished_jobs: null,
             invariants_failed: [],
         })
+    })
+
+    it.each<[string, RunResult['ramp'], object]>([
+        [
+            'where it broke and what broke',
+            {
+                end: 'broke',
+                sustainedScale: 5,
+                broke: {
+                    scale: 10,
+                    offeredPerSecond: 42.5,
+                    by: 'pickup_p99_under',
+                    kind: 'bar',
+                    at: '2026-01-05T10:01:00.000Z',
+                    part: 'role:cdp-cyclotron-worker-email',
+                },
+                reason: 'pickup_p99_under broke at the 10x step',
+            },
+            {
+                ramp_steps: [
+                    {
+                        scale: 5,
+                        started_at: '2026-01-05T10:00:00.000Z',
+                        ended_at: '2026-01-05T10:01:00.000Z',
+                        stretched: null,
+                    },
+                    {
+                        scale: 10,
+                        started_at: '2026-01-05T10:01:00.000Z',
+                        ended_at: '2026-01-05T10:02:15.000Z',
+                        stretched: 'held the 10x rate past its planned end until the 5x step was judged',
+                    },
+                ],
+                ramp_end: 'broke',
+                ramp_sustained_scale: 5,
+                ramp_broke_scale: 10,
+                ramp_broke_offered_per_s: 42.5,
+                ramp_broke_by: 'pickup_p99_under',
+                ramp_broke_kind: 'bar',
+                ramp_broke_at: '2026-01-05T10:01:00.000Z',
+                ramp_broke_part: 'role:cdp-cyclotron-worker-email',
+                ramp_end_reason: 'pickup_p99_under broke at the 10x step',
+            },
+        ],
+        [
+            'the step the generator could not offer and the rate it reached',
+            {
+                end: 'harness_limit',
+                sustainedScale: 10,
+                broke: {
+                    scale: 20,
+                    offeredPerSecond: 61.5,
+                    by: 'generator',
+                    kind: 'harness',
+                    at: '2026-01-05T10:20:00.000Z',
+                    part: null,
+                },
+                reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+                stop: {
+                    failure: 'harness_limit',
+                    scale: 20,
+                    reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+                },
+            },
+            {
+                ramp_end: 'harness_limit',
+                ramp_stop: 'harness_limit',
+                ramp_stop_scale: 20,
+                ramp_stop_reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+                ramp_ran_to_end: false,
+                ramp_sustained_scale: 10,
+                ramp_broke_scale: 20,
+                ramp_broke_offered_per_s: 61.5,
+                ramp_broke_by: 'generator',
+                ramp_broke_kind: 'harness',
+                ramp_broke_at: '2026-01-05T10:20:00.000Z',
+                ramp_broke_part: null,
+                ramp_end_reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+            },
+        ],
+        [
+            'the step that lost more than 5% of its deliveries, the hard failure that names, and each step its loss and duplicate rates',
+            {
+                end: 'broke',
+                sustainedScale: 5,
+                broke: {
+                    scale: 10,
+                    offeredPerSecond: 42.5,
+                    by: 'at_least_once',
+                    kind: 'invariant',
+                    at: '2026-01-05T10:01:00.000Z',
+                    part: null,
+                },
+                reason: '3 of 29 deliveries were lost in the 10x step (10.34%), over the 5% hard limit',
+                stop: {
+                    failure: 'step_loss',
+                    scale: 10,
+                    reason: '3 of 29 deliveries were lost in the 10x step (10.34%), over the 5% hard limit',
+                },
+                rates: [
+                    {
+                        index: 0,
+                        scale: 5,
+                        expected: 29,
+                        lost: 0,
+                        lossRate: 0,
+                        sent: 29,
+                        duplicates: 1,
+                        duplicateRate: 1 / 29,
+                        refused: 0,
+                        refusedRate: 0,
+                    },
+                    {
+                        index: 1,
+                        scale: 10,
+                        expected: 29,
+                        lost: 3,
+                        lossRate: 3 / 29,
+                        sent: 26,
+                        duplicates: 0,
+                        duplicateRate: 0,
+                        refused: 2,
+                        refusedRate: 2 / 31,
+                    },
+                ],
+            },
+            {
+                ramp_steps: [
+                    expect.objectContaining({
+                        scale: 5,
+                        expected: 29,
+                        lost: 0,
+                        loss_rate: 0,
+                        sent: 29,
+                        duplicates: 1,
+                        duplicate_rate: 1 / 29,
+                        refused: 0,
+                        refused_rate: 0,
+                    }),
+                    expect.objectContaining({
+                        scale: 10,
+                        expected: 29,
+                        lost: 3,
+                        loss_rate: 3 / 29,
+                        sent: 26,
+                        duplicates: 0,
+                        duplicate_rate: 0,
+                        refused: 2,
+                        refused_rate: 2 / 31,
+                    }),
+                ],
+                ramp_end: 'broke',
+                ramp_stop: 'step_loss',
+                ramp_stop_scale: 10,
+                ramp_stop_reason: '3 of 29 deliveries were lost in the 10x step (10.34%), over the 5% hard limit',
+                ramp_ran_to_end: false,
+            },
+        ],
+        [
+            'the ceiling it held, with empty breaking fields',
+            { end: 'ceiling', sustainedScale: 20, reason: 'every step held up to the 20x ceiling' },
+            {
+                ramp_end: 'ceiling',
+                ramp_sustained_scale: 20,
+                ramp_broke_scale: null,
+                ramp_broke_offered_per_s: null,
+                ramp_broke_by: null,
+                ramp_broke_kind: null,
+                ramp_broke_at: null,
+                ramp_broke_part: null,
+                ramp_end_reason: 'every step held up to the 20x ceiling',
+                ramp_stop: null,
+                ramp_stop_scale: null,
+                ramp_stop_reason: null,
+            },
+        ],
+    ])('reports a ramp run with %s, and each step it drove at its real start and end', (_story, ramp, expected) => {
+        const at = Date.parse('2026-01-05T10:00:00.000Z')
+        const units = {
+            targetUnits: 60,
+            offeredUnits: 58,
+            sendRetries: 0,
+            steps: [
+                { index: 0, scale: 5, startedAt: at, endedAt: at + 60_000, dueUnits: 30, offeredUnits: 29 },
+                {
+                    index: 1,
+                    scale: 10,
+                    startedAt: at + 60_000,
+                    endedAt: at + 135_000,
+                    dueUnits: 30,
+                    offeredUnits: 29,
+                    waitedFor: 0,
+                },
+            ],
+        }
+
+        expect(scorecardOf({ ...RESULT, ramp, units }, BREAKING_POINT, PROVENANCE)).toMatchObject(expected)
     })
 
     it('gives up when the readback never returns the event', async () => {
@@ -361,6 +607,7 @@ describe('scorecard', () => {
             ['a gate in a card file', true, 'nodejs/tests/scenarios/cards/smoke.yaml'],
             ['a shipped profile', true, 'nodejs/tests/scenarios/profiles/synthetic.yaml'],
             ['the card loader', false, 'nodejs/tests/scenarios/cards/load.ts'],
+            ['the run store', true, 'nodejs/tests/scenarios/store/server.ts'],
         ])('a committed change to %s keeps the runner version: %s', (_story, same, file) => {
             const commitEdit = (content: string): string | null => {
                 mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })

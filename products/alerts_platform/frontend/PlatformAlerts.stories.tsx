@@ -7,7 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { AlertReceiverApi, AlertRouteApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
+import {
+    AlertReceiverApi,
+    AlertRouteApi,
+    AlertRouteMatchApi,
+    PlatformAlertConfigurationApi,
+} from './generated/api.schemas'
+import { routingUrl } from './routing/platformAlertRoutingFormat'
 
 const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
@@ -83,6 +89,11 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 50',
     legacy_configuration_id: null,
     owner: 'platform',
+    labels: { team: 'checkout', severity: 'page' },
+    annotations: {
+        runbook_url: 'https://example.com/runbooks/checkout-errors',
+        summary: '{{ $labels.service_name }} logged {{ $value }} errors',
+    },
     grouping: {
         mode: 'by_result_labels',
         keys: ['service_name', 'severity_text'],
@@ -125,6 +136,14 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ],
 }
 
+const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...CONFIGURATION,
+    id: '0192a5b0-0000-7000-8000-000000000004',
+    owner: 'platform',
+    labels: { team: 'infra', severity: 'critical' },
+    annotations: { runbook: 'https://example.com/runbooks/api-errors' },
+}
+
 const RECEIVERS: AlertReceiverApi[] = [
     {
         id: '0192a5b0-0000-7000-8000-000000000401',
@@ -141,6 +160,25 @@ const RECEIVERS: AlertReceiverApi[] = [
         enabled: false,
         route_count: 1,
         webhook_url: 'https://example.webhook.office.com',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000403',
+        name: 'Infra on-call',
+        type: 'pagerduty',
+        enabled: true,
+        route_count: 0,
+        pagerduty_routing_key: '••••c3d4',
+        pagerduty_severity: 'critical',
+        pagerduty_region: 'us',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000404',
+        name: 'Platform incidents',
+        type: 'incident_io',
+        enabled: true,
+        route_count: 0,
+        incident_io_alert_source_config_id: '01GW2G3V0S59R238FAHPDS1R66',
+        incident_io_secret: '••••a9f2',
     },
 ]
 
@@ -191,12 +229,16 @@ const meta: Meta = {
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
                 '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
                 '/api/projects/:team_id/platform_alert_routes/': ROUTES,
             },
             post: {
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/snooze_group/`]:
                     GROUPED_CONFIGURATION.alerts[0],
+                '/api/projects/:team_id/platform_alert_routes/matching/': [
+                    { route: ROUTES[0], receiver: RECEIVERS[0] },
+                ] satisfies AlertRouteMatchApi[],
             },
         }),
     ],
@@ -232,9 +274,32 @@ export const DetailGroupedSnoozeMenuOpen: Story = {
     },
 }
 
+export const DetailRuleMetadataModalOpen: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id),
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Labels and annotations')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alert-rule-metadata-edit"]')?.click()
+        await within(document.body).findByText('Edit labels and annotations')
+    },
+}
+
 export const Routing: Story = {
     parameters: {
-        pageUrl: `${urls.platformAlerts()}?tab=routing`,
+        pageUrl: routingUrl(),
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+    },
+}
+
+export const DetailWithRouting: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(ROUTED_CONFIGURATION.id),
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Infra incidents')
     },
 }

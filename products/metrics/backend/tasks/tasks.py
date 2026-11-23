@@ -45,3 +45,24 @@ def check_metrics_dashboard_import_layout(team_id: int, import_id: str, saved_at
             import_id=import_id,
             saved_at=datetime.fromisoformat(saved_at) if saved_at else None,
         )
+
+
+PRECOMPUTE_SOFT_TIME_LIMIT_SECONDS = 6 * 60
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def schedule_metrics_precompute_fills() -> None:
+    for team_id in api.teams_with_precomputed_metrics():
+        fill_metrics_precomputed_metrics.delay(team_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=PRECOMPUTE_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=PRECOMPUTE_SOFT_TIME_LIMIT_SECONDS + HARD_TIME_LIMIT_GRACE_SECONDS,
+)
+@with_team_scope()
+def fill_metrics_precomputed_metrics(team_id: int) -> None:
+    with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
+        api.fill_precomputed_metrics(team_id=team_id)

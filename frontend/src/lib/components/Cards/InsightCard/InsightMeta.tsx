@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useMemo, useState } from 'react'
 
-import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -14,7 +14,6 @@ import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRe
 import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -26,6 +25,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -73,8 +73,6 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
-import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -229,7 +227,6 @@ function InsightMetaBody({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
-    const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
@@ -258,20 +255,6 @@ function InsightMetaBody({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
-    const showsDataRetentionWarning =
-        retentionApplies &&
-        placement !== DashboardPlacement.Public &&
-        placement !== DashboardPlacement.Export &&
-        exceedsRetention({
-            query: insight.query,
-            dateFromOverride: dateOverride.dateFromOverride,
-            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
-            retentionMonths,
-        })
-    const dataRetentionWarning =
-        showsDataRetentionWarning && retentionPeriodLabel
-            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
-            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -647,7 +630,6 @@ function InsightMetaBody({
         tags: insight.tags,
         compact: showCompactTile,
         showDescription: tile?.show_description !== false,
-        dataRetentionWarning,
         queryScanTooltip,
         warehouseSyncTooltip,
         queryScanActionable: queryScanHasActionableFinding(scanFindings),
@@ -697,6 +679,7 @@ function InsightMetaBody({
                         <QuillInsightMetaContent
                             {...metaContentProps}
                             infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                            onCopyLink={showEditingControls ? copyInsightLink : undefined}
                         />
                     }
                     menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
@@ -812,11 +795,12 @@ export interface InsightMetaContentProps {
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
-    dataRetentionWarning?: string | null
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
     warehouseSyncTooltip?: JSX.Element | null
+    /** Shows a copy link icon beside the title while the card is hovered. */
+    onCopyLink?: () => void
 }
 
 export function InsightMetaContent({
@@ -830,16 +814,10 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
 }: InsightMetaContentProps): JSX.Element {
-    const dataRetentionIndicator = dataRetentionWarning ? (
-        <Tooltip title={dataRetentionWarning}>
-            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
-        </Tooltip>
-    ) : null
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
             {queryScanActionable ? (
@@ -861,7 +839,7 @@ export function InsightMetaContent({
             </LemonTag>
         </Tooltip>
     ) : null
-    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
+    const hasTitleIndicator = !!(infoPopover || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
             <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
@@ -889,7 +867,6 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
-            {dataRetentionIndicator}
             {queryScanIndicator}
             {warehouseSyncIndicator}
             {infoPopover}

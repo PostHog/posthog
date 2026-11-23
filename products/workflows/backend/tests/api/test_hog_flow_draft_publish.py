@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -12,7 +13,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
+from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS, set_workflow_enabled
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -100,8 +101,42 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     # ── Draft routing ────────────────────────────────────────────────
 
-    def test_mcp_content_edit_on_active_flow_routes_to_draft(self):
+    @parameterized.expand(
+        [
+            ("active", []),
+            ("disabled_after_active", ["draft"]),
+            ("archived_after_active", ["archived"]),
+            ("restored_after_archive", ["archived", "draft"]),
+            ("disabled_from_canvas", ["canvas_disable"]),
+            ("disabled_with_staged_save", ["staged_disable"]),
+        ]
+    )
+    def test_mcp_content_edit_on_protected_flow_routes_to_draft(self, _name: str, moves: list[str]) -> None:
         flow_id = self._create_active_flow()
+        for move in moves:
+            if move == "canvas_disable":
+                set_workflow_enabled(
+                    team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=False
+                )
+                continue
+            if move == "staged_disable":
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                    {
+                        "status": "draft",
+                        "actions": [_trigger_action(), _webhook_action(url="https://staged.example.com")],
+                        "stage_draft": True,
+                    },
+                )
+                assert response.status_code == 200, response.json()
+                continue
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": move},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            assert response.status_code == 200, response.json()
+
         live_actions_before = HogFlow.objects.get(pk=flow_id).actions
 
         response = self._patch_actions_via_mcp(flow_id)
@@ -111,10 +146,33 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
         assert flow.draft_updated_at is not None
+        assert flow.disabled_from_active is bool(moves)
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://changed.example.com"]
         # The response surfaces the draft so callers can see what they staged
         assert response.json()["draft"] is not None
+
+    def test_mcp_content_update_on_disabled_flow_routes_to_draft(self) -> None:
+        flow_id = self._create_active_flow()
+        disable = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "draft"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert disable.status_code == 200, disable.json()
+        live_exit_condition = HogFlow.objects.get(pk=flow_id).exit_condition
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"exit_condition": "exit_only_at_end"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.exit_condition == live_exit_condition
+        assert flow.draft is not None
+        assert flow.draft["exit_condition"] == "exit_only_at_end"
 
     def test_web_content_edit_on_active_flow_still_applies_live(self):
         flow_id = self._create_active_flow()
@@ -220,6 +278,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
             {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
         )
         assert confirm.status_code == 400, confirm.json()
+        assert confirm.json()["detail"].startswith("Can't publish these changes. Step 'action_1': "), confirm.json()
         # The failed publish must leave both the live config and the draft untouched.
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is not None
@@ -496,17 +555,50 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
 
+    @parameterized.expand(
+        [
+            ("service_down", Exception("node service down"), None, None, None),
+            ("malformed_counts", None, {"count": "unknown", "by_action": [], "position_unknown": -1}, None, None),
+            (
+                "malformed_step_count",
+                None,
+                {"count": 7, "by_action": {"action_1": "unknown"}, "position_unknown": 0},
+                7,
+                0,
+            ),
+        ]
+    )
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
-    def test_publish_impact_degrades_to_null_counts_when_unavailable(self, mock_count):
-        mock_count.side_effect = Exception("node service down")
-        flow_id = self._create_active_flow()
-        self._stage_draft(flow_id)
+    def test_publish_impact_degrades_to_null_counts_when_unavailable(
+        self, _name, error, body, in_flight_runs, position_unknown, mock_count
+    ):
+        if error is not None:
+            mock_count.side_effect = error
+        else:
+            mock_count.return_value = MagicMock(status_code=200, json=lambda: body)
+        flow_id = self._create_active_three_step_flow()
+        stage = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
         assert response.status_code == 200, response.json()
-        assert response.json()["in_flight_runs"] is None
+        assert response.json()["confirm_token"]
+        assert response.json()["in_flight_runs"] == in_flight_runs
+        assert response.json()["impact"]["position_unknown"] == position_unknown
         # Graph-derived impact still renders; only the counts degrade
-        assert response.json()["impact"]["position_unknown"] is None
+        assert response.json()["impact"]["deleted_steps"] == [
+            {
+                "action_id": "action_1",
+                "name": "action_1",
+                "runs": None,
+                "moves_to": {"action_id": "action_2", "name": "action_2"},
+                "exits": False,
+            }
+        ]
 
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
     def test_publish_preview_reports_deleted_step_moves(self, mock_count):
@@ -559,13 +651,17 @@ class TestHogFlowDraftPublish(APIBaseTest):
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None and entry.activity == "published"
 
-    def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self):
+    @parameterized.expand([("reedited",), ("discarded",)])
+    def test_publish_with_stale_token_is_rejected_with_409_when_the_draft_was(self, change: str):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
         confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
         # The draft changes between preview and confirm — the token no longer matches what's staged
-        reedit = self._patch_actions_via_mcp(flow_id, url="https://reedited.example.com")
-        assert reedit.status_code == 200, reedit.json()
+        if change == "reedited":
+            changed = self._patch_actions_via_mcp(flow_id, url="https://reedited.example.com")
+        else:
+            changed = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/discard_draft")
+        assert changed.status_code == 200, changed.json()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",

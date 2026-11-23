@@ -23,7 +23,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import run_check_for_team
@@ -298,7 +298,7 @@ class WebAnalyticsDoctorTool(MaxTool):
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         await database_sync_to_async(ensure_registry_loaded)()
-        web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_WEB_ANALYTICS)
+        web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_ANALYTICS)
 
         reevaluate_async = database_sync_to_async_pool(_reevaluate_one_check)
 

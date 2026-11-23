@@ -1,5 +1,7 @@
 """Temporal workflows, activities and schedule builders that core registers."""
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
 from products.signals.backend.anomaly_scores.schedule import (
     create_anomaly_scoring_due_list_refresh_schedule,
@@ -19,6 +21,8 @@ from products.signals.backend.temporal.emit_eval_signal import (
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import create_signal_grouping_record_cleanup_schedule
+from products.signals.backend.temporal.spend_cleanup import create_signal_spend_cleanup_schedule
 
 __all__ = [
     "ACTIVITIES",
@@ -36,6 +40,35 @@ __all__ = [
     "create_inbox_ranking_scoring_schedule",
     "create_personal_inbox_ranking_tick_schedule",
     "create_scout_suggestions_coordinator_schedule",
+    "create_signal_grouping_record_cleanup_schedule",
+    "create_signal_spend_cleanup_schedule",
     "create_signals_scout_coordinator_schedule",
     "emit_eval_signal_activity",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="VIDEO_EXPORT_TASK_QUEUE",
+            workflows=(*WORKFLOWS, *EMIT_SIGNALS_WORKFLOWS),
+            activities=(*ACTIVITIES, *EMIT_SIGNALS_ACTIVITIES),
+        ),
+        QueueBinding(
+            queue_setting="SELF_DRIVING_TASK_QUEUE",
+            workflows=tuple(SELF_DRIVING_WORKFLOWS),
+            activities=tuple(SELF_DRIVING_ACTIVITIES),
+        ),
+    ),
+    schedules=(
+        create_conversations_signals_coordinator_schedule,
+        create_signals_scout_coordinator_schedule,
+        create_signal_grouping_record_cleanup_schedule,
+        create_signal_spend_cleanup_schedule,
+        create_inbox_ranking_scoring_schedule,
+        create_activity_summary_tick_schedule,
+        create_personal_inbox_ranking_tick_schedule,
+        create_anomaly_scoring_tick_schedule,
+        create_anomaly_scoring_due_list_refresh_schedule,
+        create_scout_suggestions_coordinator_schedule,
+    ),
+)

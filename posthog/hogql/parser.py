@@ -92,6 +92,8 @@ class CacheOrigin(StrEnum):
     AUTO = "auto"
     BUILTIN = "builtin"
     USER = "user"
+    # Never cached, so a secret in the statement does not stay in process memory after the parse returns.
+    SENSITIVE = "sensitive"
 
 
 class ParseRule(StrEnum):
@@ -515,8 +517,10 @@ def _parse_cached(
 
     _PARSE_STATEMENT_LENGTH.labels(rule=rule).observe(len(statement))
 
-    if len(statement) < _MIN_CACHEABLE_STATEMENT_LEN or (
-        cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN
+    if (
+        cache_origin == CacheOrigin.SENSITIVE
+        or len(statement) < _MIN_CACHEABLE_STATEMENT_LEN
+        or (cache_origin != CacheOrigin.BUILTIN and len(statement) > _MAX_CACHEABLE_STATEMENT_LEN)
     ):
         _PARSE_CACHE_EVENTS.labels(origin=cache_origin, result="skip", rule=rule).inc()
         return _invoke_parser(backend, rule, statement, start)

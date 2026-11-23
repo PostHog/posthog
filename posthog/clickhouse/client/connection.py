@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
+    from clickhouse_connect.driver.external import ExternalData
 
 from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.workload import Workload
@@ -91,6 +92,7 @@ class NodeRole(StrEnum):
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
+    FLAGS = "flags"
     INGESTION_METRICS = "ingestion_metrics"
     METRICS = "metrics"
     OPS = "ops"
@@ -106,6 +108,7 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
         NodeRole.AI_EVENTS,
         NodeRole.AUX,
         NodeRole.BATCH_EXPORTS,
+        NodeRole.FLAGS,
         NodeRole.LOGS,
         NodeRole.METRICS,
         NodeRole.OPS,
@@ -114,7 +117,15 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.METRICS, NodeRole.OPS, NodeRole.SESSIONS}
+    {
+        NodeRole.AI_EVENTS,
+        NodeRole.AUX,
+        NodeRole.BATCH_EXPORTS,
+        NodeRole.FLAGS,
+        NodeRole.METRICS,
+        NodeRole.OPS,
+        NodeRole.SESSIONS,
+    }
 )
 
 
@@ -156,8 +167,6 @@ class ClickHouseUser(StrEnum):
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
-    # Session replay surfacing scoring sweep
-    SURFACING_SCORING = "surfacing_scoring"
     DELETION_EXECUTOR = "deletion_executor"
     # The alerts platform's parallel evaluation has one user per source. A source's checks then
     # never take from the concurrency budget of the user that its production alerting queries as.
@@ -168,6 +177,9 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
     # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
     ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
+    # Exists on the logs and metrics clusters only. PostHog's Snuffle proxy sends PromQL and LogQL
+    # requests as this user when the caller names none, so they keep their own concurrency budget.
+    SNUFFLE = "snuffle"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -375,6 +387,26 @@ class ClickHouseClient(SyncClient):
         return stashed
 
 
+def _to_http_external_data(external_tables: list[Mapping[str, Any]] | None) -> "ExternalData | None":
+    """Convert clickhouse_driver `external_tables` (name, structure, row dicts) to clickhouse_connect's
+    `ExternalData`, so a query that reads an external table works on the HTTP client too."""
+    if not external_tables:
+        return None
+
+    from clickhouse_connect.driver.external import ExternalData  # noqa: PLC0415
+
+    external_data = ExternalData()
+    for table in external_tables:
+        rows = "".join(json.dumps(row, default=str) + "\n" for row in table["data"])
+        external_data.add_file(
+            file_name=table["name"],
+            data=rows.encode(),
+            fmt="JSONEachRow",
+            structure=[f"{column} {column_type}" for column, column_type in table["structure"]],
+        )
+    return external_data
+
+
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
@@ -397,7 +429,13 @@ class ProxyClient:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
-        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        result = self._client.query(
+            query=query,
+            parameters=params,
+            settings=settings,
+            column_oriented=columnar,
+            external_data=_to_http_external_data(external_tables),
+        )
         self.last_query_summary = QuerySummary(
             rows=int(result.summary.get("read_rows", 0)),
             elapsed_ns=int(result.summary.get("elapsed_ns", 0)),
@@ -467,13 +505,14 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
         ClickHouseUser.ALERTS_PLATFORM_TRACES,
+        ClickHouseUser.SNUFFLE,
     }
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
 # host falls back to the logs host, so a user listed here must also work there.
 # ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
 METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
-    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS, ClickHouseUser.SNUFFLE}
 )
 
 _PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {

@@ -74,6 +74,9 @@ ISP_IDENTITY_TOTAL = "__identity_total__"
 # the only way to show that volume is to derive it.
 ISP_OTHER = "__other__"
 
+# Account-wide queries carry no dimension, so they count every email this SES account sent.
+ACCOUNT_TOTAL = "__account_total__"
+
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
 
@@ -187,59 +190,7 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
 
 def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[IspSendingMetrics]:
     """Per-provider rows derived from the collected series, busiest provider first."""
-    buckets, failed = series.buckets, series.failed
-    rows: list[IspSendingMetrics] = []
-    for isp in isps:
-        if IspMetric(isp=isp, metric="SEND") in failed:
-            # Without the denominator there is no row to build: volume is unknown and every
-            # rate divides by it. This is the one case where the provider is dropped.
-            continue
-        sent_by_date = buckets.get(IspMetric(isp=isp, metric="SEND"), {})
-        emails_sent = sum(sent_by_date.values())
-        if emails_sent == 0:
-            continue
-        delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
-        bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
-        deferred_by_date = buckets.get(IspMetric(isp=isp, metric="TRANSIENT_BOUNCE"), {})
-        delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
-        bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
-        transient_failed = IspMetric(isp=isp, metric="TRANSIENT_BOUNCE") in failed
-        complaint_failed = (
-            IspMetric(isp=isp, metric="COMPLAINT") in failed
-            or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
-        )
-        complaint_base = sum(buckets.get(IspMetric(isp=isp, metric="DELIVERY_COMPLAINT"), {}).values())
-        rows.append(
-            IspSendingMetrics(
-                isp=isp,
-                emails_sent=emails_sent,
-                # Feedback can arrive after the window closes, so a rate can exceed its
-                # denominator at the boundary. Clamp, as the project-wide rates do.
-                delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
-                bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
-                transient_bounce_rate=(
-                    None if transient_failed else min(1.0, sum(deferred_by_date.values()) / emails_sent)
-                ),
-                complaint_rate=(
-                    None
-                    if complaint_failed or not complaint_base
-                    else min(
-                        1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base
-                    )
-                ),
-                complaint_base=0 if complaint_failed else complaint_base,
-                unavailable=tuple(
-                    name
-                    for name, missing in (
-                        ("delivery", delivery_failed),
-                        ("bounce", bounce_failed),
-                        ("transient_bounce", transient_failed),
-                        ("complaint", complaint_failed),
-                    )
-                    if missing
-                ),
-            )
-        )
+    rows = [row for row in (_sending_metrics_row(isp, series) for isp in isps) if row is not None]
 
     other = _other_provider_row(isps, series)
     if other is not None:
@@ -247,6 +198,54 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
 
     rows.sort(key=lambda row: -row.emails_sent)
     return rows
+
+
+def _sending_metrics_row(isp: str, series: IspMetricSeries) -> IspSendingMetrics | None:
+    """The rates for one subject of the series, or None when it sent nothing or its volume is unknown."""
+    buckets, failed = series.buckets, series.failed
+    if IspMetric(isp=isp, metric="SEND") in failed:
+        # Without the denominator there is no row to build: volume is unknown and every
+        # rate divides by it. This is the one case where the provider is dropped.
+        return None
+    sent_by_date = buckets.get(IspMetric(isp=isp, metric="SEND"), {})
+    emails_sent = sum(sent_by_date.values())
+    if emails_sent == 0:
+        return None
+    delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
+    bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
+    deferred_by_date = buckets.get(IspMetric(isp=isp, metric="TRANSIENT_BOUNCE"), {})
+    delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
+    bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
+    transient_failed = IspMetric(isp=isp, metric="TRANSIENT_BOUNCE") in failed
+    complaint_failed = (
+        IspMetric(isp=isp, metric="COMPLAINT") in failed or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
+    )
+    complaint_base = sum(buckets.get(IspMetric(isp=isp, metric="DELIVERY_COMPLAINT"), {}).values())
+    return IspSendingMetrics(
+        isp=isp,
+        emails_sent=emails_sent,
+        # Feedback can arrive after the window closes, so a rate can exceed its
+        # denominator at the boundary. Clamp, as the project-wide rates do.
+        delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
+        bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
+        transient_bounce_rate=(None if transient_failed else min(1.0, sum(deferred_by_date.values()) / emails_sent)),
+        complaint_rate=(
+            None
+            if complaint_failed or not complaint_base
+            else min(1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base)
+        ),
+        complaint_base=0 if complaint_failed else complaint_base,
+        unavailable=tuple(
+            name
+            for name, missing in (
+                ("delivery", delivery_failed),
+                ("bounce", bounce_failed),
+                ("transient_bounce", transient_failed),
+                ("complaint", complaint_failed),
+            )
+            if missing
+        ),
+    )
 
 
 def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSendingMetrics | None:
@@ -397,6 +396,16 @@ class _SESIdentityState:
 # Throttling is SES pacing a busy account. The next poll retries it, so reporting it adds only noise.
 def _is_throttling(error: Exception) -> bool:
     return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
+
+
+# SES answers AccessDenied when the account's permissions block a write to this identity.
+# A retry gets the same answer, so the user needs a next step instead of a server error.
+def _raise_if_domain_setup_denied(error: ClientError, domain: str) -> None:
+    if error.response["Error"]["Code"] in ("AccessDenied", "AccessDeniedException"):
+        logger.warning("SES denied setting up email domain '%s'", domain, exc_info=error)
+        raise exceptions.ValidationError(
+            "Our email provider refused to set up this domain. Contact support for help."
+        ) from error
 
 
 class SESProvider:
@@ -648,10 +657,13 @@ class SESProvider:
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
         *,
+        unverified_claimant_team_ids: Iterable[int] = (),
         keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
-        friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
+        friendly_tenants = {
+            self._tenant_name_for_team(t) for t in [*(org_team_ids or [team_id]), *unverified_claimant_team_ids]
+        }
         foreign_tenants = self._list_identity_tenants(domain) - friendly_tenants
         if foreign_tenants:
             raise exceptions.ValidationError(
@@ -694,6 +706,17 @@ class SESProvider:
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
 
+    def remove_tenant_associations(self, domain: str, *, team_ids: Iterable[int]) -> None:
+        arn = self._identity_arn(domain)
+        for team_id in team_ids:
+            try:
+                self.ses_v2_client.delete_tenant_resource_association(
+                    TenantName=self._tenant_name_for_team(team_id), ResourceArn=arn
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+
     def disable_feedback_forwarding(self, domain: str) -> None:
         """
         Stop SES from emailing bounce and complaint notices to the sender address.
@@ -716,6 +739,7 @@ class SESProvider:
             verify_resp = self.ses_client.verify_domain_identity(Domain=domain)
             verification_token = verify_resp["VerificationToken"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
@@ -726,6 +750,7 @@ class SESProvider:
             dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
             dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
@@ -743,28 +768,27 @@ class SESProvider:
                     BehaviorOnMXFailure="UseDefaultValue",
                 )
             except ClientError as e:
+                _raise_if_domain_setup_denied(e, domain)
                 if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                     raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
-        dns_records = [
-            _legacy_dns_record(record)
-            for record in build_email_domain_records(
-                domain=domain,
-                mail_from_subdomain=mail_from_subdomain,
-                verification_token=verification_token,
-                dkim_tokens=dkim_tokens,
-                ses_region=self._ses_region,
-            )
-        ]
+        records = build_email_domain_records(
+            domain=domain,
+            mail_from_subdomain=mail_from_subdomain,
+            verification_token=verification_token,
+            dkim_tokens=dkim_tokens,
+            ses_region=self._ses_region,
+        )
+        dns_records = [_legacy_dns_record(record) for record in records]
 
         identity = self._read_identity_state_or_unknown(domain)
         verification_status = identity.verification_status
         dkim_status = identity.dkim_status
         mail_from_status = identity.mail_from_status
 
-        # One flag for both lookups below, so the DMARC and DKIM statuses stay pending together.
+        # One flag for every lookup below, so the SPF, DMARC and DKIM statuses stay pending together.
         refuses_lookups = is_cloud() and matched_oob_domain(domain) is not None
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
@@ -809,8 +833,14 @@ class SESProvider:
         # - Domain verification TXT is considered verified when VerificationStatus == Success
         # - DKIM CNAMEs considered verified when DkimVerificationStatus == Success
         if verification_status == "Success":
-            for r in dns_records:
-                if r["type"] == "verification":
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
+                    r["status"] = "success"
+        # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
+        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
+        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
         if dkim_status == "Success":
             for r in dns_records:
@@ -952,6 +982,8 @@ class SESProvider:
             )
             logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
         except (ClientError, BotoCoreError) as e:
+            if isinstance(e, ClientError):
+                _raise_if_domain_setup_denied(e, domain)
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
             raise
 
@@ -973,6 +1005,23 @@ class SESProvider:
         except (ClientError, BotoCoreError) as e:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
+
+    def list_failed_domain_identities(self) -> list[str]:
+        """The domain identities of this region whose verification failed."""
+        failed: list[str] = []
+        next_token: str | None = None
+        while True:
+            response = self.ses_v2_client.list_email_identities(
+                PageSize=1000, **({"NextToken": next_token} if next_token else {})
+            )
+            failed.extend(
+                identity["IdentityName"]
+                for identity in response["EmailIdentities"]
+                if identity.get("IdentityType") == "DOMAIN" and identity.get("VerificationStatus") == "FAILED"
+            )
+            next_token = response.get("NextToken")
+            if not next_token:
+                return failed
 
     def list_bounce_suppressions(self) -> Iterator[list[str]]:
         """Yield the email addresses on the account-level suppression list for a bounce, one page at a time."""
@@ -1072,6 +1121,26 @@ class SESProvider:
         series = self._collect_isp_series(plan, deadline, len(domains))
         return _isp_rows_from_series(isps, series)
 
+    def get_account_sending_metrics(self, window_days: int) -> IspSendingMetrics | None:
+        """
+        Sending health across every email this SES account sent, from the same VDM data and with the
+        same rates as the per-provider breakdown. None when the account sent nothing in the window.
+        """
+        end = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=window_days)
+        subjects = {
+            f"q{index}": IspMetric(isp=ACCOUNT_TOTAL, metric=metric) for index, metric in enumerate(ISP_METRICS)
+        }
+        plan = IspQueryPlan(
+            queries=[
+                {"Id": query_id, "Namespace": "VDM", "Metric": subject.metric, "StartDate": start, "EndDate": end}
+                for query_id, subject in subjects.items()
+            ],
+            subjects=subjects,
+        )
+        series = self._collect_isp_series(plan, monotonic() + METRIC_QUERY_BUDGET_SECONDS, domain_count=0)
+        return _sending_metrics_row(ACCOUNT_TOTAL, series)
+
     def _collect_isp_series(self, plan: IspQueryPlan, deadline: float, domain_count: int) -> IspMetricSeries:
         """
         Run the queries in batches, returning the daily series and the subjects with no answer.
@@ -1122,6 +1191,13 @@ class SESProvider:
         by_provider: dict[str, list[dict[str, Any]]] = {}
         for query in batch:
             by_provider.setdefault(plan.subjects[query["Id"]].isp, []).append(query)
+        if len(by_provider) == 1:
+            # The one group is the request SES just refused, so sending it again only repeats the refusal.
+            rejected_subjects = frozenset(plan.subjects[query["Id"]] for query in batch)
+            logger.warning(
+                "SES rejected a metric query; dropping the provider", extra={"provider": next(iter(by_provider))}
+            )
+            return IspBatchAnswer(responses=(), rejected=rejected_subjects)
         for group in by_provider.values():
             if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
                 raise TimeoutError(

@@ -1134,6 +1134,27 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(feature["name"] for feature in response.json()["results"]) == ["Also listed", "Listed"]
 
+    def test_list_orders_newest_first_and_searches_by_name(self):
+        for name in ("Oldest", "Middle", "Newest"):
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?limit=2")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [feature["name"] for feature in response.json()["results"]] == ["Newest", "Middle"]
+
+        searched = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?search=midd")
+
+        assert [feature["name"] for feature in searched.json()["results"]] == ["Middle"]
+
+        oldest = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?order=created_at&limit=1")
+
+        assert [feature["name"] for feature in oldest.json()["results"]] == ["Oldest"]
+
+        mine = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?created_by_id={self.user.id}")
+
+        assert mine.json()["results"] == []
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -1175,10 +1196,12 @@ class TestEarlyAccessFeature(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": ff_instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [0],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": ff_instance.created_at,
@@ -1516,6 +1539,23 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 response.json()["detail"],
                 "Project token not provided. You can find your project token in PostHog project settings.",
             )
+
+    def test_early_access_features_answers_cors_preflight_without_token(self):
+        self.client.logout()
+
+        with self.assertNumQueries(0):
+            response = self.client.options(
+                "/api/early_access_features/",
+                headers={
+                    "origin": "https://app.example.com",
+                    "access-control-request-method": "GET",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://app.example.com")
+        self.assertIn("GET", response.headers["Access-Control-Allow-Methods"])
+        self.assertIn("Content-Type", response.headers["Access-Control-Allow-Headers"])
 
     def test_early_access_features_preserves_documentation_and_image_urls(self):
         feature_flag = FeatureFlag.objects.create(

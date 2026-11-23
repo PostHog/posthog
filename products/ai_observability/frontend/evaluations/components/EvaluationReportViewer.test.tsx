@@ -1,7 +1,9 @@
 import { cleanup, render, screen } from '@testing-library/react'
 
 import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportStoredMetrics } from '../types'
-import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
+import { EvaluationReportViewer } from './EvaluationReportViewer'
+
+const VIEWER_PROPS = { onOpenTrace: jest.fn(), onShowResults: jest.fn() }
 
 function buildMetrics(fields: EvaluationReportStoredMetrics): EvaluationReportStoredMetrics {
     return {
@@ -34,45 +36,13 @@ function buildReportRun(
         period_end: '2026-07-02T00:00:00Z',
         delivery_status: 'delivered',
         delivery_errors: [],
+        delivery_destinations: [],
         created_at: '2026-07-02T00:00:00Z',
     }
 }
 
 describe('EvaluationReportViewer', () => {
     afterEach(cleanup)
-
-    it.each<[name: string, fields: EvaluationReportStoredMetrics, expected: string]>([
-        [
-            'sentiment metrics',
-            {
-                output_type: 'sentiment',
-                result_counts: { positive: 4, neutral: 3, negative: 2 },
-                result_rates: { positive: 44.44, neutral: 33.33, negative: 22.22 },
-            },
-            'Positive 4 (44.4%) · Neutral 3 (33.3%) · Negative 2 (22.2%)',
-        ],
-        [
-            'boolean metrics',
-            {
-                output_type: 'boolean',
-                result_counts: { pass: 7, fail: 2, na: 1 },
-                result_rates: { pass: 70, fail: 20, na: 10 },
-                pass_rate: 77.78,
-            },
-            'Pass rate 77.8% · Pass 7 · Fail 2 · N/A 1',
-        ],
-        ['partial boolean metrics', { pass_rate: 80 }, 'Pass rate 80.0%'],
-        [
-            'partial sentiment metrics',
-            {
-                output_type: 'sentiment',
-                result_rates: { positive: 60, neutral: 30, negative: 10 },
-            },
-            'Positive 60.0% · Neutral 30.0% · Negative 10.0%',
-        ],
-    ])('summarizes %s without inventing missing counts', (_, fields, expected) => {
-        expect(summarizeEvaluationReportResults(buildMetrics(fields))).toBe(expected)
-    })
 
     it('shows boolean pass rate once and keeps outcome percentages hidden', () => {
         const metrics = buildMetrics({
@@ -83,22 +53,20 @@ describe('EvaluationReportViewer', () => {
             previous_pass_rate: 80,
         })
 
-        render(<EvaluationReportViewer reportRun={buildReportRun(metrics)} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
-        expect(screen.getByText('Pass rate')).toBeTruthy()
-        expect(screen.getByText('88.89%')).toBeTruthy()
-        expect(screen.getByText('Pass')).toBeTruthy()
-        expect(screen.getByText('8').classList.contains('text-success')).toBe(true)
-        expect(screen.getByText('Fail').nextElementSibling?.classList.contains('text-danger')).toBe(true)
-        expect(screen.getByText(/8.89pp vs previous/).classList.contains('text-success')).toBe(true)
-        expect(screen.queryByText('(80.00%)')).toBeNull()
+        expect(screen.getByText('88.9%')).toBeTruthy()
+        expect(screen.getByText('pass rate')).toBeTruthy()
+        expect(screen.getByText('Pass').nextElementSibling?.textContent).toBe('8')
+        expect(screen.getByText(/8.9pp vs previous report/).classList.contains('text-success')).toBe(true)
+        expect(screen.queryByText('(80.0%)')).toBeNull()
     })
 
     it('renders a metrics-unavailable notice instead of a zero-run table', () => {
-        render(<EvaluationReportViewer reportRun={buildReportRun(null, 'metrics_unavailable')} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(null, 'metrics_unavailable')} />)
 
         expect(screen.getByText(/could not be calculated/)).toBeTruthy()
-        expect(screen.queryByText('Total runs')).toBeNull()
+        expect(screen.queryByText('pass rate')).toBeNull()
     })
 
     it('shows sentiment outcome distribution without boolean pass-rate framing', () => {
@@ -108,19 +76,19 @@ describe('EvaluationReportViewer', () => {
             result_rates: { positive: 40, neutral: 30, negative: 30 },
         })
 
-        render(<EvaluationReportViewer reportRun={buildReportRun(metrics)} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
-        expect(screen.queryByText('Pass rate')).toBeNull()
+        expect(screen.queryByText('pass rate')).toBeNull()
         expect(screen.getByText('Positive')).toBeTruthy()
-        expect(screen.getByText('(40.00%)')).toBeTruthy()
-        expect(screen.getAllByText('(30.00%)')).toHaveLength(2)
+        expect(screen.getByText('(40.0%)')).toBeTruthy()
+        expect(screen.getAllByText('(30.0%)')).toHaveLength(2)
     })
 
     it('preserves a leading heading when a legacy section has no title', () => {
         const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
         reportRun.content.sections = [{ content: '# Important context\n\nKeep this detail.' }]
 
-        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
         const markdown = document.querySelector('[data-testid="react-markdown"]')
         expect(markdown?.textContent).toContain('# Important context')
@@ -183,7 +151,7 @@ describe('EvaluationReportViewer', () => {
             reportRun.content.sections = [{ title: 'Finding', content: content ?? `See \`${citedId}\`.` }]
             reportRun.content.citations = [citation]
 
-            render(<EvaluationReportViewer reportRun={reportRun} compact />)
+            render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
             const markdown = document.querySelector('[data-testid="react-markdown"]')
             // Angle-bracketed destination so an opaque ID containing ")" can't truncate the link.
@@ -207,7 +175,7 @@ describe('EvaluationReportViewer', () => {
         reportRun.content.sections = [{ title: 'Finding', content: `See \`${sessionId}\`.` }]
         reportRun.content.citations = [{ session_id: sessionId, reason: 'example' }]
 
-        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
         const rendered = document.querySelector('[data-testid="react-markdown"]')?.textContent ?? ''
         // No link is generated, so the ID keeps the backticks the section already had and

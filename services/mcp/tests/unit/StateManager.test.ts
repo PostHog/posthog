@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { ErrorCode, PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogTransportError,
+} from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -33,6 +40,10 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
     })
 
     it.each([
@@ -155,11 +166,9 @@ describe('StateManager', () => {
 
         await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
 
-        expect(capture).toHaveBeenCalledWith(
-            error,
-            undefined,
-            expect.objectContaining({ suppress_analytics: suppressed === true })
-        )
+        expect(capture).toHaveBeenCalledWith(error, {
+            properties: expect.objectContaining({ suppress_analytics: suppressed === true }),
+        })
         expect(lookup).not.toHaveBeenCalled()
         capture.mockRestore()
     })
@@ -492,6 +501,80 @@ describe('StateManager', () => {
             expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
         })
+
+        describe('with a project secret API key', () => {
+            const pinned: PinnedActiveContext = { pin: { projectId: '42' }, sessionScoped: false, projectId: '42' }
+
+            function secretKeyApi(request: ApiClient['request']): ApiClient {
+                return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
+            }
+
+            it('resolves the session from one read of what the key can access', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const apiKey = await manager.getApiKey()
+
+                expect(request).toHaveBeenCalledWith({
+                    method: 'GET',
+                    path: '/api/projects/@current/business_knowledge/access/',
+                })
+                expect(apiKey.scopes).toEqual(['business_knowledge:read'])
+                expect(apiKey.scoped_teams).toEqual([42])
+                expect(apiKey.mcp_allowed_tools).toContain('business-knowledge-documents-search')
+                expect(await manager.getDistinctId()).toMatch(/^psak-42-/)
+                expect(await manager.getAnalyticsContext()).toEqual({ projectId: '42' })
+                expect(await manager.getAiConsentGiven()).toBeUndefined()
+            })
+
+            it('checks the key again when the same key arrives with another project', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const api = secretKeyApi(request as ApiClient['request'])
+                await new StateManager(cache, api, pinned).getApiKey()
+
+                const other: PinnedActiveContext = { pin: { projectId: '7' }, sessionScoped: false, projectId: '7' }
+                const apiKey = await new StateManager(cache, api, other).getApiKey()
+
+                expect(apiKey.scoped_teams).toEqual([7])
+                expect(apiKey.user_distinct_id).toMatch(/^psak-7-/)
+            })
+
+            it.each([
+                ['an unknown key', new Error(ErrorCode.INVALID_API_KEY), ErrorCode.INVALID_API_KEY],
+                [
+                    'a key without the scope',
+                    new PostHogPermissionError({
+                        detail: "API key missing required scope 'business_knowledge:read'",
+                        missingScope: 'business_knowledge:read',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Connect your agent',
+                ],
+                [
+                    'a project ID that does not exist',
+                    new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{"detail":"Project not found."}',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Connect your agent',
+                ],
+            ])('rejects %s with a message for that case', async (_, failure, expected) => {
+                const request = vi.fn(async () => {
+                    throw failure
+                })
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const error = await manager.getApiKey().catch((e: Error) => e)
+
+                const permissionError = findPostHogPermissionError(error)
+                const text = permissionError ? formatPermissionErrorMessage(permissionError) : (error as Error).message
+                expect(text).toContain(expected)
+            })
+        })
     })
 
     describe('setDefaultOrganizationAndProject', () => {
@@ -807,44 +890,65 @@ describe('StateManager', () => {
             })
         })
 
-        it('does not capture a 404 from the scoped-org projects lookup', async () => {
-            // A misconfigured key pointed at a deleted or inaccessible org makes
-            // the org-nested projects endpoint return 404 on every retry. This
-            // is a recoverable user-config state, so it must not flood error
-            // tracking — the agent recovers via switch-project/switch-organization.
-            const scopedOrgApiKey = {
-                ...mockApiKey,
-                scoped_organizations: ['org-3'],
-            }
+        it.each([
+            {
+                error: new PostHogPermissionError({ detail: 'Project access denied.', url: '', method: 'GET' }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: '', method: 'GET' }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({
+                    status: 429,
+                    statusText: 'Too Many Requests',
+                    body: '',
+                    url: '',
+                    method: 'GET',
+                }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    body: '',
+                    url: '',
+                    method: 'GET',
+                }),
+                captures: 1,
+            },
+        ])(
+            'falls back to org-only context after a failed project lookup ($error.message)',
+            async ({ error, captures }) => {
+                const scopedOrgApiKey = {
+                    ...mockApiKey,
+                    scoped_organizations: ['org-3'],
+                }
 
-            const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
-            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
-            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
-
-            mockApi._api = {
-                organizations: () => ({
-                    projects: () => ({
-                        list: vi.fn().mockResolvedValue({
-                            success: false,
-                            error: new PostHogApiError({
-                                status: 404,
-                                statusText: 'Not Found',
-                                body: '{"detail":"Organization not found."}',
-                                url: 'https://app.posthog.com/api/organizations/org-3/projects/',
-                                method: 'GET',
+                const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+                const api = {
+                    organizations: () => ({
+                        projects: () => ({
+                            list: vi.fn().mockResolvedValue({
+                                success: false,
+                                error,
                             }),
                         }),
                     }),
-                }),
+                } as unknown as ApiClient
+                const manager = new StateManager(cache, api)
+                vi.spyOn(manager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+                vi.spyOn(manager, 'getUser').mockResolvedValue(mockUser)
+
+                const result = await manager.setDefaultOrganizationAndProject()
+
+                expect(result.organizationId).toBe('org-3')
+                expect(result.projectId).toBeUndefined()
+                expect(captureException).toHaveBeenCalledTimes(captures)
             }
-
-            const result = await stateManager.setDefaultOrganizationAndProject()
-
-            expect(result.organizationId).toBe('org-3')
-            expect(result.projectId).toBeUndefined()
-            expect(reportSpy).not.toHaveBeenCalled()
-        })
+        )
     })
 
     describe('getOrgID', () => {
@@ -1375,6 +1479,55 @@ describe('StateManager', () => {
 
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+        })
+    })
+
+    describe('getOrFetchMetricCatalog', () => {
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('keeps an empty catalog for ten minutes, then re-reads it so a newly saved metric counts', async () => {
+            vi.useFakeTimers()
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockResolvedValueOnce({ has_metrics: true })
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(9 * 60 * 1000)
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ path: '/api/projects/42/data_catalog/metric_availability/' })
+            )
+        })
+
+        it('drops a cached empty catalog when its refresh fails', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockRejectedValue(new Error('Synthetic metric availability failure'))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(10 * 60 * 1000 + 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+        })
+
+        it('reads a failed lookup as unknown', async () => {
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi.fn(() => Promise.reject(new Error('Synthetic metric availability failure')))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
         })
     })
 

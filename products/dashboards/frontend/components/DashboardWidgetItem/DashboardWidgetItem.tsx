@@ -10,9 +10,9 @@ import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButto
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { type DashboardWidgetPlacementMenusProps } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
@@ -325,17 +325,19 @@ function DashboardWidgetItemContent({
                 />
             )}
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
-                <Suspense fallback={null}>
-                    <TileFilters
-                        tileId={tile.id}
-                        config={widget.config}
-                        onUpdateConfig={componentProps.onUpdateConfig}
-                        canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
-                        disabledReason={
-                            canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
-                        }
-                    />
-                </Suspense>
+                <div data-not-quill className="contents">
+                    <Suspense fallback={null}>
+                        <TileFilters
+                            tileId={tile.id}
+                            config={widget.config}
+                            onUpdateConfig={componentProps.onUpdateConfig}
+                            canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
+                            disabledReason={
+                                canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                            }
+                        />
+                    </Suspense>
+                </div>
             ) : null}
             <QuillSurfaceContext.Provider value={todayRailNav}>
                 {showSharedPlaceholder ? (

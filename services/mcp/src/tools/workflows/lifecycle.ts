@@ -18,7 +18,7 @@ const WITHOUT_STEP_INPUTS = ['actions.*.config.inputs', 'draft.actions.*.config.
 const patchStatus = async (
     context: Context,
     params: LifecycleParams,
-    status: 'active' | 'draft' | 'archived'
+    status: 'draft' | 'archived'
 ): Promise<LifecycleResult> => {
     const projectId = await context.stateManager.getProjectId()
     const result = await context.api.request<Schemas.HogFlow>({
@@ -29,13 +29,6 @@ const patchStatus = async (
     const compact = omitResponseFields(result, WITHOUT_STEP_INPUTS) as Schemas.HogFlow
     return await withPostHogUrl(context, compact, hogFlowPath(compact))
 }
-
-export const workflowsEnable = (): ToolBase<typeof LifecycleSchema, LifecycleResult> =>
-    withUiApp('workflow', {
-        name: 'workflows-enable',
-        schema: LifecycleSchema,
-        handler: (context, params) => patchStatus(context, params, 'active'),
-    })
 
 export const workflowsDisable = (): ToolBase<typeof LifecycleSchema, LifecycleResult> =>
     withUiApp('workflow', {

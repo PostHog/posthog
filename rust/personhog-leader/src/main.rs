@@ -73,6 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
+    config
+        .validate_cache_fill()
+        .expect("Invalid cache fill configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
     validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
     validate_table_name(&config.lifecycle_op_person_table)
@@ -177,6 +180,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
         256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
     ];
+    const PG_LOAD_AGE_BUCKETS_SECONDS: &[f64] = &[
+        60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
+        7776000.0, 31536000.0,
+    ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
@@ -222,6 +229,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_pg_fallback_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -244,6 +255,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_person_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_last_seen_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
             ),
         ],
     );
@@ -567,7 +586,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&fenced),
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fill(config.cache_fill(), config.cache_fill_schedule());
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");

@@ -140,6 +140,9 @@ def generate_assets(
                 dashboard=resource.dashboard,
                 expires_after=expiry,
                 created_by=asset_created_by,
+                export_context={"image_size": resource.delivery_config.get("image_size", {})}
+                if isinstance(resource, Subscription)
+                else {},
             )
             for insight in insights[:max_asset_count]
         ]

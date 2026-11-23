@@ -1,6 +1,7 @@
 import math
 import hashlib
 from collections import Counter
+from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -29,7 +30,12 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import BaseThrottle
 
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
+    raw_query_uses_organization_grant,
+    require_browser_session_for_organization_grant,
+)
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import offset_page_links
@@ -120,6 +126,11 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_serializers import (
+    NotebookAppLayoutField,
+    notebook_app_builder_enabled,
+    update_app_revision,
+)
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookCreateBurstThrottle,
     NotebookCreateSustainedThrottle,
@@ -283,6 +294,19 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    app_draft = NotebookAppLayoutField(
+        required=False, allow_null=True, help_text="Editable app layout. Does not change the published layout."
+    )
+    app_published = NotebookAppLayoutField(
+        required=False,
+        allow_null=True,
+        help_text="Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.",
+    )
+    app_revision = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Current app revision. Required when saving or publishing a layout; stale revisions return 409.",
+    )
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -319,6 +343,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "user_access_level",
             "parent_resource",
             "variables",
+            "app_draft",
+            "app_published",
+            "app_revision",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -341,6 +368,29 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @cached_property
+    def app_builder_enabled(self) -> bool:
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and notebook_app_builder_enabled(request.user, self.context["get_team"]())
+        )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if {"app_draft", "app_published", "app_revision"}.intersection(attrs) and not self.app_builder_enabled:
+            raise PermissionDenied("App builder is not available for this project.")
+        if set(attrs) == {"app_revision"}:
+            raise serializers.ValidationError({"app_revision": "Include an app layout or notebook change to save."})
+        return super().validate(attrs)
+
+    def to_representation(self, instance: Notebook) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not self.app_builder_enabled:
+            for field in ("app_draft", "app_published", "app_revision"):
+                data.pop(field, None)
+        return data
 
     def validate_variables(self, value: list[dict]) -> list[dict]:
         # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
@@ -460,6 +510,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
             should_publish_update = False
+            update_app_revision(validated_data, locked_instance.app_revision)
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
@@ -801,16 +852,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # colleague's run pulled from it. Notebook + query access does not imply source access.
         if not run.connection_id:
             return
-        if (
-            get_direct_connection_source(
-                self.team,
-                str(run.connection_id),
-                user=user,
-                require_pure_direct=run.send_raw_query,
-            )
-            is None
-        ):
+        source = get_direct_connection_source(
+            self.team,
+            str(run.connection_id),
+            user=user,
+            require_pure_direct=run.send_raw_query,
+        )
+        if source is None:
             raise PermissionDenied("You need access to this cell's data source to read its results.")
+        if run.send_raw_query and raw_query_uses_organization_grant(source):
+            try:
+                require_browser_session_for_organization_grant()
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
@@ -1463,7 +1517,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
-            queryset = queryset.defer("content", "text_content")
+            queryset = queryset.defer("content", "text_content", "app_draft", "app_published")
         elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 
@@ -2120,7 +2174,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
                 )
-        except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
+        except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
             # 409, not 429: a conflict with the notebook's state rather than a rate — the same

@@ -58,6 +58,42 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('form', () => {
+        describe('signup continuation', () => {
+            const originalLocation = window.location
+
+            beforeEach(() => {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    value: {
+                        ...originalLocation,
+                        search: '?next=%2Finsights',
+                        href: `${originalLocation.origin}/organization/confirm-creation`,
+                    },
+                })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+            })
+
+            it.each([
+                ['/complete/oidc/', '/complete/oidc/'],
+                [undefined, '/insights'],
+                ['https://example.net/complete/oidc/', '/insights'],
+            ])('follows the safe continuation %p before the next destination', async (continueUrl, expected) => {
+                useMocks({ post: { '/api/social_signup/': () => [201, { continue_url: continueUrl }] } })
+                logic.actions.setConfirmOrganizationValues({
+                    first_name: 'Example',
+                    organization_name: 'Example organization',
+                    role_at_organization: 'engineering',
+                })
+                await expectLogic(logic, () => logic.actions.submitConfirmOrganization()).toDispatchActions([
+                    'submitConfirmOrganizationSuccess',
+                ])
+                expect(window.location.href).toEqual(expected)
+            })
+        })
+
         it('requires a name, an organization name and a role', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfirmOrganization()

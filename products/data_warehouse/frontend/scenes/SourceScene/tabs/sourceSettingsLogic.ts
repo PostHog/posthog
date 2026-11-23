@@ -50,7 +50,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
-import { sourceSceneLogic } from '../SourceScene'
+import { SOURCE_PLACEHOLDER_NAME, sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
@@ -484,31 +484,31 @@ export interface sourceSettingsLogicActions {
     loadCdcStatusSuccess: (
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         },
         payload?: any
     ) => {
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         }
         payload?: any
     }
@@ -1226,7 +1226,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         const setSceneBreadcrumbName = (): void => {
             const { source } = values
-            const label = source ? sourceTypeLabel(source.source_type, values.availableSources) : 'Source'
+            const label = source
+                ? sourceTypeLabel(source.source_type, values.availableSources)
+                : SOURCE_PLACEHOLDER_NAME
             const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
 
             const sceneLogicInstance =
@@ -1234,6 +1236,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sourceSceneLogic.findMounted({ id: props.id })
 
             sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+            if (source) {
+                sceneLogicInstance?.actions.setRecentName(source.prefix ? `${label} (${source.prefix})` : label)
+            }
         }
 
         const scheduleSchemaUpdateFlush = (): void => {

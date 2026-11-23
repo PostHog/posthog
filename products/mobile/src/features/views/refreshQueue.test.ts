@@ -49,7 +49,7 @@ describe('RefreshQueue', () => {
         now = 1_000_000
         calls = []
         pending = new Map()
-        spendable = { insights: true, dashboards: true, query: true, replay: true, live: true }
+        spendable = { insights: true, dashboards: true, query: true, replay: true, live: true, snapshots: true }
         queue = new RefreshQueue({ now: () => now, canSpend: (family) => spendable[family] })
     })
 
@@ -85,6 +85,14 @@ describe('RefreshQueue', () => {
         await settle('a', new Error('Network request failed'))
         void queue.enqueue(request('a', { userRetry: true }))
         expect(calls).toHaveLength(3)
+    })
+    test('does not retain a freshness floor for an ephemeral completed job', async () => {
+        const first = queue.enqueue(request('ephemeral', { trackFreshness: false }))
+        await settle('ephemeral', OK)
+        await first
+        const next = queue.enqueue(request('ephemeral'))
+        await settle('ephemeral', OK)
+        await expect(next).resolves.toMatchObject({ status: 'ok' })
     })
 
     test('pauses only the family that answered 429 for its Retry-After', async () => {

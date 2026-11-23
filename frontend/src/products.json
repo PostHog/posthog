@@ -22,13 +22,6 @@
             "intents": ["llm_evaluations", "llm_datasets"]
         },
         {
-            "path": "Taggers",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_tags",
-            "intents": ["llm_analytics"]
-        },
-        {
             "path": "Prompts",
             "category": "AI engineering",
             "iconType": null,
@@ -96,7 +89,7 @@
             "path": "Data catalog",
             "category": "Data",
             "iconType": "data_catalog",
-            "type": null,
+            "type": "data_catalog",
             "intents": ["data_catalog"]
         },
         {

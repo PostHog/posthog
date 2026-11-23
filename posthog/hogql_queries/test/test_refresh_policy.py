@@ -37,11 +37,15 @@ class TestResolveExecutionMode(SimpleTestCase):
         ]
     )
     def test_explicit_refresh_overrides_surface_default(self, refresh: str, expected: ExecutionMode) -> None:
-        # An explicit ?refresh= wins over the surface default, on every surface. This invariant
-        # must survive any future change to the default table.
+        # An explicit ?refresh= wins over the surface default, on every surface that computes. This
+        # invariant must survive any future change to the default table. The cached-tiles read never
+        # computes, whatever the request carries.
         for surface in ComputeSurface:
             mode, cache_age = resolve_execution_mode(_request(refresh), surface=surface)
-            assert mode == expected, surface
+            if surface == ComputeSurface.DASHBOARD_CACHED_TILES:
+                assert mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, surface
+            else:
+                assert mode == expected, surface
             assert cache_age is None
 
     def test_explicit_refresh_false_stays_cache_only_when_surface_default_is_flipped(self) -> None:

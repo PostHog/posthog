@@ -161,6 +161,47 @@ describe('ResourceCatalog', () => {
             expect(list1).toBe(list2)
         })
 
+        it.each([
+            [['none'], []],
+            [['skills'], ['posthog://skills/feature-flags/react', 'posthog://skills/logs/python']],
+            [['feature-flags'], ['posthog://skills/feature-flags/react']],
+            [
+                ['feature-flags', 'docs'],
+                ['posthog://skills/feature-flags/react', 'posthog://docs/identify-users'],
+            ],
+            [['unknown-group'], []],
+        ])('lists only the resources in the %j groups', async (groups, expected) => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [
+                    makeEntry('skills/feature-flags/react'),
+                    makeEntry('skills/logs/python'),
+                    makeEntry('docs/identify-users'),
+                ],
+                omnibusSkillsArchive: null,
+            })
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            expect(catalog.getResourcesList(groups).resources.map((r) => r.uri)).toEqual(expected)
+        })
+
+        it('lists only UI apps for the apps group', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('skills/logs/python')],
+                omnibusSkillsArchive: null,
+            })
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const uris = catalog.getResourcesList(['apps']).resources.map((r) => r.uri)
+            expect(uris.length).toBeGreaterThan(0)
+            expect(uris.every((uri) => uri.startsWith('ui://posthog/'))).toBe(true)
+        })
+
         it('lists the Visual Review artifact source in its CSP metadata', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])

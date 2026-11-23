@@ -9,16 +9,13 @@ from __future__ import annotations
 import re
 import json
 import hashlib
-import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.utils import timezone
 
 import tldextract
 
@@ -44,6 +41,8 @@ from products.aeo.backend.facade.contracts import (
     ModifierKind,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword
+from products.aeo.backend.scope import NAMED_SCOPE_SQL, CheckScope, named_scope_sql_params, scope_filter
+from products.aeo.backend.window import CheckWindow
 
 
 def normalize_keyword(text: str) -> str:
@@ -100,34 +99,13 @@ def _to_keyword(row: AEOKeyword) -> Keyword:
     return Keyword(id=str(row.id), keyword=row.keyword, created_at=row.created_at)
 
 
-@frozen
-class _Window:
-    window_from: dt.date
-    window_to: dt.date
-    start: dt.datetime
-    until: dt.datetime
-
-
-def _window(timezone_name: str, days: int) -> _Window:
-    tz = ZoneInfo(timezone_name)
-    until = timezone.now()
-    window_to = until.astimezone(tz).date()
-    window_from = window_to - dt.timedelta(days=days - 1)
-    return _Window(
-        window_from=window_from,
-        window_to=window_to,
-        start=dt.datetime.combine(window_from, dt.time.min, tzinfo=tz),
-        until=until,
-    )
-
-
 # `answered` lowercases each answered check once, so the keyword cross join only runs strpos. A check's
 # searches are joined with newlines, which a keyword can't contain, so no match spans two searches. A null
 # brand pattern (no target domain) leaves `mentioned` to the citation alone and `mention_depth` null.
 # `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on a match.
 # It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once for each
 # aggregate that reads it.
-_KEYWORD_REPORT_SQL = """
+_KEYWORD_REPORT_SQL = f"""
     WITH answered AS MATERIALIZED (
         SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
             lower(check_row.prompt_text) AS prompt_text,
@@ -144,6 +122,7 @@ _KEYWORD_REPORT_SQL = """
         FROM posthog_aeo_citation_check AS check_row
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
+            AND {NAMED_SCOPE_SQL}
     ),
     matched AS MATERIALIZED (
         SELECT keyword, answered.prompt_id, answered.cited, answered.mentioned, answered.target_best_position,
@@ -180,27 +159,37 @@ _KEYWORD_REPORT_SQL = """
 KEYWORD_REPORT_CACHE_SECONDS = 10 * 60
 
 
-def get_keyword_report(team_id: int, *, target_domains: list[str], timezone_name: str, days: int) -> KeywordReport:
-    window = _window(timezone_name, days)
+def get_keyword_report(
+    team_id: int, *, target_domains: list[str], timezone_name: str, window: CheckWindow, scope: CheckScope
+) -> KeywordReport:
     keywords = list(AEOKeyword.objects.for_team(team_id).order_by("keyword").values_list("keyword", flat=True))
-    # The key carries the keyword list and the window's last day, so adding or removing a keyword, or a new day,
+    # The key carries the keyword list and the window's days, so adding or removing a keyword, or a new day,
     # misses the cache instead of serving a stale report.
     fingerprint = hashlib.sha256(json.dumps([sorted(target_domains), keywords]).encode()).hexdigest()
-    cache_key = f"aeo_keyword_report:{team_id}:{days}:{timezone_name}:{window.window_to.isoformat()}:{fingerprint}"
+    scope_key = f"{scope.segment.value}:{json.dumps([scope.engine, scope.topic])}"
+    cache_key = (
+        f"aeo_keyword_report:{team_id}:{timezone_name}:{window.window_from.isoformat()}:{window.window_to.isoformat()}"
+        f":{scope_key}:{fingerprint}"
+    )
     cached = cache.get(cache_key)
     if isinstance(cached, KeywordReport):
         return cached
-    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, days=days)
+    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, scope=scope)
     cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
     return report
 
 
 def _build_keyword_report(
-    team_id: int, window: _Window, keywords: list[str], *, target_domains: list[str], days: int
+    team_id: int, window: CheckWindow, keywords: list[str], *, target_domains: list[str], scope: CheckScope
 ) -> KeywordReport:
     answers = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
+        .filter(
+            scope_filter(scope),
+            created_at__gte=window.start,
+            created_at__lt=window.until,
+            check_failed=False,
+        )
         .count()
     )
     rows: dict[str, tuple[Any, ...]] = {}
@@ -215,11 +204,12 @@ def _build_keyword_report(
                     "until": window.until,
                     "brand": brand_regex(target_domains),
                     "keywords": keywords,
+                    **named_scope_sql_params(scope),
                 },
             )
             rows = {row[0]: row[1:] for row in cursor.fetchall()}
     return KeywordReport(
-        days=days,
+        days=window.days,
         window_from=window.window_from,
         window_to=window.window_to,
         answers=answers,
@@ -446,14 +436,23 @@ class _ModifierCounts:
 
 
 def get_keyword_modifiers(
-    team_id: int, *, timezone_name: str, days: int, keyword: str | None = None
+    team_id: int,
+    *,
+    target_domains: list[str],
+    window: CheckWindow,
+    keyword: str | None = None,
+    scope: CheckScope,
 ) -> KeywordModifierReport:
-    window = _window(timezone_name, days)
     keyword = normalize_keyword(keyword) if keyword else None
     counts = _ModifierCounts()
     checks = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
+        .filter(
+            scope_filter(scope),
+            created_at__gte=window.start,
+            created_at__lt=window.until,
+            check_failed=False,
+        )
         .order_by("id")
     )
     # Keyset pages, because PgBouncer turns server-side cursors off and `.iterator()` would then load the whole window.
@@ -475,7 +474,7 @@ def get_keyword_modifiers(
             break
         last_id = page[-1][0]
     return KeywordModifierReport(
-        days=days,
+        days=window.days,
         window_from=window.window_from,
         window_to=window.window_to,
         keyword=keyword,

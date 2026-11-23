@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 45 enabled ops
+ * PostHog API - MCP 49 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -16,7 +16,15 @@ export const ExternalDataSchemasListParams = () => zod.object({
         ),
 })
 
+export const externalDataSchemasListQueryCompactDefault = false
+
 export const ExternalDataSchemasListQueryParams = () => zod.object({
+    compact: zod
+        .boolean()
+        .default(externalDataSchemasListQueryCompactDefault)
+        .describe(
+            'Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -50,6 +58,12 @@ export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasPartialUpdateBody = () => zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -201,6 +215,18 @@ export const ExternalDataSchemasDestinationsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const ExternalDataSchemasHistoryTableDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 export const ExternalDataSchemasIncrementalFieldsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -245,7 +271,20 @@ export const ExternalDataSourcesListParams = () => zod.object({
         ),
 })
 
+export const externalDataSourcesListQueryCompactDefault = false
+export const externalDataSourcesListQueryIncludeSchemasDefault = true
+
 export const ExternalDataSourcesListQueryParams = () => zod.object({
+    compact: zod
+        .boolean()
+        .default(externalDataSourcesListQueryCompactDefault)
+        .describe(
+            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
+        ),
+    include_schemas: zod
+        .boolean()
+        .default(externalDataSourcesListQueryIncludeSchemasDefault)
+        .describe('Include the `schemas` (tables) of each source. Set to false to get source-level fields only.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -319,6 +358,22 @@ export const ExternalDataSourcesRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const externalDataSourcesRetrieveQueryCompactDefault = false
+export const externalDataSourcesRetrieveQueryIncludeSchemasDefault = true
+
+export const ExternalDataSourcesRetrieveQueryParams = () => zod.object({
+    compact: zod
+        .boolean()
+        .default(externalDataSourcesRetrieveQueryCompactDefault)
+        .describe(
+            'Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.'
+        ),
+    include_schemas: zod
+        .boolean()
+        .default(externalDataSourcesRetrieveQueryIncludeSchemasDefault)
+        .describe('Include the `schemas` (tables) of each source. Set to false to get source-level fields only.'),
 })
 
 /**
@@ -413,6 +468,56 @@ export const ExternalDataSourcesDestroyParams = () => zod.object({
 })
 
 /**
+ * Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only that location to check the files, and does not sync data. The new table is turned off. Turn it on with a schema update to start syncing it.
+ * @summary Add a table to an object storage source by its path
+ */
+export const ExternalDataSourcesAddTableCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataSourcesAddTableCreateBodyNameMax = 128
+
+export const externalDataSourcesAddTableCreateBodyNameRegExp = new RegExp('^[a-zA-Z_][a-zA-Z0-9_]\*$')
+export const externalDataSourcesAddTableCreateBodyPathMax = 2048
+
+export const externalDataSourcesAddTableCreateBodyFileFormatDefault = `infer`
+export const externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault = true
+
+export const ExternalDataSourcesAddTableCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyNameMax)
+        .regex(externalDataSourcesAddTableCreateBodyNameRegExp)
+        .describe(
+            'Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.'
+        ),
+    path: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyPathMax)
+        .describe(
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as `events\/`, `events\/2026\/\*.parquet` or `data\/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables."
+        ),
+    file_format: zod
+        .enum(['infer', 'csv', 'csv_no_header', 'jsonl', 'parquet', 'delta'])
+        .describe(
+            '\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        )
+        .default(externalDataSourcesAddTableCreateBodyFileFormatDefault)
+        .describe(
+            'The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.\n\n\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        ),
+    csv_allow_double_quotes: zod
+        .boolean()
+        .default(externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault)
+        .describe('For CSV files: whether a double quote encloses a field. When false, it is an ordinary character.'),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = () => zod.object({
@@ -432,6 +537,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
             zod.object({
                 id: zod.string().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                live_query_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.'
+                    ),
                 sync_type: zod
                     .union([
                         zod
@@ -837,6 +948,33 @@ export const ExternalDataSourcesResumeCdcCreateParams = () => zod.object({
 })
 
 /**
+ * Update the revenue analytics configuration and return the full external data source.
+ */
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = () => zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed."
+        ),
+    include_invoiceless_charges: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices.'
+        ),
+})
+
+/**
  * Update CDC tuning fields without enabling/disabling.
  *
  * Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
@@ -1033,6 +1171,44 @@ export const ExternalDataSourcesConnectionsListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Draft a Custom REST source manifest from API documentation using an LLM.
+ *
+ * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+ * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+ * against validation errors up to a small budget. Returns the manifest for the user to review
+ * and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+ * `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+ * since the docs are sent to the LLM gateway.
+ */
+export const ExternalDataSourcesDraftCustomManifestCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+export const externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax = 0
+
+export const ExternalDataSourcesDraftCustomManifestCreateBody = () => zod.object({
+    source_name: zod
+        .string()
+        .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
+        .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
+    docs_url: zod
+        .union([zod.url(), zod.string().max(externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax)])
+        .optional()
+        .describe(
+            'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'
+        ),
+    docs_text: zod
+        .string()
+        .optional()
+        .describe('Raw API documentation or an OpenAPI\/Swagger spec, pasted directly. Provide this or docs_url.'),
 })
 
 /**

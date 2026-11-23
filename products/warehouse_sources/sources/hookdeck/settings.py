@@ -80,6 +80,19 @@ class HookdeckEndpointConfig:
         return self.incremental_fields[0]["field"] if self.incremental_fields else None
 
 
+def _bulk_operation(name: str, path: str, description: str) -> HookdeckEndpointConfig:
+    return HookdeckEndpointConfig(
+        name=name,
+        path=path,
+        incremental_fields=[_datetime_field("created_at")],
+        # Progress, counts and completion move while the operation runs.
+        default_incremental_lookback_seconds=_RESTATED_RECORD_LOOKBACK_SECONDS,
+        description=description,
+        # The stored `query` filter can match on request headers.
+        contains_credentials=True,
+    )
+
+
 HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
     "events": HookdeckEndpointConfig(
         name="events",
@@ -201,6 +214,99 @@ HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
         default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
         description="Hourly count of events pending delivery per destination",
         metrics=HookdeckMetricsConfig(measures=("count",), dimensions=("destination_id",)),
+    ),
+    "request_metrics": HookdeckEndpointConfig(
+        name="request_metrics",
+        path="/metrics/requests",
+        primary_keys=["time_bucket", "source_id"],
+        incremental_fields=[_datetime_field("time_bucket")],
+        partition_key="time_bucket",
+        default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
+        description="Hourly inbound request volume per source: accepted, rejected and discarded counts, and the average events and ignored events per request",
+        metrics=HookdeckMetricsConfig(
+            measures=(
+                "count",
+                "accepted_count",
+                "rejected_count",
+                "discarded_count",
+                "avg_events_per_request",
+                "avg_ignored_per_request",
+            ),
+            dimensions=("source_id",),
+        ),
+    ),
+    "event_metrics": HookdeckEndpointConfig(
+        name="event_metrics",
+        path="/metrics/events",
+        primary_keys=["time_bucket", "source_id", "webhook_id", "destination_id"],
+        incremental_fields=[_datetime_field("time_bucket")],
+        partition_key="time_bucket",
+        default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
+        description="Hourly delivery outcomes per connection: event counts by result, error rate, average attempts and peak events per second",
+        metrics=HookdeckMetricsConfig(
+            measures=(
+                "count",
+                "successful_count",
+                "failed_count",
+                "scheduled_count",
+                "paused_count",
+                "error_rate",
+                "avg_attempts",
+                "scheduled_retry_count",
+                "max_count_per_second",
+            ),
+            # A connection can be repointed, so its source and destination are grouped too.
+            dimensions=("source_id", "webhook_id", "destination_id"),
+        ),
+    ),
+    "attempt_metrics": HookdeckEndpointConfig(
+        name="attempt_metrics",
+        path="/metrics/attempts",
+        primary_keys=["time_bucket", "destination_id"],
+        incremental_fields=[_datetime_field("time_bucket")],
+        partition_key="time_bucket",
+        default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
+        description="Hourly delivery attempts per destination: attempt counts by result, error rate, and response and delivery latency",
+        metrics=HookdeckMetricsConfig(
+            measures=(
+                "count",
+                "successful_count",
+                "failed_count",
+                "delivered_count",
+                "error_rate",
+                "response_latency_avg",
+                "response_latency_max",
+                "response_latency_p95",
+                "response_latency_p99",
+                "delivery_latency_avg",
+            ),
+            dimensions=("destination_id",),
+        ),
+    ),
+    "bulk_event_retries": _bulk_operation(
+        "bulk_event_retries",
+        "/bulk/events/retry",
+        "Bulk retries of events, with the filter used, progress, and the counts of delivered and failed events",
+    ),
+    "bulk_event_cancels": _bulk_operation(
+        "bulk_event_cancels",
+        "/bulk/events/cancel",
+        "Bulk cancellations of pending events, with the filter used, progress and the counts of events processed",
+    ),
+    "bulk_ignored_event_retries": _bulk_operation(
+        "bulk_ignored_event_retries",
+        "/bulk/ignored-events/retry",
+        "Bulk retries of ignored events, with the filter used, progress and the counts of events processed",
+    ),
+    "bulk_request_retries": _bulk_operation(
+        "bulk_request_retries",
+        "/bulk/requests/retry",
+        "Bulk retries of inbound requests, with the filter used, progress and the counts of requests processed",
+    ),
+    "bulk_request_replays": _bulk_operation(
+        "bulk_request_replays",
+        "/bulk/requests/replay",
+        "Bulk replays of inbound requests, with the filter used, progress and the counts of requests processed",
     ),
 }
 

@@ -19,12 +19,22 @@ export const externalDataDestinationsCreateBodyNameMax = 400
 
 export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -60,12 +70,22 @@ export const externalDataDestinationsUpdateBodyNameMax = 400
 
 export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -101,13 +121,23 @@ export const externalDataDestinationsPartialUpdateBodyNameMax = 400
 
 export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .optional()
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -180,6 +210,12 @@ export const externalDataSchemasUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -315,6 +351,12 @@ export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -653,6 +695,47 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only that location to check the files, and does not sync data. The new table is turned off. Turn it on with a schema update to start syncing it.
+ * @summary Add a table to an object storage source by its path
+ */
+export const externalDataSourcesAddTableCreateBodyNameMax = 128
+
+export const externalDataSourcesAddTableCreateBodyNameRegExp = new RegExp('^[a-zA-Z_][a-zA-Z0-9_]\*$')
+export const externalDataSourcesAddTableCreateBodyPathMax = 2048
+
+export const externalDataSourcesAddTableCreateBodyFileFormatDefault = `infer`
+export const externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault = true
+
+export const ExternalDataSourcesAddTableCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyNameMax)
+        .regex(externalDataSourcesAddTableCreateBodyNameRegExp)
+        .describe(
+            'Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.'
+        ),
+    path: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyPathMax)
+        .describe(
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as `events\/`, `events\/2026\/\*.parquet` or `data\/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables."
+        ),
+    file_format: zod
+        .enum(['infer', 'csv', 'csv_no_header', 'jsonl', 'parquet', 'delta'])
+        .describe(
+            '\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        )
+        .default(externalDataSourcesAddTableCreateBodyFileFormatDefault)
+        .describe(
+            'The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.\n\n\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        ),
+    csv_allow_double_quotes: zod
+        .boolean()
+        .default(externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault)
+        .describe('For CSV files: whether a double quote encloses a field. When false, it is an ordinary character.'),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax = 90
@@ -663,6 +746,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
             zod.object({
                 id: zod.uuid().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                live_query_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.'
+                    ),
                 sync_type: zod
                     .union([
                         zod
@@ -1043,75 +1132,20 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
 /**
  * Update the revenue analytics configuration and return the full external data source.
  */
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax = 100
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescriptionMax = 400
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string().optional(),
-        account_id: zod.string().optional(),
-        prefix: zod.string().max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax).nullish(),
-        description: zod
-            .string()
-            .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescriptionMax)
-            .nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-        payload: zod
-            .object({
-                credential_id: zod
-                    .uuid()
-                    .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
-                    ),
-            })
-            .optional()
-            .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed."
+        ),
+    include_invoiceless_charges: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices.'
+        ),
+})
 
 /**
  * Update CDC tuning fields without enabling/disabling.
@@ -1323,7 +1357,7 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
 
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 8
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
     tables: zod
@@ -1399,7 +1433,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
             })
         )
         .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
-        .describe('Tables from database_schema to get a recommended incremental field for.'),
+        .describe(
+            'Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.'
+        ),
 })
 
 /**
@@ -1453,6 +1489,7 @@ export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = false
+export const externalDataSourcesSetupCreateBodyCreatedViaDefault = `api`
 
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod.string().describe("The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot')."),
@@ -1479,6 +1516,13 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesSetupCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
 })
 

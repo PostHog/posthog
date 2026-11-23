@@ -13,6 +13,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    GenericCachedQueryResponse,
     InfinityValue,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
@@ -240,6 +241,10 @@ class MarketingAnalyticsBaseQueryRunner(
         except Exception as e:
             self._capture_query_event("marketing analytics query failed", start, error=e)
             raise
+
+    def _is_transient_result(self, cached: GenericCachedQueryResponse) -> bool:
+        # Served as fresh, a not-ready entry keeps the "computing" state on screen after the background warm lands.
+        return bool(getattr(cached, "precomputeNotReady", False))
 
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:

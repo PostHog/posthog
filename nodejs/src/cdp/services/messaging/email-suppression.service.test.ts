@@ -1,4 +1,5 @@
 import { Client } from 'pg'
+import { Registry, register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -10,8 +11,10 @@ import { Hub, Team } from '~/types'
 import {
     EmailSuppressionService,
     SuppressionLookupError,
+    SuppressionWriteOptions,
     emailSuppressionConfigFromEnv,
 } from './email-suppression.service'
+import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
 
 interface SuppressionRow {
     identifier: string
@@ -60,19 +63,31 @@ describe('EmailSuppressionService', () => {
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
         })
 
-        it.each([
-            ['below threshold — 2 consecutive bounces stay unsuppressed', 2, false],
-            ['at threshold — the 3rd consecutive bounce flips suppressed', 3, true],
-        ] as const)('%s', async (_label, bounces, expectedSuppressed) => {
+        const batch = Array.from({ length: SES_NOTIFICATIONS_PER_BATCH }, (_, i) => `event-${i}`)
+
+        it.each<[string, (string | undefined)[], number, boolean]>([
+            ['below threshold — 2 consecutive bounces stay unsuppressed', ['a', 'b'], 2, false],
+            ['at threshold — the 3rd consecutive bounce flips suppressed', ['a', 'b', 'c'], 3, true],
+            ['a redelivered bounce counts once', ['a', 'b', 'b', 'b'], 2, false],
+            ['a replayed batch counts each bounce once', ['a', 'b', 'a', 'b'], 2, false],
+            ['bounces without an event id each count', [undefined, undefined, undefined], 3, true],
+            ['a replayed full batch counts each bounce once', [...batch, ...batch], SES_NOTIFICATIONS_PER_BATCH, true],
+            [
+                'a bounce older than the last batch of ids counts again',
+                [...batch, 'event-new', batch[0]],
+                SES_NOTIFICATIONS_PER_BATCH + 2,
+                true,
+            ],
+        ])('%s', async (_label, eventIds, expectedCount, expectedSuppressed) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'flaky@example.com'
-            for (let i = 0; i < bounces; i++) {
-                await svc.recordTransientBounces(team.id, [email], 'temp')
+            for (const eventId of eventIds) {
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId })
             }
             expect(await readRow(email)).toMatchObject({
                 identifier: email,
                 source: 'BOUNCE',
-                transient_bounce_count: bounces,
+                transient_bounce_count: expectedCount,
                 suppressed: expectedSuppressed,
                 deleted: false,
             })
@@ -228,6 +243,85 @@ describe('EmailSuppressionService', () => {
                 transient_bounce_count: 0,
                 deleted: false,
             })
+        })
+
+        const unstorable = ['nul\u0000@example.com', `${'x'.repeat(520)}@example.com`]
+
+        it.each<
+            [string, (svc: EmailSuppressionService, email: string) => Promise<void>, (email: string) => Promise<void>]
+        >([
+            [
+                'a hard bounce',
+                (svc, email) => svc.recordHardBounces(team.id, [email, ...unstorable]),
+                async (email) => expect(await readRow(email)).toMatchObject({ suppressed: true }),
+            ],
+            [
+                'a soft bounce',
+                (svc, email) => svc.recordTransientBounces(team.id, [email, ...unstorable], 'temp'),
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 1 }),
+            ],
+            [
+                'a complaint',
+                (svc, email) => svc.recordComplaints(team.id, [email, ...unstorable], 'abuse'),
+                async (email) => expect(await readRow(email)).toMatchObject({ source: 'COMPLAINT', suppressed: true }),
+            ],
+            [
+                'a delivery',
+                async (svc, email) => {
+                    await svc.recordTransientBounces(team.id, [email], 'temp')
+                    await svc.recordDeliveries(
+                        team.id,
+                        [email, ...unstorable],
+                        new Date(Date.now() + 60_000).toISOString()
+                    )
+                },
+                async (email) => expect(await readRow(email)).toMatchObject({ transient_bounce_count: 0 }),
+            ],
+            [
+                'a global hard bounce',
+                (svc, email) => svc.recordGlobalHardBounces([email, ...unstorable]),
+                async (email) => {
+                    const enforcing = new EmailSuppressionService(hub.postgres, {
+                        ...emailSuppressionConfigFromEnv(),
+                        globalHardBounceEnforce: true,
+                    })
+                    expect(await enforcing.isSuppressed(team.id, email, { transactional: true })).toBe(true)
+                },
+            ],
+        ])('records the other addresses of %s that names one Postgres cannot store', async (_label, record, check) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = `deliverable-sibling-${team.id}@example.com`
+
+            await record(svc, email)
+
+            await check(email)
+        })
+
+        it.each<[string, (svc: EmailSuppressionService, email: string) => Promise<void>, boolean]>([
+            [
+                'a hard bounce diagnostic',
+                (svc, email) => svc.recordHardBounces(team.id, [email], 'smtp; 550\u0000 user unknown'),
+                true,
+            ],
+            [
+                'a soft bounce diagnostic',
+                (svc, email) => svc.recordTransientBounces(team.id, [email], 'smtp; 421\u0000 try later'),
+                false,
+            ],
+            [
+                'a soft bounce event id',
+                (svc, email) =>
+                    svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'event\u0000id' }),
+                false,
+            ],
+            ['a complaint feedback type', (svc, email) => svc.recordComplaints(team.id, [email], 'abuse\u0000'), true],
+        ])('records the address of a notice with a NUL byte in %s', async (_label, record, expectedSuppressed) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'nul-text@example.com'
+
+            await record(svc, email)
+
+            expect(await readRow(email)).toMatchObject({ identifier: email, suppressed: expectedSuppressed })
         })
 
         it('escalates an unsuppressed BOUNCE counter to suppressed when a hard bounce lands', async () => {
@@ -459,10 +553,13 @@ describe('EmailSuppressionService', () => {
             }
         )
 
+        // A row that only counts soft bounces is not on the team's list, so unlike a removal it must not lift the
+        // global block.
         it.each([
-            ['the team removed the address', 'removed'],
-            ['a later delivery cleared the entry', 'delivered'],
-        ] as const)('does not block when %s', async (_label, step) => {
+            ['the team removed the address', 'removed', false],
+            ['a later delivery cleared the entry', 'delivered', false],
+            ['the team only counts soft bounces from the address', 'counting', true],
+        ] as const)('decides the send by the global list when %s', async (_label, step, blocked) => {
             const email = `back-${step}-${team.id}@example.com`
             const otherTeamId = await bounceForAnotherTeam(email)
 
@@ -476,6 +573,16 @@ describe('EmailSuppressionService', () => {
                     [team.id, email],
                     'test-insert-removed-suppression'
                 )
+            } else if (step === 'counting') {
+                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
+                const svc = newService(true)
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'first' })
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'second' })
+                expect(await readRow(email)).toMatchObject({
+                    suppressed: false,
+                    deleted: false,
+                    transient_bounce_count: 2,
+                })
             } else {
                 // Bounces stamp last_bounced_at with NOW(), so a delivery has to be newer than that.
                 await newService(true).recordDeliveries(
@@ -488,7 +595,8 @@ describe('EmailSuppressionService', () => {
                 )
             }
 
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
+            expect(await newService(false).isSuppressed(team.id, email)).toBe(false)
+            expect(await newService(true).isSuppressed(team.id, email)).toBe(blocked)
         })
 
         it.each([
@@ -895,5 +1003,165 @@ describe('EmailSuppressionService', () => {
             const enforcing = new EmailSuppressionService(hub.postgres, { ...config, globalHardBounceEnforce: true })
             expect(await enforcing.isSuppressed(team.id, email)).toBe(true)
         })
+    })
+
+    describe('a write the database refuses', () => {
+        const OPERATIONS = [
+            'transient_bounce',
+            'hard_bounce',
+            'global_hard_bounce',
+            'complaint',
+            'delivery_reset',
+            'global_hard_bounce_clear',
+            'global_hard_bounce_copy',
+            'global_hard_bounce_release',
+        ]
+
+        type Write = (
+            svc: EmailSuppressionService,
+            email: string,
+            options?: SuppressionWriteOptions
+        ) => Promise<unknown>
+
+        const droppedWrites = async (registry: Registry = register): Promise<Record<string, number>> => {
+            const metric = await registry.getSingleMetric('cdp_email_suppression_dropped_writes_total')?.get()
+            return Object.fromEntries((metric?.values ?? []).map((v) => [String(v.labels.operation), v.value]))
+        }
+
+        const enforcing = (postgres: Pick<PostgresRouter, 'query'>): EmailSuppressionService =>
+            new EmailSuppressionService(postgres, { ...emailSuppressionConfigFromEnv(), globalHardBounceEnforce: true })
+
+        const bounceForAnotherTeam = async (email: string): Promise<void> => {
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            await enforcing(hub.postgres).recordHardBounces(otherTeamId, [email], 'smtp; 550 5.1.1 user unknown')
+            await enforcing(hub.postgres).recordGlobalHardBounces([email])
+        }
+
+        const copyThenLapse = async (email: string): Promise<void> => {
+            await bounceForAnotherTeam(email)
+            await enforcing(hub.postgres).isSuppressed(team.id, email)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_emailhardbounce
+                 SET first_bounced_at = NOW() - INTERVAL '3 days', last_bounced_at = NOW() - INTERVAL '2 days'
+                 WHERE email = $1`,
+                [email],
+                'test-lapse-global-hard-bounce'
+            )
+        }
+
+        const countedWhileLocked = async (
+            table: string,
+            write: (svc: EmailSuppressionService) => Promise<unknown>
+        ): Promise<Record<string, number>> => {
+            const impatientUrl = new URL(hub.DATABASE_URL)
+            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
+            const impatient = new PostgresRouter({
+                DATABASE_URL: impatientUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            const before = await droppedWrites()
+            try {
+                await holder.query('BEGIN')
+                await holder.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`)
+
+                await write(enforcing(impatient))
+            } finally {
+                await holder.end()
+                await impatient.end()
+            }
+            const after = await droppedWrites()
+            return Object.fromEntries(
+                Object.entries(after)
+                    .map(([label, value]) => [label, value - (before[label] ?? 0)])
+                    .filter(([, delta]) => delta !== 0)
+            )
+        }
+
+        const TEAM_LIST = 'posthog_messagesuppression'
+        const GLOBAL_LIST = 'posthog_emailhardbounce'
+
+        const REFUSED_WRITES: [string, string, ((email: string) => Promise<void>) | null, Write][] = [
+            [
+                'transient_bounce',
+                TEAM_LIST,
+                null,
+                (svc, email, options) => svc.recordTransientBounces(team.id, [email], undefined, undefined, options),
+            ],
+            [
+                'hard_bounce',
+                TEAM_LIST,
+                null,
+                (svc, email, options) => svc.recordHardBounces(team.id, [email], undefined, options),
+            ],
+            [
+                'global_hard_bounce',
+                GLOBAL_LIST,
+                null,
+                (svc, email, options) => svc.recordGlobalHardBounces([email], undefined, options),
+            ],
+            [
+                'complaint',
+                TEAM_LIST,
+                null,
+                (svc, email, options) => svc.recordComplaints(team.id, [email], undefined, options),
+            ],
+            [
+                'delivery_reset',
+                TEAM_LIST,
+                null,
+                (svc, email, options) => svc.recordDeliveries(team.id, [email], new Date().toISOString(), options),
+            ],
+            [
+                'global_hard_bounce_clear',
+                GLOBAL_LIST,
+                bounceForAnotherTeam,
+                (svc, email, options) =>
+                    svc.recordDeliveries(team.id, [email], new Date().toISOString(), { clearGlobal: true, ...options }),
+            ],
+            [
+                'global_hard_bounce_copy',
+                TEAM_LIST,
+                bounceForAnotherTeam,
+                (svc, email) => svc.isSuppressed(team.id, email),
+            ],
+            ['global_hard_bounce_release', TEAM_LIST, copyThenLapse, (svc, email) => svc.isSuppressed(team.id, email)],
+        ]
+
+        it('exports every operation at zero when the service loads', async () => {
+            let registry: Registry | undefined
+            jest.isolateModules(() => {
+                registry = require('prom-client').register
+                require('./email-suppression.service')
+            })
+
+            expect(await droppedWrites(registry)).toEqual(Object.fromEntries(OPERATIONS.map((op) => [op, 0])))
+        })
+
+        it.each(REFUSED_WRITES)(
+            'counts a dropped %s write and still returns',
+            async (operation, lockedTable, setup, write) => {
+                const email = `refused-${operation}-${team.id}@example.com`
+                await setup?.(email)
+
+                expect(await countedWhileLocked(lockedTable, (svc) => write(svc, email))).toEqual({ [operation]: 1 })
+            }
+        )
+
+        it.each(REFUSED_WRITES.slice(0, 6))(
+            'leaves a %s write the caller sees fail uncounted',
+            async (operation, lockedTable, setup, write) => {
+                const email = `rethrown-${operation}-${team.id}@example.com`
+                await setup?.(email)
+
+                const moved = await countedWhileLocked(lockedTable, (svc) =>
+                    expect(write(svc, email, { throwOnFailure: true })).rejects.toThrow()
+                )
+
+                expect(moved).toEqual({})
+            }
+        )
     })
 })

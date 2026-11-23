@@ -1,14 +1,15 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { NetworkError, ResponseBodyReadError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -17,20 +18,25 @@ import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema,
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
     externalDataSourcesIncrementalFieldRecommendationsCreate,
+    externalDataSourcesList,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import type {
     ExternalDataSourceSerializersApi,
+    PaginatedExternalDataSourceSerializersListApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { sourceManagementLogic } from '../../../shared/logics/sourceManagementLogic'
 import {
     buildCreateSourcePayload,
+    defaultPollingSyncSettings,
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
     isPrefixRequired,
     mergeRestoredSourceFormValues,
+    packRecommendationBatches,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
@@ -42,6 +48,7 @@ jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataSourcesRetrieve: jest.fn(),
     externalDataSourcesBulkUpdateSchemasPartialUpdate: jest.fn(),
     externalDataSourcesIncrementalFieldRecommendationsCreate: jest.fn(),
+    externalDataSourcesList: jest.fn(),
 }))
 
 type Deferred = {
@@ -1480,6 +1487,7 @@ describe('sourceWizardLogic', () => {
             ],
             ['an id column', 'incremental', { available_columns: [column('ID'), column('updated_at')] }],
             ['no introspected columns', 'incremental', { available_columns: [] }],
+            ['a declared source key missing', 'full_refresh', { available_columns: [], declares_primary_keys: true }],
         ])('defaults a table with %s to %s', async (_, expectedSyncType, overrides) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({
@@ -1693,11 +1701,6 @@ describe('sourceWizardLogic', () => {
     describe('Supabase incremental defaults', () => {
         const supabaseSource = buildSourceConfig({ name: 'Supabase' })
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
-
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: true })
-        })
 
         const apiSchema = (
             table: string,
@@ -1973,13 +1976,30 @@ describe('sourceWizardLogic', () => {
             }
         )
 
-        it('asks for recommendations in batches the endpoint accepts', async () => {
+        it.each(['Postgres', 'Supabase'])('uses a model pick of any cursor type on %s', (connectorName) => {
+            const seqNo: IncrementalField = {
+                field: 'seq_no',
+                field_type: 'integer',
+                label: 'seq_no',
+                type: 'integer',
+                recommended: true,
+                picked_by_model: true,
+            }
+            const schema = apiSchema('public.orders', {
+                incremental_fields: [seqNo, { ...createdAt, recommended: false }],
+                primary_key_columns: ['id'],
+            })
+
+            expect(defaultPollingSyncSettings(schema, connectorName).incremental_field).toBe('seq_no')
+        })
+
+        it('asks for every table, one small model call per request', async () => {
             const fields = [
                 { ...createdAt, recommended: true },
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 20 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             const recommend = jest
                 .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
@@ -1989,10 +2009,33 @@ describe('sourceWizardLogic', () => {
             const { unmount } = await mountAndLoadSchemas(postgresSource)
 
             try {
-                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([128, 1])
+                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([8, 8, 4])
             } finally {
                 unmount()
             }
+        })
+
+        it.each([
+            { name: 'narrow tables fill a request up to eight', counts: [2, 2, 2, 2, 2, 2, 2, 2, 2], expected: [8, 1] },
+            { name: 'wide tables fill it up to the column limit', counts: [16, 16, 1], expected: [2, 1] },
+            {
+                name: 'a table that would cross the limit starts a new request',
+                counts: [10, 10, 10, 10],
+                expected: [3, 1],
+            },
+        ])('packs recommendation requests: $name', ({ counts, expected }) => {
+            const tables = counts.map((count, n) =>
+                apiSchema(`public.t${n}`, {
+                    incremental_fields: Array.from({ length: count }, (_, i) => ({
+                        ...createdAt,
+                        field: `c${i}`,
+                        label: `c${i}`,
+                        recommended: i === 0,
+                    })),
+                })
+            )
+
+            expect(packRecommendationBatches(tables).map((batch) => batch.length)).toEqual(expected)
         })
 
         it.each([
@@ -2013,18 +2056,13 @@ describe('sourceWizardLogic', () => {
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 40 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
-            let resolveFirst: (value: RecommendationsResponse) => void = () => {}
+            const pending: ((value: RecommendationsResponse) => void)[] = []
             const recommend = jest
                 .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
                 .mockReset()
-                .mockReturnValueOnce(
-                    new Promise((resolve) => {
-                        resolveFirst = resolve
-                    })
-                )
-                .mockResolvedValue({ tables: [] } as unknown as RecommendationsResponse)
+                .mockImplementation(() => new Promise((resolve) => pending.push(resolve)))
             const rejections: unknown[] = []
             const onRejection = (error: unknown): void => {
                 rejections.push(error)
@@ -2040,10 +2078,11 @@ describe('sourceWizardLogic', () => {
                     'loadIncrementalFieldRecommendations',
                 ])
                 interrupt(logic, unmount)
-                resolveFirst({ tables: [] } as unknown as RecommendationsResponse)
+                pending.forEach((resolve) => resolve({ tables: [] } as unknown as RecommendationsResponse))
                 await new Promise((resolve) => setImmediate(resolve))
 
-                expect(recommend).toHaveBeenCalledTimes(1)
+                // Only the requests already in flight went out; 40 tables would need five.
+                expect(recommend).toHaveBeenCalledTimes(3)
                 expect(rejections).toEqual([])
             } finally {
                 process.off('unhandledRejection', onRejection)
@@ -2059,7 +2098,7 @@ describe('sourceWizardLogic', () => {
                 { ...modelPick, recommended: false, picked_by_model: undefined },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 9 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             let rejectSecond: (error: Error) => void = () => {}
             jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
@@ -2090,7 +2129,7 @@ describe('sourceWizardLogic', () => {
 
                 await expectLogic(logic, () => rejectSecond(new Error('gateway timeout'))).toFinishAllListeners()
                 expect(field(logic, 'public.t0')).toBe('fecha_actualizacion')
-                expect(field(logic, 'public.t128')).toBe('created_at')
+                expect(field(logic, 'public.t8')).toBe('created_at')
             } finally {
                 unmount()
             }
@@ -2132,26 +2171,17 @@ describe('sourceWizardLogic', () => {
 
         it.each([
             {
-                name: 'without the feature flag',
-                flag: false,
-                schema: {},
-                before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
-            },
-            {
                 name: 'for a direct-query source, which syncs nothing',
-                flag: true,
                 schema: {},
                 before: (logic: ReturnType<typeof sourceWizardLogic.build>) =>
                     logic.actions.updateSource({ access_method: 'direct' }),
             },
             {
                 name: 'for a table the credentials cannot read',
-                flag: true,
                 schema: { permission_error: 'Missing read access' },
                 before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
             },
-        ])('asks for no recommendations $name', async ({ flag, schema, before }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: flag })
+        ])('asks for no recommendations $name', async ({ schema, before }) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.orders', {
                     incremental_fields: [
@@ -2190,6 +2220,173 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('createSource after the response is lost', () => {
+        const googleAdsSource = buildSourceConfig({ name: 'GoogleAds' })
+        const me = MOCK_DEFAULT_USER.email
+        type ListedSource = { id: string; source_type: string; prefix: string | null; created_by: string | null }
+        const listed = (
+            id: string,
+            { source_type = 'GoogleAds', prefix = null as string | null, created_by = me as string | null } = {}
+        ): ListedSource => ({ id, source_type, prefix, created_by })
+        const existing = listed('existing')
+        const created = listed('created')
+        const lostResponse = new NetworkError('network')
+        const adopted = { sourceId: 'created', currentStep: 5, connectError: null }
+        const notAdopted = { sourceId: null, currentStep: 1, connectError: expect.stringContaining('ad blocker') }
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it.each<{
+            name: string
+            error: unknown
+            known?: ListedSource[]
+            baselineFails?: boolean
+            cdc?: boolean
+            firstLookup?: ListedSource[] | 'fails'
+            after: ListedSource[]
+            tables?: number
+            expected: Record<string, unknown>
+        }>([
+            {
+                name: 'adopts the source a dropped connection created',
+                error: lostResponse,
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'adopts the source when the success body is cut off',
+                error: new ResponseBodyReadError('Response body could not be read'),
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'does not adopt a source after a gateway error',
+                error: { status: 502, message: 'Bad Gateway' },
+                after: [created],
+                expected: { sourceId: null, currentStep: 1, connectError: expect.any(String) },
+            },
+            {
+                name: 'adopts the source when it appears only on a later lookup',
+                error: lostResponse,
+                firstLookup: [],
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'keeps looking after a lookup fails',
+                error: lostResponse,
+                firstLookup: 'fails',
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'does not adopt a source that was there before the request',
+                error: lostResponse,
+                known: [existing],
+                after: [existing],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a source another member created',
+                error: lostResponse,
+                after: [listed('created', { created_by: 'teammate@example.com' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a new source with another prefix',
+                error: lostResponse,
+                after: [listed('created', { prefix: 'eu' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a new source of another type',
+                error: lostResponse,
+                after: [listed('created', { source_type: 'MetaAds' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a source that is still setting up its tables',
+                error: lostResponse,
+                after: [created],
+                tables: 1,
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a change data capture source',
+                error: lostResponse,
+                cdc: true,
+                after: [created],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not recover when the source list never loaded',
+                error: lostResponse,
+                baselineFails: true,
+                after: [created],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not look up sources when the API rejected the request',
+                error: { status: 400, data: { message: 'You already have a source of this type.' } },
+                after: [created],
+                expected: { sourceId: null, currentStep: 1, connectError: 'You already have a source of this type.' },
+            },
+        ])('$name', async ({ error, known = [], baselineFails, cdc, firstLookup, after, tables = 2, expected }) => {
+            const baseline = jest.spyOn(api.externalDataSources, 'list')
+            if (baselineFails) {
+                baseline.mockRejectedValue({ status: 500 })
+            } else {
+                baseline.mockResolvedValue({
+                    results: known as unknown as ExternalDataSource[],
+                    next: null,
+                } as Awaited<ReturnType<typeof api.externalDataSources.list>>)
+            }
+            const lookupPage = (results: ListedSource[]): PaginatedExternalDataSourceSerializersListApi =>
+                ({ results, next: null }) as unknown as PaginatedExternalDataSourceSerializersListApi
+            const lookup = jest.mocked(externalDataSourcesList).mockResolvedValue(lookupPage(after))
+            if (firstLookup === 'fails') {
+                lookup.mockRejectedValueOnce(new NetworkError('network'))
+            } else if (firstLookup) {
+                lookup.mockResolvedValueOnce(lookupPage(firstLookup))
+            }
+            jest.mocked(externalDataSourcesRetrieve).mockResolvedValue({
+                schemas: Array.from({ length: tables }, (_, i) => ({ id: `schema-${i}` })),
+            } as unknown as ExternalDataSourceSerializersApi)
+            const create = jest.spyOn(api.externalDataSources, 'create').mockRejectedValue(error)
+            const logic = sourceWizardLogic({ availableSources: { GoogleAds: googleAdsSource } })
+            const unmount = logic.mount()
+
+            try {
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+                await expectLogic(logic, () => logic.actions.selectConnector(googleAdsSource)).toFinishAllListeners()
+                await expectLogic(sourceManagementLogic).toDispatchActions([
+                    baselineFails ? 'loadSourcesFailure' : 'loadSourcesSuccess',
+                ])
+                logic.actions.updateSource({
+                    payload: {
+                        schemas: [{ name: 'campaigns' }, { name: 'ads' }],
+                        ...(cdc ? { cdc_enabled: true } : {}),
+                    },
+                })
+
+                jest.useFakeTimers()
+                logic.actions.createSource()
+                // Covers every lookup retry, so a source that never qualifies ends in the error.
+                await jest.advanceTimersByTimeAsync(10000)
+                jest.useRealTimers()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(logic.values).toMatchObject({ ...expected, isLoading: false })
             } finally {
                 unmount()
             }

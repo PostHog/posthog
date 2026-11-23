@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { stripInjectedBlocks } from 'products/tasks/frontend/spaces/spaceFeedPreview'
+import { stripInjectedBlocks } from 'products/today/frontend/spaces/spaceFeedPreview'
 
 import { threadAttachmentDownloadUrl, useLocalPreviewUrl } from '../hooks/useThreadAttachmentUrl'
 import { MarkdownMessage } from '../messages/MarkdownMessage'

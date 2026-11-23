@@ -1,7 +1,6 @@
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.management import call_command
 from django.db import connection
 from django.db.models import QuerySet
 from django.test import SimpleTestCase
@@ -11,11 +10,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.embedding_worker import EmbeddingResponse
-from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
+from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metric_embeddings import (
-    EMBEDDING_BACKFILL_FEATURE_FLAG,
     METRIC_EMBEDDING_MODEL,
     RefreshOutcome,
     metric_search_text,
@@ -25,7 +23,6 @@ from products.data_catalog.backend.logic.metric_embeddings import (
 from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
 from products.data_catalog.backend.logic.metrics import metrics_for_team, update_metric, upsert_metric
 from products.data_catalog.backend.models import Metric
-from products.data_catalog.backend.tasks.tasks import backfill_metric_embeddings_task
 from products.data_catalog.evals.metric_search_cases import LEXICAL_CASE_TYPES, SEARCH_CASES, CaseType, SearchCase
 from products.data_catalog.evals.metric_search_runner import LEXICAL, run_case, score_case, seed_metric_search_catalog
 
@@ -69,12 +66,12 @@ class TestMetricSearchFixtureCatalog(BaseTest):
         output = run_case(self.team.id, case, LEXICAL)
         assert output["confident_match"] is False, output
 
-    @parameterized.expand(_cases(CaseType.RELATED_WORD))
-    def test_related_word_case_shares_no_word_with_its_metric(self, _name: str, case: SearchCase) -> None:
+    @parameterized.expand(_cases(CaseType.RELATED_WORD, CaseType.SHARED_WORD))
+    def test_meaning_case_shares_no_word_with_its_metrics(self, _name: str, case: SearchCase) -> None:
         with team_scope(self.team.id):
             expected = Metric.objects.for_team(self.team.id).filter(name__in=case.expected)
             assert search_metrics(expected, case.queries).hits == [], (
-                "A related-word case must not match its metric's stored text, or it only tests word matching again"
+                "A meaning case must not match its metrics' stored text, or it only tests word matching again"
             )
 
     def test_semantic_lane_adds_a_hit_and_falls_back_when_embedding_fails(self) -> None:
@@ -140,6 +137,64 @@ class TestMetricSearchFixtureCatalog(BaseTest):
 
         assert [hit.metric.name for hit in result.hits][-1] == "nps_score", [hit.match_reason for hit in result.hits]
 
+    @parameterized.expand(
+        [
+            (
+                "closer_text_match_first",
+                "seat expansion forecast",
+                [
+                    ("weekly_seat_count", "", "Seats counted at the end of each week.", MetricStatus.APPROVED),
+                    ("seat_expansion_rate", "", "Share of accounts that add seats.", MetricStatus.PROPOSED),
+                ],
+                [
+                    ("seat_expansion_rate", "some words in the name"),
+                    ("weekly_seat_count", "some words in the name"),
+                ],
+            ),
+            (
+                "equal_name_matches_by_name",
+                "arr",
+                [
+                    ("annual_revenue_total", "ARR", "Revenue booked per year.", MetricStatus.APPROVED),
+                    ("annual_arr", "ARR", "Annual recurring revenue.", MetricStatus.PROPOSED),
+                ],
+                [("annual_arr", "name match"), ("annual_revenue_total", "name match")],
+            ),
+            (
+                "literal_name_match_before_stop_word_match",
+                "revenue before tax",
+                [
+                    ("revenue_after_tax", "", "Revenue after tax, per month.", MetricStatus.APPROVED),
+                    ("revenue_before_tax", "", "Revenue before tax, per month.", MetricStatus.APPROVED),
+                ],
+                [("revenue_before_tax", "name match"), ("revenue_after_tax", "name match")],
+            ),
+        ]
+    )
+    def test_approval_never_moves_a_word_match(
+        self,
+        _name: str,
+        query: str,
+        metrics: list[tuple[str, str, str, MetricStatus]],
+        expected: list[tuple[str, str]],
+    ) -> None:
+        with team_scope(self.team.id):
+            for name, display_name, description, metric_status in metrics:
+                Metric.objects.for_team(self.team.id).create(
+                    team_id=self.team.id,
+                    name=name,
+                    display_name=display_name,
+                    description=description,
+                    status=metric_status,
+                )
+            candidates = Metric.objects.for_team(self.team.id).filter(
+                deleted=False, name__in=[name for name, *_ in metrics]
+            )
+
+            result = search_metrics(candidates, [query])
+
+        assert [(hit.metric.name, hit.match_reason) for hit in result.hits] == expected
+
 
 class TestSplitSearch(SimpleTestCase):
     @parameterized.expand(
@@ -152,6 +207,29 @@ class TestSplitSearch(SimpleTestCase):
     )
     def test_split_search(self, _name: str, search: str, expected: list[str]) -> None:
         assert split_search(search) == expected
+
+
+class TestSemanticQueryText(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("drops_stop_words", ["what is the MRR"], ["MRR"]),
+            ("keeps_non_ascii_words", ["the 收入 of café"], ["收入 café"]),
+            ("keeps_contractions_whole", ["users who don't convert"], ["users don't convert"]),
+            ("keeps_negations", ["users who did not convert"], ["users not convert"]),
+            ("joins_phrasings", ["the churn", "lost clients"], ["churn; lost clients"]),
+            ("skips_embedding_for_only_stop_words", ["what is it"], []),
+        ]
+    )
+    def test_query_embedding_text(self, _name: str, queries: list[str], expected: list[str]) -> None:
+        sent: list[str] = []
+
+        def embed_query(text: str) -> list[float] | None:
+            sent.append(text)
+            return None
+
+        search_metrics(Metric.objects.unscoped().none(), queries, embed_query=embed_query)
+
+        assert sent == expected
 
 
 class TestScoreCase(SimpleTestCase):
@@ -167,6 +245,24 @@ class TestScoreCase(SimpleTestCase):
         scores = score_case(case, ranked, confident_match=True)
         assert (scores["recall"], scores["sibling_ranked_above"]) == (recall, sibling)
 
+    @parameterized.expand(
+        [
+            ("all_above", ["a", "b", "shared"], 1.0),
+            ("one_below", ["a", "shared", "b"], 0.5),
+            ("all_below", ["shared", "a", "b"], 0.0),
+            ("one_missing_and_no_shared_hit", ["a"], 0.5),
+        ]
+    )
+    def test_shared_word_scores(self, _name: str, ranked: list[str], expected: float) -> None:
+        case = SearchCase(
+            name="shared",
+            case_type=CaseType.SHARED_WORD,
+            queries=("q",),
+            expected=("a", "b"),
+            shared_word_metrics=("shared",),
+        )
+        assert score_case(case, ranked, confident_match=True)["meaning_above_shared_word"] == expected
+
     @parameterized.expand([("confident", True, 0.0), ("not_confident", False, 1.0)])
     def test_real_gap_scores_only_the_no_match_call(self, _name: str, confident: bool, expected: float) -> None:
         case = next(case for case in SEARCH_CASES if case.case_type == CaseType.REAL_GAP)
@@ -175,6 +271,7 @@ class TestScoreCase(SimpleTestCase):
             "recall": None,
             "correct_no_match": expected,
             "sibling_ranked_above": None,
+            "meaning_above_shared_word": None,
             "confident_when_present": None,
         }
 
@@ -231,71 +328,8 @@ class TestMetricEmbeddingRefresh(BaseTest):
         self.organization.save()
         with self.captureOnCommitCallbacks(execute=True):
             upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
-        call_command("backfill_metric_embeddings", "--skip-flag-check", "--sleep-ms", "0")
         generate.assert_not_called()
         assert self._stored("mrr").embedding is None
-
-    def test_backfill_embeds_missing_and_stale_metrics_only(self, generate: MagicMock) -> None:
-        with team_scope(self.team.id):
-            for name in ("mrr", "arr", "nps"):
-                Metric.objects.for_team(self.team.id).create(team=self.team, name=name, description=f"{name} metric")
-        current = self._stored("arr")
-        Metric.objects.for_team(self.team.id).filter(name="arr").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=_hash_of(current)
-        )
-        Metric.objects.for_team(self.team.id).filter(name="nps").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="stale"
-        )
-
-        call_command("backfill_metric_embeddings", "--dry-run", "--skip-flag-check")
-        generate.assert_not_called()
-
-        call_command("backfill_metric_embeddings", "--skip-flag-check", "--sleep-ms", "0")
-        assert generate.call_count == 2
-        assert self._stored("mrr").embedding == [0.1, 0.2]
-        assert self._stored("nps").embedding == [0.1, 0.2]
-        assert self._stored("arr").embedding == [0.5, 0.5]
-
-    def test_backfill_sweep_embeds_only_metrics_without_a_vector_in_flagged_consenting_teams(
-        self, generate: MagicMock
-    ) -> None:
-        other_org = Organization.objects.create(name="No AI consent", is_ai_data_processing_approved=False)
-        other_team = Team.objects.create(organization=other_org, name="No AI consent")
-        unflagged_team = Team.objects.create(organization=self.organization, name="Backfill flag off")
-        for team, name in [(self.team, "mrr"), (self.team, "arr"), (other_team, "nps"), (unflagged_team, "dau")]:
-            with team_scope(team.id):
-                Metric.objects.for_team(team.id).create(team=team, name=name, description=f"{name} metric")
-        Metric.objects.for_team(self.team.id).filter(name="arr").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="any"
-        )
-
-        with team_scope(self.team.id):
-            Metric.objects.for_team(self.team.id).create(team=self.team, name="churn", description="churn metric")
-        Metric.objects.for_team(self.team.id).filter(name="churn").update(
-            embedding=[0.5, 0.5],
-            embedding_model=METRIC_EMBEDDING_MODEL,
-            embedding_text_hash=_hash_of(self._stored("churn")),
-        )
-        # The text changes, but the refresh never runs, as when its task fails.
-        with self.captureOnCommitCallbacks(execute=False):
-            update_metric(self._stored("churn"), team=self.team, user=self.user, description="Logo churn")
-
-        def backfill_flag(flag: str, distinct_id: str, **_kwargs: object) -> bool:
-            return flag == EMBEDDING_BACKFILL_FEATURE_FLAG and distinct_id == str(self.team.uuid)
-
-        with patch(_FLAG, side_effect=backfill_flag):
-            backfill_metric_embeddings_task()
-
-        assert generate.call_count == 2
-        assert self._stored("mrr").embedding == [0.1, 0.2]
-        assert self._stored("churn").embedding == [0.1, 0.2]
-        for team, name in [(other_team, "nps"), (unflagged_team, "dau")]:
-            with team_scope(team.id):
-                assert Metric.objects.for_team(team.id).get(name=name).embedding is None
-
-
-def _hash_of(metric: Metric) -> str:
-    return search_text_hash(metric_search_text(metric))
 
 
 @patch(_FLAG, return_value=False)
@@ -403,16 +437,16 @@ class TestMetricListSearch(APIBaseTest):
 
     def test_search_returns_a_short_page_unless_a_limit_is_sent(self, _flag: MagicMock) -> None:
         with team_scope(self.team.id):
-            for index in range(12):
+            for index in range(22):
                 Metric.objects.for_team(self.team.id).create(
                     team=self.team, name=f"revenue_{index}", description="Revenue from one region."
                 )
 
         default = self.client.get(self.url, {"search": "revenue"}).json()
-        second = self.client.get(self.url, {"search": "revenue", "offset": "10"}).json()
-        larger = self.client.get(self.url, {"search": "revenue", "limit": "20"}).json()
+        second = self.client.get(self.url, {"search": "revenue", "offset": "20"}).json()
+        larger = self.client.get(self.url, {"search": "revenue", "limit": "30"}).json()
 
-        assert (len(default["results"]), default["count"], default["next"] is not None) == (10, 12, True)
-        assert (len(second["results"]), second["count"], second["next"]) == (2, 12, None)
+        assert (len(default["results"]), default["count"], default["next"] is not None) == (20, 22, True)
+        assert (len(second["results"]), second["count"], second["next"]) == (2, 22, None)
         assert {row["name"] for row in default["results"]}.isdisjoint(row["name"] for row in second["results"])
-        assert len(larger["results"]) == 12
+        assert len(larger["results"]) == 22

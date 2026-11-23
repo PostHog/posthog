@@ -628,6 +628,8 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-aspnetcore` - posthog-aspnetcore
  * * `posthog-rs` - posthog-rs
  * * `posthog-rs-mcp` - posthog-rs-mcp
+ * * `posthog-rs-ffi` - posthog-rs-ffi
+ * * `posthog-electron` - posthog-electron
  * * `posthog-godot` - posthog-godot
  * * `posthog-unreal` - posthog-unreal
  * * `posthog-go-mcp` - posthog-go-mcp
@@ -663,6 +665,8 @@ export const LibEnumApi = {
     PosthogAspnetcore: 'posthog-aspnetcore',
     PosthogRs: 'posthog-rs',
     PosthogRsMcp: 'posthog-rs-mcp',
+    PosthogRsFfi: 'posthog-rs-ffi',
+    PosthogElectron: 'posthog-electron',
     PosthogGodot: 'posthog-godot',
     PosthogUnreal: 'posthog-unreal',
     PosthogGoMcp: 'posthog-go-mcp',
@@ -758,6 +762,8 @@ export interface SdkAssessmentApi {
      * * `posthog-aspnetcore` - posthog-aspnetcore
      * * `posthog-rs` - posthog-rs
      * * `posthog-rs-mcp` - posthog-rs-mcp
+     * * `posthog-rs-ffi` - posthog-rs-ffi
+     * * `posthog-electron` - posthog-electron
      * * `posthog-godot` - posthog-godot
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
@@ -777,6 +783,11 @@ export interface SdkAssessmentApi {
     is_old: boolean
     /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
     migration_required: boolean
+    /**
+     * URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.
+     * @nullable
+     */
+    migration_guide_url: string | null
     /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
      *
      * * `none` - none

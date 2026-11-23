@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddSourcesRequestApi,
     AddSourcesResponseApi,
+    AddTableRequestApi,
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
     CdcDisableResponseApi,
@@ -30,6 +31,7 @@ import type {
     DestinationConnectLinkApi,
     DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
+    DestinationDeliveryFailuresResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -54,6 +56,7 @@ import type {
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
+    ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IncrementalFieldRecommendationsRequestApi,
@@ -68,6 +71,7 @@ import type {
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
+    PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
     SourceConfigMapResponseApi,
@@ -287,6 +291,27 @@ export const externalDataDestinationsAddSourcesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addSourcesRequestApi),
     })
+}
+
+export const getExternalDataDestinationsDeliveryFailuresRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/delivery_failures/`
+}
+
+/**
+ * List recent sync runs that could not deliver to this destination, with the error of each one.
+ */
+export const externalDataDestinationsDeliveryFailuresRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationDeliveryFailuresResponseApi> => {
+    return apiMutator<DestinationDeliveryFailuresResponseApi>(
+        getExternalDataDestinationsDeliveryFailuresRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
@@ -724,8 +749,24 @@ export const externalDataSourcesCreate = async (
     })
 }
 
-export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
+export const getExternalDataSourcesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/`
 }
 
 /**
@@ -734,9 +775,10 @@ export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string)
 export const externalDataSourcesRetrieve = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesRetrieveParams,
     options?: RequestInit
 ): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id), {
+    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -799,6 +841,28 @@ export const externalDataSourcesDestroy = async (
     return apiMutator<void>(getExternalDataSourcesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getExternalDataSourcesAddTableCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/add_table/`
+}
+
+/**
+ * Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only that location to check the files, and does not sync data. The new table is turned off. Turn it on with a schema update to start syncing it.
+ * @summary Add a table to an object storage source by its path
+ */
+export const externalDataSourcesAddTableCreate = async (
+    projectId: string,
+    id: string,
+    addTableRequestApi: AddTableRequestApi,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSourcesAddTableCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addTableRequestApi),
     })
 }
 
@@ -1152,15 +1216,18 @@ export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (pro
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    patchedExternalDataSourceRevenueAnalyticsConfigApi?: PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourceSerializersApi> => {
+    return apiMutator<ExternalDataSourceSerializersApi>(
+        getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceRevenueAnalyticsConfigApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {

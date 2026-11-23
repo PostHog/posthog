@@ -4,6 +4,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { TeamManager } from '~/common/utils/team-manager'
 import { isOkResult } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { retryAfterFirstFailure } from './metrics-retry'
@@ -16,10 +17,11 @@ const RESOLVE_TEAM_RETRY = { tries: 3, sleepMs: 100, name: 'resolve_metrics_team
 
 export function createPrepareMetricsMessageStep<T extends { message: Message; usage: MetricsUsageAccumulator }>(
     teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>,
-    quotaLimiting: Pick<QuotaLimiting, 'isTeamTokenQuotaLimited'>
+    quotaLimiting: Pick<QuotaLimiting, 'isTeamTokenQuotaLimited'>,
+    unknownTokens?: Pick<UnknownTokenRecorder, 'record'>
 ): ProcessingStep<T, T & MetricsHeaders & { teamId: number }> {
     const parseHeaders = createParseMetricsHeadersStep<T>()
-    const resolveTeam = createResolveMetricsTeamStep<T & MetricsHeaders>(teamManager)
+    const resolveTeam = createResolveMetricsTeamStep<T & MetricsHeaders>(teamManager, unknownTokens)
     const recordReceived = createRecordMetricsReceivedStep<T & MetricsHeaders & { teamId: number }>()
     const dropQuotaLimited = createDropQuotaLimitedStep<T & MetricsHeaders & { teamId: number }>(quotaLimiting)
 

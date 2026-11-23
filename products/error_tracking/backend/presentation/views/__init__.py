@@ -8,6 +8,7 @@ from products.error_tracking.backend.presentation.views.git_provider_file_link_r
     GitProviderFileLinksViewSet,
 )
 from products.error_tracking.backend.presentation.views.grouping_rules import ErrorTrackingGroupingRuleViewSet
+from products.error_tracking.backend.presentation.views.issue_tag_rules import ErrorTrackingIssueTagRuleViewSet
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueViewSet
 from products.error_tracking.backend.presentation.views.query import ErrorTrackingQueryViewSet
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
@@ -25,6 +26,7 @@ from products.error_tracking.backend.presentation.views.symbol_sets import Error
 __all__ = [
     "ErrorTrackingAlertViewSet",
     "ErrorTrackingExternalReferenceViewSet",
+    "ErrorTrackingIssueTagRuleViewSet",
     "ErrorTrackingIssueViewSet",
     "ErrorTrackingQueryViewSet",
     "ErrorTrackingRecommendationViewSet",

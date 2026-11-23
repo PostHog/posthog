@@ -28,6 +28,12 @@ pub trait CohortStorage: Send + Sync {
         batch_size: i32,
     ) -> StorageResult<i64>;
 
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        cohort_id: i64,
+        person_ids: &[i64],
+    ) -> StorageResult<i64>;
+
     async fn insert_cohort_members(
         &self,
         cohort_id: i64,

@@ -10,6 +10,7 @@ import type { TeamManager } from '~/common/utils/team-manager'
 import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CdpConfig } from '../../config'
+import { HIDDEN_OUTPUT_MESSAGE, hidesInvocationOutput } from '../../read-guarded-internal-events'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -237,9 +238,11 @@ export class HogFunctionMonitoringService {
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined
 
+            const hideOutput = hidesInvocationOutput(result.invocation)
             this.queueLogs(
                 result.logs.map((logEntry) => ({
                     ...logEntry,
+                    ...(hideOutput ? { message: HIDDEN_OUTPUT_MESSAGE } : {}),
                     team_id: result.invocation.teamId,
                     log_source: source,
                     log_source_id: logSourceId,

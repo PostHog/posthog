@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS, AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
+    clamp_dag_targets_to_plan_floor,
     get_declared_target,
     set_declared_target,
 )
@@ -335,13 +336,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (None, 43200, {"is_materialized": False}),
-            (900, 900, {"is_materialized": False}),
-            (900, 900, {"is_active": False, "version": 1}),
+            (None, 43200, {"is_materialized": False}, False),
+            (900, 900, {"is_materialized": False}, False),
+            (900, 900, {"is_active": False, "version": 1}, False),
+            (None, 900, {"is_materialized": False}, True),
         ]
     )
     def test_disabling_materialization_preserves_or_updates_freshness(
-        self, requested_freshness, expected_freshness, update
+        self, requested_freshness, expected_freshness, update, rewritten_to_plan_floor
     ):
         endpoint = create_endpoint_with_version(
             name="disabled_node_freshness",
@@ -356,7 +358,23 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         version = endpoint.get_version()
-        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(hours=12))
+        node = Node.objects.get(saved_query=version.saved_query)
+        if rewritten_to_plan_floor:
+            set_declared_target(node, timedelta(minutes=15))
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 720}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            with (
+                mock.patch(
+                    "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
+                ),
+                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+            ):
+                self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+        else:
+            set_declared_target(node, timedelta(hours=12))
         update = dict(update)
         if requested_freshness is not None:
             update["data_freshness_seconds"] = requested_freshness
@@ -369,6 +387,40 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         version.refresh_from_db()
         self.assertIsNone(version.saved_query_id)
         self.assertEqual(version.cache_ttl_seconds, expected_freshness)
+
+    def test_response_reports_a_plan_floor_rewrite_until_a_new_freshness_is_saved(self):
+        endpoint = create_endpoint_with_version(
+            name="plan_floor_rewrite", team=self.team, query=self.sample_hogql_query, created_by=self.user
+        )
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/"
+        response = self.client.patch(url, {"is_materialized": True, "data_freshness_seconds": 900}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(response.json()["plan_clamp"])
+        node = Node.objects.get(saved_query=endpoint.get_version().saved_query)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+        with (
+            mock.patch(
+                "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
+            ),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+        ):
+            self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+            rewritten = self.client.get(url).json()
+            resaved = self.client.patch(url, {"data_freshness_seconds": 86400}, format="json")
+
+        self.assertEqual(
+            (rewritten["data_freshness_seconds"], rewritten["plan_clamp"]["previous_data_freshness_seconds"]),
+            (21600, 900),
+        )
+        self.assertEqual(rewritten["plan_clamp"]["plan_floor_seconds"], 21600)
+        self.assertEqual(resaved.status_code, status.HTTP_200_OK, resaved.json())
+        self.assertIsNone(resaved.json()["plan_clamp"])
 
     def test_new_version_inherits_the_node_target(self):
         endpoint = create_endpoint_with_version(

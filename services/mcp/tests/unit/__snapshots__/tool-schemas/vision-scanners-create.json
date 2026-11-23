@@ -231,11 +231,6 @@
             },
             "type": "object"
         },
-        "sampling_mode": {
-            "description": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
-            "enum": ["focused", "balanced", "comprehensive"],
-            "type": "string"
-        },
         "sampling_rate": {
             "description": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
             "maximum": 1,
@@ -249,6 +244,56 @@
             "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
             "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
+        },
+        "scope": {
+            "anyOf": [
+                {
+                    "description": "An experiment scope: the sessions of people exposed to an experiment, labeled by variant.",
+                    "properties": {
+                        "balance": {
+                            "description": "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true.",
+                            "type": "boolean"
+                        },
+                        "experiment_id": {
+                            "description": "The experiment whose exposed sessions the scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "kind": {
+                            "description": "The kind of scope. Only `experiment` exists today.\n\n* `experiment` - Experiment",
+                            "enum": ["experiment"],
+                            "type": "string"
+                        },
+                        "start_on_launch": {
+                            "description": "Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "description": "Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.",
+                            "items": {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            "maxItems": 128,
+                            "type": "array"
+                        },
+                        "variants_source": {
+                            "description": "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n* `all_at_creation` - Every variant the experiment had when the scanner was made\n* `user` - A subset someone picked",
+                            "enum": ["all_at_creation", "user"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope."
         },
         "tags": {
             "description": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",

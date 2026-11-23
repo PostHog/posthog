@@ -13,7 +13,7 @@ import type { HealthIssue } from '../types'
 import { HealthIssueCard } from './HealthIssueCard'
 
 export const HealthIssueList = (): JSX.Element => {
-    const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { issues, healthIssuesLoading, healthIssues, categorySummaries } = useValues(healthSceneLogic)
     const { snoozeIssue, dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
@@ -60,6 +60,10 @@ export const HealthIssueList = (): JSX.Element => {
                 const categoryIssues = groupedByCategory[category]!
                 const config = HEALTH_CATEGORY_CONFIG[category]
                 const worst = worstSeverity(categoryIssues)
+                const total = Math.max(
+                    categorySummaries.find((summary) => summary.category === category)?.issueCount ?? 0,
+                    categoryIssues.length
+                )
                 return (
                     <LemonCollapse
                         key={category}
@@ -72,7 +76,9 @@ export const HealthIssueList = (): JSX.Element => {
                                         <div className="flex items-center gap-2">
                                             {config.icon}
                                             <span className="font-medium">{config.label}</span>
-                                            <span className="text-xs text-muted">({categoryIssues.length})</span>
+                                            <span className="text-xs text-muted" translate="no">
+                                                ({total})
+                                            </span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <LemonTag type={severityToTagType(worst)} size="small">

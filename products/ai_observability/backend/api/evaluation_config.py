@@ -11,7 +11,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -62,7 +62,7 @@ class EvaluationConfigAccessControlPermission(AccessControlPermission):
 class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
-    # Reads are shared by evaluations, taggers, and the playground model picker.
+    # Reads are shared by evaluations and the playground model picker.
     scope_object = "llm_analytics"
     requires_resource_level_access = True
     # `set_active_key` is a custom @action and `list` lives on a plain ViewSet, so neither maps to

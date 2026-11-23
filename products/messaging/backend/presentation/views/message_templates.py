@@ -1,17 +1,22 @@
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
+from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
-from types import SimpleNamespace
-from typing import Any, cast
+from types import MappingProxyType, SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.core.exceptions import (
     RequestDataTooBig,
     ValidationError as DjangoValidationError,
 )
 from django.core.validators import validate_email
-from django.db import transaction
+from django.db import models, transaction
+from django.utils import timezone
+from django.utils.datastructures import MultiValueDict
 
 import structlog
 import posthoganalytics
@@ -26,21 +31,23 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import ErrorDetail, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.fields import OmittableBooleanField
+from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
+from posthog.models.file_system.constants import resolved_workflows_list_v2
+from posthog.models.file_system.file_system_mixin import file_system_sync
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -61,10 +68,12 @@ from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
     MessageTemplateMissing,
+    MessageTemplatePlacement,
     MessageTemplateRow,
     create_template,
     edit_template_content,
     get_template,
+    get_template_placement,
     list_basic_templates,
     list_templates,
     save_template_draft,
@@ -83,6 +92,8 @@ from products.messaging.backend.facade.transactional_email import (
     FieldNotAccepted,
     MessageTooLarge,
     QueuedEmail,
+    QueuedEmailStatus,
+    SendWarningCode,
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
@@ -120,7 +131,10 @@ from products.messaging.backend.presentation.views.serializers import DesignOper
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
-from products.workflows.backend.facade.workflows import get_workflow
+from products.workflows.backend.facade.workflows import get_workflow_ref
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -266,6 +280,68 @@ class EmailTemplateSerializer(serializers.Serializer):
         return fields
 
 
+PUSH_DATA_MAX_KEYS = 50
+TEMPLATE_TYPES = ("email", "push")
+
+
+class PushTemplateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in "
+        "`content` for push-type templates.",
+    )
+    body = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=4000,
+        help_text="Notification body text. Supports Liquid templating. Required in `content` for push-type templates.",
+    )
+    image = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="URL of an image to show in the notification. Supports Liquid templating.",
+    )
+    link = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app "
+        'as the "link" key in the custom data. Supports Liquid templating.',
+    )
+    channels = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        max_length=20,
+        help_text="IDs of the project's Firebase and APNs integrations to send through. Each person gets the "
+        "notification on every device they registered with one of these apps.",
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # `data` is a Serializer property, so the field is declared here.
+        fields["data"] = serializers.DictField(
+            child=serializers.CharField(allow_blank=True, max_length=4000),
+            required=False,
+            help_text="Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
+        )
+        return fields
+
+    def validate_data(self, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > PUSH_DATA_MAX_KEYS:
+            raise serializers.ValidationError(f"Use at most {PUSH_DATA_MAX_KEYS} keys.")
+        return value
+
+    def validate_channels(self, value: list[int]) -> list[int]:
+        value = list(dict.fromkeys(value))
+        found = IntegrationManager.kinds("firebase", "apns").get_many(self.context["team_id"], value)
+        if missing := [channel for channel in value if channel not in found]:
+            raise serializers.ValidationError(f"No Firebase or APNs integration with ID {missing[0]} in this project.")
+        return value
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
         choices=["liquid"],
@@ -277,6 +353,19 @@ class MessageTemplateContentSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Email message content. Replaced as a whole on update — send the complete object.",
     )
+    push = PushTemplateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Push notification content, for push-type templates. Replaced as a whole on update — send the "
+        "complete object.",
+    )
+
+    def to_representation(self, instance: Any) -> Any:
+        data = super().to_representation(instance)
+        # Only push templates have push content, so email templates read back as they did before push existed.
+        if data.get("push") is None:
+            data.pop("push", None)
+        return data
 
 
 @extend_schema_field(OpenApiTypes.UUID)
@@ -311,6 +400,12 @@ _MAX_TAG_LENGTH = 255  # Tag.name column limit.
 
 
 class MessageTemplateSerializer(serializers.Serializer):
+    _create_in_folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Project folder for the new email template.",
+    )
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=400, help_text="Human-readable template name shown in the library.")
     description = serializers.CharField(
@@ -339,7 +434,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         max_length=24,
         allow_blank=True,
         required=False,
-        help_text="Message channel of the template. Currently 'email'.",
+        help_text="Message channel of the template: 'email' (the default) or 'push'.",
     )
     message_category = MessageTemplateCategoryField(
         required=False,
@@ -357,7 +452,7 @@ class MessageTemplateSerializer(serializers.Serializer):
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="The workflow that sends this template over the transactional email API. Null until the "
+        help_text="The workflow that sends this template over the transactional email or push API. Null until the "
         "template is made transactional. Each content save writes a new version of it.",
     )
     draft_content = MessageTemplateContentSerializer(
@@ -370,6 +465,9 @@ class MessageTemplateSerializer(serializers.Serializer):
         read_only=True, help_text="Whether the template has unpublished edits in `draft_content`."
     )
 
+    def validate__create_in_folder(self, value: str) -> str:
+        return validate_file_system_path(value) if value else value
+
     def validate_tags(self, tags: list[str]) -> list[str]:
         # The stored name is the tagified one, and lowercasing can lengthen a string: "\u0130" becomes two
         # code points. Checking the submitted length alone lets an over-long name reach Tag.name.
@@ -377,8 +475,24 @@ class MessageTemplateSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"A tag may be at most {_MAX_TAG_LENGTH} characters once lowercased.")
         return tags
 
+    def validate_type(self, value: str) -> str:
+        if value and value not in TEMPLATE_TYPES:
+            raise serializers.ValidationError(f"Use one of: {', '.join(TEMPLATE_TYPES)}.")
+        return value
+
     def validate(self, data: Any) -> Any:
-        template_type = data.get("type")
+        validate_file_system_placement(
+            data.get("_create_in_folder"), data.get("name", self.instance.name if self.instance else None)
+        )
+        template_type = data.get("type", self.instance.type if self.instance else None)
+        push = data.get("content", {}).get("push") if data.get("content") else None
+        # Only published content needs a title and body. A draft may still be missing them.
+        if template_type == "push" and push is not None:
+            for field in ("title", "body"):
+                if not (push.get(field) or "").strip():
+                    raise serializers.ValidationError(
+                        {"content": {"push": {field: f"A {field} is required for push templates."}}}
+                    )
         email = data.get("content", {}).get("email") if data.get("content") else None
         # Only published content needs a subject. A draft may still be missing one.
         if email and (template_type == "email" or "subject" in email) and not email.get("subject"):
@@ -414,6 +528,13 @@ class MessageTemplateSerializer(serializers.Serializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
+
+
+class MessageTemplatePlacementSerializer(serializers.Serializer):
+    path = serializers.CharField(
+        allow_null=True,
+        help_text="Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.",
+    )
 
 
 class MessageTemplateBasicSerializer(MessageTemplateSerializer):
@@ -468,13 +589,22 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
+EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
+SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
+EMAIL_IMPACT_FLAG = "workflows-email-impact"
+EMAIL_BATCH_FLAG = "workflows-email-batch-sends"
 FIRST_CODE_SEND_EVENT = "email first code send"
+INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
+USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
 
 
 DISTINCT_ID_HELP_TEXT = (
-    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
-    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
-    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. "
+    "Defaults to the recipient's email address. The events join the person who has this ID, or start a new person "
+    "when nobody has it. No events are captured when the project's engagement events setting is off, or when "
+    "`tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read "
+    "the person's properties, so pass everything it needs in `message_data`."
 )
 
 
@@ -499,6 +629,98 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     identifiers = TransactionalEmailIdentifiersSerializer(
         required=False, help_text="Who the email is for, used to attribute engagement events."
     )
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, MultiValueDict) and len(data.getlist("scheduled_at")) > 1:
+            raise serializers.ValidationError(
+                {"scheduled_at": ErrorDetail(str(ScheduledAtField.default_error_messages["repeated"]), code="repeated")}
+            )
+        if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
+            team = self.context.get("team")
+            if (
+                team is not None
+                and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG)
+                and _flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG)
+            ):
+                route = f"/api/projects/{team.id}/messaging/send/email/"
+                fix = f"To schedule it, send it with `template_id` on `{route}`, or leave out"
+            else:
+                fix = "Leave out"
+            raise serializers.ValidationError(
+                {
+                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. "
+                    f"{fix} `scheduled_at` to send it now."
+                }
+            )
+        return super().to_internal_value(data)
+
+
+# Django's parser also takes week dates, offsets with seconds and digits past the microsecond, and reads some of
+# them as an earlier time than the caller wrote. Only this shape reaches it, the same syntax the generated clients'
+# `date-time` validator checks.
+SCHEDULED_AT_SHAPE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.(?P<fraction>\d+))?)?(?:Z|[+-]\d{2}:(?P<offset_minutes>\d{2}))?",
+    re.ASCII,
+)
+
+
+class ScheduledAtField(serializers.DateTimeField):
+    default_error_messages = {
+        "no_offset": "Add a UTC offset to the time, such as `Z` or `+01:00`, so PostHog knows when to send it.",
+        "invalid_offset": "Use a UTC offset whose minutes run from 00 to 59, such as `+01:30`.",
+        "invalid_format": "Use a time like `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
+        "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional.",
+        "repeated": "Send `scheduled_at` once, so PostHog knows which time to send the email at.",
+        "too_early": "Use a time from `0001-01-01T00:00:00Z` on.",
+    }
+
+    def get_value(self, dictionary: Mapping[str, Any]) -> Any:
+        # A form body has no null, and DRF reads a blank there as one, which would send the email now. DRF also
+        # keeps only the last of repeated values, which can be an earlier time than the one before it.
+        if isinstance(dictionary, MultiValueDict):
+            values = dictionary.getlist(self.field_name)
+            if len(values) > 1:
+                return _Repeated(values)
+            if values == [""]:
+                return ""
+        return super().get_value(dictionary)
+
+    def enforce_timezone(self, value: datetime) -> datetime:
+        if timezone.is_naive(value):
+            self.fail("no_offset")
+        try:
+            value.astimezone(UTC)
+        except OverflowError:
+            # In UTC this falls outside the datetimes Python holds. Clamped, the seven-day check refuses a late one.
+            # An early one is refused here, since clamping would give distinct times one idempotency fingerprint.
+            if value.year != datetime.max.year:
+                self.fail("too_early")
+            return datetime.max.replace(tzinfo=UTC)
+        return super().enforce_timezone(value)
+
+    def to_internal_value(self, value: Any) -> datetime:
+        if isinstance(value, _Repeated):
+            self.fail("repeated")
+        if not isinstance(value, str | datetime):
+            self.fail("invalid_format")
+        shape = SCHEDULED_AT_SHAPE.fullmatch(value) if isinstance(value, str) else None
+        if isinstance(value, str) and shape is None:
+            self.fail("invalid_format")
+        if shape and int(shape["offset_minutes"] or 0) > 59:
+            self.fail("invalid_offset")
+        scheduled_at = super().to_internal_value(value)
+        past_a_microsecond = bool(shape and (shape["fraction"] or "")[6:].strip("0"))
+        below_a_millisecond = scheduled_at.microsecond % 1000
+        if below_a_millisecond or past_a_microsecond:
+            try:
+                scheduled_at += timedelta(microseconds=1000 - below_a_millisecond)
+            except OverflowError:
+                return datetime.max.replace(tzinfo=UTC)
+        return scheduled_at
+
+
+class _Repeated(list):
+    pass
 
 
 CODE_SEND_FIELDS = (
@@ -558,14 +780,18 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         max_length=1024,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender, or from its only verified sender when it has no default.",
+        "the project's default sender, or from its only verified sender when it has no default. A project with no "
+        "verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its "
+        "organization, and then only to members of the organization. That sender ignores this field and says so in "
+        "the response's `warnings`.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
-        help_text="Addresses replies to the email your code rendered go to.",
+        help_text="Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and "
+        "says so in the response's `warnings`.",
     )
     cc = AddressListField(
         required=False,
@@ -601,17 +827,26 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures "
         "engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object "
         "sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks "
-        "opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see "
-        "`sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a "
-        "redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open "
+        "opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` "
+        "keeps its own address, so an app link still opens the app. Click tracking needs open "
         "tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
         "says. The object form needs a JSON body.",
+    )
+    scheduled_at = ScheduledAtField(
+        required=False,
+        allow_null=True,
+        help_text="When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
+        "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and "
+        "rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out "
+        "or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body "
+        "that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it "
+        "refuses a time with a 400.",
     )
     sensitive = OmittableBooleanField(
         required=False,
         help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
-        "keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and "
-        "keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. "
+        "leave the subject off engagement events, record only the site address of a clicked link, and keep the "
+        "content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. "
         "It can't be false when the matched template is sensitive.",
     )
 
@@ -647,7 +882,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return value
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        sent = _sent_fields(self.initial_data)
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
@@ -683,6 +918,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return data
 
 
+def _sent_fields(initial_data: Any) -> set[str]:
+    if not isinstance(initial_data, Mapping):
+        return set()
+    return {field for field in initial_data if not (field == "scheduled_at" and initial_data[field] is None)}
+
+
 def _within_body_limit(value: str, body: str) -> str:
     if len(value.encode()) > CODE_BODY_MAX_BYTES:
         raise serializers.ValidationError(
@@ -701,12 +942,41 @@ def _is_sender_address(address: str) -> bool:
     return True
 
 
+class ExpectedType(models.TextChoices):
+    # Named and labelled to keep the generated ExpectedTypeEnum unchanged.
+    EMAIL = "email", "email"
+    PUSH = "push", "push"
+
+
 class MakeTransactionalSerializer(serializers.Serializer):
     from_integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
         help_text="ID of the verified email sender integration the email is sent from. Defaults to the project's "
-        "default sender.",
+        "default sender. Ignored for push templates.",
+    )
+    expected_type = serializers.ChoiceField(
+        choices=ExpectedType.choices,
+        required=False,
+        help_text="The template type the caller means to make transactional. A template of another type is refused, "
+        "so a push tool can't make an email template transactional, and the other way round.",
+    )
+
+
+class SendWarningSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=SendWarningCode.choices,
+        help_text="What the warning is about. `sandbox_sender`: the email goes out from the PostHog test sender "
+        "because the project has no verified sending domain, so it only reaches members of the organization.",
+    )
+    message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
+    setup_url = serializers.CharField(
+        help_text="Absolute URL of the page where the project verifies a sending domain: the page of its unverified "
+        "sender when it has one, otherwise the page that adds a new one."
+    )
+    agent_action = serializers.CharField(
+        help_text="The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP "
+        "tool starts the domain setup."
     )
 
 
@@ -718,6 +988,33 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
         help_text="True when an earlier request with the same `Idempotency-Key` already queued this email. "
         "No new email was sent, and `message_id` is the earlier send's ID."
     )
+    warnings = SendWarningSerializer(
+        many=True,
+        required=False,
+        help_text="Things the caller should act on although the email was queued. Left out when there are none.",
+    )
+    status = serializers.ChoiceField(
+        choices=QueuedEmailStatus.choices,
+        required=False,
+        help_text="Only in the answer to a request with `scheduled_at`. `scheduled`: the email waits for "
+        "`scheduled_at`. `queued`: the time had passed, so the email goes out now.",
+    )
+    scheduled_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Only in the answer to a request with `scheduled_at`. The time the email waits for, to the "
+        "millisecond, or null when the time had passed and the email goes out now. A retry with the same "
+        "`Idempotency-Key` answers the first request's time.",
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not data.get("warnings"):
+            data.pop("warnings", None)
+        if not self.context.get("scheduled"):
+            data.pop("status", None)
+            data.pop("scheduled_at", None)
+        return data
 
 
 class TransactionalEmailRejected(exceptions.ValidationError):
@@ -729,6 +1026,9 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "sending_paused": 422,
         "recipient_suppressed": 422,
         "recipient_unreachable": 422,
+        "sandbox_recipient_not_member": 422,
+        "sandbox_sender_unavailable": 403,
+        "batch_unavailable": 409,
     }
     # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
@@ -758,11 +1058,13 @@ def unconfirmed_email_send() -> ExplainedRefusal:
 
 class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
@@ -770,11 +1072,13 @@ class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
     """Per-team aggregate across all of a project's secret API keys."""
 
     scope = "transactional_email_psak_team_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "transactional_email_psak_team_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
@@ -789,6 +1093,18 @@ def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
 
 def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
+
+
+def require_email_batch_sends(team: Any) -> None:
+    _require_flag(team, EMAIL_BATCH_FLAG)
+
+
+def require_transactional_push_api(team: Any) -> None:
+    _require_flag(team, TRANSACTIONAL_PUSH_API_FLAG)
+
+
+def require_email_impact(team: Any) -> None:
+    _require_flag(team, EMAIL_IMPACT_FLAG)
 
 
 def require_email_from_code(team: Any) -> None:
@@ -817,7 +1133,9 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
-def transactional_email_throttles() -> list[BaseThrottle]:
+def transactional_email_throttles() -> list[
+    PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle
+]:
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
         TransactionalEmailBurstThrottle(),
@@ -832,18 +1150,41 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
-        "the project has reached its limit of template keys and the `template_key` is new"
+        "the project has reached its limit of template keys and the `template_key` is new. When a code send from a "
+        "project with no verified sending domain would go out from the PostHog test sender, that sender refuses "
+        "`cc`, `bcc` and `attachments`"
+    ),
+    403: OpenApiResponse(
+        description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
+        "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request"
+        "used for a different request, or the email would go out from the PostHog test sender to someone outside the "
+        "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
     503: OpenApiResponse(description="The email pipeline did not confirm the send"),
 }
+
+
+def require_workflow_editor(team_id: int, hog_flow_id: Any, user_access_control: "UserAccessControl") -> None:
+    try:
+        get_workflow_ref(
+            team_id=team_id,
+            workflow_id=str(hog_flow_id),
+            user_access_control=user_access_control,
+            required_level="editor",
+        )
+    except WorkflowAccessDenied:
+        raise exceptions.PermissionDenied(
+            "You need editor access to this template's transactional email workflow."
+        ) from None
+    except WorkflowNotFound:
+        return
 
 
 # The send path shared by the template-scoped route and the single send route. A comment, not a docstring:
@@ -859,6 +1200,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     transactional_email_route: str
     _validation_started_at: float | None = None
     _send_reported: bool = False
+    _batch_properties: Mapping[str, Any] = MappingProxyType({})
 
     def _is_transactional_email_send(self) -> bool:
         return getattr(self, "action", None) in self.transactional_email_send_actions
@@ -960,6 +1302,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
+                scheduled_at=data.get("scheduled_at"),
             ),
             usage_properties={"template_id": str(template.id)},
         )
@@ -974,10 +1317,17 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
         attachments = request.validated_data.get("attachments") or []
+        scheduled_at = request.validated_data.get("scheduled_at")
         outcome: dict[str, Any] = {"outcome": "error"}
+        scheduled_by_cdp = replayed = False
+        asked_at = timezone.now()
         try:
             queued = send(idempotency_key)
+            scheduled_by_cdp, replayed = queued.status == QueuedEmailStatus.SCHEDULED, queued.replayed
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            outcome["sender_kind"] = "sandbox" if queued.sent_from_sandbox else "own_domain"
+            if queued.warnings:
+                outcome["warning_codes"] = [warning.code for warning in queued.warnings]
             if attachments:
                 outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
@@ -997,33 +1347,44 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                self._report_transactional_email_send(request, {**usage_properties, **outcome})
+                schedule = _scheduled_send_properties(scheduled_at, asked_at, scheduled_by_cdp, replayed)
+                self._report_transactional_email_send(request, {**usage_properties, **schedule, **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
         return Response(
-            SendTransactionalEmailResponseSerializer(queued).data,
+            SendTransactionalEmailResponseSerializer(queued, context={"scheduled": scheduled_at is not None}).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
-        # The template's own access rules don't cover the workflow it sends through, which can carry its own.
         # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
         # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
-        try:
-            get_workflow(
-                team_id=self.team_id,
-                workflow_id=str(hog_flow_id),
-                user_access_control=self.user_access_control,
-                required_level="editor",
-            )
-        except WorkflowAccessDenied:
+        require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
+
+    def _writes_template_files(self, fields: dict[str, Any], template_id: UUID | None = None) -> bool:
+        """Whether this request's save may write the template's file in the project tree.
+
+        A template file needs editor access to the workflow resource, the same access the file API asks
+        for, because the action check also passes with an editor grant to one unrelated workflow. A caller
+        without it still saves the template, inside `file_system_sync(False)`, so the file keeps its name,
+        folder and existence. Filing into a folder and deleting a filed template can't save without
+        changing the file, so the caller is refused those. An update calls this while it holds the template
+        row lock, and the file API takes that lock before it files a template, so the placement read here
+        is current.
+        """
+        if is_authenticated_via_project_secret_api_key(self.request) or not self.user_access_control:
+            return True
+        if self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            return True
+        if "_create_in_folder" in fields or (
+            fields.get("deleted") and template_id and get_template_placement(self.team_id, template_id).path
+        ):
             raise exceptions.PermissionDenied(
-                "You need editor access to this template's transactional email workflow."
-            ) from None
-        except WorkflowNotFound:
-            return
+                "You need editor access to workflows to file this template. Ask a project admin to grant it."
+            )
+        return False
 
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
@@ -1064,12 +1425,14 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._send_reported = True
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
             posthoganalytics.capture(
                 distinct_id=request.user.distinct_id,
                 event="transactional email api send",
                 properties={
+                    "source": get_event_source(request),
+                    **get_mcp_properties(request),
+                    "migrated_from": sanitize_header_value(request.headers.get("X-PostHog-Migrated-From")),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)
@@ -1077,7 +1440,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                     "route": self.transactional_email_route,
                     "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
+                    "client": _sending_client(request.headers),
                     **self._body_properties(request),
+                    **self._batch_properties,
                     **properties,
                 },
                 groups=groups(self.organization, self.team),
@@ -1125,10 +1490,12 @@ class MessageTemplatesViewSet(
             return transactional_email_throttles()
         return super().get_throttles()
 
-    def read_object(self) -> MessageTemplateRow | None:
+    def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
+            if self.action == "placement":
+                return get_template_placement(self.team_id, self.kwargs["pk"])
             # A send never reads the tags, so it skips their queries.
             return get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
         except MessageTemplateMissing:
@@ -1181,7 +1548,9 @@ class MessageTemplatesViewSet(
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        template = create_template(self.team_id, request.user.id, serializer.validated_data)
+        writes_files = self._writes_template_files(serializer.validated_data)
+        with self._resolve_files_flag(serializer.validated_data, request.user.id), file_system_sync(writes_files):
+            template = create_template(self.team_id, request.user.id, serializer.validated_data)
         # report_user_action injects source and MCP-client properties from the request, so a create from the
         # visual editor and one from the agent count in the same metric. Capture must never break the request.
         try:
@@ -1228,21 +1597,31 @@ class MessageTemplatesViewSet(
             fields["draft_content"] = None
         # Sends use the workflow's copy, so the template and its new workflow version are saved together,
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
-        with transaction.atomic():
+        with self._resolve_files_flag(fields, template.created_by_id), transaction.atomic():
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            writes_files = self._writes_template_files(fields, template.id)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
                     check_transactional_update(template.id, self.team_id, fields)
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
-            updated = update_template(self.team_id, template.id, fields)
+            with file_system_sync(writes_files):
+                updated = update_template(self.team_id, template.id, fields)
+                if hog_flow_id and not updated.deleted:
+                    self._sync_transactional_workflow(template.id)
             if hog_flow_id and not updated.deleted:
-                self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
                 updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _resolve_files_flag(self, fields: dict[str, Any], created_by_id: int | None) -> AbstractContextManager[None]:
+        # Filing into a requested folder asks the flag service, so it has to answer before the save locks the template.
+        if "_create_in_folder" not in fields or created_by_id is None:
+            return nullcontext()
+        creator = User.objects.filter(pk=created_by_id).first()
+        return resolved_workflows_list_v2(self.team, [creator] if creator else [])
 
     def _sync_transactional_workflow(self, template_id: Any) -> None:
         # Raising rolls back the template save, so the template and its workflow never disagree.
@@ -1272,6 +1651,21 @@ class MessageTemplatesViewSet(
             logger.warning("Failed to publish message template edited event", error=str(e))
 
     @extend_schema(
+        responses={200: MessageTemplatePlacementSerializer},
+        description="Read where the template sits in the project tree, so an undo of its delete can put it back.",
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
+    def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The action check passes with a grant to any one workflow, and template files follow the access
+        # to the whole workflow resource, so the placement asks for that before it reads the template.
+        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
+            "hog_flow", required_level="viewer"
+        ):
+            raise NotFound()
+        placement = self.get_object()
+        return Response(MessageTemplatePlacementSerializer({"path": placement.path}).data)
+
+    @extend_schema(
         request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]
     )
     @action(detail=True, methods=["PATCH"])
@@ -1299,6 +1693,8 @@ class MessageTemplatesViewSet(
                 )
 
             new_design = apply_design_operations(design, operations)
+            # The new email editor's document describes the design from before these edits.
+            new_design.pop("emailDocument", None)
             for warning in validate_design(new_design):
                 logger.info("email_template_design_warning", warning=warning, template_id=str(template.id))
 
@@ -1318,9 +1714,11 @@ class MessageTemplatesViewSet(
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
-            locked = edit_template_content(self.team_id, template.id, apply_operations)
+            with file_system_sync(self._writes_template_files({}, template.id)):
+                locked = edit_template_content(self.team_id, template.id, apply_operations)
+                if hog_flow_id:
+                    self._sync_transactional_workflow(template.id)
             if hog_flow_id:
-                self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
                 locked = get_template(self.team_id, template.id)
 
@@ -1329,6 +1727,7 @@ class MessageTemplatesViewSet(
 
     @validated_request(
         SendTransactionalEmailSerializer,
+        include_serializer_context=True,
         responses=SEND_RESPONSES,
         summary="Send a transactional email",
         description=(
@@ -1358,7 +1757,8 @@ class MessageTemplatesViewSet(
         },
         summary="Make a template transactional",
         description=(
-            "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
+            "Make this template sendable over the transactional email API, or the transactional push API for a push "
+            "template. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
@@ -1369,8 +1769,16 @@ class MessageTemplatesViewSet(
     )
     @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        self._require_transactional_email_flag()
         template = self.get_object()
+        expected_type = request.validated_data.get("expected_type")
+        if expected_type and template.type != expected_type:
+            raise exceptions.ValidationError(
+                f"This is an {template.type} template, not a {expected_type} template.", code="template_type_mismatch"
+            )
+        if template.type == "push":
+            require_transactional_push_api(self.team)
+        else:
+            self._require_transactional_email_flag()
         was_transactional = template.transactional_hog_flow_id is not None
         # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
         # when the linked workflow was deleted.
@@ -1412,7 +1820,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
-    transactional_email_send_actions = ("email",)
+    transactional_email_send_actions: tuple[str, ...] = ("email",)
     transactional_email_route = "send_email"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
@@ -1455,6 +1863,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             return self._send_code_email(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
+            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
         return self._queue_transactional_email(request, template)
@@ -1462,30 +1871,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
+            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
         data = request.validated_data
-        key = data["template_key"]
-        with transactional_email_stage("workflow_access"):
-            require_code_email_access(
-                self.team_id,
-                key,
-                require_workflow_editor=self._require_workflow_editor,
-                require_workflow_create=self._require_workflow_create,
-            )
-        email = CodeEmail(
-            key=key,
-            subject=data["subject"],
-            html=data.get("html", ""),
-            text=data.get("text", ""),
-            sender=data.get("from"),
-            reply_to=tuple(data.get("reply_to", ())),
-            tracking=data["tracking"]
-            if "tracking" in data
-            else EmailTracking(engagement=data.get("capture_engagement", True)),
-            sensitive=data.get("sensitive"),
-            cc=tuple(data.get("cc") or ()),
-            bcc=tuple(data.get("bcc") or ()),
-            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
-        )
+        self._require_code_email_access(data["template_key"])
+        email = code_email(data)
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1494,16 +1883,90 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
+                scheduled_at=data.get("scheduled_at"),
             ),
-            usage_properties={
-                "addressed_by": "template_key",
-                "tracking_opens": email.tracking.opens,
-                "tracking_clicks": email.tracking.clicks,
-                "tracking_engagement": email.tracking.engagement,
-            },
+            usage_properties=code_email_usage_properties(email),
             unavailable=unconfirmed_email_send,
         )
+
+    def _require_code_email_access(self, key: str) -> None:
+        with transactional_email_stage("workflow_access"):
+            require_code_email_access(
+                self.team_id,
+                key,
+                require_workflow_editor=self._require_workflow_editor,
+                require_workflow_create=self._require_workflow_create,
+            )
+
+
+def code_email(data: Mapping[str, Any]) -> CodeEmail:
+    return CodeEmail(
+        key=data["template_key"],
+        subject=data["subject"],
+        html=data.get("html", ""),
+        text=data.get("text", ""),
+        sender=data.get("from"),
+        reply_to=tuple(data.get("reply_to", ())),
+        tracking=data["tracking"]
+        if "tracking" in data
+        else EmailTracking(engagement=data.get("capture_engagement", True)),
+        sensitive=data.get("sensitive"),
+        cc=tuple(data.get("cc") or ()),
+        bcc=tuple(data.get("bcc") or ()),
+        attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+    )
+
+
+def code_email_usage_properties(email: CodeEmail) -> dict[str, Any]:
+    return {
+        "addressed_by": "template_key",
+        "tracking_opens": email.tracking.opens,
+        "tracking_clicks": email.tracking.clicks,
+        "tracking_engagement": email.tracking.engagement,
+    }
+
+
+def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
+    if scheduled_at is None:
+        return
+    if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
+        raise serializers.ValidationError(
+            {
+                "scheduled_at": "Scheduled sends are off for this project, so PostHog didn't send this request's "
+                "email. An email PostHog already scheduled still goes out at its time. To send this one now, leave out "
+                "`scheduled_at`."
+            }
+        )
+    if scheduled_at - timezone.now() > SCHEDULED_SEND_MAX_LEAD:
+        raise ExplainedRefusal(
+            "`scheduled_at` is more than 7 days away, so PostHog didn't send the email.",
+            code="scheduled_too_far",
+            attr="scheduled_at",
+            why="PostHog holds a scheduled email for at most 7 days after the request.",
+            fix="Pick a time within 7 days, or send the email closer to the time.",
+        )
+
+
+def _scheduled_send_properties(
+    scheduled_at: datetime | None, asked_at: datetime, scheduled: bool, replayed: bool
+) -> dict[str, Any]:
+    if scheduled_at is None or not scheduled:
+        return {"scheduled": False, "scheduled_lead_bucket": None}
+    # A replay schedules nothing new, and its lead from now says nothing about the lead the first send had.
+    if replayed:
+        return {"scheduled": True, "scheduled_lead_bucket": None}
+    lead = scheduled_at - asked_at
+    bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
+    return {"scheduled": True, "scheduled_lead_bucket": bucket}
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
     return data.get("distinct_id") or (data.get("identifiers") or {}).get("distinct_id") or None
+
+
+def _sending_client(headers: Mapping[str, str]) -> str:
+    marker = INTEGRATION_MARKER.fullmatch(headers.get("X-PostHog-Integration", ""))
+    if marker:
+        return marker.group(1)
+    product = USER_AGENT_PRODUCT.match(headers.get("User-Agent", ""))
+    return product.group(1).lower() if product else "unknown"
