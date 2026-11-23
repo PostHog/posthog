@@ -7,7 +7,6 @@ import secrets
 from datetime import timedelta
 from typing import Any, cast
 
-from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.core.cache import cache
 from django.http import HttpResponseRedirect
@@ -22,7 +21,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.normal_login import normal_login_required_reason
+from posthog.helpers.normal_login import normal_login_required_reason, normal_login_url
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.models.team.team import Team
@@ -224,7 +223,7 @@ def _session_refusal(user: User, redirect_path: str, *, team_id: int | None, pur
     if normal_login_reason is not None:
         capture_deep_link_event(normal_login_reason.value, user_id=user.id, team_id=team_id, purpose=purpose)
         logger.warning("agentic_login.normal_login_required", user_id=user.id, reason=normal_login_reason.value)
-        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+        return HttpResponseRedirect(normal_login_url(redirect_path))
 
     return None
 

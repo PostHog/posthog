@@ -1,5 +1,8 @@
 from enum import StrEnum
 
+from django.conf import settings
+from django.utils.http import urlencode
+
 from two_factor.utils import default_device
 
 from posthog.helpers.two_factor_session import has_passkeys
@@ -27,3 +30,11 @@ def normal_login_required_reason(user: User) -> NormalLoginRequiredReason | None
         return NormalLoginRequiredReason.SSO_ENFORCED
 
     return None
+
+
+def normal_login_url(next_path: str) -> str:
+    """Return the login page URL that sends the user to the same-origin `next_path` after they sign in."""
+    path, fragment_separator, fragment = next_path.partition("#")
+
+    # The login page drops the fragment of `next` and keeps the fragment of its own URL, so the fragment goes there.
+    return f"{settings.LOGIN_URL}?{urlencode({'next': path})}{fragment_separator}{fragment}"

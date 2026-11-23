@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.core.cache import cache
 from django.http import HttpResponseBase, HttpResponseRedirect
@@ -27,7 +26,7 @@ import structlog
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.normal_login import normal_login_required_reason
+from posthog.helpers.normal_login import normal_login_required_reason, normal_login_url
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -92,7 +91,7 @@ def _session_refusal(user: User, redirect_path: str, *, team_id: int | None, pur
         logger.warning(
             "stripe_provisioning.login.normal_login_required", user_id=user.id, reason=normal_login_reason.value
         )
-        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+        return HttpResponseRedirect(normal_login_url(redirect_path))
 
     return None
 
