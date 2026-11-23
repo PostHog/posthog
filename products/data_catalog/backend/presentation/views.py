@@ -595,7 +595,6 @@ class RelationshipProposalViewSet(
             joining_table_key=data["joining_table_key"],
             field_name=data["field_name"],
             configuration=data.get("configuration"),
-            confidence=data.get("confidence"),
             reasoning=data.get("reasoning", ""),
             evidence=data.get("evidence"),
             request=request,

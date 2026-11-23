@@ -477,7 +477,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_key",
             "field_name",
             "configuration",
-            "confidence",
             "reasoning",
             "evidence",
             "status",
@@ -504,7 +503,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_name": {"help_text": "Name of the table being joined in."},
             "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
             "field_name": {"help_text": "Accessor the join adds to the source table."},
-            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
             "reasoning": {"help_text": "Why this join is proposed."},
         }
 
