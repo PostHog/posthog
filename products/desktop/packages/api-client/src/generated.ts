@@ -11063,6 +11063,10 @@ export namespace Schemas {
          * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
          */
         variant: string | null;
+        /**
+         * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody.
+         */
+        reachable: boolean;
     };
     export type ExperimentHealthExposureSetup = {
         /**
