@@ -282,13 +282,14 @@ export function ChatScreen({
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
     const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
-    const dictationDisabled =
-        !focused || !visible || !composerDraft.ready || historyStatus !== 'idle' || session.decision !== undefined
+    const dictationDisabled = !focused || !visible || historyStatus !== 'idle' || session.decision !== undefined
     const dictation = useChatDictation({
+        composer: 'tasks',
         onTranscript: composerDraft.appendText,
         draftText: text,
-        scopeKey: JSON.stringify([accountScope, draftTaskId, draftReportId, session.taskId]),
+        scopeKey: JSON.stringify([accountScope, target.taskId, target.runId, draftReportId]),
         disabled: dictationDisabled,
+        startDisabled: !composerDraft.ready,
     })
     const dictating = dictation.phase !== 'idle'
     const cancelDictation = dictation.cancel
@@ -739,7 +740,9 @@ export function ChatScreen({
                                             ) : null}
                                             <Composer
                                                 dictation={dictation}
-                                                dictationDisabled={dictationDisabled}
+                                                dictationDisabled={
+                                                    dictationDisabled || (!composerDraft.ready && !dictating)
+                                                }
                                                 compact={compact}
                                                 ref={inputRef}
                                                 text={text}

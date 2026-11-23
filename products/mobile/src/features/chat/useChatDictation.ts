@@ -4,13 +4,17 @@ import type { ExpoSpeechRecognitionErrorCode, ExpoSpeechRecognitionModule } from
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { AppState, Platform } from 'react-native'
 
+import { track } from '@/lib/analytics'
+
 import { chatDictationPhrases } from './chatDictationPhrases'
 
 type Phase = 'idle' | 'starting' | 'listening' | 'finishing'
 type SpeechRecognition = typeof ExpoSpeechRecognitionModule
 type Options = {
     onTranscript: (transcript: string) => void
+    composer: 'tasks' | 'classic'
     disabled?: boolean
+    startDisabled?: boolean
     scopeKey: string | number
     draftText?: string
 }
@@ -104,7 +108,14 @@ function installedLocale(languageTag: string, installedLocales: string[]): strin
     )?.locale
 }
 
-export function useChatDictation({ onTranscript, disabled = false, scopeKey, draftText = '' }: Options): Dictation {
+export function useChatDictation({
+    onTranscript,
+    composer,
+    disabled = false,
+    startDisabled = false,
+    scopeKey,
+    draftText = '',
+}: Options): Dictation {
     const [recognizer] = useState(getRecognizer)
     const [phase, setPhase] = useState<Phase>('idle')
     const [preview, setPreview] = useState('')
@@ -121,10 +132,14 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
 
     const abandon = useCallback((): void => {
         const current = session.current
+        if (!current) {
+            return
+        }
         session.current = null
-        current?.resumeAfterPermission?.()
-        current?.cancelNative?.()
-    }, [])
+        current.resumeAfterPermission?.()
+        current.cancelNative?.()
+        track('mobile_chat_dictation_finished', { composer, outcome: 'cancelled' })
+    }, [composer])
 
     const cancel = useCallback((): void => {
         abandon()
@@ -165,7 +180,7 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
             }
             return
         }
-        if (!foreground.current) {
+        if (startDisabled || !foreground.current) {
             return
         }
 
@@ -173,6 +188,7 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
         session.current = current
         setPhase('starting')
         setError(null)
+        track('mobile_chat_dictation_started', { composer })
 
         const finish = (message: string | null, transcript?: string): void => {
             if (session.current !== current) {
@@ -182,6 +198,10 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
             setPhase('idle')
             setPreview('')
             setError(message)
+            track('mobile_chat_dictation_finished', {
+                composer,
+                outcome: transcript ? 'transcribed' : message ? 'failed' : 'cancelled',
+            })
             if (transcript) {
                 onTranscriptRef.current(transcript)
             }
@@ -431,7 +451,7 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
             }
         }
         void start()
-    }, [cancel, disabled, recognizer])
+    }, [cancel, composer, disabled, recognizer, startDisabled])
 
     return { available: recognizer !== null, phase, preview, error, toggle, cancel, isActive }
 }

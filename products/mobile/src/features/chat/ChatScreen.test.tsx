@@ -175,6 +175,39 @@ test('keeps dictation preview separate and blocks keyboard submission from queui
     expect(stopButtons.map((button) => button.props.accessibilityLabel)).toEqual(['Start dictation', 'Stop the reply'])
 })
 
+test('keeps the dictation scope and stop button while a new chat adopts its task draft', () => {
+    const { session, draft } = mockReadyChat()
+    session.taskId = null
+    session.isSending = true
+    const dictation = {
+        available: true,
+        phase: 'listening',
+        preview: 'Follow up',
+        error: null,
+        toggle: jest.fn(),
+        cancel: jest.fn(),
+        isActive: () => true,
+    } as const
+    jest.mocked(useChatDictation).mockReturnValue(dictation)
+    const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+    const before = jest.mocked(useChatDictation).mock.lastCall?.[0]
+
+    session.taskId = 'task-1'
+    view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+    expect(jest.mocked(useChatDictation).mock.lastCall?.[0].scopeKey).toBe(before?.scopeKey)
+
+    session.isSending = false
+    draft.ready = false
+    view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+    expect(jest.mocked(useChatDictation).mock.lastCall?.[0]).toMatchObject({
+        scopeKey: before?.scopeKey,
+        disabled: false,
+        startDisabled: true,
+    })
+    expect(screen.getByLabelText('Stop dictation')).toBeEnabled()
+    expect(screen.getByTestId('chat-dictation-preview')).toHaveTextContent('Follow up')
+})
+
 describe('chat send preparation', () => {
     test('focuses the composer only when the route is ready', () => {
         mockReadyChat()

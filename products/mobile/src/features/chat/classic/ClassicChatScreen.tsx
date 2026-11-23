@@ -107,6 +107,7 @@ export function ClassicChatScreen({
     )
     const composerDisabled = !draft.ready || chat.loading || !!chat.historyError || sending
     const dictation = useChatDictation({
+        composer: 'classic',
         onTranscript: draft.appendText,
         draftText: draft.draft.text,
         scopeKey: JSON.stringify([accountScope, conversationId, chat.id]),

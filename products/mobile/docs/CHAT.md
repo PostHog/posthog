@@ -117,6 +117,11 @@ You can keep typing while the live transcript is visible. Tap the microphone aga
 recognizer finish after a pause. The phrase is appended to the latest draft. You can edit it, dictate
 another phrase, and press Send when you're ready. Dictation uses PostHog product names and technical
 terms as recognition hints. Availability depends on the device and its installed language models.
+A live phrase stays active while a new chat's draft moves to its newly created task.
+
+`mobile_chat_dictation_started` records the composer (`tasks` or `classic`).
+`mobile_chat_dictation_finished` also records the outcome (`transcribed`, `cancelled`, or `failed`).
+These events carry only those categories.
 
 Text and attached report IDs are saved separately for each task, each report discussion, and
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
