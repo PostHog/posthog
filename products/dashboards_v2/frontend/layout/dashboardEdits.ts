@@ -1,5 +1,5 @@
 import {
-    type ContentWidget,
+    type ContentWidgetParts,
     type Dashboard,
     type DashboardAppearance,
     GRID,
@@ -15,16 +15,17 @@ import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
 import { minRows, widgetSize } from './widgetSizes'
 
 export type DashboardEdit =
-    | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace> }
+    | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace>; resized?: string }
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
-    | { edit: 'setTileParts'; id: string; parts: ContentWidget['parts'] }
+    | { edit: 'setTileParts'; id: string; parts: ContentWidgetParts }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
-    | { edit: 'moveTab'; id: string; index: number }
+    /** `before` is the tab it lands in front of; null puts it last. */
+    | { edit: 'moveTab'; id: string; before: string | null }
     | { edit: 'setAppearance'; patch: DashboardAppearance }
 
 function minWidthOf(tile: Tile): number {
@@ -75,7 +76,6 @@ function settleGrid(tiles: Tile[], cols: number, fitGapPx: number | null): Tile[
     return withPlaces(sized, placeTiles(toPlacedItems(sized), cols))
 }
 
-/** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
 /** Every tile full width, one under another in reading order: top to bottom, then left to right. */
 export function stackTiles(tiles: Tile[], cols: number): Tile[] {
     const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
@@ -89,14 +89,12 @@ export function stackTiles(tiles: Tile[], cols: number): Tile[] {
     })
 }
 
-/** A chart sized for a wide screen would fill a phone, so stacked charts stay between these heights. */
-const STACKED_CHART_ROWS = { min: 5, max: 8 }
-
 function stackedRows(tile: Tile): number {
-    if (tile.widget.type !== 'line' && tile.widget.type !== 'bar') {
+    const range = widgetSize(tile.widget).stackedRows
+    if (!range) {
         return tile.place.h
     }
-    return Math.min(STACKED_CHART_ROWS.max, Math.max(STACKED_CHART_ROWS.min, tile.place.h))
+    return Math.min(range.max, Math.max(range.min, tile.place.h))
 }
 
 function stackSection(tile: SectionTile, cols: number, y: number): Tile {
@@ -120,6 +118,7 @@ export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>):
     return settleDashboard(folded, true)
 }
 
+/** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
 export function settleDashboard(dashboard: Dashboard, fitParts = false): Dashboard {
     const fitGapPx = fitParts ? gapPxOf(dashboard) : null
     return {
@@ -190,10 +189,17 @@ function newId(dashboard: Dashboard, prefix: string): string {
  * Puts `tile` into a grid at a cell, by the same rules a drag inside that grid follows. The grid shows this
  * result as its preview while a tile from elsewhere hovers over it, so the preview and the drop cannot differ.
  */
-export function dropIntoGrid(tiles: Tile[], cols: number, gapPx: number, tile: Tile, x: number, y: number): Tile[] {
+export function dropIntoGrid(
+    tiles: Tile[],
+    cols: number,
+    fitGapPx: number | null,
+    tile: Tile,
+    x: number,
+    y: number
+): Tile[] {
     const w = Math.min(tile.place.w, cols)
     // A section that lands narrower reflows its own tiles, which changes its height, so the preview uses the result.
-    const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w, gapPx)
+    const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w, fitGapPx)
     const dropped = { ...sized, place: { ...sized.place, x: Math.max(0, Math.min(cols - w, x)), y: Math.max(0, y) } }
     const next = [...tiles, dropped]
     const placed = placeTiles(toPlacedItems(next), cols, {
@@ -214,9 +220,7 @@ function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'mo
         return dashboard
     }
     const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
-    return changeGrid(without, edit.grid, (tiles) =>
-        dropIntoGrid(tiles, target.cols, gapPxOf(without), tile, edit.x ?? 0, y)
-    )
+    return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, null, tile, edit.x ?? 0, y))
 }
 
 function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>): Dashboard {
@@ -243,7 +247,14 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
     switch (edit.edit) {
         case 'placeTiles':
             return changeGrid(dashboard, edit.grid, (tiles) =>
-                tiles.map((tile) => (edit.places[tile.id] ? { ...tile, place: edit.places[tile.id] } : tile))
+                tiles.map((tile) => {
+                    const place = edit.places[tile.id]
+                    if (!place) {
+                        return tile
+                    }
+                    // The grid shows tiles at their fitted height, so only a resized tile's height is a choice to save.
+                    return { ...tile, place: { ...place, h: tile.id === edit.resized ? place.h : tile.place.h } }
+                })
             )
         case 'moveTile':
             return moveTile(dashboard, edit)
@@ -280,7 +291,10 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
                 return dashboard
             }
             const rest = dashboard.tabs.filter((candidate) => candidate.id !== edit.id)
-            const index = Math.max(0, Math.min(edit.index, rest.length))
+            const index = edit.before === null ? rest.length : rest.findIndex((other) => other.id === edit.before)
+            if (index === -1) {
+                return dashboard
+            }
             return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
         }
         case 'setAppearance':

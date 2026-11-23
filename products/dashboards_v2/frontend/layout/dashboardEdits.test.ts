@@ -1,4 +1,12 @@
-import { applyEdit, dropIntoGrid, findTile, settleDashboard, stackTiles, withFolds } from './dashboardEdits'
+import {
+    type DashboardEdit,
+    applyEdit,
+    dropIntoGrid,
+    findTile,
+    settleDashboard,
+    stackTiles,
+    withFolds,
+} from './dashboardEdits'
 import { type Dashboard, type Tile, gapPxOf } from './dashboardTypes'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
@@ -140,41 +148,81 @@ describe('dashboardEdits', () => {
         ])
     })
 
-    test.each([
-        { name: 'to the front', id: 'third', index: 0, expected: ['third', 'first', 'second'] },
-        { name: 'to the end', id: 'first', index: 2, expected: ['second', 'third', 'first'] },
-        { name: 'past the end, clamped', id: 'first', index: 9, expected: ['second', 'third', 'first'] },
-        { name: 'onto its own place', id: 'second', index: 1, expected: ['first', 'second', 'third'] },
-    ])('moves a tab $name and keeps its tiles', ({ id, index, expected }) => {
+    test.each<{ name: string; id: string; before: string | null; expected: string[] }>([
+        {
+            name: 'right, in front of a later tab',
+            id: 'first',
+            before: 'third',
+            expected: ['second', 'first', 'third'],
+        },
+        { name: 'right, to the end', id: 'first', before: null, expected: ['second', 'third', 'first'] },
+        { name: 'left, to the front', id: 'third', before: 'first', expected: ['third', 'first', 'second'] },
+        { name: 'in front of itself', id: 'second', before: 'second', expected: ['first', 'second', 'third'] },
+        {
+            name: 'in front of the tab already after it',
+            id: 'first',
+            before: 'second',
+            expected: ['first', 'second', 'third'],
+        },
+    ])('moves a tab $name and keeps its tiles', ({ id, before, expected }) => {
         const board = { ...nested, tabs: [...nested.tabs, { id: 'third', title: 'Third', tiles: [] }] }
 
-        const moved = applyEdit(board, { edit: 'moveTab', id, index })
+        const moved = applyEdit(board, { edit: 'moveTab', id, before })
 
         expect(moved.tabs.map((tab) => tab.id)).toEqual(expected)
         expect(allPlaces(moved).sort()).toEqual(allPlaces(board).sort())
     })
 
-    it('sets tile spacing for the whole dashboard and keeps other appearance settings', () => {
+    it('sets tile spacing for the whole dashboard', () => {
         const board = dashboard([text('a', 0, 0, 12, 2)])
 
         const tight = applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
 
         expect(tight.appearance).toEqual({ tileSpacing: 'tight' })
         expect(gapPxOf(tight)).toBe(8)
-        expect(gapPxOf(board)).toBe(12)
     })
 
-    it('shows a tile one row taller at tight spacing without saving the taller height', () => {
-        const revenue: Tile = {
-            id: 'revenue',
-            place: { x: 0, y: 0, w: 6, h: 3 },
-            widget: { type: 'stat', title: 'Revenue', footer: [{ type: 'updatedAt' }] },
+    test.each<{ name: string; edit: (shown: Dashboard) => DashboardEdit | null; saved: string }>([
+        { name: 'switching spacing', edit: () => null, saved: 'revenue@first: 0,0,6,3' },
+        {
+            name: 'dragging the tiles it is shown with',
+            edit: (shown) => ({
+                edit: 'placeTiles',
+                grid: 'first',
+                places: Object.fromEntries(shown.tabs[0].tiles.map((tile) => [tile.id, { ...tile.place, x: 6 }])),
+            }),
+            saved: 'revenue@first: 6,0,6,3',
+        },
+        {
+            name: 'moving it to another tab',
+            edit: () => ({ edit: 'moveTile', id: 'revenue', grid: 'second', x: 0, y: 0 }),
+            saved: 'revenue@second: 0,0,6,3',
+        },
+    ])(
+        'shows a tile one row taller at tight spacing without saving the taller height after $name',
+        ({ edit, saved }) => {
+            const revenue: Tile = {
+                id: 'revenue',
+                place: { x: 0, y: 0, w: 6, h: 3 },
+                widget: { type: 'stat', title: 'Revenue', footer: [{ type: 'updatedAt' }] },
+            }
+            const tight = applyEdit(dashboard([revenue]), { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
+            const shown = withFolds(tight, {})
+            const change = edit(shown)
+            const after = change ? applyEdit(tight, change) : tight
+
+            expect(allPlaces(shown)).toEqual(['revenue@first: 0,0,6,4'])
+            expect(allPlaces(after)).toEqual([saved])
         }
-        const board = dashboard([revenue])
+    )
 
-        const tight = applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
+    it('saves the height a person resizes a tile to', () => {
+        const board = dashboard([text('a', 0, 0, 6, 2), text('b', 6, 0, 6, 2)])
+        const places = { a: { x: 0, y: 0, w: 6, h: 5 }, b: { x: 6, y: 0, w: 6, h: 2 } }
 
-        expect(allPlaces(withFolds(tight, {}))).toEqual(['revenue@first: 0,0,6,4'])
-        expect(allPlaces(tight)).toEqual(['revenue@first: 0,0,6,3'])
+        expect(allPlaces(applyEdit(board, { edit: 'placeTiles', grid: 'first', places, resized: 'a' }))).toEqual([
+            'a@first: 0,0,6,5',
+            'b@first: 6,0,6,2',
+        ])
     })
 })

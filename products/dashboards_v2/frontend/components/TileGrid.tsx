@@ -177,12 +177,12 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
     )
 
     const savePlaces = useCallback(
-        (finalLayout: Layout): void => {
+        (finalLayout: Layout, resized?: string): void => {
             const places: Record<string, TilePlace> = {}
             for (const { i, x, y, w, h } of finalLayout) {
                 places[i] = { x, y, w, h }
             }
-            applyDashboardEdit({ edit: 'placeTiles', grid: gridId, places })
+            applyDashboardEdit({ edit: 'placeTiles', grid: gridId, places, resized })
         },
         [applyDashboardEdit, gridId]
     )
@@ -276,9 +276,9 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                     }
                 }}
                 onResizeStart={(current, _old, item) => begin(current, item, 'resize')}
-                onResizeStop={(finalLayout) => {
+                onResizeStop={(finalLayout, _old, item) => {
                     end()
-                    savePlaces(finalLayout)
+                    savePlaces(finalLayout, item?.i)
                 }}
             >
                 {children}

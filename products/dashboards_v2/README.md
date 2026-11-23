@@ -20,7 +20,7 @@ The whole dashboard is one JSON tree (`Dashboard` in `frontend/layout/dashboardT
 
 ## The grid
 
-- A tab's grid has 24 columns. A row is 32px tall. The gap between tiles is 12px.
+- A tab's grid has 24 columns. A row is 32px tall. The gap between tiles is 12px by default (see `tileSpacing` below).
 - A tile's place is in whole columns and rows.
 - Tiles never overlap, and no tile has an empty row above it that it could move into.
 
@@ -33,7 +33,7 @@ A tile keeps its size when it moves in or out of a section, unless the grid it l
 
 A section's height is never chosen. It is one row for the header plus the rows its tiles need.
 A closed section is one row. An empty open section keeps two rows, so it can take a drop.
-Anyone can open or close a section, for their own view only. It is not saved and is not an undo step; the saved state is the default everyone sees first.
+Anyone can open or close a section, for their own view only. It is not saved and is not an undo step.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
 

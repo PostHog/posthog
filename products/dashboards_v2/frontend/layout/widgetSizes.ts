@@ -1,17 +1,19 @@
-import { type ContentWidget, GRID, type Widget, showsPart } from './dashboardTypes'
+import { type ContentWidget, GRID, type Widget, isPartShown } from './dashboardTypes'
 
 interface WidgetSize {
     w: number
     h: number
     minW: number
     minH: number
+    /** A chart sized for a wide screen would fill a phone, so a stacked chart stays between these heights. */
+    stackedRows?: { min: number; max: number }
 }
 
 /** One entry per widget type. A team adding a widget type adds its sizes here and its component in `WidgetView`. */
 const WIDGET_SIZES: Record<Widget['type'], WidgetSize> = {
     stat: { w: 6, h: 3, minW: 3, minH: 2 },
-    line: { w: 12, h: 8, minW: 4, minH: 4 },
-    bar: { w: 12, h: 8, minW: 4, minH: 4 },
+    line: { w: 12, h: 8, minW: 4, minH: 4, stackedRows: { min: 5, max: 8 } },
+    bar: { w: 12, h: 8, minW: 4, minH: 4, stackedRows: { min: 5, max: 8 } },
     markdown: { w: 8, h: 4, minW: 3, minH: 2 },
     // A section's height follows its tiles, so `h` and `minH` here only cover a new, empty one.
     section: { w: 24, h: 3, minW: 4, minH: 1 },
@@ -36,13 +38,13 @@ export function minRows(widget: Widget, gapPx: number): number {
         return widgetSize(widget).minH
     }
     let px = CARD_PX.frame + MIN_BODY_PX[widget.type]
-    if (widget.title && showsPart(widget, 'header')) {
+    if (isPartShown(widget, 'header')) {
         px += CARD_PX.header + CARD_PX.partGap
-        if (widget.description && showsPart(widget, 'description')) {
-            px += CARD_PX.description
-        }
     }
-    if (widget.footer?.length && showsPart(widget, 'footer')) {
+    if (isPartShown(widget, 'description')) {
+        px += CARD_PX.description
+    }
+    if (isPartShown(widget, 'footer')) {
         px += CARD_PX.footer + CARD_PX.partGap
     }
     return Math.max(widgetSize(widget).minH, Math.ceil((px + gapPx) / (GRID.rowPx + gapPx)))
