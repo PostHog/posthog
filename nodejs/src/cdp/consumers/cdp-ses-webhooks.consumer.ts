@@ -21,7 +21,8 @@ const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
-// Long enough to cover SNS retries and Kafka redeliveries, short enough that a replay after an outage records again.
+// Counted from the last batch that read the mark. Long enough to cover SNS retries and Kafka redeliveries, short
+// enough to cap the key count and to let a replay after an outage record again.
 const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 60 * 60
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
@@ -83,6 +84,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
             throw errors[0]
         }
+        // Mark only after the flush succeeds, so a batch whose flush failed records again on redelivery.
         await this.markRecorded(marks.recorded)
         if (errors.length > 0) {
             throw errors[0]
@@ -132,7 +134,8 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             return new Set()
         }
         const results = await this.recordedMarksPipeline('read', (pipeline) => {
-            // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots.
+            // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots. GETEX, not
+            // GET, so a mark outlives a batch that reads it and then fails its flush for longer than the TTL.
             for (const id of ids) {
                 pipeline.getex(sesNotificationRecordedKey(id), 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
             }
