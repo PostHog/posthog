@@ -50,6 +50,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
+import { declaredFileBytes } from './file-bytes'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
@@ -67,7 +68,7 @@ import {
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { WorkflowRunTag } from './helpers/utm'
 import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
+import { callsSettledBefore, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {

@@ -23,7 +23,6 @@ export type CyclotronV2PoolConfig = {
     connectionTimeoutMs?: number
 }
 
-// The columns a job's encoded state fills, which a reschedule rewrites as well.
 const encodedStateFields = {
     // Keep `state` small. Queue rows churn, and PostgreSQL moves large BYTEA values to TOAST,
     // where only vacuum reclaims the space. Files and blobs go to object storage, never into
