@@ -686,16 +686,22 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("complaints that fed the last demotion", timedelta(hours=-1), 4, "tier_not_used_enough"),
+            ("complaints that fed the last demotion", True, timedelta(hours=-1), 4, "tier_not_used_enough"),
             # Rows merged within an hour keep any one of their timestamps, so this row can hold
             # complaints from before the demotion.
-            ("complaints stamped later in the demotion's hour", timedelta(minutes=30), 4, "tier_not_used_enough"),
-            ("complaints later on the demotion day", timedelta(hours=1), 3, "rates_above_threshold"),
-            ("complaints days after the demotion", timedelta(days=2), 3, "rates_above_threshold"),
+            ("complaints stamped later in the demotion's hour", True, timedelta(minutes=30), 4, "tier_not_used_enough"),
+            ("complaints later on the demotion day", True, timedelta(hours=1), 3, "rates_above_threshold"),
+            ("complaints days after the demotion", True, timedelta(days=2), 3, "rates_above_threshold"),
+            ("a first demotion reads the whole first day", False, timedelta(minutes=30), 3, "rates_above_threshold"),
         ]
     )
     def test_one_incident_demotes_once_when_the_cooldown_ends(
-        self, _name: str, complaints_after_demotion: timedelta, expected_tier: int, expected_reason: str
+        self,
+        _name: str,
+        demoted: bool,
+        complaints_after_demotion: timedelta,
+        expected_tier: int,
+        expected_reason: str,
     ) -> None:
         demoted_at = datetime(2026, 1, 10, 6, 15, tzinfo=UTC)
         demotion_hour = demoted_at.replace(minute=0)
@@ -704,7 +710,7 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
             defaults={
                 "email_sending_tier": 4,
                 "email_sending_tier_updated_at": demoted_at,
-                "email_sending_tier_demoted_at": demoted_at,
+                "email_sending_tier_demoted_at": demoted_at if demoted else None,
             },
         )
         for day in range(-7, 7):

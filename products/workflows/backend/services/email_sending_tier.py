@@ -385,21 +385,35 @@ def build_sending_history_windows(
     recent_after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    recently_demoted_team_ids: frozenset[int] = frozenset(),
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window.
 
-    The demotion window gets its own query, starting at the first whole hour after `recent_after`.
-    app_metrics2 merges rows by hour and a merged row keeps any one of their timestamps, so only an
-    hour boundary splits the data cleanly. The demotion cooldown relies on that: with the cooldown
-    at least as long as the window, the hour of the last demotion is out of the window once it ends,
-    while later hours still count.
+    The demotion window is cut on calendar days (UTC), matching the day granularity the metrics are
+    fetched at, so its edge can be up to a day coarser than `recent_after`.
+
+    That extra day can still hold the incident behind a team's last rate demotion when the cooldown
+    ends, and demote the team for it a second time. For `recently_demoted_team_ids`, the teams
+    demoted inside that day-grained window, the demotion window starts at the first whole hour after
+    `recent_after` instead. app_metrics2 merges rows by hour and a merged row keeps any one of their
+    timestamps, so only an hour boundary keeps the last demotion's hour out once the cooldown ends.
     """
-    recent_start = recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    window = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
-    recent = _fetch_daily_metrics(after=recent_start, before=before, team_ids=team_ids)
+    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    recent_key = recent_after.strftime("%Y-%m-%d")
+    recent = {
+        team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day >= recent_key})
+        for team_id, days in daily_by_team.items()
+        if team_id not in recently_demoted_team_ids
+    }
+    if recently_demoted_team_ids:
+        recent_start = recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        since_demotion = _fetch_daily_metrics(
+            after=recent_start, before=before, team_ids=sorted(recently_demoted_team_ids)
+        )
+        recent.update({team_id: _history_from_daily(team_id, days) for team_id, days in since_demotion.items()})
     return SendingHistoryWindows(
-        window={team_id: _history_from_daily(team_id, days) for team_id, days in window.items()},
-        recent={team_id: _history_from_daily(team_id, days) for team_id, days in recent.items()},
+        window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
+        recent=recent,
     )
 
 
@@ -527,7 +541,17 @@ def recompute_email_sending_tiers(
     now = timezone.now()
     after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
     recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
-    windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
+    recently_demoted = TeamWorkflowsConfig.objects.filter(
+        email_sending_tier_demoted_at__gte=recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    if team_ids is not None:
+        recently_demoted = recently_demoted.filter(team_id__in=team_ids)
+    windows = build_sending_history_windows(
+        after=after,
+        recent_after=recent_after,
+        team_ids=team_ids,
+        recently_demoted_team_ids=frozenset(recently_demoted.values_list("team_id", flat=True)),
+    )
     histories = windows.window
 
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
@@ -599,8 +623,6 @@ def recompute_email_sending_tiers(
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
             account_trust=AccountTrust.from_organization(config.team.organization),
-            # The windows were cut from this `now`, so the cooldown must be judged from it too.
-            now=now,
         )
         if only_reasons is not None and decision.reason not in only_reasons:
             continue
