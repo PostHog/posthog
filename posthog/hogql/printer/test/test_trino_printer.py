@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
@@ -733,6 +734,69 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     join_sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
     assert "GLOBAL" not in join_sql
     assert "LEFT JOIN" in join_sql
+
+
+def _context_with_decimal_ledger() -> HogQLContext:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="ledger",
+            table=DirectTrinoTable(
+                name="ledger",
+                fields={
+                    "id": IntegerDatabaseField(name="id", nullable=False),
+                    "amount": DecimalDatabaseField(name="amount", nullable=True, scale=2),
+                    "rate": DecimalDatabaseField(name="rate", nullable=True, scale=8),
+                },
+                external_data_source_id="source-id",
+                trino_catalog="ducklake",
+                trino_schema="finance",
+                trino_table_name="ledger",
+                has_complete_columns=True,
+            ),
+        )
+    )
+    return HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+    )
+
+
+def _shared_projection_chain(depth: int) -> str:
+    layers = ["c0 AS (SELECT amount AS x FROM ledger)"] + [
+        f"c{level} AS (SELECT coalesce(x, x) AS x FROM c{level - 1})" for level in range(1, depth + 1)
+    ]
+    return f"WITH {', '.join(layers)} SELECT multiplyDecimal(x, toDecimal(1, 2)) FROM c{depth}"
+
+
+@pytest.mark.parametrize(
+    ("query", "scale"),
+    [
+        ("SELECT multiplyDecimal(amount, rate) FROM ledger", 8),
+        ("SELECT multiplyDecimal(toDecimal(-1.0, 4), multiplyDecimal(amount, rate)) FROM ledger", 8),
+        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 8),
+        (
+            "SELECT multiplyDecimal(v, 1) FROM (SELECT amount AS v FROM ledger UNION ALL SELECT rate AS v FROM ledger)",
+            8,
+        ),
+        (_shared_projection_chain(32), 2),
+        ("SELECT multiplyDecimal(coalesce(amount, toDecimal(1, 4)), amount) FROM ledger", 4),
+        ("SELECT multiplyDecimal(if(id > 0, amount, NULL), amount) FROM ledger", 2),
+        ("SELECT multiplyDecimal(a, b) FROM (SELECT amount AS a, rate AS b FROM ledger)", 8),
+        (
+            "WITH c AS (SELECT *, toDecimal(id / 100, 6) AS share FROM ledger) SELECT multiplyDecimal(amount, share) FROM c",
+            6,
+        ),
+        ("SELECT toDecimal(id, 5) AS share, multiplyDecimal(amount, share) FROM ledger", 5),
+    ],
+)
+def test_multiply_decimal_takes_the_largest_operand_scale(query: str, scale: int) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_decimal_ledger(), "trino")
+
+    assert f"AS DECIMAL(38, {scale}))" in sql
 
 
 def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: SnapshotAssertion) -> None:
