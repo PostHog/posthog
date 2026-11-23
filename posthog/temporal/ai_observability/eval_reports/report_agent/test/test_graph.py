@@ -2,13 +2,14 @@
 
 import json
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import httpx
 from openai import BadRequestError
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
@@ -504,9 +505,80 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
             distinct_id="team-1",
             use_responses_api=True,
+            authorize_request=ANY,
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestReportConsent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("next_model_turn", 200, "gpt-5.4", "https://gateway.example.com/v1"),
+            ("flex_fallback", 429, "gpt-5.4", ""),
+            ("sdk_retry", 503, "gpt-4.1", "https://gateway.example.com/v1"),
+        ]
+    )
+    def test_withdrawing_approval_stops_the_next_request(
+        self, _name: str, status: int, model: str, gateway_url: str
+    ) -> None:
+        first_response = (
+            {
+                "id": "resp_1",
+                "object": "response",
+                "model": model,
+                "created_at": 1,
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "set_title",
+                        "arguments": '{"title":"Summary"}',
+                    }
+                ],
+            }
+            if status == 200
+            else {"error": {"message": "Service unavailable"}}
+        )
+        approved_teams = {1}
+        request_hosts: list[str] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            request_hosts.append(request.url.host)
+            approved_teams.clear()
+            return httpx.Response(status, json=first_response)
+
+        with (
+            override_settings(
+                DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test" if gateway_url else ""
+            ),
+            patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+            patch("posthog.temporal.ai_observability.eval_reports.constants.EVAL_REPORT_AGENT_MODEL", model),
+            patch.object(graph, "_compute_metrics", return_value=EvalReportMetrics()),
+            patch.object(graph, "build_langchain_callbacks", return_value=[]),
+            patch.object(httpx.HTTPTransport, "handle_request", side_effect=respond),
+            patch.object(graph, "consented_team_ids", side_effect=approved_teams.intersection),
+            self.assertRaises(ApplicationError) as denied,
+        ):
+            graph.run_eval_report_agent(
+                RunEvalReportAgentInput(
+                    report_id="report-1",
+                    team_id=1,
+                    evaluation_id="eval-1",
+                    evaluation_name="Relevance",
+                    evaluation_description="",
+                    evaluation_prompt="",
+                    evaluation_type="llm_judge",
+                    period_start="2026-04-08T14:00:00+00:00",
+                    period_end="2026-04-08T15:00:00+00:00",
+                    previous_period_start="2026-04-08T13:00:00+00:00",
+                )
+            )
+
+        self.assertTrue(denied.exception.non_retryable)
+        self.assertEqual(denied.exception.type, "AIDataProcessingNotApproved")
+        self.assertEqual(request_hosts, ["gateway.example.com" if gateway_url else "api.openai.com"])
 
 
 class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):

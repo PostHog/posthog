@@ -40,9 +40,10 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     TRACE_ID_ALLOWLIST_KEY,
     get_target_descriptor,
 )
-from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
+from posthog.temporal.ai_observability.eval_reports.types import AIDataProcessingNotApproved, RunEvalReportAgentInput
 from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
 
+from products.ai_observability.backend.facade.evaluation_runtime import consented_team_ids
 from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 logger = structlog.get_logger(__name__)
@@ -330,6 +331,11 @@ def run_eval_report_agent(
         "evaluation_id": inputs.evaluation_id,
         **({"report_id": inputs.report_id} if inputs.report_id else {}),
     }
+
+    def authorize_request() -> None:
+        if inputs.team_id not in consented_team_ids([inputs.team_id]):
+            raise AIDataProcessingNotApproved()
+
     llm = build_flex_first_chat_client(
         EVAL_REPORT_AGENT_MODEL,
         EVAL_REPORT_AGENT_TIMEOUT,
@@ -340,6 +346,7 @@ def run_eval_report_agent(
         distinct_id=resolved_distinct_id,
         # The gpt-6 models reject function tools with reasoning on /v1/chat/completions.
         use_responses_api=True,
+        authorize_request=authorize_request,
     )
 
     system_prompt = build_eval_report_system_prompt(
@@ -460,6 +467,8 @@ def run_eval_report_agent(
         )
         return content
 
+    except AIDataProcessingNotApproved:
+        raise
     except Exception as e:
         increment_report_generated("fallback_error")
         increment_errors(f"agent_{type(e).__name__}")
