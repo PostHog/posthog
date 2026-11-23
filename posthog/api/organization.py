@@ -180,6 +180,10 @@ MEMBER_NOTICE_ALLOWED_TAGS = {"a", "b", "br", "code", "em", "i", "li", "ol", "p"
 MEMBER_NOTICE_ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
 MEMBER_NOTICE_MAX_LENGTH = 1000
 
+AI_DATA_PROCESSING_LOCKED_MESSAGE = (
+    "AI data processing is locked for this organization by admin request. Contact PostHog support to change this."
+)
+
 
 def sanitize_member_notice_html(message: str) -> str:
     return nh3.clean(
@@ -318,6 +322,7 @@ class OrganizationSerializer(
             "member_notice",
             "member_count",
             "is_ai_data_processing_approved",
+            "is_ai_data_processing_locked",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
@@ -350,6 +355,7 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "is_ai_data_processing_locked",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
@@ -403,6 +409,16 @@ class OrganizationSerializer(
         ip_restrictions = validated_data.pop("ip_restrictions", None)
         ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
         with transaction.atomic():
+            # Support can lock AI off while this request is in flight. Read the stored consent under a row
+            # lock so an approval cannot slip past the lock, and so saving the stale instance cannot undo it.
+            instance.is_ai_data_processing_locked, instance.is_ai_data_processing_approved = (
+                # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
+                Organization.objects.select_for_update()
+                .filter(pk=instance.pk)
+                .values_list("is_ai_data_processing_locked", "is_ai_data_processing_approved")
+                .get()
+            )
+            self.validate_is_ai_data_processing_approved(validated_data.get("is_ai_data_processing_approved"))
             instance = super().update(instance, validated_data, *args, **kwargs)
             if ip_restrictions is not None or ip_restrictions_enabled is not None:
                 defaults: dict[str, Any] = {}
@@ -593,6 +609,16 @@ class OrganizationSerializer(
                     "You must upgrade your plan to configure public sharing settings.",
                     code="payment_required",
                 )
+        return value
+
+    def validate_is_ai_data_processing_approved(self, value: bool | None) -> bool | None:
+        if (
+            self.instance
+            and value
+            and not self.instance.is_ai_data_processing_approved
+            and self.instance.is_ai_data_processing_locked
+        ):
+            raise serializers.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
         return value
 
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
@@ -984,6 +1010,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Nothing to request if PostHog AI is already enabled for the org.
         if organization.is_ai_data_processing_approved:
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
+
+        if organization.is_ai_data_processing_locked:
+            raise exceptions.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
         resource, subject = Resource.organization(organization.id), request_subject(request)

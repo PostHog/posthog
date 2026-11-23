@@ -1,5 +1,7 @@
 """Workspace and person checks shared by the onboarding steps and the old installer DM."""
 
+from django.db import transaction
+
 import structlog
 
 from posthog.integrations import IntegrationManager
@@ -55,16 +57,25 @@ def enabled_source_keys(team_id: int) -> list[str]:
     return [source.key for source in onboarding_sources(team_id) if source.enabled]
 
 
+def is_ai_data_processing_locked(team_id: int) -> bool:
+    return Team.objects.filter(id=team_id, organization__is_ai_data_processing_locked=True).exists()
+
+
 def approve_ai_data_processing_for_team(team_id: int) -> bool:
-    """Set the org consent for the team's organization. The caller checks that the person is an org admin."""
+    """Set the org consent for the team's organization. The caller checks that the person is an org admin.
+    Returns False when the organization is gone or support has locked AI data processing off."""
     org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    organization = Organization.objects.filter(id=org_id).first() if org_id is not None else None
-    if organization is None:
+    if org_id is None:
         return False
-    # Save the instance (not a queryset .update()) so ModelActivityMixin records the consent change
-    # in the activity log and updated_at is bumped.
-    organization.is_ai_data_processing_approved = True
-    organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
+    with transaction.atomic():
+        # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
+        organization = Organization.objects.select_for_update().filter(id=org_id).first()
+        if organization is None or organization.is_ai_data_processing_locked:
+            return False
+        # Save the instance (not a queryset .update()) so ModelActivityMixin records the consent change
+        # in the activity log and updated_at is bumped.
+        organization.is_ai_data_processing_approved = True
+        organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
     return True
 
 

@@ -101,7 +101,9 @@ def appearance_source_config(
     return SourceConfigSpec(
         model=model,
         validate=_validate_edit,
-        native=NativeAlertLifecycle(check_interval_minutes=APPEARANCE_CHECK_INTERVAL_MINUTES),
+        native=NativeAlertLifecycle(
+            check_interval_minutes=APPEARANCE_CHECK_INTERVAL_MINUTES, platform_destinations=True
+        ),
         alert_url=alert_url,
         rollout_flag=rollout_flag,
     )
