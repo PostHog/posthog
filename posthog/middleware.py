@@ -1245,18 +1245,15 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
-# `next` lands in the `/login` URL, which analytics and the request log record, so a URL with a credential gets none.
-# A share link is the exception: returning to it matters more than its token reaching the instance's own analytics.
+# `next` lands in the `/login` URL, which analytics and the request log record, so a credential in the query gets none.
+# A path token is kept: returning to a share or preferences link outweighs it reaching the instance's own analytics.
 _NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
-_NO_RETURN_PATH_PREFIXES = ("/messaging-preferences/", "/canvas-artifacts/")
 
 
 def session_expired_login_url(request: HttpRequest) -> str:
     params = {"message": SESSION_EXPIRED_MESSAGE}
     next_url = request.get_full_path()
-    holds_credential = request.path.startswith(_NO_RETURN_PATH_PREFIXES) or any(
-        name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET
-    )
+    holds_credential = any(name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET)
     if request.method == "GET" and next_url != "/" and not holds_credential:
         params["next"] = next_url
     return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
