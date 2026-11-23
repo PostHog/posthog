@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { decodeParams, router } from 'kea-router'
 import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
@@ -1420,7 +1420,14 @@ describe('broadcastWizardLogic', () => {
 
     it('saves a new broadcast draft from the sender that can send when the project default stopped', async () => {
         logic.unmount()
+        let createdDrafts = 0
         useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/': () => {
+                    createdDrafts += 1
+                    return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
+                },
+            },
             get: {
                 '/api/projects/:team_id/integrations/': {
                     results: [
@@ -1440,8 +1447,8 @@ describe('broadcastWizardLogic', () => {
         logic.mount()
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('content')
-        releaseCreate()
-        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+        await waitFor(() => expect(createdDrafts).toBe(1))
+        await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.setEmail({ ...logic.values.email, subject: 'Spring sale' })
         await expectLogic(logic).toFinishAllListeners()
