@@ -66,6 +66,8 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 # `sql_tables` adds this to the tables of a query that selects `*`, because `*` expands the saved expressions of
 # the table. `call_tables` replaces it with the tables that those expressions read.
 _ASTERISK = "*"
+# HogQL reads the same table by `events` and by `posthog.events`.
+_POSTHOG_PREFIX = "posthog."
 # The query kinds whose reads the scan knows. Another kind, such as a marketing or revenue query, can find and read
 # warehouse tables by itself, so a query with any other kind counts as unknown.
 _TRACED_KINDS = frozenset(
@@ -265,7 +267,7 @@ class ReadSources:
         """The tables that the saved expressions of ``tables`` read, because `*` expands every field of a table."""
         found: set[str] = set()
         for table in tables:
-            for field in (self.table_expressions or {}).get(table, frozenset()):
+            for field in (self.table_expressions or {}).get(table.removeprefix(_POSTHOG_PREFIX), frozenset()):
                 field_reads = (self.field_tables or {}).get(field)
                 if field_reads is None:
                     return None
@@ -526,8 +528,6 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     fields = None if found is None else current.field_reads(_call_bodies(call, current))
     if found is None or fields is None:
         return None
-    if current.names_renamed_view(found - {_ASTERISK}, call.at):
-        return None
     tables = (found | fields) - {_ASTERISK}
     if _ASTERISK in found:
         expanded = current.asterisk_reads(tables)
@@ -539,6 +539,8 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
         if through_fields is None:
             return None
         tables |= through_fields
+    if current.names_renamed_view(tables, call.at):
+        return None
     return None if current.view_changed_after(tables, call.at) else tables
 
 
@@ -811,7 +813,7 @@ def _load_saved_fields(team: Team) -> _SavedFields:
     ):
         if field_name:
             expressions[field_name].add((table_name, expression))
-            by_table[table_name].add(field_name)
+            by_table[table_name.removeprefix(_POSTHOG_PREFIX)].add(field_name)
     return _SavedFields(
         field_tables=saved_field_tables(joins, expressions),
         table_expressions={table: frozenset(fields) for table, fields in by_table.items()},

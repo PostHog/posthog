@@ -140,6 +140,11 @@ class TestSessionTables(SimpleTestCase):
             ("sql_using_an_untraceable_saved_expression", [_sql("SELECT broken_total FROM events")], None),
             ("sql_using_a_dollar_saved_expression", [_sql("SELECT $billing_total FROM events")], {"events", "billing"}),
             ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
+            (
+                "sql_selecting_every_field_by_the_full_table_name",
+                [_sql("SELECT * FROM posthog.events")],
+                {"posthog.events", "events", "billing"},
+            ),
             ("sql_selecting_fields_by_pattern", [_sql("SELECT COLUMNS('bill.*') FROM events")], {"events", "billing"}),
             ("sql_counting_rows_reads_no_field", [_sql("SELECT count(*) FROM events")], {"events"}),
             ("sql_over_a_view_the_scan_cannot_trace", [_sql("SELECT 1 FROM cohort_view")], None),
@@ -550,11 +555,24 @@ class TestLoadReadSources(BaseTest):
         DataWarehouseSavedQuery.objects.filter(id=view.id).update(
             created_at=_CALL_AT - timedelta(days=2), updated_at=_CALL_AT + timedelta(days=1)
         )
-        calls = [_sql("SELECT 1 FROM old_name"), _sql("SELECT 1 FROM new_name"), _sql("SELECT 1 FROM events")]
+        DataWarehouseExpression.objects.for_team(self.team.id).create(
+            team=self.team, table_name="events", field_name="old_total", expression="(SELECT count() FROM old_name)"
+        )
+        calls = [
+            _sql("SELECT 1 FROM old_name"),
+            _sql("SELECT old_total FROM events"),
+            _sql("SELECT 1 FROM new_name"),
+            _sql("SELECT 1 FROM events"),
+        ]
 
         sources = load_read_sources(self.team, calls, _CALL_AT - timedelta(days=3))
 
-        assert [call_tables(call, sources) for call in calls] == [None, frozenset({"new_name"}), frozenset({"events"})]
+        assert [call_tables(call, sources) for call in calls] == [
+            None,
+            None,
+            frozenset({"new_name"}),
+            frozenset({"events"}),
+        ]
 
     def test_a_call_through_a_saved_expression_reads_its_tables(self) -> None:
         DataWarehouseExpression.objects.for_team(self.team.id).create(
