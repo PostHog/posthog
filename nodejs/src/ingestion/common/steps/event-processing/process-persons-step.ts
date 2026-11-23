@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { AsyncOutput } from '~/common/outputs'
+import { PersonhogUnprocessablePersonError } from '~/common/personhog/persons'
+import { logger } from '~/common/utils/logger'
 import { PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
 import type { MergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -8,7 +10,7 @@ import { PersonMergeService } from '~/ingestion/common/persons/person-merge-serv
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
@@ -72,7 +74,23 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             new PersonPropertyService(context),
             new PersonMergeService(context)
         )
-        const result = await processor.processEvent()
+        let result: PipelineResult<Person, AsyncOutput>
+        try {
+            result = await processor.processEvent()
+        } catch (error) {
+            if (!(error instanceof PersonhogUnprocessablePersonError)) {
+                throw error
+            }
+            // A replay from the DLQ reads the same stored row and fails the same way, so the event is dropped.
+            // The leader sends the team an ingestion warning for each person it cannot read.
+            logger.warn('🤔', 'stored person properties cannot be parsed; the event is dropped', {
+                team_id: error.teamId,
+                person_id: error.personId,
+                distinct_id: normalizedEvent.distinct_id,
+                event_uuid: normalizedEvent.uuid,
+            })
+            return drop('unprocessable_person')
+        }
 
         if (!isOkResult(result)) {
             return result
