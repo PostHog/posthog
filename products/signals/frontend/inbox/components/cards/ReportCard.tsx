@@ -26,7 +26,6 @@ import {
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
-import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -43,6 +42,7 @@ import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardPersonalReason } from './ReportCardPersonalReason'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { ReportCardTagChips } from './ReportCardTagChips'
 import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
@@ -188,7 +188,7 @@ function ReportCardRaw({
     const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
-    const showsTagRow = showTags && !preview && (report.tags?.length ?? 0) > 0
+    const showsTags = showTags && !preview && (report.tags?.length ?? 0) > 0
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -237,6 +237,12 @@ function ReportCardRaw({
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
         hasRightColumn && 'flex-wrap @lg:flex-nowrap'
+    )
+    const metaTimestamp = (
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+            {claimAvatar}
+            <TZLabel time={cardTime} className="shrink-0 text-xs text-tertiary tabular-nums" title={cardTimeTitle} />
+        </span>
     )
     const cardBody = (
         <>
@@ -316,15 +322,15 @@ function ReportCardRaw({
                     ) : rankingPill ? (
                         <ReportCardRankingPill report={report} personalSort={personalSort} />
                     ) : null}
-                    {!showImpactColumn && (
-                        <span className="ml-auto flex shrink-0 items-center gap-2">
-                            {claimAvatar}
-                            <TZLabel
-                                time={cardTime}
-                                className="shrink-0 text-xs text-tertiary tabular-nums"
-                                title={cardTimeTitle}
-                            />
+                    {showsTags ? (
+                        // The chips share the timestamp's line and fill the space it leaves, so tags
+                        // never add a row to the card.
+                        <span className="flex flex-1 items-center gap-2">
+                            <ReportCardTagChips report={report} />
+                            {!showImpactColumn && metaTimestamp}
                         </span>
+                    ) : (
+                        !showImpactColumn && metaTimestamp
                     )}
                 </div>
                 {personalReason && <ReportCardPersonalReason reason={personalReason} />}
@@ -368,8 +374,7 @@ function ReportCardRaw({
                 !framed && rowStateClassName
             )}
         >
-            {/* The tag chips are buttons, so they sit under the body link rather than inside it. */}
-            <div className={clsx('relative flex min-w-0 flex-1', showsTagRow && 'flex-col gap-2')}>
+            <div className="relative flex min-w-0 flex-1">
                 {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
@@ -394,7 +399,6 @@ function ReportCardRaw({
                         </Link>
                     </div>
                 )}
-                {showsTagRow && <ReportTagChips report={report} surface="card" />}
             </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail

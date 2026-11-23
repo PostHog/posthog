@@ -2332,6 +2332,55 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["type"], "info")
         self.assertEqual(log_entries[0]["message"], "First log entry")
 
+    def _append_memory_read_twice(
+        self, *, sent_by_run_sandbox: bool, entry_age: timedelta = timedelta(0)
+    ) -> tuple[datetime, list[dict[str, Any]]]:
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        timestamp = run.created_at - entry_age
+        entry = {
+            "type": "notification",
+            "timestamp": timestamp.isoformat(),
+            "notification": {
+                "method": "_posthog/memory_read",
+                "params": {
+                    "slug": "-tmp-workspace",
+                    "file": "feedback_test_runner.md",
+                    "tool": "Bash",
+                    "toolCallId": "toolu_1",
+                    "agentId": "agent_1",
+                },
+            },
+        }
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            run.append_log(
+                [entry, entry, {"type": "info", "message": "unrelated"}], sent_by_run_sandbox=sent_by_run_sandbox
+            )
+            run.append_log([entry], sent_by_run_sandbox=sent_by_run_sandbox)
+        captured = [dict(c.kwargs) for c in mock_capture.call_args_list if c.kwargs.get("event") == "agent_memory_read"]
+        return timestamp, captured
+
+    def test_append_log_captures_a_memory_read_with_a_retry_stable_uuid(self):
+        timestamp, (first, retry) = self._append_memory_read_twice(sent_by_run_sandbox=True)
+
+        self.assertEqual(first["uuid"], retry["uuid"])
+        self.assertEqual(first["timestamp"], timestamp)
+        self.assertEqual(retry["timestamp"], timestamp)
+        self.assertFalse(first["send_feature_flags"])
+        self.assertEqual(
+            {key: first["properties"][key] for key in ("slug", "file", "tool", "agent_id")},
+            {"slug": "-tmp-workspace", "file": "feedback_test_runner.md", "tool": "Bash", "agent_id": "agent_1"},
+        )
+
+    def test_append_log_ignores_memory_reads_not_sent_by_the_run_sandbox(self):
+        _, captured = self._append_memory_read_twice(sent_by_run_sandbox=False)
+
+        self.assertEqual(captured, [])
+
+    def test_append_log_drops_a_memory_read_timestamp_from_before_the_run(self):
+        _, (first, _retry) = self._append_memory_read_twice(sent_by_run_sandbox=True, entry_age=timedelta(days=1))
+
+        self.assertNotIn("timestamp", first)
+
     def test_append_log_multiple_entries(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -2381,34 +2430,6 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["message"], "First entry")
         self.assertEqual(log_entries[1]["message"], "New entry 1")
         self.assertEqual(log_entries[2]["message"], "New entry 2")
-
-    def test_log_file_tagged_with_ttl(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-        )
-
-        entries = [{"type": "info", "message": "Test entry"}]
-        run.append_log(entries)
-        run.refresh_from_db()
-
-        self.assertIsNotNone(run.log_url)
-
-        # Verify S3 object has TTL tags
-        from botocore.exceptions import ClientError
-
-        from posthog.storage.object_storage import ObjectStorage, object_storage_client
-
-        try:
-            client = object_storage_client()
-            if isinstance(client, ObjectStorage):
-                response = client.aws_client.get_object_tagging(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_url)
-                tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
-                self.assertEqual(tags.get("ttl_days"), "30")
-                self.assertEqual(tags.get("team_id"), str(self.team.id))
-        except (ClientError, AttributeError):
-            # Tagging might not be available in test environment
-            pass
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(

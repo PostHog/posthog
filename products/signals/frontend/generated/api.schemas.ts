@@ -670,6 +670,20 @@ export interface AnomalyPointsResponseApi {
     series: AnomalySeriesPointsApi[]
 }
 
+export interface AnomalyIntervalRangeApi {
+    /** The bucket interval.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+    /** The applied start of the range for series of this interval, in the project timezone. For `week` it is never later than the start of the last 2 completed weeks, and for `month` the start of the last completed month, so a short range still checks them. For `hour` and `day` it is the requested start. */
+    date_from: string
+    /** The applied end of the range, in the project timezone. */
+    date_to: string
+}
+
 /**
  * * `series` - Series
  * * `insight` - Insight
@@ -684,14 +698,12 @@ export const AnomalyGroupByEnumApi = {
 /**
  * * `unusual` - Unusual
  * * `recent` - Recent
- * * `rate` - Rate
  */
 export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
 
 export const AnomalyOrderEnumApi = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
 } as const
 
 export interface AnomalyFlaggedPointApi {
@@ -854,10 +866,12 @@ export interface AnomalySearchResponseApi {
     scored_days: number
     /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
     scored_history_ready: boolean
-    /** The applied start of the range, in the project timezone. */
+    /** The requested start of the range, in the project timezone. Weekly and monthly series can use an earlier start: see `interval_ranges`. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
     date_to: string
+    /** The range applied to the series of each interval the search covers, from `hour` to `month`. Only the requested `interval` when one was passed. Every count of a series row covers the range of its interval. */
+    interval_ranges: AnomalyIntervalRangeApi[]
     /** The applied grouping.
      *
      * * `series` - Series
@@ -866,17 +880,12 @@ export interface AnomalySearchResponseApi {
     /** The applied order.
      *
      * * `unusual` - Unusual
-     * * `recent` - Recent
-     * * `rate` - Rate */
+     * * `recent` - Recent */
     order: AnomalyOrderEnumApi
     /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
     /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
-    /** The applied noise filter limit. 1 means the filter is off. */
-    max_anomaly_rate: number
-    /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
-    hidden_series: number
     /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
     has_more: boolean
     /** True when `limit` or a read cap left rows out. */
@@ -888,6 +897,18 @@ export interface AnomalySearchResponseApi {
      * @nullable
      */
     message: string | null
+    /**
+     * The newest scored bucket of any series that matches the filters, in the project timezone. It does not depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored.
+     * @nullable
+     */
+    scored_through: string | null
+    /**
+     * The `viewed_within_days` of the request. Null when it passed none, so the result covers every insight in the project. When `viewed_scope_empty` is true, the result covers every insight too.
+     * @nullable
+     */
+    viewed_within_days: number | null
+    /** True when the request passed `viewed_within_days` and the caller viewed no insight or dashboard with an insight in that window, so the result covers every insight in the project instead. */
+    viewed_scope_empty: boolean
 }
 
 /**
@@ -9233,7 +9254,7 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly effective_precheck_query: string | null
-    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
     /**
      * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
@@ -13794,12 +13815,6 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
-     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
-     * @minimum 0
-     * @maximum 1
-     */
-    max_anomaly_rate?: number
-    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -13810,11 +13825,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder
@@ -13823,6 +13837,16 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      * @maxLength 200
      */
     search?: string
+    /**
+     * Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `45` - 45
+     * * `90` - 90
+     */
+    viewed_within_days?: SignalsAnomaliesSearchRetrieveViewedWithinDays
 }
 
 export type SignalsAnomaliesSearchRetrieveGroupBy =
@@ -13849,7 +13873,17 @@ export type SignalsAnomaliesSearchRetrieveOrder =
 export const SignalsAnomaliesSearchRetrieveOrder = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveViewedWithinDays =
+    (typeof SignalsAnomaliesSearchRetrieveViewedWithinDays)[keyof typeof SignalsAnomaliesSearchRetrieveViewedWithinDays]
+
+export const SignalsAnomaliesSearchRetrieveViewedWithinDays = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number45: 45,
+    Number90: 90,
 } as const
 
 export type SignalsProcessingListParams = {
@@ -13938,6 +13972,10 @@ export type SignalsReportsListParams = {
      * Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.
      */
     plan?: string
+    /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
@@ -14248,6 +14286,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
     needs_you?: boolean
+    /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */

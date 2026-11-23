@@ -4,6 +4,7 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LabeledLink } from '../types'
+import { OpenDistributedTraceButton, OpenDistributedTraceButtonProps } from './OpenDistributedTraceButton'
 import { TraceCopyButton, TraceCopyButtonProps } from './TraceCopyButton'
 import { TraceExportButton, TraceExportButtonProps } from './TraceExportButton'
 import { TraceSearchBox, TraceSearchBoxProps } from './TraceSearchBox'
@@ -16,6 +17,7 @@ export interface TraceHeaderProps {
     search?: TraceSearchBoxProps | null
     copyAction?: TraceCopyButtonProps
     exportAction?: TraceExportButtonProps
+    distributedTraceAction?: OpenDistributedTraceButtonProps
     actions?: ReactNode
 }
 
@@ -26,6 +28,7 @@ export function TraceHeader({
     search = null,
     copyAction,
     exportAction,
+    distributedTraceAction,
     actions = null,
 }: TraceHeaderProps): JSX.Element {
     return (
@@ -54,8 +57,9 @@ export function TraceHeader({
                         </div>
                     ) : null}
                     {actions}
-                    {copyAction || exportAction ? (
+                    {distributedTraceAction || copyAction || exportAction ? (
                         <div className="flex items-center gap-1">
+                            {distributedTraceAction ? <OpenDistributedTraceButton {...distributedTraceAction} /> : null}
                             {copyAction ? <TraceCopyButton {...copyAction} /> : null}
                             {exportAction ? <TraceExportButton {...exportAction} /> : null}
                         </div>

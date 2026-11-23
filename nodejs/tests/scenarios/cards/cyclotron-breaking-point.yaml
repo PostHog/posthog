@@ -1,31 +1,31 @@
 id: cyclotron-breaking-point
-version: 1
+version: 3
 clock: real
 profile: synthetic
 seed: 7
 setup:
-    teams: 1
+    teams: 80
 drive:
-    for: 35m
+    for: 14m
     traffic:
         - name: event_email
         - name: event_webhook
         - name: transactional_email
     ramp:
-        - scale: 1
-          for: 5m
-        - scale: 2
-          for: 5m
-        - scale: 5
-          for: 5m
         - scale: 10
-          for: 5m
+          for: 2m
         - scale: 20
-          for: 5m
-        - scale: 30
-          for: 5m
+          for: 2m
         - scale: 40
-          for: 5m
+          for: 2m
+        - scale: 80
+          for: 2m
+        - scale: 160
+          for: 2m
+        - scale: 240
+          for: 2m
+        - scale: 320
+          for: 2m
     stopOnBreak: true
 convergeWithin: 15m
 invariants:

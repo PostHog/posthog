@@ -32,7 +32,7 @@ export function TestSenderRow({
                     ) : null}
                     {stopped ? <span className="min-w-0 break-words text-warning">{stopped}</span> : null}
                     <span className="min-w-0 break-words">
-                        Save your changes, then reload this page after you verify a sender.
+                        Save your changes and wait until they're saved. Reload this page after you verify a sender.
                     </span>
                 </div>
             </div>
