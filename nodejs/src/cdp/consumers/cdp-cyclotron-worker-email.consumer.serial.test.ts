@@ -24,9 +24,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2WorkerConfig } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
-import { sendDeadlineMsFor } from '~/cdp/services/messaging/email.service'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -45,11 +43,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
-import {
-    CALLS_SETTLE_BEFORE_WRITE_MS,
-    CdpCyclotronWorkerEmail,
-    EMAIL_STOP_DEADLINE_MS,
-} from './cdp-cyclotron-worker-email.consumer'
+import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(60_000)
 
@@ -629,8 +623,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     })
 
     describe('with a send whose SES call never settles, not even on abort', () => {
-        const callsCannotOutlast = (): number =>
-            sendDeadlineMsFor(invoice.metadata.sizeBytes) + CALLS_SETTLE_BEFORE_WRITE_MS
+        // The 17 s send deadline of a small file, then 3 s for its calls to settle.
+        const callsCannotOutlast = 20_000
 
         const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
             sesClientFor(ses, {
@@ -682,9 +676,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
             let stopReturned = false
             void worker.stop().then(() => (stopReturned = true))
-            await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS + 1_000)
+            await jest.advanceTimersByTimeAsync(53_000 - 1)
             expect(stopReturned).toBe(false)
-            await jest.advanceTimersByTimeAsync(EMAIL_STOP_DEADLINE_MS - CONSUMER_STOP_DEADLINE_MS)
+            await jest.advanceTimersByTimeAsync(1_000)
 
             expect(stopReturned).toBe(true)
         })
@@ -702,7 +696,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 expect((await jobRow(stuck)).status).toBe('running')
                 expect(callStarted).toBe(true)
             }, clockStarted + 1_000)
-            const earliestWrite = clockStarted + callsCannotOutlast()
+            const earliestWrite = clockStarted + callsCannotOutlast
 
             await jest.advanceTimersByTimeAsync(earliestWrite - 2_000 - Date.now())
             const [next] = await enqueue(
@@ -722,7 +716,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             })
 
             let stopReturned = false
-            const stopDeadline = Date.now() + EMAIL_STOP_DEADLINE_MS
+            const stopDeadline = Date.now() + 53_000
             void worker.stop().then(() => (stopReturned = true))
             const seen: { at: number; stopReturned: boolean; status: string; retries?: number }[] = []
             await onTheFakeClock(async () => {
@@ -753,10 +747,21 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 metric('cdp_cyclotron_v2_consumer_loop_errors_total', { queue: queueName })
             const send = transactionalSend([invoice.metadata])
             await enqueue(send, lostRun)
+            const clockStarted = Date.now()
+            useFakeClock()
             await startWorker(roomFor(1), stalledSes())
-            ;(await lostRunFails).drop()
+            let lostRunWrite: Awaited<typeof lostRunFails> | undefined
+            void lostRunFails.then((write) => (lostRunWrite = write))
+            await onTheFakeClock(async () => {
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(lostRunWrite).toBeDefined()
+            }, clockStarted + 5_000)
+            lostRunWrite!.drop()
 
-            await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast() + 5_000, 50)
+            await onTheFakeClock(
+                async () => expect(await loopErrors()).toBe(1),
+                clockStarted + callsCannotOutlast + 5_000
+            )
             expect((await jobRow(send.id)).queueMetadata?.attachmentLoadRetries).toBe(1)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
         })
