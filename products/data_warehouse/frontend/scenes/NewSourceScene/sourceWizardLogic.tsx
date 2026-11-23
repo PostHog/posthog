@@ -336,10 +336,8 @@ export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sour
     return sources.some((source) => source.source_type === sourceType && !source.prefix)
 }
 
-// The create request can commit the source and then lose its response to a dropped connection or a
-// gateway that stopped waiting. A retry then fails with "You already have a source of this type", and
-// that message's advice to add a prefix makes a second copy. 502 and 504 come from the gateway, so the
-// create may still have run behind them.
+// The create can commit the source and still lose its response, and a retry then hits the duplicate-source
+// error. A 502 or 504 comes from the gateway, so the create may still have run behind it.
 function createResponseWasLost(error: unknown): boolean {
     if (error instanceof NetworkError || error instanceof ResponseBodyReadError) {
         return true
@@ -357,8 +355,7 @@ interface LostCreateLookup {
     knownSourceIds: ReadonlySet<string>
 }
 
-// The API allows one source per type and prefix. A match that this user created and that was not in the
-// list before the request is the source that request created.
+// The API allows one source per type and prefix, so this user's new match is the one the request created.
 async function findSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
     let page: { results: readonly ExternalDataSourceSerializersApi[]; next?: string | null } =
         await externalDataSourcesList(lookup.teamId, { include_schemas: false })
@@ -381,27 +378,21 @@ async function findSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Pr
     }
 }
 
-// The create can still delete the source while it sets up its tables. Without change data capture,
-// every check that can do that runs before the last table exists, so a source with all its tables stays.
+// Without change data capture, the create runs every check that can delete the source before its last table.
 async function hasFinishedSetup(lookup: LostCreateLookup, sourceId: string): Promise<boolean> {
     const source = await externalDataSourcesRetrieve(lookup.teamId, sourceId, { compact: true })
     return source.schemas.length >= lookup.expectedSchemaCount
 }
 
-// The server can still be inside the create request when the connection drops, so look again for a
-// few seconds before giving up.
+// The server can still be inside the create request when the connection drops.
 const LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS = [0, 2000, 4000]
 
 async function recoverSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
     for (const delayMs of LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS) {
         await delay(delayMs)
-        try {
-            const sourceId = await findSourceCreatedBeforeResponseLost(lookup)
-            if (sourceId && (await hasFinishedSetup(lookup, sourceId))) {
-                return sourceId
-            }
-        } catch {
-            // The connection that lost the response can still be down. Use the next attempt.
+        const sourceId = await findSourceCreatedBeforeResponseLost(lookup).catch(() => null)
+        if (sourceId && (await hasFinishedSetup(lookup, sourceId).catch(() => false))) {
+            return sourceId
         }
     }
     return null
@@ -2568,8 +2559,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     : null
 
             const sourceType = values.selectedConnector.name
-            // Without a loaded list or a signed-in user, an older source can't be told from the new one.
-            // Change data capture can still delete the source after its last table, so it never recovers.
+            // An unloaded list can't tell an older source from the new one, and CDC can delete it after its last table.
             const lostCreateLookup: LostCreateLookup | null =
                 values.dataWarehouseSources &&
                 values.user?.email &&
