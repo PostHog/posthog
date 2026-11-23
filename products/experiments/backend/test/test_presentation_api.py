@@ -822,12 +822,26 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                             "uuid": "health-threshold-metric",
                             "name": "Reached 3 pageviews",
                             "threshold": 3,
-                        }
+                        },
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "health-funnel-metric",
+                            "name": "Pageview funnel",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
                     ],
                     "stats_config": {
                         "method": "frequentist",
                         "frequentist": {"alpha": 0.1},
                         "cuped": {"enabled": True},
+                    },
+                    "exposure_criteria": {
+                        "activation_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
                     },
                 },
                 None,
@@ -982,6 +996,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             else []
         )
         counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
+        activation_event = {"frequentist_with_project_defaults": "$pageview"}.get(_name)
         warehouse_native = _name == "warehouse_native_exposure"
         self.assertEqual(
             health["setup"],
@@ -1002,7 +1017,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
-                "exposure": None if warehouse_native else {"event": counted_event, "action": None, "activation": None},
+                "exposure": None
+                if warehouse_native
+                else {"event": counted_event, "action": None, "activation": activation_event},
                 "analysis": {
                     "stats_method": "bayesian",
                     "confidence_level": 0.95,
@@ -1029,7 +1046,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                             "cuped_lookback_days": 7,
                             "cuped_from_project_default": False,
                             "cuped_lookback_days_from_project_default": True,
-                            "metrics_without_cuped_support": ["Reached 3 pageviews"],
+                            "metrics_without_cuped_support": ["Reached 3 pageviews", "Pageview funnel"],
                         }
                         if _name == "frequentist_with_project_defaults"
                         else {}

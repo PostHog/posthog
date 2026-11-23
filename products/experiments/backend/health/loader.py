@@ -29,7 +29,7 @@ from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
-from products.experiments.backend.hogql_queries.cuped_config import metric_supports_cuped
+from products.experiments.backend.hogql_queries.cuped_config import activation_blocks_cuped, metric_supports_cuped
 from products.experiments.backend.hogql_queries.utils import FrequentistSettings
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
@@ -185,13 +185,17 @@ def _stats_config_section(experiment: Experiment, key: str) -> dict[str, Any]:
 
 
 def _metrics_without_cuped_support(experiment: Experiment, settings: ExperimentCalculationSettings) -> tuple[str, ...]:
+    has_activation = settings.exposure is not None and settings.exposure.activation_config is not None
     names: dict[str, str] = {}
     for metric in get_metrics_for_calculation(experiment):
         try:
-            supports_cuped = metric_supports_cuped(build_metric(metric.definition))
+            parsed = build_metric(metric.definition)
         except pydantic.ValidationError:
             # The calculation of a metric that doesn't parse fails, and the metric checks report that failure.
             continue
+        supports_cuped = metric_supports_cuped(parsed) and not activation_blocks_cuped(
+            parsed, has_activation=has_activation
+        )
         if not supports_cuped:
             calculation_config = settings.build_metric_config(
                 metric_id=metric.uuid, role=metric.role, definition=metric.definition
