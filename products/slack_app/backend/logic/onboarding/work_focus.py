@@ -8,8 +8,7 @@ Only the suggestions and their links leave it.
 import re
 import json
 import asyncio
-import functools
-from collections.abc import Callable
+from collections.abc import Iterable
 from dataclasses import field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -56,9 +55,14 @@ from products.slack_app.backend.logic.onboarding.daily_summary import (
     thread_text,
 )
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
-from products.slack_app.backend.services.slack_messages import context_block, mentions_slack_user, section_block
+from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.slack_user_info import (
+    SLACK_USER_PROFILE_TTL,
+    get_cached_bot_user_id,
+    get_slack_user_info,
+)
 from products.slack_app.backend.services.slack_user_oauth import (
     LinkedUserToken,
     linked_posthog_distinct_id,
@@ -88,6 +92,10 @@ DAILY_RUN_SPACING_SECONDS = 3600 * DAILY_SEARCH_CALLS // SEARCH_BUDGET.per_hour
 MAX_MESSAGE_CHARS = 500
 # users.info does not mark Slackbot with is_bot, but a person who tags Slackbot hands it the work like any other app.
 SLACKBOT_USER_ID = "USLACKBOT"
+# Message text decides which users are looked up, so anyone in a channel could otherwise make a run call users.info
+# for hundreds of made-up ids. The workspace shares that Slack limit with every other Slack app feature.
+MAX_BOT_LOOKUPS = 25
+BOT_LOOKUP_BUDGET = Budget(burst=MAX_BOT_LOOKUPS, per_hour=1800)
 
 # The model calls spend the team's PostHog AI credits, the same as the other Slack app calls.
 WORK_FOCUS_AI_PRODUCT = "slack_app"
@@ -231,6 +239,8 @@ class _FoundMessage:
     channel_name: str | None
     permalink: str | None
     author_id: str | None
+    # Read from the full message, because the content is cut to MAX_MESSAGE_CHARS.
+    tagged: tuple[str, ...] = ()
     # The thread read in full, when the bot could read it and it holds more than the message.
     thread: str | None = None
 
@@ -433,13 +443,11 @@ def _find(
     bot_user_id = get_cached_bot_user_id(SlackIntegration(integration), integration)
     if not bot_user_id:
         logger.warning("slack_app_work_focus_bot_user_unknown", integration_id=integration.id)
-    is_bot = _bot_lookup(integration, bot_user_id)
+    bots = _BotLookup(integration, bot_user_id)
     found_count = len(messages)
-    messages = [
-        message
-        for message in messages
-        if message.author_id != slack_user_id and not _tags_a_bot(message.content, is_bot, bot_user_id)
-    ]
+    messages = [message for message in messages if message.author_id != slack_user_id]
+    bots.prime(user for message in messages for user in message.tagged)
+    messages = [message for message in messages if not any(bots.is_bot(user) for user in message.tagged)]
     handed_off_count = found_count - len(messages)
     # Read after the search, so a search that is rate limited retries without reading the channels again.
     threads = summary_threads(integration, slack_user_id, since=after, bot_user_id=bot_user_id)
@@ -451,7 +459,7 @@ def _find(
                 _rank(integration, messages, flow=flow, person=person),
                 flow=flow,
                 bot_user_id=bot_user_id,
-                is_bot=is_bot,
+                bots=bots,
                 person=person,
                 known={(thread.channel_id, thread.ts): thread for thread in threads},
             )
@@ -558,6 +566,59 @@ def _thread_ts_in(permalink: object) -> str | None:
     return values[0] if values and values[0] else None
 
 
+class _BotLookup:
+    """Whether a Slack user is an app, such as PostHog or another AI agent. Slack marks every app user with is_bot,
+    so no list of agent names goes stale. An unknown user answers False, so a failed lookup never hides work: at worst
+    the DM offers work that someone already handed to an agent. That is why a rate limit stops the lookups instead of
+    retrying the run, which would spend the searches and AI credits again."""
+
+    def __init__(self, integration: WorkspaceIntegration, bot_user_id: str | None) -> None:
+        self._integration = integration
+        self._slack = SlackIntegration(integration)
+        self._known: dict[str, bool] = {user: True for user in (bot_user_id, SLACKBOT_USER_ID) if user}
+        self._lookups_left = MAX_BOT_LOOKUPS
+
+    def prime(self, users: Iterable[str]) -> None:
+        """Reads every fresh cached profile in one query, so only the users the cache lacks cost a Slack call."""
+        wanted = set(users) - self._known.keys()
+        if not wanted:
+            return
+        cached = SlackUserProfileCache.objects.filter(
+            integration_id=self._integration.id,
+            slack_user_id__in=wanted,
+            refreshed_at__gt=timezone.now() - SLACK_USER_PROFILE_TTL,
+        ).values_list("slack_user_id", "is_bot")
+        self._known.update(cached)
+
+    def is_bot(self, user_id: str) -> bool:
+        if user_id not in self._known:
+            self._known[user_id] = self._look_up(user_id)
+        return self._known[user_id]
+
+    def _look_up(self, user_id: str) -> bool:
+        if self._lookups_left <= 0:
+            return False
+        decision = consume(f"slack_app:work_focus_bot_lookup:{self._integration.integration_id}", BOT_LOOKUP_BUDGET)
+        if isinstance(decision, BucketDecision) and not decision.allowed:
+            self._stop("budget_spent")
+            return False
+        self._lookups_left -= 1
+        try:
+            user = get_slack_user_info(self._slack, self._integration, user_id).get("user")
+        except SlackApiError as error:
+            if (error.response or {}).get("error") == "ratelimited":
+                self._stop("ratelimited")
+            return False
+        except (SlackClientError, OSError):
+            logger.warning("slack_app_work_focus_bot_lookup_failed", integration_id=self._integration.id, exc_info=True)
+            return False
+        return isinstance(user, dict) and bool(user.get("is_bot"))
+
+    def _stop(self, reason: str) -> None:
+        self._lookups_left = 0
+        logger.info("slack_app_work_focus_bot_lookups_stopped", reason=reason, integration_id=self._integration.id)
+
+
 @frozen
 class _CandidateThread:
     text: str | None = None
@@ -571,7 +632,7 @@ def _still_open(
     *,
     flow: WorkFocusFlow,
     bot_user_id: str | None,
-    is_bot: Callable[[str], bool],
+    bots: _BotLookup,
     person: _Person,
     known: dict[tuple[str, str], SummaryThread],
 ) -> tuple[list[_FoundMessage], int]:
@@ -594,11 +655,13 @@ def _still_open(
             tagged=tagged_users(str(message.get("text") or "") for message in read.messages),
         )
 
+    threads = parallel_map(thread_of, candidates)
     read: list[_FoundMessage] = []
     handed_off = 0
     # The bot lookups run here, not in the reader threads, because they read the profile cache from the database.
-    for candidate, thread in zip(candidates, parallel_map(thread_of, candidates)):
-        if thread.app_replied or any(is_bot(user) for user in thread.tagged):
+    bots.prime(user for thread in threads for user in thread.tagged)
+    for candidate, thread in zip(candidates, threads):
+        if thread.app_replied or any(bots.is_bot(user) for user in thread.tagged):
             handed_off += 1
         else:
             read.append(replace(candidate, thread=thread.text))
@@ -623,31 +686,6 @@ def _still_open(
         if key in keys and isinstance(answer, NoulAnswer) and answer.probability < RESOLVE_MIN_PROBABILITY
     }
     return [candidate for index, candidate in enumerate(read) if index not in finished], handed_off
-
-
-def _bot_lookup(integration: WorkspaceIntegration, bot_user_id: str | None) -> Callable[[str], bool]:
-    """Whether a Slack user is an app, such as PostHog or another AI agent. Slack marks every app user with is_bot,
-    so no list of agent names goes stale. A failed lookup answers False, so an unknown user never hides work."""
-    slack = SlackIntegration(integration)
-
-    @functools.cache
-    def is_bot(user_id: str) -> bool:
-        if user_id in (bot_user_id, SLACKBOT_USER_ID):
-            return True
-        try:
-            user = get_slack_user_info(slack, integration, user_id).get("user")
-        except Exception:
-            logger.warning("slack_app_work_focus_bot_lookup_failed", integration_id=integration.id, exc_info=True)
-            return False
-        return isinstance(user, dict) and bool(user.get("is_bot"))
-
-    return is_bot
-
-
-def _tags_a_bot(text: str, is_bot: Callable[[str], bool], bot_user_id: str | None) -> bool:
-    if bot_user_id and mentions_slack_user(text, bot_user_id):
-        return True
-    return any(is_bot(user) for user in tagged_users([text]))
 
 
 def _search_messages(
@@ -727,6 +765,7 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
         else None,
         author_id=author_id if isinstance(author_id, str) and author_id else None,
         permalink=permalink if isinstance(permalink, str) and permalink.startswith("https://") else None,
+        tagged=tagged_users([content]),
     )
 
 

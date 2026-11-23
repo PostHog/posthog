@@ -78,7 +78,7 @@ RANK_FALSE = (
     "person already answered."
 )
 
-_MENTION = re.compile(r"<@(U[A-Z0-9]+)")
+_MENTION = re.compile(r"<@([UW][A-Z0-9_]+)")
 # Slack errors that pass on their own. Any other error on one channel skips that channel.
 _TRANSIENT_SLACK_ERRORS = frozenset(
     {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}

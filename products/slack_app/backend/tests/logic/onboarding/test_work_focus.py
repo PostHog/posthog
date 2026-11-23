@@ -10,8 +10,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework.test import APIClient
+from slack_sdk.errors import SlackApiError
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
 from posthog.models import Organization, OrganizationMembership
@@ -25,11 +27,13 @@ from products.slack_app.backend.logic.daily_focus import (
 )
 from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread
 from products.slack_app.backend.logic.onboarding.work_focus import (
+    MAX_BOT_LOOKUPS,
     WorkFocus,
     WorkFocusRateLimited,
     WorkFocusSuggestion,
     WorkFocusSummaryItem,
     WorkFocusTransientError,
+    _BotLookup,
     find_and_send_daily_focus,
     find_and_send_work_focus,
     start_work_focus,
@@ -55,6 +59,10 @@ RESOLVED_MESSAGE = "the nightly export job is failing again"
 AGENT = "UCLAUDE1"
 OWN_MESSAGE = f"<@{SLACK_USER_ID}> note to self: rebuild the retention dashboard"
 HANDED_TO_AN_AGENT = f"<@{AGENT}|Claude> can you fix the flaky funnel test? cc <@{SLACK_USER_ID}>"
+# The agent tag sits past the 500 characters the models read, in a thread the bot cannot read.
+LATE_HANDOFF = (
+    f"<@{SLACK_USER_ID}> the onboarding emails go out twice. " + "Details: " * 60 + f"<@{AGENT}> please fix it"
+)
 AGENT_THREAD_MESSAGE = "the csv export drops rows past ten thousand"
 MONDAY = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
 REQUEST = "Find out why churn by plan looks wrong for the enterprise plan, and fix the query."
@@ -102,7 +110,10 @@ def _search(found: int) -> Any:
                 "results": {
                     "messages": [
                         *_messages([SECRET_MESSAGE], prefix="secret"),
-                        *_messages([SIGNUP_MESSAGE, CHATTER, ASKED_THE_APP, HANDED_TO_AN_AGENT], prefix="mentions"),
+                        *_messages(
+                            [SIGNUP_MESSAGE, CHATTER, ASKED_THE_APP, HANDED_TO_AN_AGENT, LATE_HANDOFF],
+                            prefix="mentions",
+                        ),
                         *_messages([OWN_MESSAGE], prefix="own", author=SLACK_USER_ID),
                         *_messages([RESOLVED_MESSAGE], prefix="resolved", thread_ts="1700.5"),
                         *_messages([HANDLED_MESSAGE], prefix="handled", thread_ts="1700.7"),
@@ -125,6 +136,7 @@ def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> Syste
             ASKED_THE_APP: 0.95,
             OWN_MESSAGE: 0.97,
             HANDED_TO_AN_AGENT: 0.96,
+            LATE_HANDOFF[:500]: 0.96,
             AGENT_THREAD_MESSAGE: 0.9,
             RESOLVED_MESSAGE: 0.8,
             HANDLED_MESSAGE: 0.85,
@@ -237,7 +249,7 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     # A Monday run reads back to Friday, the same time of day.
     assert {call.kwargs["params"]["after"] for call in searches} == {int((MONDAY - timedelta(days=3)).timestamp())}
     # All three calls are reserved at once, and the one the search did not need goes back.
-    assert slack["bucket"].call_args.kwargs["cost"] == 3
+    assert slack["bucket"].call_args_list[0].kwargs["cost"] == 3
     assert slack["refund"].call_args.args[2] == 1
     assert [call.kwargs["params"].get("cursor") for call in searches] == [None, "page-2"]
     assert {call.kwargs["params"]["channel_types"] for call in searches} == {"public_channel,im"}
@@ -265,6 +277,7 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     # A thread the app already replied in, or where someone tagged another agent, is dropped before Jev is asked.
     assert HANDLED_MESSAGE not in written_from and AGENT_THREAD_MESSAGE not in written_from
     assert OWN_MESSAGE not in written_from and HANDED_TO_AN_AGENT not in written_from
+    assert LATE_HANDOFF[:40] not in written_from
     assert all(
         ASKED_THE_APP not in json.dumps(call.kwargs["state"])
         and OWN_MESSAGE not in json.dumps(call.kwargs["state"])
@@ -273,8 +286,8 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
         and AGENT_THREAD_MESSAGE not in json.dumps(call.kwargs["state"].get("threads", {}))
         for call in slack["ranker"].return_value.decide.call_args_list
     )
-    # Three messages (own, tagged the app, tagged an agent) and two threads (the app replied, an agent was tagged).
-    assert slack["captured"].call_args.kwargs["handed_off_count"] == 5
+    # Four messages (own, tagged the app, two tagged an agent) and two threads (the app replied, an agent was tagged).
+    assert slack["captured"].call_args.kwargs["handed_off_count"] == 6
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert dm["channel"] == SLACK_USER_ID
     # The daily flag is on, so the first DM also turns the daily one on and carries its footer.
@@ -745,3 +758,29 @@ def test_model_text_cannot_carry_a_link_or_a_broadcast_but_keeps_mentions() -> N
     assert "<https://evil.example.com" not in text and "<!channel>" not in text
     assert "&lt;https://evil.example.com|the fix&gt;" in text and "&lt;!channel&gt;" in text
     assert "• <@U_LEAD> shared" in text and "in <#C1>. <https://example.slack.com/archives/C1/p1|[1]>" in text
+
+
+@pytest.mark.django_db
+def test_bot_lookups_read_the_cache_once_and_stop_at_the_cap_or_a_rate_limit(
+    org_team_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, _ = org_team_user
+    integration = _install(team)
+    SlackUserProfileCache.objects.create(
+        integration_id=integration.id, slack_user_id=AGENT, is_bot=True, refreshed_at=timezone.now()
+    )
+    made_up = [f"UFAKE{index:04d}" for index in range(MAX_BOT_LOOKUPS + 10)]
+
+    with patch(f"{WORK_FOCUS}.get_slack_user_info", return_value={"user": {"is_bot": False}}) as users_info:
+        bots = _BotLookup(integration, "U_BOT")
+        bots.prime([AGENT, *made_up])
+        assert bots.is_bot(AGENT) and bots.is_bot("U_BOT")
+        # A message full of made-up mentions costs at most MAX_BOT_LOOKUPS Slack calls.
+        assert not any(bots.is_bot(user) for user in made_up)
+        assert users_info.call_count == MAX_BOT_LOOKUPS
+
+        users_info.reset_mock()
+        users_info.side_effect = SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        bots = _BotLookup(integration, "U_BOT")
+        assert not bots.is_bot(made_up[0]) and not bots.is_bot(made_up[1])
+        assert users_info.call_count == 1
