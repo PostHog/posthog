@@ -24,6 +24,13 @@ impl<T> Store<T> {
         Failure::bad_request(format!("the worker holds no {} {id}", self.kind))
     }
 
+    pub fn get(&self, id: usize) -> Result<&T, Failure> {
+        self.items
+            .get(id)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| self.unknown(id))
+    }
+
     pub fn take(&mut self, id: usize) -> Result<T, Failure> {
         match self.items.get_mut(id).and_then(Option::take) {
             Some(item) => Ok(item),

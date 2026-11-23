@@ -98,11 +98,3 @@ export function contentHash(...parts: (Uint8Array | string)[]): string {
     }
     return hash.digest('hex')
 }
-
-export function sourceAndMapPayload(source: Uint8Array, map: Uint8Array): Buffer {
-    const sourceLength = Buffer.alloc(8)
-    sourceLength.writeBigUInt64LE(BigInt(source.length))
-    const mapLength = Buffer.alloc(8)
-    mapLength.writeBigUInt64LE(BigInt(map.length))
-    return Buffer.concat([sourceLength, source, mapLength, map])
-}

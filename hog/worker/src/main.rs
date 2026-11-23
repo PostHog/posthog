@@ -3,26 +3,37 @@
 // stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
 // each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
 // and keeps running after a failure. R for each `op`:
-//   detect             {"sourcemap":[index],"composed":[index]}
+//   detect             {"sourcemap":[index],"composed":[index],"mapping":[index]}
 //   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
 //   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
 //   drop, save         {}
-// Pairs stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL
+//   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
+//   set_release        {}
+//   prepare            {"skipped":[{"id","reason"}],"prepared":[{"id","chunkId","contentHash",...}],
+//                      "duplicates":["chunk id"]}, uploads in order and the first pair per chunk id
+//   css_candidates     {"candidates":[{"id":0,"mapRealPath":"..."} | null]}
+//   clean_up           {"deletedMaps":["..."],"warnings":["..."]}
+//   proguard           {"contentHash":"...","size":640,"path":"..."} | {"invalid":"reason"}
+// `prepare` writes each pair's symbol set to a file for hog to send and lets the pairs go. Other
+// pairs stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL
 // changes whenever a request or an answer does, because hog and the worker ship as two files.
 
+mod cleanup;
 mod constant;
 mod memory;
 mod node;
 mod pair;
+mod proguard;
 mod store;
 mod trace;
+mod upload;
 mod write;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{self, BufRead, IsTerminal, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use pair::{Action, SourcePair, Unreadable};
@@ -64,6 +75,33 @@ enum Request {
     Save {
         ids: Vec<usize>,
     },
+    Fingerprint {
+        ids: Vec<usize>,
+    },
+    #[serde(rename_all = "camelCase")]
+    SetRelease {
+        ids: Vec<usize>,
+        release_id: Option<String>,
+    },
+    Prepare {
+        ids: Vec<usize>,
+        mode: ReleaseMode,
+        folder: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    CssCandidates {
+        files: Vec<String>,
+        public_path_prefix: Option<String>,
+    },
+    CleanUp {
+        targets: Vec<usize>,
+        css: Vec<usize>,
+        roots: Vec<String>,
+    },
+    Proguard {
+        path: String,
+        folder: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -71,6 +109,13 @@ struct Candidate {
     path: String,
     bundle: bool,
     map: bool,
+    mapping: bool,
+}
+
+struct Detected {
+    sourcemap: bool,
+    composed: bool,
+    mapping: bool,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -87,6 +132,7 @@ enum Answer {
     Detected {
         sourcemap: Vec<usize>,
         composed: Vec<usize>,
+        mapping: Vec<usize>,
     },
     Pairs {
         pairs: Vec<PairAnswer>,
@@ -94,7 +140,31 @@ enum Answer {
     Outcomes {
         outcomes: Vec<Outcome>,
     },
+    Targets {
+        targets: Vec<usize>,
+    },
+    Prepared {
+        skipped: Vec<upload::SkippedPair>,
+        prepared: Vec<upload::PreparedPair>,
+        duplicates: Vec<String>,
+    },
+    CssCandidates {
+        candidates: Vec<Option<CssCandidateAnswer>>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Cleaned {
+        deleted_maps: Vec<String>,
+        warnings: Vec<String>,
+    },
+    Proguard(proguard::Built),
     Done {},
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CssCandidateAnswer {
+    id: usize,
+    map_real_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -188,6 +258,8 @@ fn state(id: usize, pair: &SourcePair) -> PairState {
 
 struct Worker {
     pairs: Store<SourcePair>,
+    targets: Store<cleanup::Target>,
+    stylesheets: Store<cleanup::CssCandidate>,
     trace: Trace,
 }
 
@@ -197,7 +269,7 @@ impl Worker {
             Request::Detect {
                 files,
                 public_path_prefix,
-            } => Ok(self.detect(&files, public_path_prefix.as_deref())),
+            } => self.detect(&files, public_path_prefix.as_deref()),
             Request::ReadPairs {
                 paths,
                 public_path_prefix,
@@ -213,23 +285,49 @@ impl Worker {
                 now,
             } => self.inject(&ids, mode, release_id.as_deref(), now),
             Request::Save { ids } => self.save(&ids),
+            Request::Fingerprint { ids } => self.fingerprint(&ids),
+            Request::SetRelease { ids, release_id } => self.set_release(&ids, release_id),
+            Request::Prepare { ids, mode, folder } => self.prepare(&ids, mode, folder.as_deref()),
+            Request::CssCandidates {
+                files,
+                public_path_prefix,
+            } => Ok(self.css_candidates(&files, public_path_prefix.as_deref())),
+            Request::CleanUp {
+                targets,
+                css,
+                roots,
+            } => self.clean_up(&targets, &css, &roots),
+            Request::Proguard { path, folder } => {
+                proguard::build(Path::new(&path), folder.as_deref().map(Path::new))
+                    .map(Answer::Proguard)
+                    .map_err(Failure::failed)
+            }
         }
     }
 
-    fn detect(&self, files: &[Candidate], public_path_prefix: Option<&str>) -> Answer {
-        let found: Vec<(bool, bool)> = files
+    fn detect(
+        &self,
+        files: &[Candidate],
+        public_path_prefix: Option<&str>,
+    ) -> Result<Answer, Failure> {
+        let found: Vec<Result<Detected, String>> = files
             .par_iter()
             .map(|file| {
                 let path = Path::new(&file.path);
-                (
-                    file.bundle && pair::has_sourcemap(path, public_path_prefix),
-                    file.map && pair::is_composed_map(path),
-                )
+                Ok(Detected {
+                    sourcemap: file.bundle && pair::has_sourcemap(path, public_path_prefix),
+                    composed: file.map && pair::is_composed_map(path),
+                    mapping: file.mapping && proguard::is_valid_mapping(&node::read(path)?),
+                })
             })
             .collect();
         self.trace.mark("detect");
 
-        let indices = |pick: fn(&(bool, bool)) -> bool| {
+        let found: Vec<Detected> = found
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
+        let indices = |pick: fn(&Detected) -> bool| {
             found
                 .iter()
                 .enumerate()
@@ -237,10 +335,11 @@ impl Worker {
                 .map(|(index, _)| index)
                 .collect()
         };
-        Answer::Detected {
-            sourcemap: indices(|file| file.0),
-            composed: indices(|file| file.1),
-        }
+        Ok(Answer::Detected {
+            sourcemap: indices(|file| file.sourcemap),
+            composed: indices(|file| file.composed),
+            mapping: indices(|file| file.mapping),
+        })
     }
 
     fn read_pairs(&mut self, paths: &[String], public_path_prefix: Option<&str>) -> Answer {
@@ -357,6 +456,123 @@ impl Worker {
     }
 }
 
+impl Worker {
+    fn fingerprint(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
+        let pairs = self.pairs.take_all(ids)?;
+
+        let fingerprinted: Result<Vec<cleanup::Target>, String> =
+            pairs.par_iter().map(cleanup::js_target).collect();
+        self.pairs.put_back(ids, pairs);
+        self.trace.mark("fingerprint");
+
+        let targets = fingerprinted
+            .map_err(Failure::failed)?
+            .into_iter()
+            .map(|target| self.targets.hold(target))
+            .collect();
+        Ok(Answer::Targets { targets })
+    }
+
+    fn set_release(
+        &mut self,
+        ids: &[usize],
+        release_id: Option<String>,
+    ) -> Result<Answer, Failure> {
+        let mut pairs = self.pairs.take_all(ids)?;
+
+        for pair in &mut pairs {
+            pair.map.release_id = release_id.clone();
+        }
+        self.pairs.put_back(ids, pairs);
+        Ok(Answer::Done {})
+    }
+
+    fn prepare(
+        &mut self,
+        ids: &[usize],
+        mode: ReleaseMode,
+        folder: Option<&str>,
+    ) -> Result<Answer, Failure> {
+        let pairs = self.pairs.take_all(ids)?;
+        let folder = folder.map(Path::new);
+        let claimed = upload::claim(ids, pairs);
+
+        let prepared: Result<Vec<upload::PreparedPair>, String> = claimed
+            .ready
+            .into_par_iter()
+            .map(|(id, chunk_id, pair)| {
+                let source_path = pair.source_path.clone();
+                upload::prepare(id, chunk_id, pair, mode, folder)
+                    .map_err(|error| format!("{}: {error:#}", source_path.display()))
+            })
+            .collect();
+        self.trace.mark("prepare");
+
+        Ok(Answer::Prepared {
+            skipped: claimed.skipped,
+            prepared: prepared.map_err(Failure::failed)?,
+            duplicates: claimed.duplicates,
+        })
+    }
+
+    fn css_candidates(&mut self, files: &[String], public_path_prefix: Option<&str>) -> Answer {
+        let found: Vec<Option<cleanup::CssCandidate>> = files
+            .par_iter()
+            .map(|file| cleanup::css_candidate(file, public_path_prefix))
+            .collect();
+        self.trace.mark("css candidates");
+
+        let candidates = found
+            .into_iter()
+            .map(|candidate| {
+                let candidate = candidate?;
+                let map_real_path = candidate.map_path().map(|path| {
+                    display(&dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+                });
+                Some(CssCandidateAnswer {
+                    id: self.stylesheets.hold(candidate),
+                    map_real_path,
+                })
+            })
+            .collect();
+        Answer::CssCandidates { candidates }
+    }
+
+    // Bundles first, then stylesheets, each in the order hog names them, which orders the warnings.
+    fn clean_up(
+        &mut self,
+        targets: &[usize],
+        css: &[usize],
+        roots: &[String],
+    ) -> Result<Answer, Failure> {
+        let roots: Vec<PathBuf> = cleanup::canonical_roots(roots).map_err(Failure::failed)?;
+
+        let mut warnings = Vec::new();
+        let mut stylesheets = Vec::new();
+        for id in css {
+            let candidate = self.stylesheets.get(*id)?;
+            match cleanup::css_target(candidate, &roots) {
+                Ok(target) => stylesheets.extend(target),
+                Err(warning) => warnings.push(warning),
+            }
+        }
+        let mut all = Vec::with_capacity(targets.len() + stylesheets.len());
+        for id in targets {
+            all.push(self.targets.get(*id)?);
+        }
+        all.extend(&stylesheets);
+
+        let cleaned = cleanup::clean_up(&all).map_err(Failure::failed)?;
+        self.trace.mark("clean up");
+
+        warnings.extend(cleaned.warnings);
+        Ok(Answer::Cleaned {
+            deleted_maps: cleaned.deleted_maps,
+            warnings,
+        })
+    }
+}
+
 fn send(message: &impl Serialize) -> io::Result<()> {
     let mut line = serde_json::to_vec(message)?;
     line.push(b'\n');
@@ -386,6 +602,8 @@ fn main() -> io::Result<()> {
 
     let mut worker = Worker {
         pairs: Store::new("pair"),
+        targets: Store::new("cleanup target"),
+        stylesheets: Store::new("stylesheet"),
         trace: Trace::from_environment(),
     };
     for line in io::stdin().lock().lines() {
