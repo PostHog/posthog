@@ -16,6 +16,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     RetentionEntity,
@@ -404,7 +405,7 @@ def _references_data_warehouse(value) -> bool:
         return True
     if isinstance(value, MarketingAnalyticsSearchQuery):
         return bool(value.sources)
-    if isinstance(value, MarketingAnalyticsRecommendationsQuery):
+    if isinstance(value, (MarketingAnalyticsRecommendationsQuery, MarketingAnalyticsConversionActionsQuery)):
         # No sources means the runner reads every synced source in the project.
         return value.sources is None or bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:

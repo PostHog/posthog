@@ -17,6 +17,7 @@ from posthog.schema import (
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     RetentionEntity,
@@ -228,6 +229,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("recommendations_without_sources", MarketingAnalyticsRecommendationsQuery(), True),
             ("recommendations_with_empty_sources", MarketingAnalyticsRecommendationsQuery(sources=[]), False),
+            ("conversion_actions_without_sources", MarketingAnalyticsConversionActionsQuery(), True),
             ("search_with_empty_sources", MarketingAnalyticsSearchQuery(sources=[]), False),
         ]
     )

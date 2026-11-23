@@ -302,6 +302,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
             | NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY
+            | NodeKind.MARKETING_ANALYTICS_CONVERSION_ACTIONS_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (

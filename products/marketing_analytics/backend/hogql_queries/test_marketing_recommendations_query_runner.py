@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.test import SimpleTestCase
@@ -12,6 +14,7 @@ from parameterized import parameterized
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     DateRange,
+    MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
 )
@@ -31,6 +34,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     PolicyTopic,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
+    MarketingAnalyticsConversionActionsQueryRunner,
     MarketingAnalyticsRecommendationsQueryRunner,
     _asset_texts,
     _policy_topics,
@@ -42,6 +46,8 @@ from products.warehouse_sources.backend.facade.testing import create_data_wareho
 PURCHASE = "customers/1/conversionActions/10"
 SIGNUP = "customers/1/conversionActions/20"
 MANAGER_SIGNUP = "customers/9/conversionActions/20"
+RETIRED = "customers/1/conversionActions/30"
+UNKNOWN = "customers/1/conversionActions/40"
 BOTH_SPLITS = ("campaign", "search_term")
 SESSION_START_MS = 1768478400000  # 2026-01-15 12:00 UTC
 
@@ -498,6 +504,35 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         self.team = Team.objects.get(pk=self.team.pk)
         assert wasted_terms() == ["beta"]
 
+    @parameterized.expand(
+        [
+            ("without_saved_actions", [], [], []),
+            ("saved_action_without_recent_conversions", [RETIRED], [(RETIRED, 0.0, 0.0, False)], []),
+            ("saved_action_no_account_reports", [UNKNOWN], [], [UNKNOWN]),
+        ]
+    )
+    def test_lists_the_conversion_actions_of_the_last_90_days(
+        self, _name: str, saved: list[str], idle: list[tuple[str, float, float, bool]], unmatched: list[str]
+    ) -> None:
+        TeamMarketingAnalyticsConfig.objects.update_or_create(
+            team=self.team, defaults={"recommendation_conversion_actions": saved}
+        )
+        source = self._conversion_action_source(BOTH_SPLITS, SIGNUP)
+
+        with time_machine.travel(datetime(2026, 1, 30, tzinfo=UTC), tick=False):
+            response = MarketingAnalyticsConversionActionsQueryRunner(
+                query=MarketingAnalyticsConversionActionsQuery(sources=[source]),
+                team=Team.objects.get(pk=self.team.pk),
+                user=self.user,
+            ).calculate()
+
+        assert [
+            (action.action, action.primaryConversions, action.allConversions, action.recent)
+            for action in response.results
+        ] == [(PURCHASE, 10.0, 10.0, True), (SIGNUP, 0.0, 5.0, True), *idle]
+        assert {action.account for action in response.results} == {"Google Ads account 1"}
+        assert response.unmatchedSavedActions == unmatched
+
     def _conversion_action_source(
         self, split_tables: tuple[str, ...], signup: str
     ) -> MarketingAnalyticsRecommendationsSource:
@@ -555,7 +590,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             source.campaignConversionActionTable = self._table(
                 "campaign_conversion_action_stats",
                 action_columns,
-                ",".join(action_columns) + f"\n1,2026-01-15,{PURCHASE},10,10\n1,2026-01-15,{signup},0,5\n",
+                ",".join(action_columns)
+                + f"\n1,2026-01-15,{PURCHASE},10,10\n1,2026-01-15,{signup},0,5\n1,2025-09-01,{RETIRED},7,7\n",
             )
         if "search_term" in split_tables:
             term_action_columns = {"search_term_view_search_term": "String", **action_columns}
