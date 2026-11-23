@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic, buildApplyUrlStatePayload } from './aiObservabilitySharedLogic'
+import { shellScopeLogic } from './redesign/shell/shellScopeLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
 jest.mock('lib/api')
@@ -160,6 +161,8 @@ describe('aiObservabilitySharedLogic', () => {
         }
 
         beforeEach(() => {
+            // A choice that differs from the project's default is remembered in local storage across tests.
+            localStorage.clear()
             jest.clearAllMocks()
             mockHasRecentAIEvents.mockResolvedValue(false)
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -187,6 +190,21 @@ describe('aiObservabilitySharedLogic', () => {
 
             expect(logic.values.shouldFilterTestAccounts).toBe(false)
             expect(router.values.location.search).toContain('filter_test_accounts=false')
+        })
+
+        it('hands a test account choice of false made on the sessions path to the shell', async () => {
+            router.actions.push(urls.aiObservabilityTraces())
+            shellScopeLogic.mount()
+            shellScopeLogic.actions.setFilterTestAccounts(true)
+            const logic = mountWithFlags([NAV])
+            router.actions.push(urls.aiObservabilitySessions(), router.values.searchParams)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+
+            logic.actions.setShouldFilterTestAccounts(false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(shellScopeLogic.values.filterTestAccounts).toBe(false)
         })
 
         it('writes nothing to the traces URL', async () => {
