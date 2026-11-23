@@ -245,15 +245,13 @@
     visibility: visible;
 }
 
-// Shown while anywhere on the card is hovered, so the link is at hand while reading the chart.
-// Opacity, not visibility, so keyboard users can still tab to it.
+// Opacity, not visibility, so keyboard users can still tab to it. InsightCard.scss reveals it on hover.
 .CardMeta__copy-link {
     opacity: 0;
-}
 
-.InsightCard:hover .CardMeta__copy-link,
-.CardMeta__copy-link:focus-visible {
-    opacity: 1;
+    &:focus-visible {
+        opacity: 1;
+    }
 }
 
 // On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden
