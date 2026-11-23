@@ -214,7 +214,10 @@ class Command(BaseCommand):
 
 def check_approver(organization_id: UUID, email: str) -> None:
     is_admin = OrganizationMembership.objects.filter(
-        organization_id=organization_id, user__email__iexact=email, level__gte=OrganizationMembership.Level.ADMIN
+        organization_id=organization_id,
+        user__email__iexact=email,
+        user__is_active=True,
+        level__gte=OrganizationMembership.Level.ADMIN,
     ).exists()
     if not is_admin:
         raise CommandError(f"{email} is not an admin of the team's organization")

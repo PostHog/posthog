@@ -90,6 +90,16 @@ class TestExportApproval(BaseTest):
             with pytest.raises(CommandError):
                 check_approver(self.organization.id, "approver@example.com")
 
+    def test_a_deactivated_admin_does_not_approve(self) -> None:
+        user = User.objects.create_and_join(
+            self.organization, "approver@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        user.is_active = False
+        user.save()
+
+        with pytest.raises(CommandError):
+            check_approver(self.organization.id, "approver@example.com")
+
     def test_an_admin_of_another_organization_does_not_approve(self) -> None:
         other = Organization.objects.create(name="Other")
         User.objects.create_and_join(other, "approver@example.com", None, level=OrganizationMembership.Level.ADMIN)
