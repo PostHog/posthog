@@ -2109,7 +2109,12 @@ DELIVERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 
 def record_delivered_message(
-    run_id: str, message_id: str, *, actor_slack_user_id: str | None, person_message: str | None
+    run_id: str,
+    message_id: str,
+    *,
+    actor_slack_user_id: str | None,
+    person_message: str | None,
+    person_message_ts: str | None = None,
 ) -> None:
     """Correlate a delivered message with its sender's Slack id and the sender's own words, so a
     relay echoing the message id can tag the exact speaker it answers and offer replies that fit
@@ -2117,7 +2122,11 @@ def record_delivered_message(
     this server recorded itself, so a compromised sandbox cannot pick an arbitrary mention target."""
     records = {
         _message_record_key(kind, run_id, message_id): value
-        for kind, value in (("actor", actor_slack_user_id), ("person-message", person_message))
+        for kind, value in (
+            ("actor", actor_slack_user_id),
+            ("person-message", person_message),
+            ("person-message-ts", person_message_ts),
+        )
         if value
     }
     if records:
@@ -2134,6 +2143,20 @@ def is_explicit_slack_reply(task_run: TaskRun, message_id: str | None) -> bool:
     # The opening turn starts with the sandbox, before per-message sender records exist.
     state = task_run.state or {}
     return state.get("interaction_origin") == "slack" and bool(state.get("slack_actor_slack_user_id"))
+
+
+def turn_person_message_ts(run_id: str | None, message_id: str | None) -> str | None:
+    """The Slack ts of the message that started the turn answering ``message_id``, so a reaction can land on it."""
+    if not (run_id and message_id):
+        return None
+    try:
+        recorded = get_tasks_cache().get(_message_record_key("person-message-ts", run_id, message_id))
+    except Exception:
+        logger.warning(
+            "turn_person_message_ts_lookup_failed", extra={"run_id": run_id, "message_id": message_id}, exc_info=True
+        )
+        return None
+    return recorded if isinstance(recorded, str) and recorded else None
 
 
 def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:

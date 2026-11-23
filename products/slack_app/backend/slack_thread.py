@@ -285,6 +285,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
@@ -294,6 +295,8 @@ class SlackThreadHandler:
         self.turn_trace_id = turn_trace_id
         # What the person said to start this turn, so reply suggestions know what they asked for.
         self.turn_person_message = turn_person_message
+        # The context's ts is the message that opened the run, so a later turn carries its own message's ts here.
+        self.turn_person_message_ts = turn_person_message_ts or context.user_message_ts
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -317,6 +320,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
         include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
@@ -330,6 +334,7 @@ class SlackThreadHandler:
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
+            turn_person_message_ts=turn_person_message_ts,
         )
 
         handler.task_run_id = str(run_id) if run_id is not None else None
@@ -1202,7 +1207,7 @@ class SlackThreadHandler:
                     channel=self.context.channel,
                     thread_ts=self.context.thread_ts,
                     person_message=self.turn_person_message,
-                    person_message_ts=self.context.user_message_ts,
+                    person_message_ts=self.turn_person_message_ts,
                     run_id=self.task_run_id,
                     trace_id=self.turn_trace_id,
                 )

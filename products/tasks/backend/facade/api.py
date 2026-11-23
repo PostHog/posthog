@@ -6221,6 +6221,7 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     person_message: str | None = None,
+    person_message_ts: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
@@ -6290,7 +6291,11 @@ def signal_task_run_user_message(
                 claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
-        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context_values = {
+            "actor_slack_user_id": actor_slack_user_id,
+            "person_message": person_message,
+            "person_message_ts": person_message_ts,
+        }
         context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
