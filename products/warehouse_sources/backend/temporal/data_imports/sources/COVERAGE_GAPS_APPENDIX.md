@@ -15764,8 +15764,8 @@ Diffed against: <https://developers.veeqo.com/api/operations/list-all-customers/
 - [x] `GET stock entry (/sellables/{sellable_id}/warehouses/{warehouse_id}/stock_entry)` — per-warehouse inventory levels, Veeqo's core operational metric, as a flat table (medium)
 - [x] `GET view tracking events (shipments)` — delivery state transitions per shipment, the fulfillment timeline (medium)
 - [x] `GET retrieve bundle detail and GET retrieve bundle content` — bundle/kit composition — resolves which sellables make up a bundled product (low)
-- [ ] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
-- [ ] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
+- [x] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
+- [x] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
 
 Note: Parsed the complete operation index out of the developers.veeqo.com nav (76 operations, identical on every page; the site ships no OpenAPI file — /openapi.yaml, /openapi.json and /swagger.json all 404). Every documented top-level \*list\* endpoint is already synced (orders, products, customers, purchase_orders, suppliers, warehouses, channels->stores, tags, delivery_methods). Veeqo publishes no list endpoints for allocations, shipments, returns or bundles, so all gaps above require fan-out from orders/products; the repo's own veeqo/api_inventory.md notes allocations and shipments are already embedded in the order payload. Excluded the Carrier/Rate Shopping APIs (label buying, scan forms) as operational, not analytical.
 
