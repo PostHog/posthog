@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -1642,10 +1642,6 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
-                if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
-                    return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
-                }
                 release = this.transactionalEmailBatchCapacity.admit()
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
@@ -1867,19 +1863,13 @@ export class CdpApi {
             encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
-                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-                intake: {
-                    modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(
-                        this.outputs,
-                        undefined,
-                        createInvocationSanitizer(this.config).seal,
-                        intakeClusterOf(this.config)
-                    ),
-                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
-                },
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
             }),
-            invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
             emailSuppression: this.emailSuppressionService,

@@ -1,4 +1,6 @@
-import { mockProducer } from './mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from './mocks/producer.mock'
+
+import { Message } from 'node-rdkafka'
 
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -6,6 +8,8 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
+import { CdpIntakeConsumer } from '../../src/cdp/consumers/cdp-intake.consumer'
+import { RunKind } from '../../src/cdp/intake/message'
 import {
     CdpProducerName,
     MSK_CDP_INTAKE_PRODUCER,
@@ -67,5 +71,23 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         quotaLimiting: hub.quotaLimiting,
         emailValidationValkey: createSesRateLimiterValkeyPool(hub, 'email-mx-validation'),
         frequencyCapValkey: createFrequencyCapValkeyPool(hub),
+    }
+}
+
+/** Feeds every run the routes produced to an intake topic through the intake consumer, as its Kafka consumer would. */
+export async function consumeIntake(hub: Hub, kind: RunKind): Promise<void> {
+    const topic =
+        kind === 'transactional-email'
+            ? hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC
+            : hub.CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC
+    const messages = mockProducerObserver.produceSpy.mock.calls
+        .filter(([message]) => message.topic === topic)
+        .map(([message], offset) => ({ ...message, partition: 0, offset, size: 0, timestamp: Date.now() }) as Message)
+    const consumer = new CdpIntakeConsumer(hub, createCdpConsumerDeps(hub), kind)
+    await consumer['cyclotron'].connect()
+    try {
+        await consumer.processBatch(messages)
+    } finally {
+        await consumer['cyclotron'].disconnect()
     }
 }

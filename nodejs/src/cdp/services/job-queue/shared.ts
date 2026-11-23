@@ -187,6 +187,11 @@ export function createInvocationSanitizer(
 
     return {
         seal,
+        // A webhook run with a sensitive step carries its secret in the request, so the intake topic gets it sealed too.
+        sealIntakeRun: (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
+            config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && inv.state?.sensitive === true
+                ? sealInvocation(inv, sealer)
+                : seal(inv),
 
         sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
             const enabled = integrationRefsRollout.isEnabled()

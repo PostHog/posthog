@@ -233,10 +233,11 @@ describe('insertIntakeBatch', () => {
             },
         } as CyclotronJobInvocation
 
-        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce(
-            { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
-            'async'
-        )
+        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce({
+            kind: 'transactional-email',
+            invocation: run,
+            fingerprint: 'fingerprint-a',
+        })
         await insertIntakeBatch([kafkaMessage(produced!)], services, OPTIONS)
 
         expect(produced!.toString()).not.toContain(code)
