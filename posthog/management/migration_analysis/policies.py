@@ -130,6 +130,13 @@ class MigrationPolicy(ABC):
         """
         pass
 
+    def review_notes(self, migration) -> list[str]:
+        """Risks this policy allows but a person still has to look at.
+
+        Each note raises the migration to Needs Review, so the Migration risk check does not pass it as safe.
+        """
+        return []
+
 
 class UUIDPrimaryKeyPolicy(MigrationPolicy):
     """
@@ -588,6 +595,34 @@ class HotTableAlterPolicy(MigrationPolicy):
             return []
 
         violations = []
+        for op, table, is_fk in self._hot_table_locks(migration):
+            if is_fk:
+                violations.append(self._fk_violation(op, table, label))
+            else:
+                violations.append(self._violation(op, table, label))
+        return violations
+
+    def review_notes(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        label = f"{migration.app_label}.{migration.name}"
+        if label not in self._acknowledged_migrations():
+            return []
+
+        tables = sorted({table for _op, table, _is_fk in self._hot_table_locks(migration)})
+        if not tables:
+            return []
+        return [
+            f"⚠️ ACKNOWLEDGED: {label} locks {', '.join(tables)}, which is read on virtually every request. "
+            "The acknowledgment allows the lock, it does not make it safe: while the lock request waits, "
+            "every query on the table waits behind it, and each deploy retry repeats that wait. "
+            "Deploy it in a low-traffic window agreed with #team-infrastructure."
+        ]
+
+    def _hot_table_locks(self, migration) -> list[tuple[Any, str, bool]]:
+        """Each operation that locks a hot table, with that table and whether the lock comes from a new FK."""
+        locks = []
         for op in _descend(migration.operations):
             # Unmanaged models (managed=False) map external tables - Django emits no DDL and
             # no FK constraint, so they can't take the hot-table lock this policy gates.
@@ -595,12 +630,12 @@ class HotTableAlterPolicy(MigrationPolicy):
                 continue
             fk_table = self._fk_target_hot_table(op)
             if fk_table:
-                violations.append(self._fk_violation(op, fk_table, label))
+                locks.append((op, fk_table, True))
                 continue
             table = self._hot_table_target(op, migration.app_label)
             if table:
-                violations.append(self._violation(op, table, label))
-        return violations
+                locks.append((op, table, False))
+        return locks
 
     def _acknowledged_migrations(self) -> set[str]:
         if not self.ACKNOWLEDGMENTS_FILE.exists():

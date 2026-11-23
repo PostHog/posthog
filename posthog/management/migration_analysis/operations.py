@@ -98,9 +98,11 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=1,
             reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
-            guidance="""This operation acquires a brief lock but doesn't rewrite the table.
+            guidance=f"""This operation doesn't rewrite the table, but it needs an ACCESS EXCLUSIVE lock.
 
-Deployment uses lock timeouts with automatic retries, so lock contention will cause retries rather than connection pile-up.""",
+While the lock request waits behind running queries, every new query on the table waits behind it, until `lock_timeout` cancels the request. Each deploy retry repeats that wait. On a busy table this queues traffic.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#altering-hot-tables)""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:
