@@ -27,6 +27,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.aws import AWS_ROLE_ARN_RE, validate_aws_role_arn
+from posthog.models.integration.common import IntegrationError
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
@@ -38,9 +40,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ExternalRoleArnNotConfiguredError,
     InvalidCredentialsError,
     PolicyStatement,
-    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
-    get_s3_integration,
     s3_client,
 )
 from products.replay.backend.temporal.export_recordings.types import (
@@ -81,7 +81,7 @@ BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<sta
 # Our cost and storage paths stay out of the customer's bucket.
 CUSTOMER_QUOTE_FIELDS = ("quote_id", "team_id", "date_from", "date_to", "selection", "created_at", "usage")
 
-NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, ExternalRoleArnNotConfiguredError)
+NON_RETRYABLE_ERRORS = (InvalidCredentialsError, ExternalRoleArnNotConfiguredError, IntegrationError)
 
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
 SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
@@ -320,22 +320,25 @@ class RoleCredentials:
 
 async def resolve_s3_credentials(team_id: int, destination: ExportDestination, run_id: str) -> RoleCredentials:
     """Assume the customer's role, scoped to this run's folder in their bucket."""
-    integration = await get_s3_integration(destination.integration_id, team_id)
-    aws_role_arn: str | None = getattr(integration, "aws_role_arn", None)
-    if not aws_role_arn:
-        raise ApplicationError("Recording exports need an AWS S3 integration with a role ARN", non_retryable=True)
     team = await Team.objects.aget(id=team_id)
+    external_id = f"posthog-{team.organization_id}"
+    # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
+    await asyncio.to_thread(
+        validate_aws_role_arn, destination.role_arn, settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN, external_id
+    )
     refresh_using = functools.partial(
         get_credentials_using_user_aws_role,
-        aws_role_arn,
-        f"posthog-{team.organization_id}",
+        destination.role_arn,
+        external_id,
         session_name=f"PostHog-replay-export-{team_id}",
-        policy_statements=policy_statements(destination, team_id, run_id, aws_role_arn),
+        policy_statements=policy_statements(destination, team_id, run_id),
         # Recording exports have their own external-access role, separate from batch exports.
         external_role_arn=settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
     )
     return RoleCredentials(
-        credentials=await refresh_using(), refresh_using=refresh_using, owner_account_id=role_account_id(aws_role_arn)
+        credentials=await refresh_using(),
+        refresh_using=refresh_using,
+        owner_account_id=role_account_id(destination.role_arn),
     )
 
 
@@ -348,6 +351,8 @@ def role_account_id(aws_role_arn: str) -> str:
 
 def destination_error(destination: ExportDestination) -> str | None:
     """Return why the destination is not allowed, or None."""
+    if not AWS_ROLE_ARN_RE.match(destination.role_arn):
+        return f"{destination.role_arn!r} is not a valid IAM role ARN"
     if not BUCKET_NAME_PATTERN.match(destination.bucket):
         return f"{destination.bucket!r} is not a valid S3 bucket name"
     if any(character in destination.prefix for character in "*?"):
@@ -357,9 +362,7 @@ def destination_error(destination: ExportDestination) -> str | None:
     return None
 
 
-def policy_statements(
-    destination: ExportDestination, team_id: int, run_id: str, aws_role_arn: str
-) -> list[PolicyStatement]:
+def policy_statements(destination: ExportDestination, team_id: int, run_id: str) -> list[PolicyStatement]:
     if error := destination_error(destination):
         raise ApplicationError(error, non_retryable=True)
     statements = [
@@ -376,7 +379,7 @@ def policy_statements(
             PolicyStatement(
                 Effect="Allow",
                 Action=["kms:GenerateDataKey", "kms:Decrypt"],
-                Resource=kms_key_arn(destination.kms_key_id, destination.region, aws_role_arn),
+                Resource=kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn),
             )
         )
     return statements

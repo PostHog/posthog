@@ -54,7 +54,9 @@ async def run_export(
                         "export-recordings",
                         ExportRecordingsInput(
                             team_id=1,
-                            destination=ExportDestination(integration_id=1, bucket="b", region="us-east-1", prefix="p"),
+                            destination=ExportDestination(
+                                role_arn="arn:aws:iam::123456789012:role/r", bucket="b", region="us-east-1", prefix="p"
+                            ),
                             quote_id="q",
                             run_id="r",
                             date_from="2026-01-30",

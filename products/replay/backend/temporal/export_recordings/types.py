@@ -28,7 +28,7 @@ class ExportTotals:
 
 @frozen
 class ExportDestination:
-    integration_id: int
+    role_arn: str
     bucket: str
     region: str
     prefix: str

@@ -1,6 +1,6 @@
 """Export a team's session recordings to an S3 bucket the customer owns, one .phrec file per session.
 
-The customer adds an AWS S3 integration with a role ARN to the project, as for an S3 batch export.
+The customer creates a role that trusts PostHog's recording-exports role and sends us its ARN.
 Each file plays back in Replay's file playback page.
 
 Usage:
@@ -9,7 +9,7 @@ Usage:
         --date-from 2026-08-01 --date-to 2026-10-31 [--session-ids-file ids.txt | --playlist <short id>]
 
     # Start the export of a quoted selection.
-    python manage.py export_recordings_to_s3 --quote-id <id> --integration-id 7 --bucket my-bucket \\
+    python manage.py export_recordings_to_s3 --quote-id <id> --role-arn <arn> --bucket my-bucket \\
         --region us-east-1 --prefix replay-export
 
     # Show the state of a run.
@@ -34,7 +34,6 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
 from posthog.clickhouse.workload import Workload
-from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
@@ -72,7 +71,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--allow-cross-region", action="store_true", help="Price and allow a bucket outside our replay region."
         )
-        parser.add_argument("--integration-id", type=int, help="The project's AWS S3 integration with a role ARN.")
+        parser.add_argument("--role-arn", help="The customer's IAM role, trusting PostHog's recording-exports role.")
         parser.add_argument("--bucket")
         parser.add_argument("--prefix", default="", help="Key prefix in the customer's bucket.")
         parser.add_argument(
@@ -148,7 +147,7 @@ class Command(BaseCommand):
         workflow_id = f"export-recordings-{quote.team_id}-{quote.quote_id}"
         if options["shards"]:
             check_shard_rerun(asyncio.run(_last_run_status(workflow_id)))
-        integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
+        role_arn, bucket = _required(options, "role_arn"), _required(options, "bucket")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]
         if only_shards:
@@ -159,16 +158,9 @@ class Command(BaseCommand):
                     raise CommandError(f"Shard {name} is outside the quoted range {quote.date_from} to {quote.date_to}")
                 if int(shard) >= quote.shards_per_day:
                     raise CommandError(f"Shard {name} is not below the quote's {quote.shards_per_day} shards per day")
-        try:
-            integration = IntegrationManager.any.get(quote.team_id, integration_id)
-        except IntegrationNotFound as e:
-            raise CommandError(f"Team {quote.team_id} has no integration {integration_id}") from e
-        if integration.kind != IntegrationKind.AWS_S3:
-            raise CommandError(f"Integration {integration_id} is not an AWS S3 integration")
-
         run_id = uuid.uuid4().hex
         destination = ExportDestination(
-            integration_id=integration_id, bucket=bucket, region=region, prefix=prefix, kms_key_id=kms_key_id
+            role_arn=role_arn, bucket=bucket, region=region, prefix=prefix, kms_key_id=kms_key_id
         )
         if error := destination_error(destination):
             raise CommandError(error)
@@ -187,7 +179,9 @@ class Command(BaseCommand):
         self.stdout.write(format_quote(quote))
         encryption = f", KMS key {kms_key_id}" if kms_key_id else ""
         shards = f", only shards {','.join(only_shards)}" if only_shards else ""
-        self.stdout.write(f"Destination: s3://{bucket}/{prefix} ({region}{encryption}), run {run_id}{shards}")
+        self.stdout.write(
+            f"Destination: s3://{bucket}/{prefix} ({region}{encryption}) as {role_arn}, run {run_id}{shards}"
+        )
         if not options["yes"]:
             # A non-interactive exec has no terminal to answer the prompt.
             if not sys.stdin.isatty():
