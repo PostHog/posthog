@@ -2941,6 +2941,62 @@ class TestExternalDataSchema(APIBaseTest):
         mock_sync_events.assert_called_once()
         mock_create_webhook.assert_not_called()
 
+    @parameterized.expand([("existing_webhook", True), ("no_webhook", False)])
+    def test_enabling_a_webhook_table_routes_it_on_the_existing_webhook(self, _name: str, has_webhook: bool):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        if has_webhook:
+            HogFunction.objects.create(
+                team=self.team,
+                type="warehouse_source_webhook",
+                hog="return event",
+                enabled=True,
+                inputs_schema=[{"key": "source_id", "type": "string"}],
+                inputs={"source_id": {"value": str(source.pk)}, "schema_mapping": {"value": {}}},
+            )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=WebhookHogFunctionCreateResult(
+                    hog_function_id=str(uuid.uuid4()),
+                    webhook_url="https://test.com/webhook",
+                    hog_function_created=False,
+                ),
+            ) as route_table,
+            mock.patch.object(StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)),
+            mock.patch.object(
+                StripeSource,
+                "get_schemas",
+                return_value=[
+                    SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True)
+                ],
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"should_sync": True}
+            )
+
+        assert response.status_code == 200, response.content
+        if has_webhook:
+            assert route_table.call_args.kwargs["eligible_schemas"] == [schema]
+        else:
+            # Without a webhook the table reports `not_registered`; enabling it must not register one.
+            route_table.assert_not_called()
+
     def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
@@ -5998,7 +6054,9 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert {row["id"]: row["table_id"] for row in rows} == expected
 
-    def _webhook_source(self, *, with_webhook: bool) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
+    def _webhook_source(
+        self, *, with_webhook: bool, function_inputs: dict | None = None
+    ) -> tuple[ExternalDataSource, list[ExternalDataSchema]]:
         source, _ = self._create()
         ExternalDataSchema.objects.filter(source=source).delete()
         schemas = [
@@ -6013,8 +6071,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 type="warehouse_source_webhook",
                 hog="return event",
                 enabled=True,
-                inputs_schema=[{"key": "source_id", "type": "string"}],
-                inputs={"source_id": {"value": str(source.pk)}},
+                inputs_schema=[
+                    {"key": "source_id", "type": "string"},
+                    {"key": "schema_mapping", "type": "json"},
+                    {"key": "signing_secret", "type": "string", "secret": True},
+                ],
+                inputs={"source_id": {"value": str(source.pk)}, **(function_inputs or {})},
             )
         return source, schemas
 
@@ -6026,18 +6088,54 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert detail["webhook_not_registered"] is expected
 
+    @parameterized.expand(
+        [
+            ("no_webhook", False, {}, "not_registered"),
+            # The webhook answers 200 and drops every delivery while the signing secret is unset.
+            ("no_signing_secret", True, {"schema_mapping": {"value": {"customer": "x"}}}, "missing_inputs"),
+            # A table enabled after the webhook was set up has no route, so its events are dropped.
+            (
+                "table_not_routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {}}},
+                "not_routed",
+            ),
+            (
+                "routed",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "x"}}},
+                None,
+            ),
+        ]
+    )
+    def test_retrieve_webhook_issue(
+        self, _name: str, with_webhook: bool, function_inputs: dict, expected: str | None
+    ) -> None:
+        _, schemas = self._webhook_source(with_webhook=with_webhook, function_inputs=function_inputs)
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schemas[0].id}/").json()
+
+        assert detail["webhook_issue"] == expected
+
     def test_list_serializer_looks_up_webhooks_once_for_all_sources(self) -> None:
         _, with_webhook = self._webhook_source(with_webhook=True)
         _, without_webhook = self._webhook_source(with_webhook=False)
         view = ExternalDataSchemaViewset()
         view.team_id = self.team.pk
 
-        with self.assertNumQueries(1):
+        # One lookup for registration, then one for the functions and one for the source types behind the issues.
+        with self.assertNumQueries(3):
             rows = view.get_serializer(
                 [*with_webhook, *without_webhook], many=True, context={"include_columns": False}
             ).data
 
         assert [row["webhook_not_registered"] for row in rows] == [False, False, True, True]
+        assert [row["webhook_issue"] for row in rows] == [
+            "missing_inputs",
+            "missing_inputs",
+            "not_registered",
+            "not_registered",
+        ]
 
     @parameterized.expand(
         [
