@@ -3576,7 +3576,8 @@ class TestUserReportCreateAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self, writer_enabled: bool) -> None:
         payload = self._payload(
             repository="acme/widgets",
             priority="P1",
@@ -3585,6 +3586,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         )
         with (
             _safe_judge(),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch(EMBED_PATH) as embed,
             patch(
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
@@ -3602,6 +3604,12 @@ class TestUserReportCreateAPI(APIBaseTest):
         dispatch.assert_not_called()
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
+        assert (
+            SignalReportArtefact.objects.get(
+                team=self.team, report=report, type="suggested_reviewers"
+            ).implementation_authorization
+            is None
+        )
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:

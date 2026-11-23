@@ -16,6 +16,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
+from posthog.kafka_client.client import ClickhouseProducer
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -93,7 +94,6 @@ class TestSetIssueTag(BaseTest):
             ("new_tagger_replaces_jev", Source.JEV, NEW_TAGGER, None, True, 2),
             ("jev_keeps_new_tagger", NEW_TAGGER, Source.JEV, None, False, 1),
             ("new_tagger_keeps_manual", Source.MANUAL, NEW_TAGGER, None, False, 1),
-            ("jev_repeats_its_answer", Source.JEV, Source.JEV, True, True, 1),
             ("manual_confirms_jev", Source.JEV, Source.MANUAL, True, True, 2),
             ("manual_overrules_jev", Source.JEV, Source.MANUAL, False, True, 2),
         ]
@@ -123,6 +123,36 @@ class TestSetIssueTag(BaseTest):
         value, version = _latest_clickhouse_answer(issue)
         assert value == tag.value
         assert (version > first_version) is replaced
+
+    @parameterized.expand(
+        [
+            ("same_answer", 1, ["SELECT"], 0),
+            ("new_question_version", 2, ["SELECT", "UPDATE"], 1),
+        ]
+    )
+    def test_a_repeated_answer_is_written_and_synced_only_when_it_changed(
+        self, _name: str, question_version: int, expected_statements: list[str], expected_produces: int
+    ) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        answer = self._answer(Source.JEV, value=True)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, answer, Source.JEV)
+        repeat = dataclasses.replace(answer, question_version=question_version)
+        produced: list[dict[str, object]] = []
+
+        with (
+            patch.object(ClickhouseProducer, "produce", side_effect=lambda **kwargs: produced.append(kwargs["data"])),
+            self.captureOnCommitCallbacks(execute=True),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            stored = set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, repeat, Source.JEV)
+
+        tag_statements = [
+            query["sql"].split()[0]
+            for query in queries.captured_queries
+            if "posthog_errortrackingissuetag" in query["sql"]
+        ]
+        assert (stored, tag_statements, len(produced)) == (True, expected_statements, expected_produces)
+        assert _issue_activity(issue).count() == 1
 
     def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)

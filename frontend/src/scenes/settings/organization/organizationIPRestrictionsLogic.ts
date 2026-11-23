@@ -17,7 +17,7 @@ export interface organizationIPRestrictionsLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationLoading: boolean // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     cleaned: string[]
     draft: IPRestrictionsDraft | null
     draftEntries: string[] | null
@@ -63,7 +63,7 @@ export interface organizationIPRestrictionsLogicMeta {
         validationError: (cleaned: string[]) => string | null
         editDisabledReason: (
             isAdminOrOwner: boolean | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => string | null
         saveDisabledReason: (
             editDisabledReason: string | null,

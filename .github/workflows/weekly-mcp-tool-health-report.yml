@@ -5,12 +5,20 @@ name: Weekly MCP tool health report
 # and maps each tool to the team that owns its definition through the packages/owners-yaml
 # resolver, which is why the sparse checkout includes the ownership and tool definition files.
 # Each owning team's rows go to that team's channel when vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is
-# 'true', and stay in the digest thread otherwise.
+# 'true', and stay in the digest thread otherwise. Each owning team also gets one Signals inbox
+# report, suggested to the members of the PostHog role named after its GitHub team; unowned tools
+# stay in the digest only.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project that records MCP tool calls.
 #   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY: a personal API key with query:read for that project.
 #   - secrets.SLACK_DEVEX_BOT_TOKEN: the existing DevEx Slack bot.
+# Team inbox reports additionally need:
+#   - vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID: the PostHog project whose inbox receives them.
+#   - secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY: a personal API key with inbox:write, project:read,
+#     organization:read and organization_member:read, owned by a person the inbox-reports-create-mcp
+#     flag is on for. The read scopes find each team's active role members to suggest as reviewers,
+#     and roles and members are organization endpoints, so the key is limited to the organization.
 
 on:
     schedule:
@@ -18,7 +26,7 @@ on:
     workflow_dispatch:
         inputs:
             dry_run:
-                description: 'Print each failing tool with its owner and channel instead of posting to Slack'
+                description: 'Print each failing tool with its owner and channel instead of posting to Slack or filing inbox reports'
                 type: boolean
                 default: true
 
@@ -28,9 +36,10 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        # Worst case is 3 query attempts x 150s abort plus 2 x 30s backoffs (~8.5min), plus checkout
-        # and owner resolution.
-        timeout-minutes: 12
+        # Each PostHog request's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min).
+        # After the query, inbox work starts within a 10-minute budget, and the reviewer lookup it can
+        # start last makes three such requests (~25.5min) before the budget stops filing.
+        timeout-minutes: 50
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-
@@ -71,5 +80,7 @@ jobs:
                   # rows in the digest thread, labeled with the channel they would reach.
                   MCP_TOOL_HEALTH_TEAM_CHANNELS: ${{ vars.MCP_TOOL_HEALTH_TEAM_CHANNELS }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SIGNALS_PROJECT_ID: ${{ vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID }}
+                  SIGNALS_API_KEY: ${{ secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-mcp-tool-health-report.mjs

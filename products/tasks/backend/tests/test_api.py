@@ -549,6 +549,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert logs.status_code == status.HTTP_200_OK
         assert logs.json()[0]["message"] == entry["message"]
         usage = {"input_tokens": 12, "output_tokens": 4}
+        retry = {"classification": "upstream_rate_limited", "attempt": 1, "delay_ms": 15_000}
         response = client.patch(
             base,
             {
@@ -558,6 +559,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                     "budget_guard": {},
                     "benjamin_version": "test",
                     "agent_version": "test-agent",
+                    "upstream_turn_retry": retry,
                 },
             },
             format="json",
@@ -567,6 +569,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state is not None
         assert run.state["token_usage"] == usage
         assert run.state["agent_version"] == "test-agent"
+        assert run.state["upstream_turn_retry"] == retry
         response = client.patch(
             f"{base}set_summary/",
             {"summary": "Reviewed recent exports", "tags": ["synthetic-trial-tag"]},
@@ -3962,12 +3965,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(task.internal)
 
     def test_signal_report_create_throttle_skips_other_origins(self):
+        from products.signals.backend.facade.testing import report_task_run_limits_payload
         from products.signals.backend.models import SignalReport
-        from products.tasks.backend.presentation.views.api import SignalReportTaskCreateBurstThrottle
 
         report = SignalReport.objects.create(team=self.team)
         other_report = SignalReport.objects.create(team=self.team)
-        with patch.object(SignalReportTaskCreateBurstThrottle, "rate", "1/day"):
+        with report_task_run_limits_payload({"default": {"per_day": 1}}):
             self.assertEqual(
                 self._post_signal_report_task(report.id, "discussion").status_code, status.HTTP_201_CREATED
             )
@@ -7617,26 +7620,31 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [str(task.id)])
 
     def test_a_signal_report_profile_counts_against_the_report_task_limit(self) -> None:
+        from products.signals.backend.facade.testing import report_task_run_limits_payload
         from products.signals.backend.models import SignalReport
-        from products.tasks.backend.presentation.views.api import SignalReportTaskCreateBurstThrottle
 
-        reports = [SignalReport.objects.create(team=self.team) for _ in range(2)]
+        reports = [SignalReport.objects.create(team=self.team) for _ in range(3)]
 
         with (
             patch(
                 "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository",
                 return_value="acme/web",
             ),
-            patch.object(SignalReportTaskCreateBurstThrottle, "rate", "1/day"),
+            report_task_run_limits_payload({"default": {"per_hour": 1}, "teams": {str(self.team.id): {"per_hour": 2}}}),
         ):
-            statuses = [
-                self._create(
-                    profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)}
-                ).status_code
+            responses = [
+                self._create(profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)})
                 for report in reports
             ]
 
-        self.assertEqual(statuses, [status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS])
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [status.HTTP_201_CREATED, status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS],
+        )
+        self.assertTrue(
+            responses[2].json()["detail"].startswith("You've reached your limit of 2 report runs an hour."),
+            responses[2].json(),
+        )
 
     def test_create_refuses_a_source_beside_a_signal_report(self) -> None:
         from products.signals.backend.models import SignalReport
@@ -9322,6 +9330,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("with_error_type", {"error_type": "agent_declined"}, "agent_declined"),
+            ("rate_limited", {"error_type": "upstream_rate_limited"}, "upstream_rate_limited"),
             ("without_error_type", {}, None),
         ]
     )
@@ -9559,6 +9568,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[0]["message"], "Starting task")
         self.assertEqual(log_entries[1]["type"], "progress")
         self.assertEqual(log_entries[1]["message"], "Step 1 complete")
+
+    @parameterized.expand([("the_run_sandbox", True, 1), ("a_user", False, 0)])
+    def test_append_log_captures_memory_reads_only_from(self, _name, from_sandbox, expected_events):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._sandbox_oauth_client(task.id) if from_sandbox else self.client
+        entry = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/memory_read",
+                "params": {"slug": "-tmp-workspace", "file": "notes.md", "tool": "Read", "toolCallId": "toolu_1"},
+            },
+        }
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", {"entries": [entry]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "agent_memory_read"]
+        self.assertEqual(len(captured), expected_events)
 
     def test_clear_conversation_records_the_boundary(self):
         task = self.create_task()

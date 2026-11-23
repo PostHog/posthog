@@ -8,7 +8,7 @@ import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from 'lib/ut
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { QueryLogTags } from '~/queries/schema/schema-general'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, deriveFromCoreFilterDefinitions } from '~/taxonomy/taxonomy'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 
 import { sessionRecordingPinnedPropertiesLogic } from '../player/player-meta/sessionRecordingPinnedPropertiesLogic'
@@ -30,6 +30,12 @@ const BASE_QUERY_PROPERTIES: [string, string][] = [
 ]
 const BASE_PROPERTIES = BASE_QUERY_PROPERTIES.map(([, property]) => property)
 
+// HogQL rewrites $feature_flag_called to also read the flag_evaluations table for orgs that store flag calls there.
+// The other core events carry the same per-session properties, so this query skips flag calls and reads only the events table.
+const propertySourceEvents = deriveFromCoreFilterDefinitions((): string[] =>
+    Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).filter((event) => event !== '$feature_flag_called')
+)
+
 function pinnedSessionProperties(pinnedProperties: string[]): string[] {
     return pinnedProperties.filter(
         (property) =>
@@ -38,7 +44,7 @@ function pinnedSessionProperties(pinnedProperties: string[]): string[] {
     )
 }
 
-function buildPropertiesQuery(
+export function buildPropertiesQuery(
     sessionIds: string[],
     oldestTimestamp: string,
     newestTimestamp: string | undefined,
@@ -59,7 +65,7 @@ function buildPropertiesQuery(
                             $session_id as session_id,
                             ${hogql.raw(selects)}
                         FROM events
-                        WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
+                        WHERE event IN ${propertySourceEvents()}
                         AND session_id IN ${sessionIds}
                         -- the timestamp range only bounds the events-table scan, padded a day each side so timezones can't cause issues
                         AND timestamp >= ${dayjs(oldestTimestamp).subtract(1, 'day')}

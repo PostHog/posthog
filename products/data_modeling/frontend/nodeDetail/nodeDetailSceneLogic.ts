@@ -11,9 +11,12 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import type { DataWarehouseSavedQueryUpdate } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { TodayDataRecent } from '~/layout/today/todayDataRecents'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -57,6 +60,13 @@ export interface NodeDetailQueryEditorState {
 }
 
 export const nodeDetailQueryEditorTabId = (savedQueryId: string): string => `node-detail-query-${savedQueryId}`
+
+const LINEAGE_TYPE_FILTER_STORAGE_KEY = 'scenes.models.nodeDetailSceneLogic.lineageTypeFilter'
+const LINEAGE_SEARCH_DEBOUNCE_MS = 250
+
+function nameMatchesSearch(name: string, searchTerm: string): boolean {
+    return name.toLowerCase().includes(searchTerm.trim().toLowerCase())
+}
 
 function isNodeLookup(value: unknown): value is DataModelingNodesRetrieveLookup {
     return (
@@ -115,13 +125,16 @@ export interface nodeDetailSceneLogicValues {
     effectiveLastRunStatus: string | null
     effectiveTab: NodeDetailSceneTab | null
     isMaterialized: boolean
+    lineageDebouncedSearchTerm: string
     lineageGraph: LineageGraphData | null
     lineageGraphError: boolean
     lineageGraphLoading: boolean
     lineageHiddenNodeBridging: HiddenNodeBridging | null
+    lineageIsFiltered: boolean
     lineageModalOpen: boolean
     lineageNodePositions: Record<string, XYPosition>
     lineageNodes: LineageGraphNode[]
+    lineageSearchTerm: string
     lineageTypeFilter: NodeTypeEnumApi[]
     lineageVisibleNodeIds: Set<string>
     modelListUrl: string
@@ -144,6 +157,7 @@ export interface nodeDetailSceneLogicValues {
     tableDetailsAccessDenied: boolean
     tableDetailsError: boolean
     tableDetailsLoading: boolean
+    todayRecent: TodayDataRecent | null
     visitedTabs: NodeDetailSceneTab[]
 }
 
@@ -161,12 +175,10 @@ export interface nodeDetailSceneLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
-        payload?:
-            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-            | undefined
+        payload?: DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        payload?: DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     canonicalizeTab: () => {
         value: true
@@ -287,6 +299,12 @@ export interface nodeDetailSceneLogicActions {
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
+    setLineageDebouncedSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setLineageSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => {
         typeFilter: NodeTypeEnumApi[]
     }
@@ -326,6 +344,7 @@ export interface nodeDetailSceneLogicMeta {
         catalogRestructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
         modelListUrl: (catalogRestructureEnabled: boolean) => string
         breadcrumbs: (node: DataModelingNode | null, catalogRestructureEnabled: boolean) => Breadcrumb[]
+        todayRecent: (node: DataModelingNode | null) => TodayDataRecent | null
         nodeType: (node: DataModelingNode | null) => NodeTypeEnumApi | null
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (node: DataModelingNode | null, sceneResolved: boolean) => NodeDetailSceneTab[]
@@ -348,8 +367,10 @@ export interface nodeDetailSceneLogicMeta {
         canEditQuery: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         lineageVisibleNodeIds: (
             lineageGraph: LineageGraphData | null,
-            lineageTypeFilter: NodeTypeEnumApi[]
+            lineageTypeFilter: NodeTypeEnumApi[],
+            lineageDebouncedSearchTerm: string
         ) => Set<string>
+        lineageIsFiltered: (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>) => boolean
         lineageHiddenNodeBridging: (
             lineageGraph: LineageGraphData | null,
             lineageVisibleNodeIds: Set<string>
@@ -402,6 +423,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
         resetLineageNodePositions: true,
         setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
+        setLineageSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setLineageDebouncedSearchTerm: (searchTerm: string) => ({ searchTerm }),
         markSavedQueryDeleted: true,
     }),
     reducers({
@@ -505,8 +528,21 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         ],
         lineageTypeFilter: [
             LINEAGE_FILTER_TYPES,
+            { persist: true, storageKey: LINEAGE_TYPE_FILTER_STORAGE_KEY },
             {
                 setLineageTypeFilter: (_, { typeFilter }) => typeFilter,
+            },
+        ],
+        lineageSearchTerm: [
+            '',
+            {
+                setLineageSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        lineageDebouncedSearchTerm: [
+            '',
+            {
+                setLineageDebouncedSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -629,6 +665,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     name: node?.name || 'Loading...',
                 },
             ],
+        ],
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.node],
+            (node: DataModelingNode | null): TodayDataRecent | null =>
+                node ? { type: 'data_model', name: node.name, href: urls.nodeDetail(node.id) } : null,
         ],
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
         // Which tabs exist depends on the saved query too, so a node that has one is only resolved
@@ -768,15 +809,27 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 ),
         ],
         lineageVisibleNodeIds: [
-            (s) => [s.lineageGraph, s.lineageTypeFilter],
-            (lineageGraph: LineageGraphData | null, lineageTypeFilter: DataModelingNodeType[]): Set<string> =>
+            (s) => [s.lineageGraph, s.lineageTypeFilter, s.lineageDebouncedSearchTerm],
+            (
+                lineageGraph: LineageGraphData | null,
+                lineageTypeFilter: DataModelingNodeType[],
+                lineageDebouncedSearchTerm: string
+            ): Set<string> =>
                 new Set(
                     (lineageGraph?.nodes ?? [])
                         .filter(
-                            (node) => node.id === lineageGraph?.currentNodeId || lineageTypeFilter.includes(node.type)
+                            (node) =>
+                                node.id === lineageGraph?.currentNodeId ||
+                                (lineageTypeFilter.includes(node.type) &&
+                                    nameMatchesSearch(node.name, lineageDebouncedSearchTerm))
                         )
                         .map((node) => node.id)
                 ),
+        ],
+        lineageIsFiltered: [
+            (s) => [s.lineageGraph, s.lineageVisibleNodeIds],
+            (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>): boolean =>
+                lineageVisibleNodeIds.size < (lineageGraph?.nodes.length ?? 0),
         ],
         lineageHiddenNodeBridging: [
             (s) => [s.lineageGraph, s.lineageVisibleNodeIds],
@@ -872,6 +925,10 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     node_type: node.type,
                     cleared: !payload?.description.trim(),
                 })
+            },
+            setLineageSearchTerm: async ({ searchTerm }, breakpoint) => {
+                await breakpoint(LINEAGE_SEARCH_DEBOUNCE_MS)
+                actions.setLineageDebouncedSearchTerm(searchTerm)
             },
             setLineageTypeFilter: ({ typeFilter }) => {
                 posthog.capture(LINEAGE_TYPE_FILTER_CHANGED_EVENT, {

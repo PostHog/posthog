@@ -94,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, follow_persons_on_events_mode
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -822,7 +822,7 @@ def _compute_system_table_access_decision(
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
@@ -873,6 +873,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _denied_warehouse_table_ids: set[str] = set()  # Ids of the warehouse tables in _denied_tables
     # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
     _models_aliases: dict[str, list[str]] = {}
     # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
@@ -947,6 +948,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._table_slot_origins = {}
         self._denied_tables = set()
+        self._denied_warehouse_table_ids = set()
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
@@ -1493,6 +1495,7 @@ class Database(BaseModel):
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)
+        self._denied_warehouse_table_ids.add(str(table.id))
         if table.external_data_source:
             for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
                 self._denied_tables.add(table_key)
@@ -2633,9 +2636,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
-                    if database.has_table(["posthog", "flag_evaluations"]):
-                        join_persons_to_flag_evaluations(database)
 
+                follow_persons_on_events_mode(database, modifiers.personsOnEventsMode)
                 _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
@@ -3685,7 +3687,8 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
             for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
         }
     for table in warehouse_tables:
-        table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
+        # `table.credential = None` also clears `credential_id`, which marks the table as needing a key.
+        table._state.fields_cache["credential"] = credentials_by_id.get(table.credential_id)
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:

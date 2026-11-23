@@ -295,6 +295,28 @@ describe('emit-event-step', () => {
                 })
             )
         })
+
+        it('adds the headers an entry carries without letting them replace its own', async () => {
+            const step = createEmitEventStep(config)
+
+            await step({
+                ...createInput(),
+                eventsToEmit: [
+                    {
+                        event: { ...mockProcessedEvent, team_id: 42 },
+                        output: EVENTS_OUTPUT,
+                        headers: { 'retention-days': '90', team_id: '999' },
+                    },
+                ],
+            })
+
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
+                expect.objectContaining({
+                    headers: { productTrack: 'general', team_id: '42', event: 'test-event', 'retention-days': '90' },
+                })
+            )
+        })
     })
 
     describe('productTrackHeader', () => {

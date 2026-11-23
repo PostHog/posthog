@@ -24,10 +24,13 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic import built_in_filters, external_references, github_external_references, rules, team_flags
+from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from ..logic.issue_tags import (
     enabled as issue_tag_enabled,
+    gate as issue_tag_gate,
     reader as issue_tag_reader,
+    rules as issue_tag_rules,
 )
 from ..models import (
     ErrorTrackingIssue,
@@ -48,6 +51,9 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
+IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
+IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
@@ -279,6 +285,22 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
 
 def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
+
+
+_AI_FEATURE_FLAGS = {contracts.ErrorTrackingAIFeature.ISSUE_SUMMARIES: ISSUE_SUMMARY_FLAG}
+
+
+def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature]:
+    """The AI features whose flag is on for the project. The project's settings show only these.
+
+    This is the flag check of the backend gate, but it never falls back to a remote call, because the team serializer
+    runs it on every page load. A feature that local evaluation cannot decide is left out.
+    """
+    return [
+        feature
+        for feature, flag in _AI_FEATURE_FLAGS.items()
+        if team_flags.team_flag_enabled(flag, team_id, only_evaluate_locally=True)
+    ]
 
 
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
@@ -542,6 +564,62 @@ def delete_severity_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
     rules.reorder_severity_rules(team_id, orders)
+
+
+def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
+    return contracts.ErrorTrackingIssueTagRule(
+        id=rule.id,
+        key=rule.key,
+        label=rule.label,
+        description=rule.description,
+        filters=rule.filters,
+        version=rule.version,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_issue_tag_rules(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagRule]:
+    return [_to_issue_tag_rule(rule) for rule in issue_tag_rules.list_issue_tag_rules(team_id, user)]
+
+
+def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.get_issue_tag_rule(team_id, rule_id, user)
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def create_issue_tag_rule(
+    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
+) -> contracts.ErrorTrackingIssueTagRule:
+    rule = issue_tag_rules.create_issue_tag_rule(
+        team_id, user, label=label, description=description, filters=filters, order_key=order_key
+    )
+    return _to_issue_tag_rule(rule)
+
+
+def update_issue_tag_rule(
+    team_id: int,
+    rule_id: str,
+    user: User,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    filters: dict | None = None,
+) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.update_issue_tag_rule(
+        team_id, rule_id, user, label=label, description=description, filters=filters
+    )
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
+    return issue_tag_rules.delete_issue_tag_rule(team_id, rule_id, user)
+
+
+def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) -> None:
+    issue_tag_rules.reorder_issue_tag_rules(team_id, orders, user)
 
 
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:

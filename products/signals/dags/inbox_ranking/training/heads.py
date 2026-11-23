@@ -18,8 +18,8 @@ Slack and the desktop app. A thumbs up on the report counts too, and a thumbs do
 Self-driving's own `task` and `system` writes are excluded, because they are internal operational
 work and not a person acting on the report.
 
-Only the heads the inbox reads are trained: `open`, `action` and `fixed` (`HeadRanker` in
-`products/signals/backend/ranking/inbox_sort.py`). The dataset dag still snapshots the label columns
+Only the heads the inbox reads are trained: `open`, `action` and `fixed` (`PublicOutcomeName` in
+`products/signals/backend/ranking/public_outcomes.py`). The dataset dag still snapshots the label columns
 of other outcomes, so a head can come back without a labels backfill.
 """
 

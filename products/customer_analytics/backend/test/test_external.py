@@ -138,8 +138,7 @@ class TestExternalAccountThrottles(SimpleTestCase):
 class TestExternalAccountAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token"])
+        _, self.secret_token = create_project_secret_api_key(self.team, label="default", scopes=["account:write"])
         # Fresh client so requests are unauthenticated unless they carry the Bearer token.
         self.client = APIClient()
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
@@ -156,7 +155,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.addCleanup(csp_enabled.stop)
 
     def _auth_headers(self, token=None):
-        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.secret_token}"}
 
     def _get(self, external_id="acme-1", token=None):
         return self.client.get(self.url, data={"external_id": external_id}, **self._auth_headers(token))
@@ -203,28 +202,20 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._get(token=self.team.api_token)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_accepts_backup_token(self):
-        backup_token = generate_random_token_secret()
-        self.team.secret_api_token_backup = backup_token
-        self.team.save(update_fields=["secret_api_token_backup"])
-        response = self._get(token=backup_token)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_rejects_team_without_customer_analytics_enabled(self):
         read_psak = self._create_psak_token(scopes=["account:read"], label="read")
         wrong_scope_psak = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
         self.mock_csp_enabled.return_value = False
         write_psak = self._create_psak_token(scopes=["account:write"], label="write")
-        for token in [self.team.secret_api_token, read_psak, wrong_scope_psak]:
+        # A key for a disabled team is indistinguishable from an unknown token.
+        for token in [read_psak, wrong_scope_psak]:
             with self.subTest(token=token):
                 response = self._get(token=token)
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-                self.assertEqual(response.json(), {"error": "Invalid API key"})
-        for token in [self.team.secret_api_token, write_psak]:
-            with self.subTest(token=token, method="post"):
-                response = self._post({"external_id": "acme-2"}, token=token)
-                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-                self.assertEqual(response.json(), {"error": "Invalid API key"})
+                self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
+        response = self._post({"external_id": "acme-2"}, token=write_psak)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
 
     @covers_authentication(ExternalAccountProjectSecretAPIKeyAuthentication)
@@ -235,16 +226,12 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("legacy_allowed", False, "203.0.113.7", 200),
-            ("legacy_denied", False, "198.51.100.7", 403),
-            ("psak_allowed", True, "203.0.113.7", 200),
-            ("psak_denied", True, "198.51.100.7", 403),
+            ("psak_allowed", "203.0.113.7", 200),
+            ("psak_denied", "198.51.100.7", 403),
         ]
     )
-    def test_account_credentials_check_organization_ip_policy(
-        self, _name: str, use_psak: bool, ip: str, expected_status: int
-    ) -> None:
-        token = self._create_psak_token(["account:write"]) if use_psak else self.team.secret_api_token
+    def test_account_credentials_check_organization_ip_policy(self, _name: str, ip: str, expected_status: int) -> None:
+        token = self._create_psak_token(["account:write"])
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
 
         read = self.client.get(self.url, {"external_id": "acme-1"}, REMOTE_ADDR=ip, **self._auth_headers(token))
@@ -290,38 +277,18 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNotNone(self.account.churned_at)
 
-    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
-    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name: str, token_field: str) -> None:
-        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
-        # legacy string (primary or rotated-out backup) must keep the legacy path
-        # (updates allowed), not resolve as a PSAK.
+    def test_migrated_legacy_token_lacks_account_scopes(self) -> None:
+        # The #63111 backfill's mirror rows carry only flag/ticket read scopes, so on this
+        # surface a migrated legacy token resolves as a PSAK and fails the scope check.
         token = generate_random_token_secret()
-        setattr(self.team, token_field, token)
-        self.team.save(update_fields=[token_field])
-        create_project_secret_api_key(self.team, label="Migrated legacy secret API key", value=token)
-        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"}, token=token)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.account.refresh_from_db()
-        self.assertIsNotNone(self.account.churned_at)
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_migrated_token_lacks_account_scopes(self) -> None:
-        # Flip semantics (#66179): the mirror rows carry only flag/ticket read scopes, so on
-        # this surface a migrated legacy token resolves as a PSAK and fails the scope check.
-        # Legacy traffic here was confirmed at zero before shipping the switch.
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",
             scopes=["feature_flag:read", "support_ticket:read"],
-            value=self.team.secret_api_token,
+            value=token,
         )
-        response = self._get()
+        response = self._get(token=token)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self) -> None:
-        response = self._get()
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
         token = self._create_psak_token(scopes=["account:write"])
@@ -337,19 +304,13 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{credential}_{name}", credential, changes)
-            for credential in ("psak", "legacy_token")
-            for name, changes in [
-                ("organization_deactivated", {"is_active": False}),
-                ("organization_active_null", {"is_active": None}),
-                ("organization_pending_deletion", {"is_pending_deletion": True}),
-            ]
+            ("organization_deactivated", {"is_active": False}),
+            ("organization_active_null", {"is_active": None}),
+            ("organization_pending_deletion", {"is_pending_deletion": True}),
         ]
     )
-    def test_credentials_are_rejected_when_the_organization_is_blocked(
-        self, _name: str, credential: str, changes: dict
-    ) -> None:
-        token = self._create_psak_token(scopes=["account:read"]) if credential == "psak" else None
+    def test_credentials_are_rejected_when_the_organization_is_blocked(self, _name: str, changes: dict) -> None:
+        token = self._create_psak_token(scopes=["account:read"])
         for field, value in changes.items():
             setattr(self.organization, field, value)
         self.organization.save()
@@ -512,13 +473,9 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def test_does_not_leak_accounts_from_other_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_team.secret_api_token = generate_random_token_secret()
-        other_team.save(update_fields=["secret_api_token"])
         other_team_psak = self._create_psak_token(scopes=["account:read"], team=other_team)
 
-        for token in [other_team.secret_api_token, other_team_psak]:
-            with self.subTest(token=token):
-                self.assertEqual(self._get(token=token).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self._get(token=other_team_psak).status_code, status.HTTP_404_NOT_FOUND)
 
     # -- PATCH account ----------------------------------------------------
 
@@ -652,10 +609,9 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def test_patch_does_not_update_other_team_account(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_team.secret_api_token = generate_random_token_secret()
-        other_team.save(update_fields=["secret_api_token"])
+        other_team_psak = self._create_psak_token(scopes=["account:write"], team=other_team)
 
-        response = self._patch({"external_id": "acme-1", "tags": ["enterprise"]}, token=other_team.secret_api_token)
+        response = self._patch({"external_id": "acme-1", "tags": ["enterprise"]}, token=other_team_psak)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_rolls_back_relationship_assignment_when_tags_fail(self):
@@ -829,7 +785,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
         self.assertIsNone(log.user)
-        self.assertEqual(log.credential_type, "team_secret_token")
+        self.assertEqual(log.credential_type, "project_secret_key")
         detail = log.detail
         assert detail is not None
         self.assertEqual(detail["trigger"]["job_type"], "hog_flow")
@@ -893,8 +849,7 @@ class TestExternalAccountAPI(APIBaseTest):
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token"])
+        _, self.secret_token = create_project_secret_api_key(self.team, label="default", scopes=["account:write"])
         self.client = APIClient()
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         self.plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
@@ -910,7 +865,7 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         self.addCleanup(csp_enabled.stop)
 
     def _auth_headers(self, token=None):
-        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.secret_token}"}
 
     def _patch(self, payload, token=None):
         return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
@@ -929,12 +884,6 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         _, token = create_project_secret_api_key(self.team, label="props", scopes=scopes)
         response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
         self.assertEqual(response.status_code, expected)
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_account_write_key_still_sets_values(self) -> None:
-        _, token = create_project_secret_api_key(self.team, label="props", scopes=["account:write"])
-        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}}, token=token)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_project_secret_api_keys_share_a_team_rate_limit(self) -> None:
         cache.clear()

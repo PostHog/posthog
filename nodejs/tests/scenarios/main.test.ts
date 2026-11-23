@@ -27,6 +27,7 @@ const passed = (cardId: string): RunResult => ({
     cardHash: 'card-hash',
     profileHash: 'profile-hash',
     origin: 'local-agent',
+    target: 'local',
     bars: [],
     invariants: [],
     measurements: [],
@@ -328,6 +329,15 @@ describe('publish', () => {
             `${eventless}: ${path.join(runDirOf(eventless), 'scorecard.json')} holds no scorecard event`
         )
         expect(await store.read(unsaved)).toBeUndefined()
+    })
+
+    it.each([
+        ['publish', ['publish', '--all', '--target', 'dev']],
+        ['seed-backlog', ['seed-backlog', '--profile', 'profiles/dev.yaml', '--target', 'dev']],
+    ])('refuses --target on %s, which only run reads', async (_command, argv) => {
+        expect(await main(argv, { XDG_CACHE_HOME: cacheHome, [STORE_URL]: UNREACHABLE_STORE })).toBe(EXIT_CODE.invalid)
+
+        expect(printed(stderr)).toMatch(/^Usage: /)
     })
 
     it.each<[string, (home: string) => NodeJS.ProcessEnv, number, RegExp]>([

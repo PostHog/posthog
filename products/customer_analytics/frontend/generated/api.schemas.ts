@@ -1754,6 +1754,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -3935,6 +3937,8 @@ export interface CustomerTaskApi {
     readonly can_edit: boolean
     /** Whether the current user can restore this task. */
     readonly can_restore: boolean
+    /** Tag names on the task, sorted alphabetically. */
+    readonly tags: readonly string[]
 }
 
 export interface CustomerTaskPageApi {
@@ -3987,6 +3991,12 @@ export interface CustomerTaskCreateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Tag names for the task, up to 100.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface CustomerTaskUpdateApi {
@@ -4012,6 +4022,12 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * Replacement task name.
      * @maxLength 400
@@ -4048,6 +4064,12 @@ export interface PatchedCustomerTaskUpdateApi {
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
     /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -4078,12 +4100,12 @@ export const CustomerTaskActivityTypeEnumApi = {
 /**
  * Value before the change.
  */
-export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 /**
  * Value after the change.
  */
-export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 export interface CustomerTaskChangeApi {
     /** Semantic task field that changed. */
@@ -4129,6 +4151,19 @@ export interface CustomerTaskActivityPageApi {
     readonly results: readonly CustomerTaskActivityApi[]
 }
 
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
 export interface CustomerTaskBulkPatchApi {
     /**
      * UUID of a visible account, or null to remove the account link.
@@ -4152,8 +4187,20 @@ export interface CustomerTaskBulkPatchApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
+    /**
+     * Replacement tag names, up to 100. An empty list removes every tag.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Archive tasks when true, or restore them when false. */
     archived?: boolean
+    /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    tags_mode?: BulkUpdateTagsActionEnumApi
 }
 
 export interface CustomerTaskBulkUpdateApi {
@@ -5664,6 +5711,12 @@ export type CustomerTasksListParams = {
      * @minLength 1
      */
     statuses?: string
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string
 }
 
 export type CustomerTasksListArchiveState =

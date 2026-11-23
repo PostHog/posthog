@@ -26,7 +26,7 @@ export interface WarehouseAlertsSectionProps extends WarehouseAlertsLogicProps {
 }
 
 export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlertsSectionProps): JSX.Element {
-    const { alerts, alertsLoading, alertsFailed, deletingAlertId, targetLabels } = useValues(
+    const { alerts, alertsLoading, alertsFailed, alertsUnavailable, deletingAlertId, targetLabels } = useValues(
         warehouseAlertsLogic(logicProps)
     )
     const { loadAlerts, deleteAlert } = useActions(warehouseAlertsLogic(logicProps))
@@ -137,9 +137,11 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
                     ? 'Get notified by email, Slack, PagerDuty or a webhook when a source fails to sync.'
                     : 'Get notified by email, Slack, PagerDuty or a webhook when a destination fails to receive synced rows.'
             }
-            actions={newAlertButton}
+            actions={alertsUnavailable ? undefined : newAlertButton}
         >
-            {alertsFailed ? (
+            {alertsUnavailable ? (
+                <LemonBanner type="info">Alerts aren't available for this project yet.</LemonBanner>
+            ) : alertsFailed ? (
                 <LemonBanner
                     type="error"
                     action={{

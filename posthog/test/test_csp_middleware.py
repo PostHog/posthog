@@ -117,18 +117,37 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("opted_in", True, True),
-            ("not_opted_in", False, False),
+            # The inspector server answers any origin, so the policy must not reach it unless the engineer asked for it.
+            ("code_inspector_opted_in", {"DEBUG": True, "DEV_CODE_INSPECTOR": True}, ["http://localhost:5678"], True),
+            (
+                "code_inspector_not_opted_in",
+                {"DEBUG": True, "DEV_CODE_INSPECTOR": False},
+                ["http://localhost:5678"],
+                False,
+            ),
+            # Without these, "Sign in with PostHog cloud" fails at the token request with only "Failed to fetch".
+            (
+                "cloud_oauth_hosts_in_dev",
+                {"DEBUG": True, "DEV_CODE_INSPECTOR": False},
+                ["https://us.posthog.com", "https://eu.posthog.com"],
+                True,
+            ),
+            # Outside DEBUG the sign-in mode does not exist, so naming another region's host only widens the policy.
+            (
+                "cloud_oauth_hosts_outside_dev",
+                {"DEBUG": False, "TEST": False},
+                ["https://us.posthog.com", "https://eu.posthog.com"],
+                False,
+            ),
         ]
     )
-    def test_dev_policy_admits_the_code_inspector_only_when_opted_in(self, _name, opted_in, expected):
-        # The inspector server answers any origin, so the policy must not reach it unless the engineer asked for it.
-        with override_settings(DEBUG=True, DEV_CODE_INSPECTOR=opted_in):
+    def test_dev_connect_src_admits_a_source_only_when_its_gate_is_on(self, _name, overrides, sources, expected):
+        with override_settings(**overrides):
             response = self.client.get("/")
         connect_src = next(
             part for part in response["Content-Security-Policy"].split("; ") if part.startswith("connect-src ")
         ).split()
-        assert ("http://localhost:5678" in connect_src) is expected
+        assert [source in connect_src for source in sources] == [expected] * len(sources)
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.

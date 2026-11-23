@@ -65,7 +65,12 @@ from hogli_commands.preflight_checks import (
     check_stack_depth,
     prepare_semgrep,
 )
-from hogli_commands.projections import all_outputs as projection_outputs
+from hogli_commands.projections import (
+    Tier,
+    all_outputs as projection_outputs,
+    all_triggers as projection_triggers,
+    projections_of,
+)
 from hogli_commands.size_lint import (
     SCOPE as SIZE_SCOPE,
     _merge_base,
@@ -376,11 +381,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         # cannot drift on which diffs need a regen. The outputs count too, so a hand-edit
         # to one is caught.
         triggers=[
-            *BUILD_TRIGGERS["build:projections"],
-            *projection_outputs(),
+            *projection_triggers(Tier.PREFLIGHT),
+            *projection_outputs(Tier.PREFLIGHT),
         ],
-        verify=["hogli", "build:projections", "--check"],
-        fix=["hogli", "build:projections"],
+        verify=["hogli", "build:projections", "--check", "--tier", Tier.PREFLIGHT],
+        fix=["hogli", "build:projections", "--tier", Tier.PREFLIGHT],
+        requires=("python-env",),
+    ),
+    DiffCheck(
+        key="ci-projections",
+        label="sources of CI-only projections changed (outputs may need a regen)",
+        triggers=[
+            path for projection in projections_of(Tier.CI) for path in (*projection.triggers, *projection.outputs)
+        ],
+        verify=None,
+        fix=["hogli", "build:projections", "--tier", Tier.CI],
         requires=("python-env",),
     ),
     DiffCheck(

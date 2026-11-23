@@ -72,6 +72,9 @@ Grant these read scopes so every table can sync:
 - `custom_fields:read`
 - `team_memberships:read`
 - `portfolios:read`
+- `time_tracking_categories:read`
+
+The `allocations` table has no read scope of its own, so it needs a token with full access (the `default` scope). Skip it if your token is scoped.
 
 The AI Studio usage tables (`ai_studio_runs`, `ai_studio_seats`) additionally need the `admin.ai_studio_usage:read` scope on an AI Studio-licensed organization. Skip them if you don't use AI Studio.
 """,

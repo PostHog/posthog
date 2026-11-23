@@ -11,6 +11,7 @@ import type { ProviderImportRunApi } from 'products/messaging/frontend/generated
 import type { PreflightStatus } from '../../../../frontend/src/types'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { providerImportLogic } from './providerImportLogic'
+import type { ImportEntryPoint } from './providerImportOrder'
 
 const CUSTOMERIO_PROVIDER = 'customerio'
 
@@ -99,7 +100,11 @@ export interface customerIOImportLogicActions {
     closeImportModal: () => {
         value: true
     } // providerImportLogic
-    openImportModal: (providerKey?: string | null | undefined) => {
+    openImportModal: (
+        providerKey?: string | null | undefined,
+        entryPoint?: ImportEntryPoint | undefined
+    ) => {
+        entryPoint: ImportEntryPoint
         providerKey: string | null
     } // providerImportLogic
     resetImport: () => {

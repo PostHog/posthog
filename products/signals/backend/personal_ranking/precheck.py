@@ -41,7 +41,6 @@ from products.signals.backend.personal_ranking.candidates import EXCLUDED_STATUS
 from products.signals.backend.personal_ranking.config import TICK_DISABLED, PersonalRankingConfig
 from products.signals.backend.personal_ranking.prompt import PROMPT_VERSION, system_prompt
 from products.signals.backend.ranking.access import can_view_inbox_ranking
-from products.signals.backend.ranking.inbox_sort import resolve_recommended_arm
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
@@ -161,7 +160,6 @@ def input_fingerprint(
         "inbox_activity": _inbox_activity(team, user, config, now) if config.inbox_activity_lines > 0 else None,
         "can_view_ranking": can_view_inbox_ranking(user, team),
         "monitoring": team_report_monitoring_enabled(team.id),
-        "ranker": resolve_recommended_arm(team, user, send_feature_flag_events=False).ranker,
         "github_login": github_login,
         # The tick levers do not change the inputs, so a change to them keeps the stored fingerprints.
         "config": repr(dataclasses.replace(config, tick=TICK_DISABLED)),
