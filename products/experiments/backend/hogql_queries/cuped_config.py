@@ -48,7 +48,7 @@ def _resolve_lookback_days(experiment_value: Any, team_default: Any) -> int:
     return _parse_lookback_days(experiment_value, fallback=team_fallback)
 
 
-def _metric_supports_cuped(metric: object) -> bool:
+def metric_supports_cuped(metric: object) -> bool:
     if isinstance(metric, ExperimentMeanMetric):
         # A thresholded mean is a binary "did the user reach N" outcome; CUPED's
         # continuous variance reduction does not apply to a proportion.
@@ -111,7 +111,7 @@ def get_cuped_config(
     team_default_enabled: bool = False,
     team_default_lookback_days: int | None = None,
 ) -> CupedQueryConfig:
-    if not _metric_supports_cuped(metric):
+    if not metric_supports_cuped(metric):
         return CupedQueryConfig()
     return resolve_experiment_cuped_config(
         stats_config, team_default_enabled=team_default_enabled, team_default_lookback_days=team_default_lookback_days

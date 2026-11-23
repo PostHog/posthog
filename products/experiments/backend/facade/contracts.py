@@ -659,6 +659,9 @@ class ExperimentHealthAnalysisSetup:
     cuped: bool
     cuped_lookback_days: int | None
     cuped_from_project_default: bool
+    cuped_lookback_days_from_project_default: bool
+    # The names of the calculated metrics whose type CUPED doesn't support. Empty when CUPED is off.
+    metrics_without_cuped_support: tuple[str, ...]
     filters_test_accounts: bool | None
     test_account_filter_count: int
     multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None

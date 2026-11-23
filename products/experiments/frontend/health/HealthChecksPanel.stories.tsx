@@ -103,6 +103,8 @@ const SETUP: ExperimentHealthSetupApi = {
         cuped: true,
         cuped_lookback_days: 14,
         cuped_from_project_default: false,
+        cuped_lookback_days_from_project_default: true,
+        metrics_without_cuped_support: ['Day 7 retention'],
         filters_test_accounts: true,
         test_account_filter_count: 2,
         multiple_variant_handling: 'exclude',

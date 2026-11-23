@@ -483,11 +483,21 @@ class ExperimentHealthAnalysisSetupSerializer(serializers.Serializer):
     cuped_from_project_default = serializers.BooleanField(
         help_text="Whether the experiment leaves CUPED unset, so the project's default applies."
     )
+    cuped_lookback_days_from_project_default = serializers.BooleanField(
+        help_text="Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies."
+    )
+    metrics_without_cuped_support = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their "
+            "metric type. Empty when CUPED is off."
+        ),
+    )
     filters_test_accounts = serializers.BooleanField(
         allow_null=True,
         help_text=(
             "Whether the results leave out internal and test users with the project's test account filters. Null "
-            "when the exposure criteria can't be read."
+            "when the exposure criteria can't be read, or the exposures come from a data warehouse table."
         ),
     )
     test_account_filter_count = serializers.IntegerField(

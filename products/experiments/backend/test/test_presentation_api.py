@@ -816,10 +816,34 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "frequentist_with_project_defaults",
                 {
                     "metrics": [_HEALTH_METRIC],
+                    "metrics_secondary": [
+                        {
+                            **_HEALTH_METRIC,
+                            "uuid": "health-threshold-metric",
+                            "name": "Reached 3 pageviews",
+                            "threshold": 3,
+                        }
+                    ],
                     "stats_config": {
                         "method": "frequentist",
                         "frequentist": {"alpha": 0.1},
-                        "cuped": {"enabled": False},
+                        "cuped": {"enabled": True},
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "warehouse_native_exposure",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
                     },
                 },
                 None,
@@ -853,7 +877,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         start_date = timezone.now() - timedelta(days=3)
         if _name == "frequentist_with_project_defaults":
             TeamExperimentsConfig.objects.update_or_create(
-                team=self.team, defaults={"default_sequential_testing_enabled": True, "default_cuped_enabled": True}
+                team=self.team,
+                defaults={
+                    "default_sequential_testing_enabled": True,
+                    "default_cuped_enabled": False,
+                    "default_cuped_lookback_days": 7,
+                },
             )
         EventDefinition.objects.create(
             team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
@@ -953,6 +982,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             else []
         )
         counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
+        warehouse_native = _name == "warehouse_native_exposure"
         self.assertEqual(
             health["setup"],
             {
@@ -972,7 +1002,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
-                "exposure": {"event": counted_event, "action": None, "activation": None},
+                "exposure": None if warehouse_native else {"event": counted_event, "action": None, "activation": None},
                 "analysis": {
                     "stats_method": "bayesian",
                     "confidence_level": 0.95,
@@ -981,8 +1011,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "cuped": False,
                     "cuped_lookback_days": None,
                     "cuped_from_project_default": True,
-                    "filters_test_accounts": True,
-                    "test_account_filter_count": 1,
+                    "cuped_lookback_days_from_project_default": False,
+                    "metrics_without_cuped_support": [],
+                    "filters_test_accounts": None if warehouse_native else True,
+                    "test_account_filter_count": 0 if warehouse_native else 1,
                     "multiple_variant_handling": "exclude",
                     "only_count_matured_users": False,
                     "baseline_variant": "holdout" if _name == "baseline_not_a_variant" else "control",
@@ -993,7 +1025,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                             "confidence_level": 0.9,
                             "sequential_testing": True,
                             "sequential_testing_from_project_default": True,
+                            "cuped": True,
+                            "cuped_lookback_days": 7,
                             "cuped_from_project_default": False,
+                            "cuped_lookback_days_from_project_default": True,
+                            "metrics_without_cuped_support": ["Reached 3 pageviews"],
                         }
                         if _name == "frequentist_with_project_defaults"
                         else {}

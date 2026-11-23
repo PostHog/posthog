@@ -50103,8 +50103,12 @@ export namespace Schemas {
       cuped_lookback_days: number | null;
       /** Whether the experiment leaves CUPED unset, so the project's default applies. */
       cuped_from_project_default: boolean;
+      /** Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies. */
+      cuped_lookback_days_from_project_default: boolean;
+      /** The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their metric type. Empty when CUPED is off. */
+      metrics_without_cuped_support: string[];
       /**
-         * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read.
+         * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read, or the exposures come from a data warehouse table.
          * @nullable
          */
       filters_test_accounts: boolean | null;

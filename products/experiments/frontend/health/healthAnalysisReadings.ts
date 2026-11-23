@@ -31,9 +31,17 @@ function sequentialReading(analysis: ExperimentHealthAnalysisSetupApi): HealthRe
     }
 }
 
-function cupedText({ cuped_lookback_days, cuped_from_project_default }: ExperimentHealthAnalysisSetupApi): string {
-    const text = cuped_lookback_days === null ? 'Off' : `On, ${cuped_lookback_days}-day lookback`
-    return withProjectDefault(text, cuped_from_project_default)
+function cupedLookbackReading({
+    cuped_lookback_days,
+    cuped_lookback_days_from_project_default,
+}: ExperimentHealthAnalysisSetupApi): HealthReading | null {
+    if (cuped_lookback_days === null) {
+        return null
+    }
+    return {
+        label: 'CUPED lookback',
+        text: withProjectDefault(pluralize(cuped_lookback_days, 'day'), cuped_lookback_days_from_project_default),
+    }
 }
 
 function testUsersReading({
@@ -60,7 +68,11 @@ export function healthAnalysisReadings(analysis: ExperimentHealthAnalysisSetupAp
     return [
         { label: 'Statistics', text: statisticsText(analysis) },
         sequentialReading(analysis),
-        { label: 'CUPED', text: cupedText(analysis) },
+        { label: 'CUPED', text: withProjectDefault(onOff(analysis.cuped), analysis.cuped_from_project_default) },
+        cupedLookbackReading(analysis),
+        analysis.metrics_without_cuped_support.length > 0
+            ? { label: "Metrics CUPED doesn't support", text: analysis.metrics_without_cuped_support.join(', ') }
+            : null,
         testUsersReading(analysis),
         handling === null ? null : { label: 'Multiple variant handling', text: HANDLING_LABELS[handling] ?? handling },
         {
