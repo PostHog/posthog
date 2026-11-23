@@ -6761,7 +6761,7 @@ Re-audited 2026-11-19 against <https://webfonts.googleapis.com/$discovery/rest?v
 
 ## Gorgias — gaps
 
-Today (18): `custom_fields`, `customer_field_values`, `customers`, `events`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `teams`, `ticket_field_values`, `ticket_tags`, `tickets`, `users`, `view_items`, `views`, `voice_call_events`, `voice_call_recordings`, `voice_calls`
+Today (21): `custom_fields`, `customer_field_values`, `customers`, `events`, `integrations`, `macros`, `messages`, `rules`, `satisfaction_surveys`, `tags`, `teams`, `ticket_field_values`, `ticket_tags`, `tickets`, `users`, `view_items`, `views`, `voice_call_events`, `voice_call_recordings`, `voice_calls`, `widgets`
 
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
@@ -6778,10 +6778,10 @@ Diffed against: <https://developers.gorgias.com/llms.txt>
 
 Re-audited 2026-11-19 against: <https://developers.gorgias.com/llms.txt>
 
-- [ ] `Integrations (GET /api/integrations)` — lookup for integration IDs on tickets and messages, so users can split volume by channel or store (high)
-- [ ] `Rules (GET /api/rules)` — automation rules, to see which rules touch tickets (medium)
+- [x] `Integrations (GET /api/integrations)` — lookup for integration IDs on tickets and messages, so users can split volume by channel or store (high)
+- [x] `Rules (GET /api/rules)` — automation rules, to see which rules touch tickets (medium)
 - [ ] `Jobs (GET /api/jobs)` — bulk action jobs such as mass close or tag, which explain sudden ticket changes (low)
-- [ ] `Widgets (GET /api/widgets)` — helpdesk sidebar widget definitions (low)
+- [x] `Widgets (GET /api/widgets)` — helpdesk sidebar widget definitions (low)
 - [ ] `Account settings (GET /api/account/settings)` — account level settings such as business hours (low)
 
 Note (2026-11-19): Read the llms.txt index and confirmed each path in the matching reference page. Everything with a list form that carries data is synced except these. Previous audit skipped statistics, so I did not repeat it. Gorgias uses cursor pagination on these list routes.
