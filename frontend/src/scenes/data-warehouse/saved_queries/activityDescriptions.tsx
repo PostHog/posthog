@@ -236,7 +236,7 @@ function describePlanFloorClamp(logItem: ActivityLogItem, viewName: JSX.Element)
     return {
         summary: activityLogSummary(
             logItem,
-            <>Slowed sync frequency to {after} to match the plan</>,
+            <>Slowed sync frequency to {after} to match your organization's plan</>,
             viewName,
             undefined,
             <>PostHog</>
@@ -244,7 +244,7 @@ function describePlanFloorClamp(logItem: ActivityLogItem, viewName: JSX.Element)
         description: (
             <>
                 PostHog changed sync frequency from <strong>{before}</strong> to <strong>{after}</strong> on {viewName},
-                the fastest the organization's plan allowed
+                the fastest your organization's plan allowed
             </>
         ),
     }
