@@ -134,8 +134,6 @@
 # name: test_tracks_every_registered_function_without_a_trino_mapping
   dict({
     'aggregate': list([
-      'anyHeavy',
-      'anyHeavyIf',
       'anyLastIf',
       'argMaxMerge',
       'argMaxState',
@@ -441,7 +439,6 @@
       'multiFuzzyMatchAnyIndex',
       'multiMatchAllIndices',
       'multiMatchAny',
-      'multiMatchAnyIndex',
       'ngramDistanceCaseInsensitiveUTF8',
       'ngramSearchCaseInsensitiveUTF8',
       'nowInBlock',

@@ -77,6 +77,8 @@ _SPECIAL_CALLS = frozenset(
         "median",
         "medianif",
         "topk",
+        "anyheavy",
+        "anyheavyif",
         "arraymax",
         "arrayenumerate",
         "arrayall",

@@ -507,9 +507,9 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("countSubstrings(user_id, 'a')", "__hogql_substrings -> IF(length(__hogql_substrings[2])"),
         ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
         ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
-        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
-        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', 1)) <> 0 AND"),
-        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(-8, 1)"),
+        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', CAST(2 AS INTEGER))) <> 0"),
+        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', CAST(1 AS INTEGER))) <> 0 AND"),
+        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(CAST(-8 AS BIGINT), CAST(1 AS INTEGER))"),
         ("bitHammingDistance(5, 1)", "bit_count(bitwise_xor(5, 1), 64)"),
         ("L2Distance([1, 2], [3, 4])", "euclidean_distance(ARRAY[1, 2], ARRAY[3, 4])"),
         ("port('https://example.com', 443)", "coalesce(url_extract_port("),
@@ -558,6 +558,23 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        ("now('UTC')", "SELECT at_timezone(now(), "),
+        ("toDateTime64(id, 3, 'UTC')", 'SELECT at_timezone(from_unixtime(CAST("users"."id" AS DOUBLE)), '),
+        ("toDateTime64(id, 6)", 'CAST(from_unixtime(CAST("users"."id" AS DOUBLE)) AS TIMESTAMP(6))'),
+        ("anyHeavy(id)", 'element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 1000)), 1)'),
+        (
+            "anyHeavyIf(user_id, id > 1)",
+            'element_at(map_keys(approx_most_frequent(1, "users"."user_id", 1000) FILTER (WHERE ("users"."id" > 1))), 1)',
+        ),
+        (
+            "multiMatchAnyIndex(user_id, ['a', 'b'])",
+            '__hogql_pattern -> regexp_like("users"."user_id", __hogql_pattern)), TRUE)',
+        ),
+        (
+            "JSONExtract(properties, user_id, 'Nullable(Float64)')",
+            'TRY(CAST(json_extract_scalar(json_extract("users"."properties", concat(\'$[\', json_format(CAST(CAST("users"."user_id" AS VARCHAR) AS JSON)), \']\')), \'$\') AS DOUBLE)), CAST(NULL AS DOUBLE))',
+        ),
+        ("JSONExtract(properties, 'a', 'Float64')", "AS DOUBLE)), CAST(0 AS DOUBLE))"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
