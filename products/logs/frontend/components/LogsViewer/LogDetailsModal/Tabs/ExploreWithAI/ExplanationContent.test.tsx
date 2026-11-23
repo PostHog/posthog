@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { ExplanationContent } from './ExplanationContent'
 import { LogExplanation } from './types'
@@ -26,6 +26,8 @@ jest.mock('react-markdown', () => {
 })
 
 describe('ExplanationContent', () => {
+    afterEach(cleanup)
+
     const explanation: LogExplanation = {
         headline: 'Upstream request failed',
         severity_assessment: 'warning',
@@ -36,10 +38,19 @@ describe('ExplanationContent', () => {
         key_fields: [],
     }
 
-    it('renders images in the technical explanation as links instead of inline images', () => {
-        const { container } = render(<ExplanationContent explanation={explanation} />)
+    it.each([
+        'https://example.com/chart.png',
+        'https://us.i.posthog.com/chart.png',
+        'https://eu.i.posthog.com/chart.png',
+        '/chart.png',
+    ])('renders the technical explanation image at %s as a link', (imageUrl) => {
+        const { container } = render(
+            <ExplanationContent
+                explanation={{ ...explanation, technical_explanation: `See the chart: ![status chart](${imageUrl})` }}
+            />
+        )
 
         expect(container.querySelector('img')).toBeNull()
-        expect(screen.getByText('status chart').closest('a')).toHaveAttribute('href', 'https://example.com/chart.png')
+        expect(screen.getByText('status chart').closest('a')).toHaveAttribute('href', imageUrl)
     })
 })
