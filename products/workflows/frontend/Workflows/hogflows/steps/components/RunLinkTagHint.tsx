@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -7,8 +8,21 @@ import { urls } from 'scenes/urls'
 
 export function RunLinkTagHint(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const projectOff = !!currentTeam && currentTeam.workflows_config?.email_workflow_run_link_tag_enabled === false
 
-    if (!currentTeam || (currentTeam.workflows_config?.email_workflow_run_link_tag_enabled ?? true)) {
+    useEffect(() => {
+        if (!projectOff) {
+            return
+        }
+        // The link opens settings in a new tab, so a broadcast edit waiting on autosave survives. Reload the
+        // project on return so the switch it disables follows the setting turned on there.
+        const reload = (): void => loadCurrentTeam()
+        window.addEventListener('focus', reload)
+        return () => window.removeEventListener('focus', reload)
+    }, [projectOff, loadCurrentTeam])
+
+    if (!projectOff) {
         return null
     }
 
@@ -17,6 +31,7 @@ export function RunLinkTagHint(): JSX.Element | null {
             <span>Tracked link clicks aren't connected to sessions or session replays in this project.</span>{' '}
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
+                target="_blank"
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 Turn it on in settings

@@ -245,6 +245,20 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
+    it('names a saved opt-out from connecting clicks to sessions before the From picker drops it, and Cancel keeps it', async () => {
+        useSenderMocks([VERIFYING_SENDER])
+        const step = ownStep()
+        await renderStep({ ...step, config: { ...step.config, run_link_tag_enabled: false } } as HogFlowAction)
+
+        fireEvent.click(within(openFromPicker()).getByText('PostHog test sender'))
+        expect(await screen.findByText('Connecting clicks to sessions turned off')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Cancel'))
+
+        await waitFor(() =>
+            expect(storedStep()).toMatchObject({ type: 'function_email', config: { run_link_tag_enabled: false } })
+        )
+    })
+
     it.each<[string, string, HogFlowAction, IntegrationType[], string, string]>([
         [
             'an own step to the PostHog test sender',

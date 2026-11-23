@@ -1144,7 +1144,6 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     def test_email_run_link_tag_switch_takes_only_a_boolean(self, _name, sent, expected_status) -> None:
-        # The editor refuses to publish a step whose switch holds anything but a boolean.
         sync_template_to_db(_email_function_template())
         hog_flow, action = self._create_hog_flow_with_action(
             {"template_id": "template-email", "inputs": _valid_email_inputs(), "run_link_tag_enabled": sent}
