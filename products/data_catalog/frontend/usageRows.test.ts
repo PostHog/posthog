@@ -12,7 +12,6 @@ const PAYLOAD: UsageSnapshotPayloadApi = {
     ],
     adjusted_runs: null,
     topics: null,
-    topic_definitions: null,
     topic_sessions: null,
     table_sources: [{ name: 'revenue_daily', sessions: 2, people: 5 }],
     uncovered: null,

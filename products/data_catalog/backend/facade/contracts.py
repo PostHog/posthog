@@ -81,12 +81,6 @@ class TopicCoverage:
 
 
 @dataclass(frozen=True)
-class TopicDefinition:
-    title: str
-    description: str
-
-
-@dataclass(frozen=True)
 class TopicCluster:
     title: str
     description: str
@@ -211,8 +205,6 @@ class UsageSnapshotPayload:
     conversations: list[list[str]] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
     topics: list[TopicCluster] | None = None
-    # The whole list, including topics with no sessions this scan, so the next scan keeps them.
-    topic_definitions: list[TopicDefinition] | None = None
     topic_sessions: TopicSessionCounts | None = None
     table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None

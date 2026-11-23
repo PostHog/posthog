@@ -13,16 +13,21 @@ from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+from django.db.models import Max
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
@@ -49,8 +54,11 @@ READ_CHARS = 20000
 _PIECE_BATCH = 1000
 # A key or a value with this marker holds a HogQL expression, which can read a table that the query does not name.
 _EXPRESSION = re.compile("hogql", re.IGNORECASE)
-# These run a stored cohort or action by name or id, so SQL that uses them can read a table that it does not name.
-_SAVED_FILTER_SQL = re.compile(r"\bin\s+cohort\b|\b(?:inCohort|matchesAction)\s*\(", re.IGNORECASE)
+# These run a stored cohort or action, so SQL that uses them can read a table that it does not name.
+_SAVED_FILTER_FUNCTIONS = frozenset({"matchesAction", "inCohort", "notInCohort"})
+_COHORT_OPERATORS = frozenset({ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort})
+# Activity log entries that can change what a saved filter reads. A created row cannot have run before it existed.
+_CHANGE_ACTIVITIES = ("updated", "deleted")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 # A cohort can filter on other cohorts. The scan follows that many levels, and a deeper cohort counts as unknown.
 _COHORT_DEPTH = 5
@@ -144,10 +152,28 @@ class SavedFilters:
 
     ``cohorts`` says for each cohort id whether the cohort reads only PostHog's own tables.
     ``test_account_tables`` holds the tables that the test account filters read, or None when the scan
-    cannot tell."""
+    cannot tell. The scan reads both as they are now, so the change times say which calls they still describe:
+    ``cohort_changes`` holds the last change of each cohort or of a cohort that it uses."""
 
     cohorts: Mapping[int, bool]
     test_account_tables: frozenset[str] | None
+    cohort_changes: Mapping[int, datetime] | None = None
+    test_accounts_changed_at: datetime | None = None
+
+    def as_of(self, at: datetime) -> "SavedFilters":
+        """A saved filter that changed after a call can have read another table during the call."""
+        changes = self.cohort_changes or {}
+        return SavedFilters(
+            cohorts={
+                cohort_id: reads_only_posthog and not _changed_after(changes.get(cohort_id), at)
+                for cohort_id, reads_only_posthog in self.cohorts.items()
+            },
+            test_account_tables=None if _changed_after(self.test_accounts_changed_at, at) else self.test_account_tables,
+        )
+
+
+def _changed_after(changed_at: datetime | None, at: datetime) -> bool:
+    return changed_at is not None and changed_at > at
 
 
 NO_SAVED_FILTERS = SavedFilters(cohorts={}, test_account_tables=frozenset())
@@ -157,20 +183,23 @@ NO_SAVED_FILTERS = SavedFilters(cohorts={}, test_account_tables=frozenset())
 class ReadSources:
     """The saved definitions that calls read by reference: metrics by name, insights by short id.
 
-    ``joins`` maps the field name of each warehouse join to the tables that the join reads."""
+    ``joins`` maps the field name of each warehouse join to the tables that the join reads, and
+    ``joins_changed_at`` holds the last change or delete of any join."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
     saved_filters: SavedFilters = NO_SAVED_FILTERS
     joins: Mapping[str, frozenset[str]] | None = None
+    joins_changed_at: datetime | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
         return ReadSources(
             metric_definitions=_unchanged(self.metric_definitions, at),
             insight_queries=_unchanged(self.insight_queries, at),
-            saved_filters=self.saved_filters,
+            saved_filters=self.saved_filters.as_of(at),
             joins=self.joins,
+            joins_changed_at=self.joins_changed_at,
         )
 
     def joined_tables(self, bodies: Iterable[object]) -> frozenset[str]:
@@ -189,14 +218,30 @@ def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, S
     return {key: item for key, item in saved.items() if item.changed_at is not None and item.changed_at <= at}
 
 
+class _SavedFilterFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        self.found = self.found or node.op in _COHORT_OPERATORS
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.found = self.found or node.name in _SAVED_FILTER_FUNCTIONS
+        super().visit_call(node)
+
+
 def sql_tables(sql: str) -> frozenset[str] | None:
-    """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action."""
-    if _SAVED_FILTER_SQL.search(sql):
-        return None
+    """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action.
+
+    The check reads the parsed query, because a comment between two keywords hides them from a text match."""
+    finder = _SavedFilterFinder()
     try:
-        return frozenset(table_names_as_written({"query": sql}, keep_table_functions=True))
-    except ValidationError:
+        finder.visit(parse_select(sql))
+        named = frozenset(table_names_as_written({"query": sql}, keep_table_functions=True))
+    except (BaseHogQLError, ValidationError):
         return None
+    return None if finder.found else named
 
 
 def _dicts(value: object) -> Iterator[dict[str, Any]]:
@@ -211,7 +256,7 @@ def _dicts(value: object) -> Iterator[dict[str, Any]]:
 
 def _reads_hidden_tables(node: dict[str, Any]) -> bool:
     """A HogQL expression or a warehouse property can read a table that the query does not name."""
-    for key in ("type", "breakdown_type"):
+    for key in ("type", "breakdown_type", "math_property_type"):
         marker = str(node.get(key) or "")
         if marker == "hogql" or marker.startswith("data_warehouse"):
             return True
@@ -377,6 +422,9 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     """The tables that one call read, or None when the scan cannot tell."""
     if call.cut:
         return None
+    # A join that changed or went away after the call can have read a table that no join names now.
+    if _changed_after(sources.joins_changed_at, call.at):
+        return None
     current = sources.as_of(call.at)
     found = _direct_tables(call, current)
     return None if found is None else found | current.joined_tables(_call_bodies(call, current))
@@ -531,17 +579,73 @@ def _cohort_definitions(team: Team, bodies: Sequence[object]) -> dict[int, Cohor
     return found
 
 
-def _load_saved_filters(team: Team, bodies: Sequence[object]) -> SavedFilters:
+def cohort_changes(cohorts: Mapping[int, CohortDefinition], changed: Mapping[int, datetime]) -> dict[int, datetime]:
+    """The last change of each cohort or of a cohort that it uses, because a query runs them all."""
+    latest: dict[int, datetime | None] = {}
+
+    def last_change(cohort_id: int, path: tuple[int, ...]) -> datetime | None:
+        if cohort_id in latest:
+            return latest[cohort_id]
+        times = [changed.get(cohort_id)]
+        cohort = cohorts.get(cohort_id)
+        if cohort is not None and cohort_id not in path:
+            nested = {other for node in _dicts(cohort.filters) for other in _cohort_ids(node) or []}
+            times.extend(last_change(other, (*path, cohort_id)) for other in nested)
+        found = max((time for time in times if time is not None), default=None)
+        latest[cohort_id] = found
+        return found
+
+    return {cohort_id: time for cohort_id in cohorts if (time := last_change(cohort_id, ())) is not None}
+
+
+def _last_changes(
+    team: Team, scope: str, since: datetime, item_ids: Collection[str] | None = None
+) -> dict[str, datetime]:
+    entries = ActivityLog.objects.filter(
+        team_id=team.id, scope=scope, activity__in=_CHANGE_ACTIVITIES, created_at__gte=since
+    )
+    if item_ids is not None:
+        entries = entries.filter(item_id__in=list(item_ids))
+    return {
+        str(item_id): latest
+        for item_id, latest in entries.order_by()
+        .values("item_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("item_id", "latest")
+    }
+
+
+def _test_account_filters_changed_at(team: Team, since: datetime) -> datetime | None:
+    return ActivityLog.objects.filter(
+        team_id=team.id,
+        scope="Team",
+        item_id=str(team.id),
+        created_at__gte=since,
+        detail__contains={"changes": [{"field": "test_account_filters"}]},
+    ).aggregate(latest=Max("created_at"))["latest"]
+
+
+def _load_saved_filters(team: Team, bodies: Sequence[object], since: datetime) -> SavedFilters:
     test_account_filters = list(team.test_account_filters or [])
-    cohorts = cohort_reads(_cohort_definitions(team, [*bodies, test_account_filters]))
+    definitions = _cohort_definitions(team, [*bodies, test_account_filters])
+    cohorts = cohort_reads(definitions)
+    changed = _last_changes(team, "Cohort", since, [str(cohort_id) for cohort_id in definitions])
+    changes = cohort_changes(definitions, {int(cohort_id): time for cohort_id, time in changed.items()})
     test_account_tables = query_tables(
         {"properties": test_account_filters}, SavedFilters(cohorts=cohorts, test_account_tables=frozenset())
     )
-    return SavedFilters(cohorts=cohorts, test_account_tables=test_account_tables)
+    test_cohorts = {cohort_id for node in _dicts(test_account_filters) for cohort_id in _cohort_ids(node) or []}
+    times = [_test_account_filters_changed_at(team, since), *(changes.get(cohort_id) for cohort_id in test_cohorts)]
+    return SavedFilters(
+        cohorts=cohorts,
+        test_account_tables=test_account_tables,
+        cohort_changes=changes,
+        test_accounts_changed_at=max((time for time in times if time is not None), default=None),
+    )
 
 
 def _load_joins(team: Team) -> dict[str, frozenset[str]]:
-    # A deleted join can still have run before the scan, and an extra table only hides more.
+    # A soft-deleted join can still have run before the scan, and an extra table only hides more.
     joins: dict[str, set[str]] = defaultdict(set)
     for field_name, joining_table in DataWarehouseJoin.objects.filter(team_id=team.id).values_list(
         "field_name", "joining_table_name"
@@ -551,7 +655,8 @@ def _load_joins(team: Team) -> dict[str, frozenset[str]]:
     return {field_name: frozenset(tables) for field_name, tables in joins.items()}
 
 
-def _load_sources(team: Team, calls: Sequence[ReadCall]) -> ReadSources:
+def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) -> ReadSources:
+    """The saved definitions and filters that the calls ran, with the times they changed after ``since``."""
     names = {name for call in calls if call.tool == RUN_TOOL and (name := _payload_field(call, "name"))}
     short_ids = {
         short_id for call in calls if call.tool == INSIGHT_TOOL and (short_id := _payload_field(call, "insightId"))
@@ -586,11 +691,13 @@ def _load_sources(team: Team, calls: Sequence[ReadCall]) -> ReadSources:
         *(saved.body for saved in definitions.values()),
         *(saved.body for saved in queries.values()),
     ]
+    joins_changed = _last_changes(team, "DataWarehouseJoin", since)
     return ReadSources(
         metric_definitions=definitions,
         insight_queries=queries,
-        saved_filters=_load_saved_filters(team, bodies),
+        saved_filters=_load_saved_filters(team, bodies, since),
         joins=_load_joins(team),
+        joins_changed_at=max(joins_changed.values(), default=None),
     )
 
 
@@ -628,7 +735,7 @@ def trace_session_tables(
                 piece_ids=batch,
             )
         )
-    sources = _load_sources(team, calls)
+    sources = load_read_sources(team, calls, window_start)
     calls_by_piece: dict[str, list[ReadCall]] = defaultdict(list)
     for call in calls:
         calls_by_piece[call.session].append(call)

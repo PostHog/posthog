@@ -912,13 +912,6 @@ export interface TopicClusterApi {
     coverage: TopicCoverageApi
 }
 
-export interface TopicDefinitionApi {
-    /** Short name of the subject. */
-    title: string
-    /** One sentence on what the topic covers. */
-    description: string
-}
-
 export interface TopicSessionCountsApi {
     /** Sampled sessions that calculated or compared data. */
     analysis: number
@@ -1079,11 +1072,6 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     topics: TopicClusterApi[] | null
-    /**
-     * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-     * @nullable
-     */
-    topic_definitions: TopicDefinitionApi[] | null
     /** What the sampled sessions were about, by kind. Null until grouped. */
     topic_sessions: TopicSessionCountsApi | null
     /**

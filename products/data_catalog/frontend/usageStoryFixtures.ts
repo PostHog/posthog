@@ -62,7 +62,6 @@ export const USAGE_SNAPSHOT: UsageSnapshotApi = {
                 is_scout: false,
             },
         ],
-        topic_definitions: null,
         topics: [
             {
                 title: 'Weekly signups by plan',
@@ -183,7 +182,6 @@ export const PARTLY_FAILED_USAGE_SNAPSHOT: UsageSnapshotApi = {
         ...USAGE_SNAPSHOT.payload,
         adjusted_runs: null,
         topics: null,
-        topic_definitions: null,
         topic_sessions: null,
         table_sources: null,
         failed_sections: [

@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -7,6 +8,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, NonAtomicBaseTest, 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_catalog.backend.logic.agent_sessions import SessionText
@@ -17,8 +20,10 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     ReadSources,
     SavedDefinition,
     SavedFilters,
+    call_tables,
     cohort_reads,
     fetch_cohorts,
+    load_read_sources,
     session_tables,
     topic_tables,
     trace_session_tables,
@@ -120,6 +125,28 @@ class TestSessionTables(SimpleTestCase):
             ),
             ("sql_in_a_cohort", [_sql("SELECT count() FROM events WHERE person_id IN COHORT 7")], None),
             ("sql_matching_an_action", [_sql("SELECT count() FROM events WHERE matchesAction('Signed up')")], None),
+            (
+                "sql_in_a_cohort_behind_a_comment",
+                [_sql("SELECT count() FROM events WHERE person_id IN /* c */ COHORT 7")],
+                None,
+            ),
+            (
+                "warehouse_person_property_as_a_math_property",
+                [
+                    _call(
+                        "query-trends",
+                        _trends(
+                            {
+                                **_EVENTS_NODE,
+                                "math": "sum",
+                                "math_property": "revenue",
+                                "math_property_type": "data_warehouse_person_properties",
+                            }
+                        ),
+                    )
+                ],
+                None,
+            ),
             (
                 "cohort_over_posthog_tables",
                 [_call("query-trends", _trends(_EVENTS_NODE, properties=[_in_cohort(7)]))],
@@ -224,6 +251,34 @@ class TestSessionTables(SimpleTestCase):
         reads = cohort_reads({definition.id: definition for definition in cohorts})
 
         assert {cohort_id for cohort_id, only_posthog in reads.items() if only_posthog} == {1, 2, 6}
+
+    @parameterized.expand(
+        [
+            (
+                "a_cohort",
+                dataclasses.replace(
+                    _SOURCES, saved_filters=dataclasses.replace(_SOURCES.saved_filters, cohort_changes={7: _EDITED})
+                ),
+                _trends(_EVENTS_NODE, properties=[_in_cohort(7)]),
+            ),
+            (
+                "the_test_account_filters",
+                dataclasses.replace(
+                    _SOURCES,
+                    saved_filters=dataclasses.replace(_SOURCES.saved_filters, test_accounts_changed_at=_EDITED),
+                ),
+                {**_trends(_EVENTS_NODE), "filterTestAccounts": True},
+            ),
+            ("a_join", dataclasses.replace(_SOURCES, joins_changed_at=_EDITED), _trends(_EVENTS_NODE)),
+        ]
+    )
+    def test_a_saved_filter_that_changed_after_the_call_makes_the_call_unknown(
+        self, _name: str, changed: ReadSources, query: dict[str, Any]
+    ) -> None:
+        call = _call("query-trends", query)
+
+        assert session_tables([call], {"query-trends"}, _SOURCES) is not None
+        assert session_tables([call], {"query-trends"}, changed) is None
 
     def test_one_unknown_session_makes_the_topic_unknown(self) -> None:
         tables = {"a": frozenset({"billing"}), "b": frozenset({"plans"}), "c": None}
@@ -336,6 +391,40 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
             "p4": frozenset({"stripe_customers"}),
             "p5": None,
         }
+
+
+class TestLoadReadSources(BaseTest):
+    def _log(self, scope: str, item_id: str, at: datetime, field: str = "") -> None:
+        changes = [{"type": scope, "action": "changed", "field": field}] if field else []
+        entry = ActivityLog.objects.create(
+            team_id=self.team.id, scope=scope, item_id=item_id, activity="updated", detail={"changes": changes}
+        )
+        ActivityLog.objects.filter(id=entry.id).update(created_at=at)
+
+    def test_a_call_before_a_change_of_a_join_or_the_test_account_filters_is_unknown(self) -> None:
+        start = datetime(2026, 10, 1, tzinfo=UTC)
+        self.team.test_account_filters = [{"type": "person", "key": "email", "value": "x", "operator": "not_icontains"}]
+        self.team.save()
+        self._log("DataWarehouseJoin", "a-join", start + timedelta(days=1))
+        self._log("Team", str(self.team.id), start + timedelta(days=3), field="test_account_filters")
+        self._log("Team", str(self.team.id), start + timedelta(days=5), field="name")
+        query = {**_trends(_EVENTS_NODE), "filterTestAccounts": True}
+        calls = [
+            ReadCall(
+                session="s1",
+                tool="query-trends",
+                event="$ai_span",
+                at=start + timedelta(days=day),
+                payload=query,
+                sql="",
+                cut=False,
+            )
+            for day in (0, 2, 4)
+        ]
+
+        sources = load_read_sources(self.team, calls, start)
+
+        assert [call_tables(call, sources) for call in calls] == [None, None, frozenset()]
 
 
 class TestFetchCohorts(NonAtomicBaseTest):

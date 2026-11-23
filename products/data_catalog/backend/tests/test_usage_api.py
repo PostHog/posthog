@@ -25,11 +25,16 @@ from products.data_catalog.backend.facade.contracts import (
     TableSource,
     TopicCluster,
     TopicCoverage,
-    TopicDefinition,
     UncoveredGroup,
     UsageSnapshotPayload,
 )
-from products.data_catalog.backend.facade.enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
+from products.data_catalog.backend.facade.enums import (
+    OTHER_TOPIC,
+    JudgeRelation,
+    ShapeOutcome,
+    UsageSection,
+    UsageSnapshotStatus,
+)
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.usage_scan import (
     SCAN_START_FAILED_MESSAGE,
@@ -43,7 +48,7 @@ from products.data_catalog.backend.logic.usage_snapshots import (
     UsageReader,
     _denied_tables_and_views,
     _viewable_charts,
-    hidden_topic_count,
+    latest_usage_snapshot,
     payload_to_json,
     visible_payload,
 )
@@ -115,6 +120,17 @@ def _counts(metric_id: UUID) -> MetricRunCounts:
     return MetricRunCounts(metric_id=metric_id, direct_runs={"web": 1}, direct_people=1, scout_runs=0)
 
 
+def _topic(title: str, tables: list[str] | None) -> TopicCluster:
+    return TopicCluster(
+        title=title,
+        description="",
+        session_count=1,
+        people=1,
+        coverage=TopicCoverage(metric=0, table=0, nothing=0),
+        tables=tables,
+    )
+
+
 class TestVisiblePayload(SimpleTestCase):
     @parameterized.expand(
         [
@@ -160,47 +176,31 @@ class TestVisiblePayload(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (
-                "open_reader",
-                frozenset(),
-                ["Payroll", "Signups", "Untraced"],
-                ["Payroll", "Signups", "Untraced", "Dormant"],
-            ),
-            ("reader_denied_a_topic_table", frozenset({"billing"}), ["Signups"], ["Signups"]),
+            ("open_reader", frozenset(), ["Payroll", "Signups", "Untraced", OTHER_TOPIC]),
+            ("reader_denied_a_topic_table", frozenset({"billing"}), ["Signups", OTHER_TOPIC]),
             (
                 "reader_denied_another_table",
                 frozenset({"system.data_deletion_requests"}),
-                ["Payroll", "Signups"],
-                ["Payroll", "Signups"],
+                ["Payroll", "Signups", OTHER_TOPIC],
             ),
         ]
     )
     def test_a_topic_reaches_a_reader_unless_its_sessions_read_a_denied_or_untraced_table(
-        self, _name: str, denied: frozenset[str], topics: list[str], definitions: list[str]
+        self, _name: str, denied: frozenset[str], topics: list[str]
     ) -> None:
-        def topic(title: str, tables: list[str] | None) -> TopicCluster:
-            return TopicCluster(
-                title=title,
-                description="",
-                session_count=1,
-                people=1,
-                coverage=TopicCoverage(metric=0, table=0, nothing=0),
-                tables=tables,
-            )
-
         payload = UsageSnapshotPayload(
-            topics=[topic("Payroll", ["stripe.billing"]), topic("Signups", []), topic("Untraced", None)],
-            topic_definitions=[
-                TopicDefinition(title=title, description="") for title in ("Payroll", "Signups", "Untraced", "Dormant")
-            ],
+            topics=[
+                _topic("Payroll", ["stripe.billing"]),
+                _topic("Signups", []),
+                _topic("Untraced", None),
+                _topic(OTHER_TOPIC, None),
+            ]
         )
         reader = UsageReader(visible_metric_ids=frozenset(), denied_tables=denied)
 
         visible = visible_payload(payload, reader)
 
         assert [shown.title for shown in visible.topics or []] == topics
-        assert [shown.title for shown in visible.topic_definitions or []] == definitions
-        assert hidden_topic_count(payload, reader) == 3 - len(topics)
 
     def test_reader_does_not_see_measures_or_proposals_over_denied_tables_or_hidden_metrics(self) -> None:
         payload = UsageSnapshotPayload(
@@ -373,6 +373,16 @@ class TestUsageSnapshotAPI(APIBaseTest):
         assert response.json()["id"] == str(newest.id)
         assert response.json()["payload"]["metric_runs"] is None
         assert response.json()["hidden_topics"] == 0
+
+    def test_latest_counts_the_topics_that_it_hides_from_the_reader(self) -> None:
+        self._snapshot(payload=UsageSnapshotPayload(topics=[_topic("Payroll", ["billing"]), _topic("Signups", [])]))
+        reader = UsageReader(visible_metric_ids=frozenset(), denied_tables=frozenset({"billing"}))
+
+        latest = latest_usage_snapshot(self.team.id, reader)
+
+        assert latest is not None
+        assert [topic.title for topic in latest.payload.topics or []] == ["Signups"]
+        assert latest.hidden_topics == 1
 
     def test_metric_usage_returns_only_that_metrics_slice(self) -> None:
         mrr = upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
