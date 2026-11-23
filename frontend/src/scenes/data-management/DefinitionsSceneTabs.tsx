@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
-
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { DefinitionsSceneTabKey, definitionsSceneTabsLogic } from './definitionsSceneTabsLogic'
