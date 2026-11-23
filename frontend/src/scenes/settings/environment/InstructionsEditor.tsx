@@ -3,9 +3,9 @@ import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 // Matches AGENT_INSTRUCTIONS_MAX_LENGTH on the backend, which rejects anything longer.
-const MAX_LENGTH = 20_000
+export const MAX_LENGTH = 20_000
 
-interface InstructionsEditorProps {
+export interface InstructionsEditorProps {
     stored: string | null
     value: string
     dirty: boolean

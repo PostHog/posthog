@@ -139,6 +139,13 @@ def _parse_model_dict(
     return {_normalize_cost_key(key): model_cls(**config) for key, config in parsed.items()}
 
 
+# A `sync_mode` PostHog client sends, and retries, in the calling thread. One retry recovers a
+# send whose connection dropped, and it bounds how long a capture thread waits when capture is down.
+POSTHOG_SYNC_SEND_MAX_RETRIES = 1
+# The same limit as an analytics send, so an AI event waits no longer than any other capture.
+POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS = 15
+
+
 class Settings(BaseSettings):
     debug: bool = False
 
@@ -190,8 +197,9 @@ class Settings(BaseSettings):
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
-    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
-    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    # Has no effect on what the gateway sends. The gateway captures with `capture_ai`, which sends
+    # AI content as given to /i/v1/ai/events, and posthoganalytics 8 reads the matching client
+    # setting (`enable_full_ai_capture`) only in its provider wrappers.
     posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True

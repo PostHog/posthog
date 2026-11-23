@@ -102,6 +102,7 @@ from products.stamphog.backend.logic.gateway_tokens import (
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
+from products.stamphog.backend.logic.jsonb import without_nul
 from products.stamphog.backend.logic.policy_files import effective_policy_files
 from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
@@ -197,26 +198,11 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _without_nul(value: Any) -> Any:
-    """Drop NUL characters from every string in ``value``.
-
-    The context holds PR text, and Postgres refuses ``\\u0000`` in jsonb. One NUL in a PR body or
-    comment fails the whole write, and every retry and re-review of that PR fails the same way.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, dict):
-        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_without_nul(item) for item in value]
-    return value
-
-
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
         Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(_without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
+        Cast(Value(json.dumps(without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
@@ -234,7 +220,7 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
         output=_output_merge(updates), updated_at=timezone.now()
     )
-    run.output = {**(run.output or {}), **_without_nul(updates)}
+    run.output = {**(run.output or {}), **without_nul(updates)}
 
 
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.

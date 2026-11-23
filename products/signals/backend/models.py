@@ -586,6 +586,12 @@ class SignalReport(UUIDModel):
             models.Index("team", models.F("ranking_fix_score").desc(nulls_last=True), name="signals_rpt_team_rank_fix"),
             # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
             models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
+            # Back the inbox actionability views and the first-report lookup. Both filter on status and
+            # actionability, and the first-report lookup reads the matches in `first_visible_at` order.
+            models.Index(
+                fields=["team", "status", "latest_actionability", "first_visible_at"],
+                name="signals_report_actionability",
+            ),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],

@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
+}
+
+export interface CatalogAttentionApi {
+    /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+    pending_review: PendingReviewCountsApi | null
+    /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+    failing_models: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -770,15 +786,6 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
-export interface PendingReviewCountsApi {
-    /** Proposed metrics you can see that wait for approval. */
-    metrics: number
-    /** Proposed joins that wait to be accepted or rejected. */
-    relationships: number
-    /** Proposed certifications that wait for review. */
-    certifications: number
-}
-
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
@@ -997,6 +1004,8 @@ export interface UncoveredGroupApi {
     draft_definition: string | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity and the people who built or viewed the measure. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface ChartSourceApi {
@@ -1061,6 +1070,8 @@ export interface ProposedMetricApi {
     agents: AgentSourceApi | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity, the people who built or viewed the measures, and how many measures the proposal merges. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface UsageSnapshotPayloadApi {

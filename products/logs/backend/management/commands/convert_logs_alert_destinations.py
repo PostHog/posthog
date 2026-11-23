@@ -2,7 +2,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
-from products.logs.backend.destination_conversion import GroupOutcome, convert_team, outcome_counts
+from products.alerts.backend.facade.destinations import add_conversion_arguments, conversion_report
+from products.logs.backend.destination_conversion import GroupOutcome, convert_team
 
 
 class Command(BaseCommand):
@@ -12,19 +13,14 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser: Any) -> None:
-        parser.add_argument("--team-id", type=int, required=True, help="The team to convert.")
-        parser.add_argument("--apply", action="store_true", help="Write the changes. Without it, nothing is saved.")
+        add_conversion_arguments(parser)
 
     def handle(self, *args: Any, **options: Any) -> None:
-        team_id = options["team_id"]
-        apply = options["apply"]
-        conversions = convert_team(team_id, apply=apply)
-        for conversion in conversions:
-            if conversion.outcome not in (GroupOutcome.CONVERTED, GroupOutcome.KEPT_ROW, GroupOutcome.REPLACED_ROW):
-                hog_function_ids = ",".join(str(i) for i in conversion.hog_function_ids)
-                detail = f" detail={conversion.detail!r}" if conversion.detail else ""
-                self.stdout.write(
-                    f"alert={conversion.alert_id} hog_functions={hog_function_ids} outcome={conversion.outcome}{detail}"
-                )
-        mode = "applied" if apply else "dry_run"
-        self.stdout.write(f"team={team_id} {mode} {dict(outcome_counts(conversions)) or 'no HogFunction destinations'}")
+        conversions = convert_team(options["team_id"], apply=options["apply"])
+        for line in conversion_report(
+            team_id=options["team_id"],
+            apply=options["apply"],
+            conversions=conversions,
+            converted_outcomes=(GroupOutcome.CONVERTED, GroupOutcome.KEPT_ROW, GroupOutcome.REPLACED_ROW),
+        ):
+            self.stdout.write(line)

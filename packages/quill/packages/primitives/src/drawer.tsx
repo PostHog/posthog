@@ -1,8 +1,14 @@
 import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer'
+import { mergeProps } from '@base-ui/react/merge-props'
+import { useRender } from '@base-ui/react/use-render'
 import * as React from 'react'
 
 import './drawer.css'
 import { cn } from './lib/utils'
+import { ScrollArea } from './scroll-area'
+
+/** A handle also attaches to a `Dialog` root, because a drawer is a dialog underneath. */
+const createDrawerHandle = DrawerPrimitive.createHandle
 
 function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
     return <DrawerPrimitive.Root data-slot="drawer" {...props} />
@@ -59,7 +65,7 @@ const DrawerContent = React.forwardRef<React.ComponentRef<typeof DrawerPrimitive
                         {...props}
                     >
                         <DrawerHandle />
-                        <div className="w-full max-w-[32rem] mx-auto">{children}</div>
+                        <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col">{children}</div>
                     </DrawerPrimitive.Popup>
                 </DrawerPrimitive.Viewport>
             </DrawerPortal>
@@ -104,10 +110,37 @@ const DrawerFooter = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'
         <div
             ref={ref}
             data-slot="drawer-footer"
-            className={cn('quill-drawer__footer mt-auto flex flex-col gap-2 p-4', className)}
+            className={cn('quill-drawer__footer mt-auto flex flex-col-reverse gap-2 p-4', className)}
             {...props}
         />
     )
+})
+
+const DrawerBody = React.forwardRef<
+    HTMLDivElement,
+    useRender.ComponentProps<'div'> & {
+        /** Class for the ScrollArea viewport, the element that scrolls. Ignored when `render` is set. */
+        viewportClassName?: string
+    }
+>(function DrawerBody({ className, render, children, viewportClassName, ...props }, ref) {
+    // `useRender` runs on every render, so the default ScrollArea is a template rather than a branch.
+    const effectiveRender = render ?? (
+        <ScrollArea
+            data-slot="drawer-body"
+            className={cn('quill-drawer__body', className)}
+            viewportClassName={viewportClassName}
+        />
+    )
+    return useRender({
+        ref,
+        defaultTagName: 'div',
+        props: mergeProps<'div'>(
+            { className: cn('quill-drawer__body', className), children } as Omit<React.ComponentProps<'div'>, 'ref'>,
+            props
+        ),
+        render: effectiveRender,
+        state: { slot: 'drawer-body' },
+    })
 })
 
 const DrawerTitle = React.forwardRef<React.ComponentRef<typeof DrawerPrimitive.Title>, DrawerPrimitive.Title.Props>(
@@ -146,7 +179,9 @@ export {
     DrawerContent,
     DrawerHandle,
     DrawerHeader,
+    DrawerBody,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    createDrawerHandle,
 }

@@ -365,7 +365,7 @@ export const DISPLAY_OPTIONS = [
     {
         name: 'movingAverageIntervals',
         label: 'Intervals',
-        info: "The number of data points to use for calculating the moving average. A larger number will create a smoother line but with more lag. You can't use a number greater than the amount of intervals in your date range.",
+        info: 'Number of data points in the moving average. A larger window produces a smoother line.',
         nested: true,
         group: 'overlays',
         control: 'number',

@@ -5,13 +5,13 @@ import type { AnomalySeriesApi, AnomalySeriesPointApi } from 'products/signals/f
 export interface AnomalyChartWindow {
     // The start of the chart window. The chart starts at the first bucket on or after it.
     chartFrom: string
-    // The start of the flag window, which ends at the right edge of the chart.
+    // The start of the flag window.
     flagFrom: string
     dateTo: string
 }
 
 export interface AnomalyChartData {
-    // ISO bucket starts, oldest first, one per completed bucket of the chart.
+    // ISO bucket starts, oldest first, one per checked bucket of the chart.
     labels: string[]
     // NaN where the bucket has no scored value.
     values: number[]
@@ -21,13 +21,22 @@ export interface AnomalyChartData {
     earlierFlaggedIndices: number[]
     // The first bucket of the flag window, or null when no bucket of the chart is in it.
     flagWindowStartIndex: number | null
-    // The first bucket after `scored_through`, or null when every bucket was checked.
-    firstUncheckedIndex: number | null
+    // The x-axis span in epoch ms. It ends half a bucket after the last bucket, so the last bucket is as wide as the others.
+    xDomain: [number, number]
 }
 
 type ChartSeries = Pick<AnomalySeriesApi, 'interval' | 'scored_through'>
 
-// The bucket starts of the chart, oldest first.
+// `add` on a dayjs object in a timezone keeps its UTC offset, so after a daylight saving change a daily step lands
+// an hour off midnight. Re-reading the wall time in the timezone keeps daily and longer buckets on local midnight.
+// An hour is a fixed length, so hourly steps stay in absolute time.
+function stepBucket(bucket: Dayjs, steps: number, unit: ChartSeries['interval'], timezone: string): Dayjs {
+    const next = bucket.add(steps, unit)
+    return unit === 'hour' ? next : next.tz(timezone, true)
+}
+
+// The bucket starts of the chart, oldest first. The grid ends at the last checked bucket, so the chart has no
+// unchecked tail.
 function bucketGrid(
     series: ChartSeries,
     points: AnomalySeriesPointApi[],
@@ -36,22 +45,28 @@ function bucketGrid(
     timezone: string
 ): Dayjs[] {
     const unit = series.interval
+    const step = (bucket: Dayjs, steps: number): Dayjs => stepBucket(bucket, steps, unit, timezone)
     const anchor = dayjs(points[0].bucket_start).tz(timezone)
     const windowStart = dayjs(chartFrom)
     const windowEnd = dayjs(dateTo)
+    const lastPoint = dayjs(points[points.length - 1].bucket_start)
+    const lastChecked = series.scored_through ? dayjs(series.scored_through) : lastPoint
 
     let start = anchor
-    while (!start.subtract(1, unit).isBefore(windowStart)) {
-        start = start.subtract(1, unit)
+    while (!step(start, -1).isBefore(windowStart)) {
+        start = step(start, -1)
     }
     const starts: Dayjs[] = []
-    for (let bucket = start; !bucket.add(1, unit).isAfter(windowEnd); bucket = bucket.add(1, unit)) {
+    for (
+        let bucket = start;
+        !bucket.isAfter(lastChecked) && !step(bucket, 1).isAfter(windowEnd);
+        bucket = step(bucket, 1)
+    ) {
         starts.push(bucket)
     }
-    const lastPoint = dayjs(points[points.length - 1].bucket_start)
     while (starts.length === 0 || starts[starts.length - 1].isBefore(lastPoint)) {
         // The API can return a bucket the grid does not reach, for example when the clocks moved. Keep it charted.
-        starts.push(starts.length ? starts[starts.length - 1].add(1, unit) : anchor)
+        starts.push(starts.length ? step(starts[starts.length - 1], 1) : anchor)
     }
     return starts
 }
@@ -69,19 +84,12 @@ function pointSlots(grid: Dayjs[], points: AnomalySeriesPointApi[]): number[] {
     })
 }
 
-function firstUncheckedIndex(grid: Dayjs[], scoredThrough: string | null): number | null {
-    if (!scoredThrough) {
-        return null
-    }
-    const index = grid.findIndex((bucket) => bucket.isAfter(dayjs(scoredThrough)))
-    return index === -1 ? null : index
-}
-
 /**
- * Lays the scored points of a series on a grid of its buckets, so gaps and the unchecked tail show on the chart.
+ * Lays the scored points of a series on a grid of its buckets, so gaps show on the chart.
  *
  * The grid steps from the first point by the series interval. It reaches back to the start of the chart window, and
- * forward to the last bucket that ends by `dateTo`. Returns null when the series has no points to chart.
+ * forward to the last checked bucket (`scored_through`) that ends by `dateTo`. Returns null when the series has no
+ * points to chart.
  */
 export function anomalyChartData(
     series: ChartSeries,
@@ -115,6 +123,8 @@ export function anomalyChartData(
         }
     })
     const flagWindowStartIndex = grid.findIndex((bucket) => !bucket.isBefore(flagFrom))
+    const lastStart = dayjs(labels[labels.length - 1]).tz(timezone)
+    const lastEnd = stepBucket(lastStart, 1, series.interval, timezone)
 
     return {
         labels,
@@ -122,6 +132,24 @@ export function anomalyChartData(
         flaggedIndices,
         earlierFlaggedIndices,
         flagWindowStartIndex: flagWindowStartIndex === -1 ? null : flagWindowStartIndex,
-        firstUncheckedIndex: firstUncheckedIndex(grid, series.scored_through),
+        xDomain: [dayjs(labels[0]).valueOf(), lastStart.valueOf() + lastEnd.diff(lastStart) / 2],
+    }
+}
+
+/**
+ * Daily ticks label each Monday only. The default axis drops labels that overlap from left to right, so which days
+ * keep a label changed with the chart width and the first bucket. A fixed weekday gives every daily row the same
+ * ticks, and a week apart is the weekly pattern a daily chart shows.
+ */
+export function anomalyAxisTickFormatter(
+    interval: ChartSeries['interval'],
+    timezone: string
+): ((label: string) => string | null) | undefined {
+    if (interval !== 'day') {
+        return undefined
+    }
+    return (label) => {
+        const date = dayjs(label).tz(timezone)
+        return date.day() === 1 ? date.format('MMM D') : null
     }
 }
