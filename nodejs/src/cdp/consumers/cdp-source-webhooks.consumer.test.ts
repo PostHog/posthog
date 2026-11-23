@@ -118,7 +118,7 @@ describe('SourceWebhooksConsumer', () => {
     let team: Team
 
     beforeEach(async () => {
-        hub = await createHub({ CDP_INTAKE_KAFKA_ASYNC_TEAMS: '' })
+        hub = await createHub({})
         team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
