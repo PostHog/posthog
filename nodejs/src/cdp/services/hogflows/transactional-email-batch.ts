@@ -77,10 +77,12 @@ const copiedVariableKeys = (batch: TransactionalEmailBatchRequest): number => {
     )
 }
 
-// Every object key and array element at any depth, or null for a value that nests deeper than the limit.
-const nodesOf = (value: unknown): number | null => {
+// Every object key and array element at any depth below the roots, or null for a value that nests deeper than the limit
+// or holds more nodes than the budget. It counts a value's children before it queues them, so a wide list is refused
+// without walking it.
+const nodesOf = (roots: unknown[], budget: number): number | null => {
     let nodes = 0
-    const pending: [unknown, number][] = [[value, 1]]
+    const pending: [unknown, number][] = roots.map((root) => [root, 1])
     while (pending.length > 0) {
         const [current, level] = pending.pop()!
         if (current === null || typeof current !== 'object') {
@@ -89,8 +91,12 @@ const nodesOf = (value: unknown): number | null => {
         if (level > BATCH_VARIABLE_DEPTH_MAX) {
             return null
         }
-        for (const child of Object.values(current)) {
-            nodes++
+        const children = Array.isArray(current) ? current : Object.values(current)
+        nodes += children.length
+        if (nodes > budget) {
+            return null
+        }
+        for (const child of children) {
             pending.push([child, level + 1])
         }
     }
@@ -100,19 +106,23 @@ const nodesOf = (value: unknown): number | null => {
 const byteLengthOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value))
 
 export const exceedsCopyLimits = (batch: TransactionalEmailBatchRequest): boolean => {
+    if (copiedVariableKeys(batch) > BATCH_VARIABLE_KEYS_MAX) {
+        return true
+    }
+    // Before any serializing: a value that nests too deep overflows the stack there too.
+    const copies = batch.recipients.length
+    const sharedNodes = nodesOf([batch.variables, batch.send], Math.floor(BATCH_COPIED_NODES_MAX / copies))
+    if (sharedNodes === null) {
+        return true
+    }
+    let remainingNodes = BATCH_COPIED_NODES_MAX - sharedNodes * copies
     const own = batch.recipients.map((recipient) => recipient.variables ?? {})
-    const sharedNodes = nodesOf(batch.variables)
-    let copiedNodes = 0
     for (const variables of own) {
-        const ownNodes = nodesOf(variables)
-        // Before any serializing: a value that nests too deep overflows the stack there too.
-        if (sharedNodes === null || ownNodes === null) {
+        const ownNodes = nodesOf([variables], remainingNodes)
+        if (ownNodes === null) {
             return true
         }
-        copiedNodes += sharedNodes + ownNodes
-    }
-    if (copiedVariableKeys(batch) > BATCH_VARIABLE_KEYS_MAX || copiedNodes > BATCH_COPIED_NODES_MAX) {
-        return true
+        remainingNodes -= ownNodes
     }
     const shared = byteLengthOf(batch.variables) + (batch.send ? byteLengthOf(batch.send) : 0)
     return own.reduce((total, variables) => total + shared + byteLengthOf(variables), 0) > BATCH_COPIED_BYTES_MAX

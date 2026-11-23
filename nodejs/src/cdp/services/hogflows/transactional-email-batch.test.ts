@@ -55,18 +55,25 @@ describe('transactional email batch', () => {
             idempotency_key: `key-${name}`,
             ...(variables && { variables }),
         })
-        // Each of the two recipients copies {"p":"<padding>"}, 8 bytes around the padding, and its own {}, 2 bytes.
-        const paddingAtLimit = BATCH_COPIED_BYTES_MAX / 2 - 10
-        // Each of the two recipients copies the keys a and b and the list's elements.
-        const nodesTo = (elements: number) => ({
-            variables: { a: { b: Array.from({ length: elements }, (_, i) => i) } },
-            recipients: [recipient('ada'), recipient('bo')],
+        // Ada and Bo each copy {"p":"<padding>"}, 8 bytes around the padding. Ada adds her own {"q":"<own>"}, 8 bytes around
+        // it, and Bo his own {}, 2 bytes, so the copies reach the limit at two characters of Ada's own.
+        const paddedTo = (own: number) => ({
+            variables: { p: 'x'.repeat(BATCH_COPIED_BYTES_MAX / 2 - 14) },
+            recipients: [recipient('ada', { q: 'x'.repeat(own) }), recipient('bo')],
         })
-        const paddedTo = (padding: number) => ({
-            variables: { p: 'x'.repeat(padding) },
-            recipients: [recipient('ada'), recipient('bo')],
+        // Ada and Bo each copy the keys a and b and the list's elements, and Ada adds her own keys.
+        const nodesTo = (own: Record<string, unknown>) => ({
+            variables: { a: { b: Array.from({ length: BATCH_COPIED_NODES_MAX / 2 - 2 }, (_, i) => i) } },
+            recipients: [recipient('ada', own), recipient('bo')],
         })
-
+        const unwalkable = new Proxy(
+            {},
+            {
+                ownKeys: () => {
+                    throw new Error('walked an element past the node limit')
+                },
+            }
+        )
         it.each([
             {
                 batch: 'shared variables nested to the depth limit',
@@ -83,30 +90,41 @@ describe('transactional email batch', () => {
                 body: { variables: {}, recipients: [recipient('ada', nestedOf(BATCH_VARIABLE_DEPTH_MAX + 1))] },
                 exceeds: true,
             },
-            { batch: 'copies at the byte limit', body: paddedTo(paddingAtLimit), exceeds: false },
-            { batch: 'copies one byte over the limit', body: paddedTo(paddingAtLimit + 1), exceeds: true },
+            { batch: 'copies at the byte limit', body: paddedTo(2), exceeds: false },
+            { batch: 'copies one byte over the limit', body: paddedTo(3), exceeds: true },
+            { batch: 'nested keys and elements at the node limit', body: nodesTo({}), exceeds: false },
+            { batch: 'nested keys and elements one node over the limit', body: nodesTo({ c: 0 }), exceeds: true },
             {
-                batch: 'nested keys and elements at the node limit',
-                body: nodesTo(BATCH_COPIED_NODES_MAX / 2 - 2),
-                exceeds: false,
+                batch: 'a list wider than the node limit, without walking its elements',
+                body: {
+                    variables: { a: Array(BATCH_COPIED_NODES_MAX + 1).fill(unwalkable) },
+                    recipients: [recipient('ada')],
+                },
+                exceeds: true,
             },
             {
-                batch: 'nested keys and elements one node over the limit',
-                body: nodesTo(BATCH_COPIED_NODES_MAX / 2 - 1),
+                batch: 'a code send whose reply-to list each recipient copies over the node limit',
+                body: {
+                    variables: {},
+                    send: {
+                        content: { subject: 'Hello', text: 'Hi' },
+                        replyTo: Array(BATCH_COPIED_NODES_MAX / 2).fill(''),
+                        tracking: { captureEngagement: false },
+                    },
+                    recipients: [recipient('ada'), recipient('bo')],
+                },
                 exceeds: true,
             },
             {
                 batch: 'a full code send of a large html email',
-                body: {
+                body: CodeSendBatchRequestSchema.parse({
                     variables: { company: 'Example' },
                     send: {
                         content: { subject: 'Hello', html: 'x'.repeat(100 * 1024) },
                         tracking: { captureEngagement: false },
                     },
-                    recipients: Array.from({ length: 100 }, (_, i) =>
-                        recipient(`person-${i}`, { first_name: `Person ${i}`, link: `https://example.com/${i}` })
-                    ),
-                },
+                    recipients: Array.from({ length: 100 }, (_, i) => recipient(`person-${i}`)),
+                }),
                 exceeds: false,
             },
             {
