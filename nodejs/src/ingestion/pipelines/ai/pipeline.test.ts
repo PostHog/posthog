@@ -243,6 +243,16 @@ describe('AiIngestionPipeline', () => {
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
     })
 
+    it('stamps retention-days only on the ai_events copy of a listed team', async () => {
+        config = { ...config, aiEventsRetentionDaysByTeam: new Map([[team.id, 90]]) }
+        await runPipeline([createMessage('$ai_generation')])
+
+        const headersFor = (topic: string): unknown =>
+            mockKafkaProducer.produce.mock.calls.map((call) => call[0]).find((arg) => arg.topic === topic)?.headers
+        expect(headersFor(AI_EVENTS_TOPIC)).toMatchObject({ 'retention-days': '90' })
+        expect(headersFor(EVENTS_TOPIC)).not.toHaveProperty('retention-days')
+    })
+
     it('stamps the received size as $ai_event_bytes on both copies, over client and transform values', async () => {
         mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
             Promise.resolve({
