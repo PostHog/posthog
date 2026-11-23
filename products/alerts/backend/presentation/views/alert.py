@@ -3393,7 +3393,13 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         if native_ids and self._readable_insight(insight_id):
             views = native_insight_alert_views(self.team_id, native_ids)
             # An alert with no insight row is shown with a placeholder threshold; only a held one is listed.
-            held = [view for view in views if (view.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")]
+            # A view that moved to another insight since the lookup was not checked against this one.
+            held = [
+                view
+                for view in views
+                if view.source_config.get("insight_id") == insight_id
+                and (view.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")
+            ]
             alerts += AlertConfiguration.from_platform_views(held, team_id=self.team_id).values()
         thresholds = []
         for alert in alerts:
