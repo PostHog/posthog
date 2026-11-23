@@ -65498,11 +65498,11 @@ export namespace Schemas {
       last_error: string | null;
       /** A breakdown of what the step did. Only counts above zero appear. */
       counts: ImportStepCount[];
-      /** The objects the step handled, with anything to review. */
+      /** The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them. */
       items: ImportStepItem[];
       /** How many more warnings there were than `warnings` holds. */
       warnings_omitted: number;
-      /** How many more objects there were than `items` holds. */
+      /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
       items_omitted: number;
     }
 
