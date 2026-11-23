@@ -1003,7 +1003,6 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
-        # Two repeats of contacts above, by case and by surrounding spaces, and one address that isn't valid.
         self.resend.data["contacts"] += [
             {"id": f"c0000000-0000-4000-8000-00000000000{n}", "email": email, "unsubscribed": False}
             for n, email in ((5, "HAPPY@example.com"), (6, " left-a-topic@example.com "), (7, "not-an-email"))

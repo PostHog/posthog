@@ -65,7 +65,6 @@ class ContactList:
     empty_note: str = "No contacts to import."
     # Lowercased addresses whose people stay out of the cohort, such as contacts who unsubscribed.
     non_members: frozenset[str] = frozenset()
-    # Contacts the provider listed that have no row of their own, as `ContactCollector` counts them.
     repeats_merged: int = 0
     invalid_skipped: int = 0
 
@@ -97,7 +96,6 @@ class ContactCollector:
         self._spellings: dict[str, set[str]] = {}
         self._memberships = 0
         self._bytes = 0
-        # Contacts merged into an earlier one with the same address, ignoring case and surrounding spaces.
         self.repeats_merged = 0
         self.invalid_skipped = 0
 
