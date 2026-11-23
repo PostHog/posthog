@@ -51,7 +51,7 @@ def _end(transaction_number: int) -> int:
 
 def _event(kind: type, **attributes: Any) -> Any:
     # The library builds events from packets. These carry only what the reader reads.
-    event = object.__new__(_FAKE_EVENTS[kind])
+    event: Any = object.__new__(_FAKE_EVENTS[kind])
     event.__dict__.update(attributes)
     return event
 
