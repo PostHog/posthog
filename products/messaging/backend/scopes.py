@@ -15,7 +15,7 @@ SCOPE_DOCS = (
         object="transactional_push",
         name="Transactional push notification",
         plural="transactional push notifications",
-        description="Sending a push notification from a push template made transactional, and reading a sent push's status with a project secret key.",
+        description="Sending transactional push notifications and reading their status with a project secret key.",
         group="Messaging",
         docs_url="https://posthog.com/docs/workflows/push-notifications",
     ),
