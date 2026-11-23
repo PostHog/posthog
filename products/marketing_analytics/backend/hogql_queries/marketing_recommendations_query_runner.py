@@ -830,17 +830,17 @@ def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
     return tuple(
         PolicyTopic(
             topic=entry["topic"],
-            type=entry.get("type") or "",
+            type=str(entry.get("type") or ""),
             texts=tuple(
                 text
                 for evidence in entry.get("evidences") or []
-                if isinstance(evidence, dict)
-                for text in (evidence.get("textList") or {}).get("texts") or []
-                if text
+                if isinstance(evidence, dict) and isinstance(text_list := evidence.get("textList"), dict)
+                for text in text_list.get("texts") or []
+                if isinstance(text, str) and text
             ),
         )
         for entry in _json_messages(value)
-        if entry.get("topic")
+        if isinstance(entry.get("topic"), str) and entry["topic"]
     )
 
 

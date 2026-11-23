@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -28,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -632,3 +634,21 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+
+class TestPolicyTopics(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            (
+                "texts_are_not_text",
+                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
+                ("Acme",),
+            ),
+        ]
+    )
+    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
+        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+
+        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
