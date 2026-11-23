@@ -1778,6 +1778,20 @@ class ErrorTrackingIssueTagFilter(BaseModel):
     key: str = Field(..., description="Key of the tag definition.")
 
 
+class ErrorTrackingIssueTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have all of these tags."),
+    )
+    hasNot: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have none of these tags."),
+    )
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -37126,10 +37140,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
-    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+    issueTag: ErrorTrackingIssueTagFilter | None = None
+    issueTags: ErrorTrackingIssueTagsFilter | None = Field(
         default=None,
         description=(
-            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+            "Filter by issue tags. Get the keys from the issue tag definitions. The"
+            " query ignores a key whose tag is off for the project."
         ),
     )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
