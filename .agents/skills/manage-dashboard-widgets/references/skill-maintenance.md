@@ -33,7 +33,7 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/backend/widget_catalog.py`                             | Derived catalog — edit `registry.py` `WidgetSpec` for labels/availability                      |
 | `products/dashboards/backend/presentation/widget_openapi_serializers.py`    | Re-exports — OpenAPI serializers derive from `WIDGET_SPECS`                                    |
 | `products/dashboards/backend/tests/api/dashboard_openapi_test_helpers.py`   | Dashboard PATCH OpenAPI contract exclusions for `test_dashboard_openapi.py`                    |
-| `bin/build-dashboard-widget-types.py`                                       | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
+| `products/dashboards/scripts/build_widget_types.py`                         | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
 | `tools/openapi-codegen/package.json` (`orval` version)                      | Widget catalog Zod requires Orval 8.14+ `generateReusableSchemas`                              |
 | `tools/openapi-codegen/src/zod-postprocess.mjs`                             | `fixNullDefaults`, `annotatePureZodExports` — shared Orval Zod postprocess                     |
 | `tools/openapi-codegen/src/schema.mjs`                                      | `discoverComponentSchemaNames`, `discoverCatalogEntryConfigPropertyKeys`                       |

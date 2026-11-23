@@ -889,7 +889,7 @@ SPECTACULAR_SETTINGS = {
             "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
-            # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
+            # products/dashboards/scripts/build_widget_types.py checks these against WIDGET_SPECS.
             "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
             "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
             "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
