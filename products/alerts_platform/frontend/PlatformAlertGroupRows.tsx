@@ -14,7 +14,9 @@ export function PlatformAlertGroupRows({
         {
             title: 'Group',
             dataIndex: 'grouping_key',
-            render: (_, alert) => <PlatformAlertGroupCell alert={alert} groupingKeys={configuration.grouping.keys} />,
+            render: (_, alert) => (
+                <PlatformAlertGroupCell alert={alert} groupingKeys={configuration.grouping.keys ?? []} />
+            ),
         },
         {
             title: 'State',
@@ -28,7 +30,7 @@ export function PlatformAlertGroupRows({
     ]
     return (
         <div className="@container/alert-groups">
-            <LemonTable dataSource={configuration.alerts} columns={columns} rowKey="id" embedded size="small" />
+            <LemonTable dataSource={[...configuration.alerts]} columns={columns} rowKey="id" embedded size="small" />
         </div>
     )
 }
