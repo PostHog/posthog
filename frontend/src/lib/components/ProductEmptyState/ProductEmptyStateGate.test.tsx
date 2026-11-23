@@ -93,17 +93,20 @@ describe('ProductEmptyStateGate', () => {
         })
     })
 
-    it('marks the gate phases in order when the status is known at mount', () => {
+    it.each([
+        [
+            'a status known at mount',
+            emptyState,
+            ['empty_state_gate_mounted', 'empty_state_gate_flags_ready', 'empty_state_gate_resolved'],
+        ],
+        ['an inactive gate', tabScopedEmptyState, ['empty_state_gate_mounted', 'empty_state_gate_flags_ready']],
+    ])('marks the gate phases in order for %s', (_, gatedEmptyState, expectedPhases) => {
         render(
-            <ProductEmptyStateGate emptyState={emptyState}>
+            <ProductEmptyStateGate emptyState={gatedEmptyState}>
                 <div>the real scene</div>
             </ProductEmptyStateGate>
         )
-        expect(bootPhasesByFirstMark()).toEqual([
-            'empty_state_gate_mounted',
-            'empty_state_gate_flags_ready',
-            'empty_state_gate_resolved',
-        ])
+        expect(bootPhasesByFirstMark()).toEqual(expectedPhases)
     })
 
     it.each([

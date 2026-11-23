@@ -62,12 +62,14 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
         forcedMode,
     })
     useSceneContentReady(activation !== 'awaiting-flags')
+    // Mark during render, not in layout effects, because the inner gate's layout effects run before
+    // this component's and would record `resolved` before `mounted`. markBootPhase keeps the first
+    // mark of each phase, so later renders change nothing.
     markBootPhase('empty_state_gate_mounted')
     if (activation !== 'awaiting-flags') {
         markBootPhase('empty_state_gate_flags_ready')
     }
     if (activation === 'off') {
-        markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: 'scene' })
         return <>{children}</>
     }
     if (activation === 'awaiting-flags') {
