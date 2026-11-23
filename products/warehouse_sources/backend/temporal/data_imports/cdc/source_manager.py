@@ -390,7 +390,7 @@ async def build_output_lanes(
     history_billable = (
         any(lane.history for lane in served)
         and await database_sync_to_async_pool(
-            lambda: history_lane_billable(schema.team, history_only=schema.cdc_table_mode == CDC_ONLY_TABLE_MODE)
+            lambda: history_lane_billable(schema, history_only=schema.cdc_table_mode == CDC_ONLY_TABLE_MODE)
         )()
     )
     for lane in served:

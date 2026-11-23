@@ -561,6 +561,8 @@ class ConformanceKit:
             patch(f"{_CDC}.source_manager.DeltaTableRef", _LaneTableRef),
             patch(f"{_CDC}.source_manager.ensure_position_stats", _keep_position_stats),
             patch(f"{_CDC}.source_manager.read_lane_position", read_lane_position),
+            # Billing reads the team's flag from the database, and these tables only check what lands where.
+            patch(f"{_CDC}.source_manager.history_lane_billable", return_value=False),
             # Everything below is a boundary: Temporal, Celery, analytics and S3.
             patch(f"{_CDC}.activities.close_old_connections"),
             patch(f"{_CDC}.activities.activity", activity),

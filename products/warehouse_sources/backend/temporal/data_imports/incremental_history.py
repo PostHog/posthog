@@ -126,7 +126,7 @@ def attach_history_lanes(
     history_lane = OutputLane(
         name=companion_resource_name(schema.name, naming),
         cdc_write_mode=SCD2_APPEND_MODE,
-        billable=history_lane_billable(schema.team, history_only=history_only),
+        billable=history_lane_billable(schema, history_only=history_only),
         transform=functools.partial(
             stamp_history_batch,
             schema_name=schema.name,

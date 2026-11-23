@@ -308,7 +308,7 @@ async def _seed_cdc_companion_from_snapshot(
     # The snapshot job bills the main table. Beside it, the history table bills its seed as a table of its own.
     if (
         schema.cdc_table_mode == "both"
-        and await database_sync_to_async_pool(lambda: history_lane_billable(schema.team, history_only=False))()
+        and await database_sync_to_async_pool(lambda: history_lane_billable(schema, history_only=False))()
     ):
         await database_sync_to_async_pool(record_history_seed_job)(job, schema, total_rows)
 
