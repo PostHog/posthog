@@ -823,7 +823,7 @@ _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema imp
 
 **Verdict: landed for hobby, rejected for cloud** · Nov 2026 · [#132122](https://github.com/PostHog/posthog/pull/132122)
 
-`bin/granian_preload.py` imports the ASGI app once in the granian parent and forks the workers from it. The workers share the memory of the app until they write to it. Hobby installs set `POSTHOG_GRANIAN_PRELOAD`. A cloud dev pool with this setting used about a third of its memory when idle.
+`bin/granian_preload.py` imports the ASGI app once in the granian parent and forks the workers from it. The workers share the memory of the app until they write to it. Hobby installs set `POSTHOG_GRANIAN_PRELOAD`. While idle, a cloud dev pool with this setting used about a third of the memory that it used without the setting.
 
 Cloud did not keep it. A fork copies only the thread that calls `fork()`, and the parent was not a safe process to fork:
 
