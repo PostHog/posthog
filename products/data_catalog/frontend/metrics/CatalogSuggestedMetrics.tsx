@@ -13,7 +13,6 @@ const SKELETON_ROWS = 3
 // pinned: autocapture reads the data-attr value to tell this list from the lists of catalog metrics
 const DATA_ATTR = 'data-catalog-metrics-layer-suggested'
 
-/** The measures that the usage scan found with no metric, as a short list above the catalog metrics. */
 export function CatalogSuggestedMetrics(): JSX.Element | null {
     const { latest, latestLoadFailed, failureReasons } = useValues(usageLogic)
     const { visibleSuggestions } = useValues(catalogSuggestedMetricsLogic)

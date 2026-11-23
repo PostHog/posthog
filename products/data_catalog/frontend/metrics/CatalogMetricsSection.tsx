@@ -13,6 +13,7 @@ import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overvie
 import { QuillCatalogSetupBanner } from '../components/QuillCatalogSetupBanner'
 import { metricsIntroLogic } from '../metricsIntroLogic'
 import { metricsLogic } from '../metricsLogic'
+import { usageLogic } from '../usageLogic'
 import { CatalogMetricsBulkBar } from './CatalogMetricsBulkBar'
 import { CatalogMetricsEmptyState } from './CatalogMetricsEmptyState'
 import { CatalogMetricsLayers } from './CatalogMetricsLayers'
@@ -75,6 +76,11 @@ function MetricsContent({ layered }: { layered: boolean }): JSX.Element {
     return <LoadingRows />
 }
 
+function SuggestionsToolbar(): JSX.Element | null {
+    const { proposedRows } = useValues(usageLogic)
+    return proposedRows.length > 0 ? <CatalogMetricsToolbar /> : null
+}
+
 function MetricsNotice(): JSX.Element | null {
     const { metricsNotice } = useValues(metricsIntroLogic)
     if (metricsNotice === 'intro') {
@@ -95,8 +101,8 @@ export function CatalogMetricsSection(): JSX.Element {
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
             <MetricsNotice />
-            {/* Search and filters have nothing to act on in an empty catalog. */}
-            {!catalogEmpty && <CatalogMetricsToolbar />}
+            {/* Search and filters have nothing to act on in an empty catalog that has no suggestions. */}
+            {catalogEmpty ? suggestionsAvailable && <SuggestionsToolbar /> : <CatalogMetricsToolbar />}
             <ChecksLoadError />
             <div className="flex flex-col gap-6">
                 {suggestionsAvailable && <CatalogSuggestedMetrics />}

@@ -40,7 +40,6 @@ export type MetricsSort = ColumnSort<MetricsSortColumn>
 export type MetricsListKey = 'all' | 'proposed' | 'approved'
 
 export interface MetricsListPage {
-    /** The metrics on the current page of the list. */
     metrics: DataCatalogMetricApi[]
     total: number
     currentPage: number

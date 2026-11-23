@@ -11,7 +11,6 @@ export interface CatalogMetricsLayerProps {
     children: ReactNode
 }
 
-/** One of the lists that the Metrics tab shows one above the other, with its name and its size. */
 export function CatalogMetricsLayer({
     title,
     count,

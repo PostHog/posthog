@@ -8,7 +8,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { PROPOSED_TABLES_FILTER, SUGGESTED_METRICS_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { certificationsLogic } from './certificationsLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
@@ -17,9 +17,7 @@ const HEADING_ID = 'data-catalog-to-review-heading'
 
 interface ReviewRowProps {
     label: string
-    /** The number of items to review. Zero hides the row. */
     count: number
-    /** The singular name of one item, for the text of the link. */
     noun: string
     href: string
     dataAttr: string
@@ -27,12 +25,11 @@ interface ReviewRowProps {
 
 export interface CatalogToReviewListProps {
     suggestionsBanner?: JSX.Element
-    /** Measures that the usage scan found with no metric. Zero hides the row. */
     suggestedMetricCount?: number
 }
 
-function proposedUrl(tab: 'tables' | 'relationships' | 'metrics'): string {
-    return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url
+function reviewUrl(tab: 'tables' | 'relationships' | 'metrics', filter: string = PROPOSED_TABLES_FILTER): string {
+    return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: filter }).url
 }
 
 function ReviewRow({ label, count, noun, href, dataAttr }: ReviewRowProps): JSX.Element | null {
@@ -81,29 +78,28 @@ export function CatalogToReviewList({
                     label="Metrics to approve"
                     count={proposedMetrics}
                     noun="metric"
-                    href={proposedUrl('metrics')}
+                    href={reviewUrl('metrics')}
                     dataAttr="data-catalog-review-metrics"
                 />
-                {/* The Metrics tab shows the suggestions first, so the link needs no filter. */}
                 <ReviewRow
                     label="Suggested metrics (extracted by usage patterns)"
                     count={suggestedMetricCount}
                     noun="metric"
-                    href={urls.dataCatalog('metrics')}
+                    href={reviewUrl('metrics', SUGGESTED_METRICS_FILTER)}
                     dataAttr="data-catalog-review-suggested-metrics"
                 />
                 <ReviewRow
                     label="Certifications waiting for approval"
                     count={proposedCertifications}
                     noun="certification"
-                    href={proposedUrl('tables')}
+                    href={reviewUrl('tables')}
                     dataAttr="data-catalog-review-certifications"
                 />
                 <ReviewRow
                     label="Relationships waiting for approval"
                     count={proposedJoins}
                     noun="join"
-                    href={proposedUrl('relationships')}
+                    href={reviewUrl('relationships')}
                     dataAttr="data-catalog-review-relationships"
                 />
             </ItemGroup>

@@ -7,7 +7,6 @@ import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsNoMatch } from './CatalogMetricsNoMatch'
 import { CatalogMetricsTable } from './CatalogMetricsTable'
 
-/** The catalog metrics as two short lists: the metrics that wait for approval, then the approved metrics. */
 export function CatalogMetricsLayers(): JSX.Element {
     const { listPages } = useValues(catalogMetricsLogic)
 
