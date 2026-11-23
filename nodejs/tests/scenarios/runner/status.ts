@@ -5,7 +5,7 @@ import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
-import type { Ramp } from '../judge/ramp'
+import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
@@ -206,26 +206,44 @@ function withRamp(
     }
     return ramp.end === 'harness_limit'
         ? { status: 'invalid', statusReason: `the ramp hit a harness limit: ${ramp.reason}` }
-        : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
+        : {
+              status: 'failed',
+              statusReason: [
+                  `the ramp broke: ${ramp.reason}`,
+                  ...(ramp.stop && ramp.stop.reason !== ramp.reason ? [ramp.stop.reason] : []),
+              ].join('; '),
+          }
 }
 
 function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }
-    const { invariants, convergence } = verdict
-    const placesDeliveries = invariants.some(
-        ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
-    )
-    const ramped = withRamp(
+    const { invariants, convergence, ramp } = verdict
+    const failed = (name: string): boolean =>
+        invariants.some((invariant) => invariant.name === name && !invariant.passed)
+    const recorded = ratesReasonOf(ramp.rates ?? [], {
+        lost: failed('at_least_once'),
+        duplicates: failed('duplicate_sends'),
+    })
+    const rampJudgesConvergence =
+        convergence.unfinishedJobs > 0 ||
+        invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
+    const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
             invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
-            convergence: placesDeliveries ? { ...convergence, converged: true } : convergence,
+            convergence: rampJudgesConvergence ? { ...convergence, converged: true } : convergence,
         }),
-        verdict.ramp
+        ramp
     )
+    const ramped =
+        recorded.length === 0
+            ? unramped
+            : unramped.status === 'passed'
+              ? { status: 'failed' as const, statusReason: `the ramp ran to its last step, but ${recorded.join('; ')}` }
+              : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
     const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
     if (notJudged.length === 0) {
         return ramped

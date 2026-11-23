@@ -93,7 +93,7 @@ from products.signals.backend.scout_harness.runner import (
     _create_run_row,
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
-    _memory_upkeep_has_written,
+    _memory_upkeep_is_live,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -500,7 +500,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
             project_has_governed_metrics=True,
-            memory_upkeep_has_written=True,
+            memory_upkeep_is_live=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -579,8 +579,46 @@ class TestMemoryUpkeepCheck(SimpleTestCase):
             ),
             patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
         ):
-            assert _memory_upkeep_has_written(MagicMock()) is False
+            assert _memory_upkeep_is_live(MagicMock()) is False
         capture.assert_called_once()
+
+
+class TestMemoryUpkeepGate(BaseTest):
+    @parameterized.expand(
+        [
+            ("enabled_with_entry", SignalScoutConfig.Status.ACTIVE, True, True),
+            ("warned_with_entry", SignalScoutConfig.Status.PENDING_PAUSE, True, True),
+            ("paused_by_user_with_entry", SignalScoutConfig.Status.PAUSED_BY_USER, True, False),
+            ("paused_by_system_with_entry", SignalScoutConfig.Status.PAUSED_BY_SYSTEM, True, False),
+            ("no_config_with_entry", None, True, False),
+            ("enabled_without_entry", SignalScoutConfig.Status.ACTIVE, False, False),
+        ]
+    )
+    def test_section_is_live_only_while_the_upkeep_scout_is_enabled_and_has_written(
+        self, _name: str, status: str | None, has_entry: bool, expected: bool
+    ) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember
+
+        if status is not None:
+            pause_reason = (
+                SignalScoutConfig.PauseReason.NO_OUTPUT
+                if status in (SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.Status.PAUSED_BY_SYSTEM)
+                else None
+            )
+            SignalScoutConfig.objects.unscoped().create(
+                team_id=self.team.id,
+                skill_name=MEMORY_UPKEEP_SCOUT,
+                status=status,
+                pause_reason=pause_reason,
+                enabled=status in SignalScoutConfig.RUNNABLE_STATUSES,
+            )
+        if has_entry:
+            run = SignalScoutRun.objects.create(
+                task_run=_make_task_run(self.team), team=self.team, skill_name=MEMORY_UPKEEP_SCOUT, skill_version=1
+            )
+            remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
+
+        assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1502,9 +1540,9 @@ class TestPromptBuilder(BaseTest):
                 ),
                 (
                     "memory_upkeep",
-                    "memory_upkeep_has_written",
+                    "memory_upkeep_is_live",
                     "# Memory upkeep",
-                    "dream:digest:<skill-name>",
+                    'key_prefix="learned:area:"',
                     ["signals-scout-dreaming", "dream:digest:", "learned:"],
                 ),
             )
@@ -1556,7 +1594,7 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-            memory_upkeep_has_written=True,
+            memory_upkeep_is_live=True,
         )
 
         assert "# Memory upkeep" not in prompt

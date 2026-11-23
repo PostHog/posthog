@@ -35,6 +35,7 @@ from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag
 from posthog.hogql.transforms.cross_join import DirectEqualities, optimize_cross_joins
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.fast_property_filters_first import put_fast_property_filters_first
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -469,6 +470,11 @@ def prepare_ast_for_printing(
         if events_pushdown_enabled(context.modifiers):
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
+
+        if context.uses_new_events_schema():
+            # Before property resolution, while a property read is still a PropertyAccess that carries its key path.
+            with context.timings.measure("fast_property_filters_first"):
+                node = put_fast_property_filters_first(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
             # Deferred to break the module-level cycle cpr → printer.base → printer package init →

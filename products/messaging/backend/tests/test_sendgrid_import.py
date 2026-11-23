@@ -218,20 +218,18 @@ class TestSendGridImport(BaseTest):
         email = receipt.content["email"]
         assert receipt.transactional_hog_flow_id is None
         assert receipt.content["templating"] == "liquid"
-        assert email["subject"] == (
-            'Your order {{ variables.order.id | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" }}'
-        )
+        assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
         assert "Old" not in email["html"]
-        # The receipt uses formatDate, so its body stays as text for a person to rewrite.
-        assert "{{ unsubscribe_url }}" not in email["html"]
-        assert "variables.preheader" not in email["html"]
+        assert "{% for raw1 in variables.items %}" in email["html"]
+        assert '{{ variables.order.placed_at | date: "%B %d, %Y", "UTC" }}' in email["html"]
+        assert "{{ unsubscribe_url }}" in email["html"]
         assert '"first_name": "Ada"' in receipt.description
         assert templates["d-4444444444444444444444444444dddd"].content["email"]["html"] == "<p>Newest</p>"
 
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
         assert any("Old draft" in note for note in items["Order receipt"]["notes"])
-        assert any("this template's tags" in note for note in items["Order receipt"]["notes"])
-        assert any("this template's tags" in note for note in items["Přivítání 🦔"]["notes"])
+        assert not any("can't convert" in note for note in items["Order receipt"]["notes"])
+        assert any("{{customHelper name}}" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("design editor" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("no version" in note for note in items["Empty template"]["notes"])
         assert run.progress["templates"]["counts"]["no_version"] == 1
@@ -293,9 +291,7 @@ class TestSendGridImport(BaseTest):
         assert str(scheduled.message_category_id) == str(
             MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
         )
-        assert (
-            templates["From a design"].content["email"]["html"] == "<p>News</p>{% raw %}{{{unsubscribe}}{% endraw %}}"
-        )
+        assert templates["From a design"].content["email"]["html"] == "<p>News</p>{{ unsubscribe_url }}"
         items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
         assert any("still scheduled" in note for note in items["November news"]["notes"])
         assert any("first_name" in note for note in items["November news"]["notes"])

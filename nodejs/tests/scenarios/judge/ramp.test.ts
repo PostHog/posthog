@@ -1,9 +1,10 @@
 import type { Named, Step } from '../cards'
 import type { DrivenStep, StepWindow } from '../generator/generator'
+import type { TruthRecord } from '../provider-edge'
 import { type BarEvidence, type BarResult, type CpuPoint, judgeBars } from './bars'
 import type { InvariantResult, JournalEntry } from './judge'
 import { type MetricSample, SCRAPE_GAP_MS } from './measurements'
-import { Broke, LiveRamp, Ramp, RampEvidence, RampStop, rampOf, watchRamp } from './ramp'
+import { Broke, LiveRamp, Ramp, RampEvidence, RampStop, StepRates, rampOf, stepRatesOf, watchRamp } from './ramp'
 
 const T = Date.UTC(2026, 0, 5, 10, 0, 0)
 const MINUTE = 60_000
@@ -107,37 +108,22 @@ describe('ramp', () => {
             { advance: true, stop: undefined },
         ],
         [
-            'stops at a step whose bar broke, naming the part it measures and the rate the generator reached',
+            'goes on past a step whose bar broke, since a broken bar is no hard failure',
             {},
             1,
             UNITS_PER_STEP[1],
-            {
-                advance: false,
-                stop: {
-                    index: 1,
-                    end: 'broke',
-                    reason: 'writer_cpu_under broke at the 2x step',
-                    broke: {
-                        scale: 2,
-                        offeredPerSecond: 2,
-                        by: 'writer_cpu_under',
-                        kind: 'bar',
-                        at: iso(T + 2 * MINUTE),
-                        part: 'db:cyclotron',
-                    },
-                },
-            },
+            { advance: true, stop: undefined },
         ],
         [
-            'keeps a broken bar as the break when a sibling bar could not be read in the same step',
+            'ends at a harness limit when a sibling of a broken bar could not be read in the same step',
             { bars: [WRITER_CPU, PICKUP] },
             1,
             UNITS_PER_STEP[1],
             {
                 advance: false,
                 stop: expect.objectContaining({
-                    end: 'broke',
-                    broke: expect.objectContaining({ by: 'writer_cpu_under' }),
+                    end: 'harness_limit',
+                    broke: expect.objectContaining({ by: 'run_host', kind: 'harness', scale: 2 }),
                 }),
             },
         ],
@@ -272,7 +258,7 @@ describe('ramp', () => {
             },
         ],
         [
-            'breaks at the pickup bar the step broke when the writer CPU read failed',
+            'ends at a harness limit, not the pickup bar the step broke, when the writer CPU read failed',
             {
                 bars: [WRITER_CPU, PICKUP],
                 samples: () =>
@@ -288,8 +274,8 @@ describe('ramp', () => {
                 advance: false,
                 stop: expect.objectContaining({
                     index: 0,
-                    end: 'broke',
-                    broke: expect.objectContaining({ by: 'pickup_p99_under', kind: 'bar', scale: 1 }),
+                    end: 'harness_limit',
+                    broke: expect.objectContaining({ by: 'run_host', kind: 'harness', scale: 1 }),
                 }),
             },
         ],
@@ -462,7 +448,7 @@ describe('ramp', () => {
         })
     })
 
-    it('waits for a pending read and keeps the break it finds at a lower step after a refusal in a later step halted the drive', async () => {
+    it('waits for a pending read and keeps the break it finds at a lower step for the verdict after a refusal in a later step halted the drive', async () => {
         jest.setSystemTime(windowOf(0).endedAt)
         let read: ((points: CpuPoint[]) => void) | undefined
         const watch = watchRamp(live({ writerCpu: () => new Promise((resolve) => (read = resolve)) }), NEVER)
@@ -474,10 +460,9 @@ describe('ramp', () => {
         read!(cpuByMinute([90, 90]))
         await pending
 
-        expect(watch.stopped()).toMatchObject({
-            index: 0,
-            end: 'broke',
-            reason: 'writer_cpu_under broke at the 1x step',
+        expect({ stop: watch.stopped(), settled: watch.settled().get(0) }).toMatchObject({
+            stop: { index: 1, end: 'broke', reason: 'refused_at_intake went over its gate of 0 with 1 refused' },
+            settled: [{ name: 'writer_cpu_under', breakingPoint: { scale: 1 } }],
         })
     })
 
@@ -518,14 +503,45 @@ describe('ramp', () => {
         at: iso(T + STEPS[index].fromMs),
         part: null,
     })
-    const liveBreak: Broke = {
-        scale: 2,
-        offeredPerSecond: 2,
+
+    const lostAt = (lost: Record<number, number>): StepRates[] =>
+        STEPS_DRIVEN.map(({ index, scale }) => {
+            const expected = UNITS_PER_STEP[index]
+            const missed = lost[index] ?? 0
+            return {
+                index,
+                scale,
+                expected,
+                lost: missed,
+                lossRate: missed / expected,
+                sent: expected - missed,
+                duplicates: 0,
+                duplicateRate: 0,
+            }
+        })
+    const barAt5: Broke = {
+        scale: 5,
+        offeredPerSecond: 5,
         by: 'writer_cpu_under',
         kind: 'bar',
-        at: iso(T + 2 * MINUTE),
+        at: iso(T),
         part: 'db:cyclotron',
     }
+    const lossAt2 = '13 of 240 deliveries were lost in the 2x step (5.42%), over the 5% hard limit'
+    const backlog = 'the backlog did not drain within convergeWithin: 1 job stayed unfinished'
+    const undrained: Broke = {
+        scale: null,
+        offeredPerSecond: null,
+        by: 'convergence',
+        kind: 'invariant',
+        at: null,
+        part: null,
+    }
+
+    const limited = (ramp: Ramp): Ramp => ({
+        ...ramp,
+        stop: { failure: 'harness_limit', scale: ramp.broke?.scale ?? null, reason: ramp.reason },
+    })
 
     it.each<[string, Partial<RampEvidence>, Ramp]>([
         [
@@ -546,8 +562,29 @@ describe('ramp', () => {
             },
         ],
         [
-            'an invariant whose crossing unit sits below the step where a bar broke',
-            { bars: [brokeAt(5)], invariants: [failed('at_least_once', 'u-1-7')] },
+            'a delivery lost under the hard limit below the step where a bar broke, which the ramp records and runs past',
+            { bars: [brokeAt(5)], invariants: [failed('at_least_once', 'u-1-7')], rates: lostAt({ 1: 1 }) },
+            {
+                end: 'broke',
+                sustainedScale: 2,
+                broke: barAt5,
+                reason: 'writer_cpu_under broke at the 5x step',
+                rates: lostAt({ 1: 1 }),
+            },
+        ],
+        [
+            'a step that lost exactly 5% of its deliveries, which is no hard failure',
+            { invariants: [failed('at_least_once', 'u-1-7')], rates: lostAt({ 1: 12 }) },
+            {
+                end: 'ceiling',
+                sustainedScale: 5,
+                reason: 'every step held up to the 5x ceiling',
+                rates: lostAt({ 1: 12 }),
+            },
+        ],
+        [
+            'a step that lost more than 5% of its deliveries, below the step where a bar broke',
+            { bars: [brokeAt(5)], invariants: [failed('at_least_once', 'u-1-7')], rates: lostAt({ 1: 13 }) },
             {
                 end: 'broke',
                 sustainedScale: 1,
@@ -559,42 +596,27 @@ describe('ramp', () => {
                     at: iso(T + 2 * MINUTE),
                     part: null,
                 },
-                reason: 'at_least_once broke at the 2x step, found after the drive',
+                reason: lossAt2,
+                stop: { failure: 'step_loss', scale: 2, reason: lossAt2 },
+                rates: lostAt({ 1: 13 }),
             },
         ],
         [
-            'a gated invariant that failed at the first step',
+            'duplicates over their gate at the first step, which the ramp records and runs past',
             { invariants: [failed('duplicate_sends', 'u-0-3')], gates: { duplicate_sends: 0 } },
-            {
-                end: 'broke',
-                sustainedScale: null,
-                broke: { scale: 1, offeredPerSecond: 1, by: 'duplicate_sends', kind: 'gate', at: iso(T), part: null },
-                reason: 'duplicate_sends broke at the 1x step, found after the drive',
-            },
+            { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
         ],
         [
-            'a failed invariant with no crossing unit in any step',
+            'an invariant that failed with no crossing unit in any step, which is no hard failure',
             { invariants: [failed('resident_backlog_intact')] },
-            {
-                end: 'broke',
-                sustainedScale: null,
-                broke: {
-                    scale: null,
-                    offeredPerSecond: null,
-                    by: 'resident_backlog_intact',
-                    kind: 'invariant',
-                    at: null,
-                    part: null,
-                },
-                reason: 'resident_backlog_intact failed, and the unit that crossed its gate falls in no step',
-            },
+            { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
         ],
         [
             'a bar that broke at a step while an invariant failed with no crossing unit in any step',
             { bars: [brokeAt(5)], invariants: [failed('resident_backlog_intact')] },
             {
                 end: 'broke',
-                sustainedScale: null,
+                sustainedScale: 2,
                 broke: {
                     scale: 5,
                     offeredPerSecond: 5,
@@ -607,98 +629,76 @@ describe('ramp', () => {
             },
         ],
         [
-            'a live bar break that the final judge could not read again',
-            {
-                steps: STEPS_DRIVEN.slice(0, 2),
-                bars: [unreadAt(2)],
-                stop: { index: 1, end: 'broke', reason: 'writer_cpu_under broke at the 2x step', broke: liveBreak },
-            },
-            { end: 'broke', sustainedScale: 1, broke: liveBreak, reason: 'writer_cpu_under broke at the 2x step' },
-        ],
-        [
-            'a live bar break whose step counted more acknowledgements after the live judge read it',
-            {
-                steps: STEPS_DRIVEN.slice(0, 2),
-                stop: {
-                    index: 1,
-                    end: 'broke',
-                    reason: 'writer_cpu_under broke at the 2x step',
-                    broke: { ...liveBreak, offeredPerSecond: 1.5 },
-                },
-            },
-            { end: 'broke', sustainedScale: 1, broke: liveBreak, reason: 'writer_cpu_under broke at the 2x step' },
-        ],
-        [
             'a last step the generator offered short, which is no ceiling',
             { steps: [driven(0), driven(1), driven(2, 510)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: harnessAt(2, 'generator', 510),
                 reason: 'the generator offered 510 of 600 units in the 5x step, under minOffered 0.9',
-            },
+            }),
         ],
         [
             'a step offered short below the step where a bar broke',
             { steps: [driven(0), driven(1, 200), driven(2)], bars: [brokeAt(5)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 1,
                 broke: harnessAt(1, 'generator', 200),
                 reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
-            },
+            }),
         ],
         [
             "a step where the runner's event loop lagged, below the step where a bar broke",
             { steps: [driven(0), { ...driven(1), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 1,
                 broke: harnessAt(1, 'runner'),
                 reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
-            },
+            }),
         ],
         [
             'a step whose runner lagged and so offered short, which the runner outranks',
             { steps: [driven(0), { ...driven(1, 200), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 1,
                 broke: harnessAt(1, 'runner', 200),
                 reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
-            },
+            }),
         ],
         [
             'a last step whose bar the run host could not read',
             { bars: [unreadAt(5)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: harnessAt(2, 'run_host'),
                 reason: 'writer_cpu_under was not judged: no writer CPU reading in the 5x step',
-            },
+            }),
         ],
         [
             'a first step whose schedule held no units, which sustains nothing',
             { steps: [{ ...driven(0, 0), dueUnits: 0 }, driven(1), driven(2)], bars: [brokeAt(5)] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: null,
                 broke: harnessAt(0, 'generator', 0),
                 reason: 'the generator had no units to offer in the 1x step',
-            },
+            }),
         ],
         [
             'a baseline that failed its load admission, so no scale was sustained',
             {
                 admissions: [{ name: 'load', passed: false, reason: 'hogflow claims ran at 1/s, under 5/s' }],
             },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: null,
                 broke: harnessAt(0, 'generator'),
                 reason: 'the load admission failed at the 1x step: hogflow claims ran at 1/s, under 5/s',
-            },
+            }),
         ],
         [
             'a first step whose runner lagged while its load admission failed, which the runner outranks',
@@ -706,22 +706,22 @@ describe('ramp', () => {
                 steps: [{ ...driven(0), loopLagP99Ms: 900 }, driven(1), driven(2)],
                 admissions: [{ name: 'load', passed: false, reason: 'hogflow claims ran at 1/s, under 5/s' }],
             },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: null,
                 broke: harnessAt(0, 'runner'),
                 reason: "the runner's event loop lagged 900 ms at p99 in the 1x step, over 250 ms",
-            },
+            }),
         ],
         [
             'a last step the drive was interrupted in, which is no ceiling',
             { steps: [driven(0), driven(1), { ...driven(2, 100), endedAt: T + 4 * MINUTE + 20_000, dueUnits: 100 }] },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: { ...harnessAt(2, 'generator'), offeredPerSecond: 5 },
                 reason: 'the drive ended during the 5x step',
-            },
+            }),
         ],
         [
             'a last step the drive was interrupted in before the run host could read its bar',
@@ -729,12 +729,12 @@ describe('ramp', () => {
                 steps: [driven(0), driven(1), { ...driven(2, 100), endedAt: T + 4 * MINUTE + 20_000, dueUnits: 100 }],
                 bars: [unreadAt(5)],
             },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: { ...harnessAt(2, 'generator'), offeredPerSecond: 5 },
                 reason: 'the drive ended during the 5x step',
-            },
+            }),
         ],
         [
             'a last step the drive was interrupted in before the run host could read its bar, while an invariant failed with no crossing unit in any step',
@@ -743,12 +743,12 @@ describe('ramp', () => {
                 bars: [unreadAt(5)],
                 invariants: [failed('resident_backlog_intact')],
             },
-            {
+            limited({
                 end: 'harness_limit',
-                sustainedScale: null,
+                sustainedScale: 2,
                 broke: { ...harnessAt(2, 'generator'), offeredPerSecond: 5 },
                 reason: 'the drive ended during the 5x step',
-            },
+            }),
         ],
         [
             'a bar that broke at a step whose late acknowledgements the generator did not count',
@@ -787,6 +787,7 @@ describe('ramp', () => {
                     part: null,
                 },
                 reason: 'refused_at_intake broke at the 5x step',
+                stop: { failure: 'intake_refused', scale: 5, reason: 'refused_at_intake broke at the 5x step' },
             },
         ],
         [
@@ -801,12 +802,12 @@ describe('ramp', () => {
                 invariants: [failed('refused_at_intake', 'u-2-3')],
                 gates: { refused_at_intake: 0 },
             },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: { ...harnessAt(2, 'runner'), offeredPerSecond: 2 },
                 reason: "the runner's event loop lagged 900 ms at p99 in the 5x step, over 250 ms",
-            },
+            }),
         ],
         [
             'a refusal answered after its step ran its full length, which the generator offered short',
@@ -816,28 +817,47 @@ describe('ramp', () => {
                 invariants: [failed('refused_at_intake', 'u-2-3')],
                 gates: { refused_at_intake: 0 },
             },
-            {
+            limited({
                 end: 'harness_limit',
                 sustainedScale: 2,
                 broke: harnessAt(2, 'generator', 510),
                 reason: 'the generator offered 510 of 600 units in the 5x step, under minOffered 0.9',
-            },
+            }),
         ],
         [
             'every step held up to the last, but a job stayed unfinished past the convergence deadline',
-            { converged: false },
+            { convergence: { converged: false, unfinishedJobs: 1 } },
             {
                 end: 'broke',
                 sustainedScale: null,
-                broke: {
-                    scale: null,
-                    offeredPerSecond: null,
-                    by: 'convergence',
-                    kind: 'invariant',
-                    at: null,
-                    part: null,
-                },
-                reason: 'the run did not converge, and no step can be blamed for it',
+                broke: undrained,
+                reason: backlog,
+                stop: { failure: 'backlog_undrained', scale: null, reason: backlog },
+            },
+        ],
+        [
+            'a bar that broke at a step, and a job that stayed unfinished past the convergence deadline',
+            { bars: [brokeAt(5)], convergence: { converged: false, unfinishedJobs: 1 } },
+            {
+                end: 'broke',
+                sustainedScale: 2,
+                broke: barAt5,
+                reason: 'writer_cpu_under broke at the 5x step',
+                stop: { failure: 'backlog_undrained', scale: null, reason: backlog },
+            },
+        ],
+        [
+            'deliveries still unrecorded past the convergence deadline with no job unfinished, which count as lost',
+            {
+                convergence: { converged: false, unfinishedJobs: 0 },
+                invariants: [failed('at_least_once', 'u-2-3')],
+                rates: lostAt({ 2: 6 }),
+            },
+            {
+                end: 'ceiling',
+                sustainedScale: 5,
+                reason: 'every step held up to the 5x ceiling',
+                rates: lostAt({ 2: 6 }),
             },
         ],
         [
@@ -871,8 +891,137 @@ describe('ramp', () => {
                 gates: {},
                 journal: JOURNAL,
                 admissions: [],
-                converged: true,
+                convergence: { converged: true, unfinishedJobs: 0 },
                 ...evidence,
+            })
+        ).toEqual(expected)
+    })
+
+    const answered = (seq: number, unitId: string, status: number, fault?: string): TruthRecord => ({
+        seq,
+        at: iso(T + seq * 1000),
+        kind: 'ses.send',
+        unitId,
+        actionId: 'email',
+        status,
+        ...(fault && { fault }),
+        detail: {},
+    })
+    const DELIVERED = [
+        answered(1, 'u-0-1', 200),
+        answered(2, 'u-0-2', 200),
+        answered(3, 'u-0-2', 200),
+        answered(4, 'u-1-1', 400, 'ses.reject'),
+        answered(5, 'u-1-3', 503),
+        answered(6, 'u-1-3', 200),
+    ]
+    const STEP_JOURNAL = [unit(0, 1), unit(0, 2), unit(0, 3), unit(1, 1), unit(1, 2, false), unit(1, 3)]
+
+    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[], number?]>([
+        [
+            'counts per step the deliveries its accepted units expected, lost and duplicated',
+            { lost: true, duplicates: true },
+            [
+                {
+                    index: 0,
+                    scale: 1,
+                    expected: 3,
+                    lost: 1,
+                    lossRate: 1 / 3,
+                    sent: 2,
+                    duplicates: 1,
+                    duplicateRate: 0.5,
+                },
+                { index: 1, scale: 2, expected: 2, lost: 0, lossRate: 0, sent: 1, duplicates: 0, duplicateRate: 0 },
+                {
+                    index: 2,
+                    scale: 5,
+                    expected: 0,
+                    lost: 0,
+                    lossRate: null,
+                    sent: 0,
+                    duplicates: 0,
+                    duplicateRate: null,
+                },
+            ],
+        ],
+        [
+            'leaves the losses unrecorded while a job stays unfinished, since its deliveries may only be late',
+            { lost: true, duplicates: true },
+            [
+                {
+                    index: 0,
+                    scale: 1,
+                    expected: 3,
+                    lost: null,
+                    lossRate: null,
+                    sent: 2,
+                    duplicates: 1,
+                    duplicateRate: 0.5,
+                },
+                {
+                    index: 1,
+                    scale: 2,
+                    expected: 2,
+                    lost: null,
+                    lossRate: null,
+                    sent: 1,
+                    duplicates: 0,
+                    duplicateRate: 0,
+                },
+                {
+                    index: 2,
+                    scale: 5,
+                    expected: 0,
+                    lost: null,
+                    lossRate: null,
+                    sent: 0,
+                    duplicates: 0,
+                    duplicateRate: null,
+                },
+            ],
+            1,
+        ],
+        [
+            'leaves the losses and duplicates of a card that judges neither unrecorded',
+            { lost: false, duplicates: false },
+            [
+                {
+                    index: 0,
+                    scale: 1,
+                    expected: 3,
+                    lost: null,
+                    lossRate: null,
+                    sent: 2,
+                    duplicates: null,
+                    duplicateRate: null,
+                },
+                {
+                    index: 1,
+                    scale: 2,
+                    expected: 2,
+                    lost: null,
+                    lossRate: null,
+                    sent: 1,
+                    duplicates: null,
+                    duplicateRate: null,
+                },
+                {
+                    index: 2,
+                    scale: 5,
+                    expected: 0,
+                    lost: null,
+                    lossRate: null,
+                    sent: 0,
+                    duplicates: null,
+                    duplicateRate: null,
+                },
+            ],
+        ],
+    ])('%s', (_story, judged, expected, unfinishedJobs = 0) => {
+        expect(
+            stepRatesOf(STEPS_DRIVEN, { journal: STEP_JOURNAL, truth: DELIVERED, fetchRetries: 3 }, judged, {
+                unfinishedJobs,
             })
         ).toEqual(expected)
     })
@@ -909,7 +1058,7 @@ describe('ramp', () => {
             gates: {},
             journal: JOURNAL,
             admissions: [],
-            converged: true,
+            convergence: { converged: true, unfinishedJobs: 0 },
         })
 
         expect({ bar: bars[0].breakingPoint?.offeredPerSecond, ramp: ramp.broke?.offeredPerSecond }).toEqual({

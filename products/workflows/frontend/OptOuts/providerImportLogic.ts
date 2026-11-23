@@ -23,7 +23,7 @@ import type {
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { transactionalTemplatesLogic } from '../Transactional/transactionalTemplatesLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
-import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
+import { ImportEntryPoint, sortProvidersByName } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
@@ -223,13 +223,9 @@ export interface providerImportLogicMeta {
         ) => boolean
         selectedProvider: (
             importProviders: ImportProviderOptionApi[] | null,
-            chosenProviderKey: string | null,
-            showsAutomationImport: boolean
+            chosenProviderKey: string | null
         ) => ImportProviderOptionApi | null
-        orderedImportProviders: (
-            importProviders: ImportProviderOptionApi[] | null,
-            entryPoint: ImportEntryPoint
-        ) => ImportProviderOptionApi[]
+        orderedImportProviders: (importProviders: ImportProviderOptionApi[] | null) => ImportProviderOptionApi[]
         importButtonLabel: (importProviders: ImportProviderOptionApi[] | null) => string
         hasSeveralProviders: (importProviders: ImportProviderOptionApi[] | null) => boolean
         latestImportRunByProvider: (importRuns: ProviderImportRunApi[] | null) => Record<string, ProviderImportRunApi>
@@ -424,7 +420,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         },
     })),
     selectors({
-        // Customer.io automations come in through their own file import, which is not one of the API's tools.
+        // Customer.io automations come in through their own import, which is not one of the API's tools.
         showsAutomationImport: [
             (s) => [s.importProviders, s.entryPoint],
             (importProviders: ImportProviderOptionApi[] | null, entryPoint: ImportEntryPoint): boolean =>
@@ -432,27 +428,24 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 !!importProviders?.some((provider) => provider.key === 'customerio'),
         ],
         selectedProvider: [
-            (s) => [s.importProviders, s.chosenProviderKey, s.showsAutomationImport],
+            (s) => [s.importProviders, s.chosenProviderKey],
             (
                 importProviders: ImportProviderOptionApi[] | null,
-                chosenProviderKey: string | null,
-                showsAutomationImport: boolean
+                chosenProviderKey: string | null
             ): ImportProviderOptionApi | null => {
                 if (!importProviders) {
                     return null
                 }
                 // With one thing to choose from, a picker would only add a click.
-                return importProviders.length === 1 && !showsAutomationImport
+                return importProviders.length === 1
                     ? importProviders[0]
                     : (importProviders.find((provider) => provider.key === chosenProviderKey) ?? null)
             },
         ],
         orderedImportProviders: [
-            (s) => [s.importProviders, s.entryPoint],
-            (
-                importProviders: ImportProviderOptionApi[] | null,
-                entryPoint: ImportEntryPoint
-            ): ImportProviderOptionApi[] => orderProvidersForEntryPoint(importProviders ?? [], entryPoint),
+            (s) => [s.importProviders],
+            (importProviders: ImportProviderOptionApi[] | null): ImportProviderOptionApi[] =>
+                sortProvidersByName(importProviders ?? []),
         ],
         // Until the tools load, the generic label avoids a flash of one tool's name for teams with several.
         importButtonLabel: [
