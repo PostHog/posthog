@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_internal_client import (
     AIGatewayRequestRejected,
     MalformedSignedMessage,
+    SignedMessage,
     post_signed_message,
     read_signed_message,
 )
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 # PostHog's own team on Cloud US — owns the Customer-analytics accounts that inbound billing
 # usage-spike events resolve against. Billing emits these spike messages to the US queue.
 POSTHOG_SELF_TEAM_ID = 2
+
+AI_WITHDRAWAL_REQUESTED = "ai_withdrawal_requested"
 
 
 class AIGatewayMessageNotDelivered(Exception):
@@ -223,16 +226,34 @@ class BillingConsumer(SQSConsumer):
             "organization_id": message.organization_id,
             "key_id": message.envelope["key_id"],
         }
+        if message.type == AI_WITHDRAWAL_REQUESTED:
+            self._relay_ai_withdrawal(message, context)
+            return
+
+        answer = _post_to_gateway(message, context)
+        logger.info("ai_gateway_message.relayed", extra={**context, **_ledger_entry(answer)})
+
+    def _relay_ai_withdrawal(self, message: SignedMessage, context: dict[str, Any]) -> None:
+        """
+        Ask the AI gateway to withdraw credit for a refund, and pass its signed answer to billing unchanged.
+
+        The gateway keeps its answer for each operation ID and sends that answer again on a repeat. So when
+        either call fails, the message stays on the queue, and the next delivery withdraws nothing new.
+        """
+        # Billing's headers need the organization, so a missing one stops the message before the gateway
+        # takes any credit.
+        organization = Organization.objects.filter(id=message.organization_id).first()
+        if organization is None:
+            _not_delivered(Exception("The withdrawal's organization doesn't exist"), context)
+
+        answer = _post_to_gateway(message, context)
         try:
-            answer = post_signed_message(message)
+            signed_answer = read_signed_message(answer)
         except MalformedSignedMessage as e:
             _not_delivered(e, context)
-        except AIGatewayRequestRejected as e:
-            # A 400 or a 409, such as an operation ID that the gateway holds with another amount, fails the
-            # same way on every delivery.
-            _not_delivered(e, {**context, "status_code": e.status_code})
 
-        logger.info("ai_gateway_message.relayed", extra={**context, **_ledger_entry(answer)})
+        BillingManager(get_cached_instance_license()).send_ai_withdrawal_outcome(organization, signed_answer.envelope)
+        logger.info("ai_withdrawal.answer_relayed", extra=context)
 
     def _process_billing_activity(self, body: dict[str, Any]) -> None:
         """
@@ -327,6 +348,17 @@ class BillingConsumer(SQSConsumer):
         # deleting it and silently dropping the audit entry.
         if written is None:
             raise Exception("Failed to write billing activity to the activity log")
+
+
+def _post_to_gateway(message: SignedMessage, context: dict[str, Any]) -> object:
+    try:
+        return post_signed_message(message)
+    except MalformedSignedMessage as e:
+        _not_delivered(e, context)
+    except AIGatewayRequestRejected as e:
+        # A 400 or a 409, such as an operation ID that the gateway holds with another amount, fails the
+        # same way on every delivery.
+        _not_delivered(e, {**context, "status_code": e.status_code})
 
 
 def _not_delivered(error: Exception, context: dict[str, Any]) -> NoReturn:

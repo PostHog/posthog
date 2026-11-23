@@ -305,6 +305,7 @@ class TestPostSignedMessage:
         [
             ("ai_funding_added", f"/internal/accounts/{ORG_ID}/credits"),
             ("ai_funding_reversed", f"/internal/accounts/{ORG_ID}/credits/reversal"),
+            ("ai_withdrawal_requested", f"/internal/accounts/{ORG_ID}/credits/withdrawal"),
             ("ai_reload_outcome", f"/internal/accounts/{ORG_ID}/reload-outcome"),
         ],
     )

@@ -1257,6 +1257,21 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(202,))
         return res.json()
 
+    def send_ai_withdrawal_outcome(self, organization: Organization, envelope: Mapping[str, Any]) -> None:
+        """Pass the AI gateway's signed answer to a withdrawal to billing, unchanged.
+
+        Billing checks the signature and gives the answer to the refund workflow. It takes one answer for each
+        operation ID, so the same answer again changes nothing. Any answer but a 200, 202 or 204 raises
+        `BillingServiceResponseError`.
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/ai-credits/withdrawal-outcome",
+            headers=self.get_auth_headers(organization, service_action="ai_credit_withdrawal_outcome"),
+            json=envelope,
+            timeout=10,
+        )
+        handle_billing_service_error(res, valid_codes=(200, 202, 204))
+
     def open_external_credit_pool(self, organization: Organization, *, grant_id: str, cents: int, day: str) -> None:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/rated-usage/external-credit-pools",

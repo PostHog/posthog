@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -12,6 +14,7 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsumer
+from ee.models.license import License, LicenseManager
 
 CONSUMER = "ee.billing.queue.BillingConsumer"
 
@@ -164,6 +167,7 @@ class TestBillingConsumerBillingActivity(BaseTest):
 
 ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
 GATEWAY_POST = "posthog.llm.gateway_internal_client.httpx.post"
+BILLING_POST = "ee.billing.billing_manager.http_session.post"
 
 
 def _envelope(message_type: str = "ai_funding_added", **fields: object) -> dict:
@@ -176,20 +180,21 @@ def _envelope(message_type: str = "ai_funding_added", **fields: object) -> dict:
     }
 
 
+def _deliver(body: dict) -> MagicMock:
+    with patch("ee.sqs.SQSConsumer.boto3"):
+        consumer = BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+    with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+        consumer.process_message({"Body": json.dumps(body), "MessageId": "msg-1", "ReceiptHandle": "receipt-1"})
+    return mock_delete
+
+
 @override_settings(AI_GATEWAY_INTERNAL_URL="http://gw", AI_GATEWAY_INTERNAL_TOKEN="tok")
 class TestBillingConsumerAIGatewayMessage(SimpleTestCase):
-    def _deliver(self, body: dict) -> MagicMock:
-        with patch("ee.sqs.SQSConsumer.boto3"):
-            consumer = BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
-        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
-            consumer.process_message({"Body": json.dumps(body), "MessageId": "msg-1", "ReceiptHandle": "receipt-1"})
-        return mock_delete
-
     def test_relays_the_envelope_to_the_gateway_and_deletes_the_message(self):
         envelope = _envelope(operation_id="op-1", amount_micros=20_000_000, kind="top_up")
         answer = httpx.Response(200, json={"entry_id": "entry-1", "duplicate": False})
         with patch(GATEWAY_POST, return_value=answer) as mock_post:
-            mock_delete = self._deliver({"type": "ai_gateway_message", "envelope": envelope})
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": envelope})
 
         assert mock_post.call_args.args[0] == f"http://gw/internal/accounts/{ORG_ID}/credits"
         assert mock_post.call_args.kwargs["json"] == envelope
@@ -207,7 +212,7 @@ class TestBillingConsumerAIGatewayMessage(SimpleTestCase):
     @patch(f"{CONSUMER}.capture_exception")
     def test_any_answer_but_a_200_is_captured_once_and_left_on_the_queue(self, _name, status, mock_capture):
         with patch(GATEWAY_POST, return_value=httpx.Response(status, json={"error": "no"})):
-            mock_delete = self._deliver({"type": "ai_gateway_message", "envelope": _envelope()})
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": _envelope()})
 
         mock_capture.assert_called_once()
         mock_delete.assert_not_called()
@@ -221,9 +226,70 @@ class TestBillingConsumerAIGatewayMessage(SimpleTestCase):
     @patch(f"{CONSUMER}.capture_exception")
     def test_a_malformed_message_is_captured_once_and_left_on_the_queue(self, _name, envelope, mock_capture):
         with patch(GATEWAY_POST) as mock_post:
-            mock_delete = self._deliver({"type": "ai_gateway_message", "envelope": envelope})
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": envelope})
 
         mock_post.assert_not_called()
+        mock_capture.assert_called_once()
+        mock_delete.assert_not_called()
+
+
+@override_settings(AI_GATEWAY_INTERNAL_URL="http://gw", AI_GATEWAY_INTERNAL_TOKEN="tok")
+@patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "http://billing.test")
+class TestBillingConsumerAIWithdrawal(BaseTest):
+    def setUp(self):
+        super().setUp()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7)
+        )
+        # process_message closes the connection that holds the test's transaction.
+        for patcher in (
+            patch(f"{CONSUMER}.close_old_connections"),
+            patch(f"{CONSUMER}.get_cached_instance_license", return_value=license),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        withdrawal = {"organization_id": str(self.organization.id), "operation_id": "op-1", "amount_micros": 40_000_000}
+        self.request = _envelope("ai_withdrawal_requested", reason="refund", **withdrawal)
+        self.answer = _envelope("ai_withdrawal_answered", audience="billing", result="approved", **withdrawal)
+
+    def test_passes_the_gateway_answer_to_billing_and_deletes_the_message(self):
+        with (
+            patch(GATEWAY_POST, return_value=httpx.Response(200, json=self.answer)) as gateway,
+            patch(BILLING_POST, return_value=MagicMock(status_code=200)) as billing,
+        ):
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": self.request})
+
+        assert gateway.call_args.args[0] == f"http://gw/internal/accounts/{self.organization.id}/credits/withdrawal"
+        assert gateway.call_args.kwargs["json"] == self.request
+        assert billing.call_args.args[0] == "http://billing.test/api/ai-credits/withdrawal-outcome"
+        assert billing.call_args.kwargs["json"] == self.answer
+        mock_delete.assert_called_once_with("receipt-1")
+
+    @parameterized.expand(
+        [
+            ("gateway_unavailable", httpx.Response(503, json={}), 0),
+            ("gateway_answer_not_signed", httpx.Response(200, json={"result": "approved"}), 0),
+            ("billing_unavailable", None, 1),
+        ]
+    )
+    def test_a_failed_call_leaves_the_message_on_the_queue(self, _name, gateway_answer, billing_calls):
+        gateway_answer = gateway_answer or httpx.Response(200, json=self.answer)
+        with (
+            patch(GATEWAY_POST, return_value=gateway_answer),
+            patch(BILLING_POST, return_value=MagicMock(status_code=503)) as billing,
+        ):
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": self.request})
+
+        assert billing.call_count == billing_calls
+        mock_delete.assert_not_called()
+
+    @patch(f"{CONSUMER}.capture_exception")
+    def test_an_unknown_organization_withdraws_nothing(self, mock_capture):
+        request = _envelope("ai_withdrawal_requested", organization_id="01234567-89ab-4def-8123-456789abcdef")
+        with patch(GATEWAY_POST) as gateway:
+            mock_delete = _deliver({"type": "ai_gateway_message", "envelope": request})
+
+        gateway.assert_not_called()
         mock_capture.assert_called_once()
         mock_delete.assert_not_called()
 

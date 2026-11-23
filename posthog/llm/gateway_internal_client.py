@@ -27,6 +27,7 @@ SIGNED_ENVELOPE_FIELDS = ("body", "signed_at", "key_id", "signature")
 SIGNED_MESSAGE_ROUTES = {
     "ai_funding_added": "/internal/accounts/{organization_id}/credits",
     "ai_funding_reversed": "/internal/accounts/{organization_id}/credits/reversal",
+    "ai_withdrawal_requested": "/internal/accounts/{organization_id}/credits/withdrawal",
     "ai_reload_outcome": "/internal/accounts/{organization_id}/reload-outcome",
 }
 

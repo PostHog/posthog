@@ -2495,6 +2495,43 @@ class TestReloadAIBalance(BaseTest):
         assert context.exception.status_code == status_code
 
 
+class TestSendAIWithdrawalOutcome(BaseTest):
+    ANSWER = {
+        "body": '{"type": "ai_withdrawal_answered", "result": "approved"}',
+        "signed_at": "2026-11-23T18:04:05Z",
+        "key_id": "ai-gateway-us-1",
+        "signature": "9a1b2c",
+    }
+
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    @patch("ee.billing.billing_manager.http_session.post", return_value=MagicMock(status_code=200))
+    def test_posts_the_answer_unchanged_with_the_service_action(self, billing_post_request_mock: MagicMock):
+        BillingManager(self._license()).send_ai_withdrawal_outcome(self.organization, self.ANSWER)
+
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/ai-credits/withdrawal-outcome")
+        assert call_args[1]["json"] == self.ANSWER
+        assert "Idempotency-Key" not in call_args[1]["headers"]
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "ai_credit_withdrawal_outcome"
+        assert decoded["organization_id"] == str(self.organization.id)
+
+    @parameterized.expand([("bad_signature", 400), ("auth_failure", 401), ("not_deployed", 404), ("unavailable", 503)])
+    def test_raises_on_any_answer_but_success(self, _name, status_code):
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        with patch("ee.billing.billing_manager.http_session.post", return_value=response):
+            with self.assertRaises(BillingServiceResponseError) as context:
+                BillingManager(self._license()).send_ai_withdrawal_outcome(self.organization, self.ANSWER)
+        assert context.exception.status_code == status_code
+
+
 class TestDisputeSignalsPr(BaseTest):
     def _license(self) -> License:
         return super(LicenseManager, cast(LicenseManager, License.objects)).create(
