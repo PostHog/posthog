@@ -477,6 +477,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and isinstance(node.chain[0], str)
             and node.chain[0] in self.aliases
             and node.chain[0] not in self.expanding
+            and not _is_lambda_argument(node)
         ):
             alias = node.chain[0]
             self.expanding.add(alias)
@@ -805,8 +806,16 @@ class _NameReadFinder(TraversingVisitor):
             node.chain
             and isinstance(node.chain[0], str)
             and (node.type is None or isinstance(node.type, ast.FieldAliasType))
+            and not _is_lambda_argument(node)
         ):
             self.names.add(node.chain[0])
+
+
+def _is_lambda_argument(node: ast.Field) -> bool:
+    field_type = node.type
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return isinstance(field_type, ast.LambdaArgumentType)
 
 
 def _read_names(node: ast.Expr) -> set[str]:
@@ -839,7 +848,7 @@ class _UnnestedQueryReader(CloningVisitor):
         self.inner_keys = {
             expression_key(projection): projection.alias
             for projection in inner_select
-            if isinstance(projection, ast.Alias)
+            if isinstance(projection, ast.Alias) and isinstance(_unwrap_alias(projection), ast.Field)
         }
 
     def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
@@ -861,11 +870,18 @@ class _UnnestedQueryReader(CloningVisitor):
             )
         return super().visit_call(node)
 
+    def visit_window_function(self, node: ast.WindowFunction) -> ast.Expr:
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+            "a window function that reads an arrayJoin over aggregates",
+            node,
+        )
+
     def visit_field(self, node: ast.Field) -> ast.Field:
         head = node.chain[0] if node.chain else None
         if (
             node.type is None
-            or isinstance(node.type, ast.LambdaArgumentType)
+            or _is_lambda_argument(node)
             or (isinstance(node.type, ast.FieldAliasType) and head in self.unnested_names)
         ):
             return clone_expr(node, clear_types=False)
