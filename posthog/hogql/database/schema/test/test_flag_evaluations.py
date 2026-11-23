@@ -1,7 +1,6 @@
 import re
 import json
 import uuid
-import dataclasses
 from collections import Counter
 from collections.abc import Callable
 from contextlib import ExitStack
@@ -60,7 +59,7 @@ from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.property_groups import property_groups
+from posthog.clickhouse.property_groups import PropertyGroupDefinition
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import Team
@@ -500,9 +499,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
             row_uuids=tuple(rows),
         )
-        groups = property_groups._PropertyGroupManager__groups["flag_evaluations"]["properties"]
-        unhidden = dataclasses.replace(groups["feature_flags"], hidden=False)
-        with patch.dict(groups, {"feature_flags": unhidden}):
+        # The query reads only flag_evaluations, where feature_flags is the one hidden group.
+        with patch.object(PropertyGroupDefinition, "contains", lambda group, key: group.key_filter_function(key)):
             map_read = self._execute(
                 columns,
                 where,
