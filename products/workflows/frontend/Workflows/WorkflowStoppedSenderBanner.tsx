@@ -10,12 +10,13 @@ import { urls } from 'scenes/urls'
 import { captureEmailDomainSetupStarted, emailDomainSetupPath } from '../Channels/EmailDomain/emailDomainSetupLinks'
 import { sandboxSenderLogic } from '../Channels/sandboxSenderLogic'
 import { hasDeliverableSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
+import type { HogFlow } from './hogflows/types'
 import {
     StoppedSenderSteps,
     changeSenderAdvice,
-    stepToChange,
+    repairTarget,
+    stoppedSenderMessage,
     stoppedSenderSteps,
-    testSenderTakesSteps,
 } from './stoppedSenderSteps'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
@@ -31,25 +32,24 @@ export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Elem
         }
     }, [stepCount, props.id])
 
-    return broken ? <StoppedSenderBanner {...props} broken={broken} /> : null
+    return broken && originalWorkflow ? (
+        <StoppedSenderBanner {...props} broken={broken} live={originalWorkflow} />
+    ) : null
 }
 
-function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken: StoppedSenderSteps }): JSX.Element {
-    const { originalWorkflow, workflow, integrations, isViewOnly } = useValues(workflowLogic(props))
+function StoppedSenderBanner({
+    broken,
+    live,
+    ...props
+}: WorkflowLogicProps & { broken: StoppedSenderSteps; live: HogFlow }): JSX.Element {
+    const { workflow, integrations, isViewOnly } = useValues(workflowLogic(props))
     const { canAdoptSandbox } = useValues(sandboxSenderLogic)
-    const stepCount = broken.stepIds.length
-    const steps = stepCount === 1 ? 'An email step' : `${stepCount} email steps`
-    const domains = broken.domains.length === 1 ? "the domain's" : "the domains'"
-    // A rotating step still delivers from its other senders, so only the emails from a stopped domain fail.
-    const sendFrom = `${stepCount === 1 ? 'sends' : 'send'} from ${broken.domains.length === 1 ? 'it' : 'them'}`
-    const stepId = stepToChange(broken, workflow, integrations)
+    const target = repairTarget(broken, live, workflow, integrations)
+    const stepId = isViewOnly ? null : target.stepId
     const nextStep = changeSenderAdvice(
-        stepCount,
+        broken.stepIds.length,
         !!hasDeliverableSender(integrations),
-        canAdoptSandbox &&
-            !!originalWorkflow &&
-            sandboxSenderAllowed(originalWorkflow, !!props.editTemplateId) &&
-            testSenderTakesSteps(originalWorkflow, broken.stepIds)
+        canAdoptSandbox && sandboxSenderAllowed(live, !!props.editTemplateId) && target.testSenderTakesSteps
     )
 
     return (
@@ -63,11 +63,8 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
                     onClick: () => captureEmailDomainSetupStarted('stopped_sender_banner'),
                 }}
             >
-                <p className={stepId && !isViewOnly ? 'mb-2' : undefined}>
-                    Sending stopped for {broken.domains.join(', ')}. {steps} in this workflow {sendFrom}, and those
-                    emails fail until {domains} DNS records are fixed. Fix your sending domain, or {nextStep}.
-                </p>
-                {stepId && !isViewOnly && (
+                <p className={stepId ? 'mb-2' : undefined}>{stoppedSenderMessage(broken, nextStep)}</p>
+                {stepId && (
                     <LemonButton
                         type="secondary"
                         size="small"

@@ -38,9 +38,8 @@ const isSetupEvidence = (record: EmailDomainStatusRecordApi): boolean =>
     isRecordFound(record) && !RECORD_KINDS_THAT_PREDATE_SETUP.includes(record.kind)
 const waitsForSender = (status: EmailDomainStatusApi | null, sender: IntegrationConfigApi | null): boolean =>
     !!status?.verified && !sender
-// The attempt cap keeps a provider that answers verified but never records out of a loop. Past it, a member who may
-// not verify still sees a teammate's repair of a stopped sender. The server caches a status for 10 seconds, so a
-// stopped sender is repaired only on a live check.
+// The attempt cap stops a provider that answers verified but never records from looping. The server caches a
+// status for 10 seconds, so only a live check repairs a stopped sender.
 const recordStepOf = (
     status: EmailDomainStatusApi | null,
     domainVerified: boolean,

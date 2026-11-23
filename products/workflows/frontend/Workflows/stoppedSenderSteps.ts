@@ -22,18 +22,19 @@ function emailStepFrom(action: HogFlowAction): EmailTemplateFrom {
     if (typeof from !== 'object' || !from) {
         return {}
     }
-    const { integrationId, integrationIds } = from as { integrationId?: unknown; integrationIds?: unknown }
-    if (Array.isArray(integrationIds) && integrationIds.length > 0) {
-        // Sending rejects a rotation list with anything but sender IDs, so fixing a domain would not help that step.
-        return integrationIds.every((id) => typeof id === 'number')
-            ? { integrationIds: integrationIds as number[] }
-            : {}
+    const { integrationId, integrationIds = [] } = from as { integrationId?: unknown; integrationIds?: unknown }
+    // Sending rejects a step without a sender ID, or with anything but sender IDs in its rotation list.
+    if (
+        typeof integrationId !== 'number' ||
+        !Array.isArray(integrationIds) ||
+        !integrationIds.every((id): id is number => typeof id === 'number')
+    ) {
+        return {}
     }
-    return { integrationId: typeof integrationId === 'number' ? integrationId : undefined }
+    return integrationIds.length > 0 ? { integrationIds } : { integrationId }
 }
 
-// A step that rotates through several senders counts when any of them stopped, because the emails it sends
-// from that sender fail.
+// A rotating step counts when any of its senders stopped, because the emails it sends from that sender fail.
 export function stoppedSenderSteps(
     workflow: Pick<HogFlow, 'actions'> | null,
     integrations: IntegrationType[] | null
@@ -53,21 +54,40 @@ export function stoppedSenderSteps(
     return { domains: [...new Set(stopped.map(senderDomain))], senderId: stopped[0].id, stepIds }
 }
 
-// Unsaved edits can delete a broken step or change its sender, so this picks one the draft still has broken.
-export function stepToChange(
+export interface RepairTarget {
+    stepId: string | null
+    testSenderTakesSteps: boolean
+}
+
+// Unsaved edits can delete or fix a broken step, so the target follows the draft until it fixes them all.
+export function repairTarget(
     broken: StoppedSenderSteps,
+    live: Pick<HogFlow, 'actions'>,
     draft: Pick<HogFlow, 'actions'>,
     integrations: IntegrationType[] | null
-): string | null {
+): RepairTarget {
     const brokenInDraft = stoppedSenderSteps(draft, integrations)?.stepIds ?? []
-    return broken.stepIds.find((id) => brokenInDraft.includes(id)) ?? null
+    const stepIds = broken.stepIds.filter((id) => brokenInDraft.includes(id))
+    return stepIds.length > 0
+        ? { stepId: stepIds[0], testSenderTakesSteps: testSenderTakesSteps(draft, stepIds) }
+        : { stepId: null, testSenderTakesSteps: testSenderTakesSteps(live, broken.stepIds) }
 }
 
 // Only an email step's From picker offers the test sender, and only for step IDs it can take.
-export function testSenderTakesSteps(workflow: Pick<HogFlow, 'actions'>, stepIds: string[]): boolean {
+function testSenderTakesSteps(workflow: Pick<HogFlow, 'actions'>, stepIds: string[]): boolean {
     return workflow.actions.every(
         (action) => !stepIds.includes(action.id) || (action.type === 'function_email' && sandboxTakesStepId(action))
     )
+}
+
+// A rotating step still delivers from its other senders, so only the emails from a stopped domain fail.
+export function stoppedSenderMessage(broken: StoppedSenderSteps, nextStep: string): string {
+    const oneStep = broken.stepIds.length === 1
+    const oneDomain = broken.domains.length === 1
+    const steps = oneStep ? 'An email step' : `${broken.stepIds.length} email steps`
+    const sendFrom = `${oneStep ? 'sends' : 'send'} from ${oneDomain ? 'it' : 'them'}`
+    const domains = oneDomain ? "the domain's" : "the domains'"
+    return `Sending stopped for ${broken.domains.join(', ')}. ${steps} in this workflow ${sendFrom}, and those emails fail until ${domains} DNS records are fixed. Fix your sending domain, or ${nextStep}.`
 }
 
 // Names only the senders the step's From picker offers: it shows the test sender only when no own sender can send.

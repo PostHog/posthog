@@ -481,8 +481,7 @@ export class FakeEmailDomainBackend {
         return async (info) => {
             const body = await readBody(info.request)
             this.requests.push({ endpoint, method: info.request.method, url: info.request.url, body })
-            // A held read answers with the state at request time, and a held write lands only on release. A refused
-            // request never runs, so it caches no status.
+            // A held read answers with the state at request time; a held write lands on release; a refusal never runs.
             const failure = this.failureFor(endpoint)
             const read = !failure && info.request.method === 'GET' ? respond(info, body) : null
             await this.holds.get(endpoint)?.promise
