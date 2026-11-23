@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Iterable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -52,14 +52,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSource,
     MySQLSource,
     PostgresSource,
-    SQLSource,
     build_default_sync_settings,
     define_added_table_metadata,
     known_source_key,
     new_source_requires_ssl,
     supports_adding_tables,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
@@ -69,6 +67,18 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 
 from . import base, credential_store, helpers
 from .source_type_field import resolve_known_source_key
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.facade.source_management import SourceSchema
+
+
+@runtime_checkable
+class _ReconcilesSchemaMetadata(Protocol):
+    supports_column_selection: bool
+
+    def reconcile_schema_metadata(
+        self, source: ExternalDataSource, source_schemas: list[SourceSchema], team_id: int
+    ) -> list[str]: ...
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -485,20 +495,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource):
-                if source.supports_column_selection:
-                    source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
-            elif instance.source_type == ExternalDataSourceType.CLICKHOUSE:
-                # The ClickHouse source module imports clickhouse_connect, which loads polars, and web
-                # processes import this view at boot, so only a ClickHouse refresh imports it.
-                from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415
-                    ClickHouseSource,
-                )
-
-                # ClickHouse isn't a SQLSource but exposes the same column-selection
-                # capability and reconcile hook, so it reuses this path.
-                if isinstance(source, ClickHouseSource) and source.supports_column_selection:
-                    source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+            elif isinstance(source, _ReconcilesSchemaMetadata) and source.supports_column_selection:
+                # A capability check rather than an isinstance on ClickHouseSource: naming that class
+                # would import clickhouse_connect and polars into every web process at boot.
+                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
         # the source row lock or against rows that could still roll back. `sync_result.created` holds
