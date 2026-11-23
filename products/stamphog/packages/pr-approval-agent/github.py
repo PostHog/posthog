@@ -205,6 +205,11 @@ def is_bot_author(user: dict) -> bool:
 # GITHUB_TOKEN (github-actions[bot]) so they count toward branch protection.
 _SELF_REVIEW_LOGINS = {"stamphog[bot]", "github-actions[bot]"}
 
+# Mirrors ROUTING_COMMENT_MARKER in backend/logic/routing/comment.py. Reviewer routing posts that comment
+# as the PostHog App, so the login check above does not catch it. Its cut reasons are model text that the
+# PR description can steer, and as a bot comment they would read as independent assurance.
+_ROUTING_COMMENT_MARKER = "<!-- stamphog-reviewer-routing -->"
+
 
 def _prompt_worthy_author(login: str | None, association: str | None, is_bot: bool) -> bool:
     """One author-trust gate for reviews, inline comments, and discussion.
@@ -258,7 +263,7 @@ def _normalize_discussion_for_prompt(comments_raw: list[dict]) -> list[dict]:
     """Normalize the PR's issue-comment timeline for the reviewer prompt.
 
     These are the general discussion comments (not inline review comments).
-    Stamphog's own bot comments are excluded and the same author-trust gate as
+    Stamphog's own bot comments, reviewer routing's included, are excluded and the same author-trust gate as
     reviews/inline comments applies, so an untrusted external commenter can't
     slip a fake maintainer hold or assurance claim into the prompt.
     """
@@ -266,6 +271,8 @@ def _normalize_discussion_for_prompt(comments_raw: list[dict]) -> list[dict]:
     for comment in comments_raw:
         user = comment.get("user") or {}
         if not _prompt_worthy_author(user.get("login"), comment.get("author_association"), user.get("type") == "Bot"):
+            continue
+        if user.get("type") == "Bot" and (comment.get("body") or "").startswith(_ROUTING_COMMENT_MARKER):
             continue
         normalized.append(
             {
