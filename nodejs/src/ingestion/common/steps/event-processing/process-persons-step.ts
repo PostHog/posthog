@@ -17,6 +17,12 @@ import { Person, Team } from '~/types'
 
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 
+const UNPROCESSABLE_PERSON_MESSAGE =
+    "This person's stored properties cannot be read, so events for this person are dropped. " +
+    'This usually means the properties are nested more than 128 levels deep, because an object such as ' +
+    'a DOM element or an SDK instance was set as a person property. Delete this person to resume ' +
+    'processing their events, and pass a plain value where the property is set.'
+
 export type ProcessPersonsInput = {
     normalizedEvent: PluginEvent
     team: Team
@@ -87,7 +93,26 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
                 distinct_id: normalizedEvent.distinct_id,
                 event_uuid: normalizedEvent.uuid,
             })
-            return drop('unprocessable_person')
+            const stored = await personsStoreForBatch
+                .fetchForChecking(team.id, String(normalizedEvent.distinct_id))
+                .catch(() => null)
+            return drop(
+                'unprocessable_person',
+                [],
+                [
+                    {
+                        type: 'person_properties_depth_violation',
+                        details: {
+                            ...(stored ? { personId: stored.uuid } : {}),
+                            distinctId: normalizedEvent.distinct_id,
+                            eventUuid: normalizedEvent.uuid,
+                            message: UNPROCESSABLE_PERSON_MESSAGE,
+                        },
+                        pipelineStep: 'person-store',
+                        key: String(normalizedEvent.distinct_id),
+                    },
+                ]
+            )
         }
 
         if (!isOkResult(result)) {

@@ -134,7 +134,22 @@ describe('createProcessPersonsStep with the personhog store', () => {
             const result = await settle(runStep(event, { prefetch }))
             await settle(store.flush())
 
-            expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'unprocessable_person' })
+            expect(result).toMatchObject({
+                type: PipelineResultType.DROP,
+                reason: 'unprocessable_person',
+                warnings: [
+                    {
+                        type: 'person_properties_depth_violation',
+                        details: {
+                            personId: person.uuid,
+                            distinctId: DISTINCT_ID,
+                            eventUuid: 'event-uuid',
+                            message: expect.stringContaining('Delete this person'),
+                        },
+                        key: DISTINCT_ID,
+                    },
+                ],
+            })
             expect(repository.fetchPersonById).toHaveBeenCalledTimes(prefetch ? 2 : 1)
             expect(repository.updatePersonProperties).not.toHaveBeenCalled()
             expect(repository.getOrCreatePersonByDistinctId).not.toHaveBeenCalled()
