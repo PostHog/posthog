@@ -293,10 +293,10 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
     without a creator, so created_by tells the two apart without reading the retired
     plaintext token columns.
     """
-    if project_secret_api_key.created_by_id is None:
+    token_hash = project_secret_api_key.secure_value
+    if project_secret_api_key.created_by_id is None and token_hash is not None:
         team_id = project_secret_api_key.team_id
-        token_hash = project_secret_api_key.secure_value
-        token_mask = project_secret_api_key.mask_value
+        token_mask = project_secret_api_key.mask_value or ""
         with transaction.atomic():
             project_secret_api_key.delete()
             # In the same transaction: once the row is gone a retried report finds no
