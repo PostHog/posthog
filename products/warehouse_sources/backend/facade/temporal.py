@@ -19,6 +19,11 @@ so the bootstrap never reaches into the source/settings internals directly.
 
 from posthog.temporal.common.registration import HistogramSpec, QueueBinding, TemporalRegistration
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.metrics import (
+    BUFFER_WRITE_DURATION_BUCKETS as CDC_BUFFER_WRITE_DURATION_BUCKETS,
+    EXTRACTION_DURATION_BUCKETS as CDC_EXTRACTION_DURATION_BUCKETS,
+    SWEEPER_DURATION_BUCKETS as CDC_SWEEPER_DURATION_BUCKETS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.person_property_backfill_job import (
     PERSON_PROPERTY_BACKFILL_ACTIVITIES,
     PERSON_PROPERTY_BACKFILL_WORKFLOWS,
@@ -133,6 +138,21 @@ TEMPORAL = TemporalRegistration(
         HistogramSpec(
             metric_name="warehouse_import_attempt_duration_seconds",
             buckets=(1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0, 21600.0),
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_extraction_duration_seconds",
+            buckets=CDC_EXTRACTION_DURATION_BUCKETS,
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_buffer_write_duration_seconds",
+            buckets=CDC_BUFFER_WRITE_DURATION_BUCKETS,
+            queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
+        ),
+        HistogramSpec(
+            metric_name="cdc_sweeper_duration_seconds",
+            buckets=CDC_SWEEPER_DURATION_BUCKETS,
             queue_setting="DATA_WAREHOUSE_TASK_QUEUE",
         ),
     ),

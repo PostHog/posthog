@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    CDCSourceAdapter,
     cdc_supported_source_types,
     get_cdc_adapter,
     source_type_supports_cdc,
@@ -70,7 +71,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     mark_cdc_broken,
     restore_missing_extraction_schedule,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    CDCBufferWriter,
+    measure_buffer_backlog,
+    purge_buffer_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -99,7 +104,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     has_queued_batches,
     snapshot_can_start_in_buffer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
     protected_masked_columns,
@@ -266,9 +271,60 @@ class CDCExtractActivity:
     def _emit_run_duration(self, status: str) -> None:
         if self._run_started_at is None:
             return
-        metrics.get_extraction_duration_metric(self.inputs.team_id, str(self.inputs.source_id), status).record(
-            time.monotonic() - self._run_started_at
-        )
+        metrics.get_extraction_duration_metric(status).record(time.monotonic() - self._run_started_at)
+        metrics.get_extraction_runs_metric(self.inputs.team_id, str(self.inputs.source_id), status).add(1)
+
+    def _observe_source(self) -> None:
+        """Record the source's WAL lag and its streaming tables' buffer backlog.
+
+        Runs at the end of every run that got past setup, failed ones included, because this run
+        keeps reporting while the loader or a table's consumer is stuck. Best-effort: a failed
+        measurement must not change the run's outcome.
+        """
+        assert self.source is not None
+        team_id, source_id = self.inputs.team_id, str(self.inputs.source_id)
+        observed: dict[str, typing.Any] = {}
+        try:
+            with self.adapter.management_connection(self.source, connect_timeout=10) as conn:
+                lag = self.adapter.get_lag(conn, self.source)
+            if lag is not None:
+                metrics.record_wal_lag(team_id, source_id, lag.behind_bytes)
+                observed["wal_lag_bytes"] = lag.behind_bytes
+        except Exception as exc:
+            observed["wal_lag_error"] = str(exc)[:200]
+
+        # A snapshotting table's changes wait in the buffer until its snapshot lands, so only
+        # streaming tables count as backlog.
+        streaming_ids = [
+            str(schema.id)
+            for schema in self.cdc_schemas
+            if captures_to_buffer(schema) and schema.cdc_mode != "snapshot"
+        ]
+        try:
+            backlog = measure_buffer_backlog(team_id, streaming_ids) if streaming_ids else None
+            oldest_age_seconds = 0
+            if backlog is not None and backlog.oldest_written_at is not None:
+                age = dt.datetime.now(tz=dt.UTC) - backlog.oldest_written_at
+                oldest_age_seconds = max(0, int(age.total_seconds()))
+            metrics.record_buffer_backlog(
+                team_id,
+                source_id,
+                files=backlog.files if backlog else 0,
+                size_bytes=backlog.bytes if backlog else 0,
+                oldest_age_seconds=oldest_age_seconds,
+            )
+            observed.update(
+                backlog_files=backlog.files if backlog else 0,
+                backlog_bytes=backlog.bytes if backlog else 0,
+                backlog_oldest_age_s=oldest_age_seconds,
+                backlog_oldest_schema_id=backlog.oldest_schema_id if backlog else None,
+            )
+        except Exception as exc:
+            observed["backlog_error"] = str(exc)[:200]
+
+        if self._run_started_at is not None:
+            observed["duration_s"] = round(time.monotonic() - self._run_started_at, 1)
+        self.log.info("cdc_extract_observed", **observed)
 
     def _confirm_position(self, lsn: str) -> None:
         """Advance the replication slot, recording success/failure metrics."""
@@ -356,9 +412,7 @@ class CDCExtractActivity:
         self._buffer_file_index[table_name] = file_index + 1
 
         metrics.get_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
-        metrics.get_buffer_write_duration_metric(self.inputs.team_id, str(self.inputs.source_id)).record(
-            result.write_duration_seconds
-        )
+        metrics.get_buffer_write_duration_metric().record(result.write_duration_seconds)
         self._schema_log(schema).debug(
             "cdc_buffer_written",
             table=table_name,
@@ -494,6 +548,7 @@ class CDCExtractActivity:
         finally:
             if self.reader is not None:
                 self.reader.close()
+            self._observe_source()
 
         self._finalize_success()
         self.log.info("cdc_extract_completed", event_count=self.event_count)
@@ -1660,6 +1715,8 @@ def cleanup_orphan_slots_activity() -> None:
     # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
     # stalled source would starve heartbeats and Temporal would kill the whole sweep.
     with HeartbeaterSync(logger=log):
+        # Decoded before any source is checked, so a sweep its timeout cuts short shows how far it got.
+        to_check: list[tuple[ExternalDataSource, CDCSourceAdapter[CDCConfig], CDCConfig]] = []
         for source in sources:
             try:
                 adapter = get_cdc_adapter(source)
@@ -1678,7 +1735,14 @@ def cleanup_orphan_slots_activity() -> None:
             # don't have CDC enabled with both a slot and publication name to clean up.
             if not (cdc_config.enabled and cdc_config.stream_resources_configured):
                 continue
+            to_check.append((source, adapter, cdc_config))
 
+        timeout = activity.info().start_to_close_timeout if activity.in_activity() else None
+        metrics.record_sweep_started(
+            sources_total=len(to_check), timeout_seconds=int(timeout.total_seconds()) if timeout else 0
+        )
+        for source, adapter, cdc_config in to_check:
+            metrics.record_sweep_progress(processed=sources_checked, errored=sources_errored)
             sources_checked += 1
 
             source_log = log.bind(
@@ -1758,7 +1822,7 @@ def cleanup_orphan_slots_activity() -> None:
                 source_log.warning("slot_not_found_or_no_flush_lsn")
                 continue
 
-            metrics.get_wal_lag_metric(source.team_id, str(source.id)).set(lag.behind_bytes)
+            metrics.record_wal_lag(source.team_id, str(source.id), lag.behind_bytes)
             lag_mb = lag.behind_bytes / (1024 * 1024)
             retention_cap_mb = lag.retention_cap_mb
 
@@ -1871,6 +1935,8 @@ def cleanup_orphan_slots_activity() -> None:
 
     metrics.get_sweeper_sources_checked_metric().add(sources_checked)
     metrics.get_sweeper_duration_metric().record(time.monotonic() - sweep_started_mono)
+    metrics.record_sweep_progress(processed=sources_checked, errored=sources_errored)
+    metrics.record_sweep_completed()
     log.info(
         "cleanup_orphan_slots_completed",
         sources_checked=sources_checked,

@@ -257,6 +257,7 @@ class MemoryObjectStore:
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.modified: dict[str, dt.datetime] = {}
         self._writes = 0
         self._failing_writes: set[int] = set()
 
@@ -280,6 +281,7 @@ class MemoryObjectStore:
             self.objects[key] = written[: len(written) // 2]
             raise SimulatedCrash("the buffer file could not be written")
         self.objects[key] = written
+        self.modified[key] = dt.datetime.now(tz=dt.UTC)
 
     def rm(self, key: str, recursive: bool = False) -> None:
         doomed = [k for k in self.objects if k == key or (recursive and k.startswith(f"{key}/"))]
@@ -293,6 +295,13 @@ class MemoryObjectStore:
         if not keys:
             raise FileNotFoundError(prefix)
         return keys
+
+    def find(self, prefix: str, detail: bool = False) -> dict[str, dict[str, Any]]:
+        return {
+            key: {"name": key, "type": "file", "size": len(data), "LastModified": self.modified.get(key)}
+            for key, data in sorted(self.objects.items())
+            if key.startswith(f"{prefix}/")
+        }
 
     def _etag(self, key: str) -> str:
         return hashlib.md5(self.objects[key]).hexdigest()

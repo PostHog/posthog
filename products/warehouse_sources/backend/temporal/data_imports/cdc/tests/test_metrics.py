@@ -1,14 +1,16 @@
+import time
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from temporalio.common import MetricMeter
-from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
+from temporalio.runtime import BUFFERED_METRIC_KIND_HISTOGRAM, MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import ActivityEnvironment
 
+from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
@@ -18,7 +20,14 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cleanup_orphan_slots_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import ChangeEventBatcher
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    build_buffer_file_name,
+    get_buffer_prefix,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import MemoryObjectStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag, ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
@@ -43,11 +52,14 @@ class TestMetricsOutsideActivityContext:
         metrics.get_sweeper_source_errors_metric().add(1)
 
     def test_histograms_record_without_raising(self):
-        metrics.get_extraction_duration_metric(1, "s", "completed").record(1.5)
+        metrics.get_extraction_duration_metric("completed").record(1.5)
         metrics.get_sweeper_duration_metric().record(2.0)
 
     def test_gauges_set_without_raising(self):
-        metrics.get_wal_lag_metric(1, "s").set(1024)
+        metrics.record_wal_lag(1, "s", 1024)
+        metrics.record_buffer_backlog(1, "s", files=1, size_bytes=2, oldest_age_seconds=3)
+        metrics.record_sweep_started(sources_total=1, timeout_seconds=1800)
+        metrics.record_sweep_completed()
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +88,10 @@ def _emitted_names(buffer: MetricBuffer) -> set[str]:
     return {update.metric.name for update in buffer.retrieve_updates()}
 
 
+def _last_values(updates) -> dict[str, int | float]:
+    return {update.metric.name: update.value for update in updates}
+
+
 def _make_event(op="I", table="public.users", position="0/100"):
     return ChangeEvent(
         operation=op,
@@ -96,10 +112,10 @@ def _make_source():
     return source
 
 
-def _make_schema(cdc_mode="streaming"):
+def _make_schema(cdc_mode="streaming", name="users"):
     schema = MagicMock()
     schema.id = uuid.uuid4()
-    schema.name = "users"
+    schema.name = name
     schema.team_id = 1
     schema.sync_type_config = {"cdc_mode": cdc_mode, "cdc_table_mode": "consolidated", "primary_key_columns": ["id"]}
     schema.cdc_mode = cdc_mode
@@ -110,8 +126,16 @@ def _make_schema(cdc_mode="streaming"):
     return schema
 
 
+def _put_buffer_file(store: MemoryObjectStore, schema, *, seq: int, size: int, age: timedelta) -> None:
+    key = (
+        f"{strip_s3_protocol(get_buffer_prefix(schema.team_id, str(schema.id)))}/{build_buffer_file_name(seq, seq, 0)}"
+    )
+    store.objects[key] = b"x" * size
+    store.modified[key] = datetime.now(tz=UTC) - age
+
+
 @contextmanager
-def _extract_patches(source, schemas, events):
+def _extract_patches(source, schemas, events, store=None, lag_bytes=0):
     reader = MagicMock()
     reader.read_changes.return_value = iter(events)
     reader.truncated_tables = []
@@ -123,6 +147,7 @@ def _extract_patches(source, schemas, events):
     adapter.create_reader.return_value = reader
     adapter.is_slot_invalidation_error.return_value = False
     adapter.position_to_seq.side_effect = lambda position: PgLSN.deserialize(position).value
+    adapter.get_lag.return_value = CDCLag(behind_bytes=lag_bytes, retention_cap_mb=None)
 
     with (
         patch(f"{_ACTIVITIES}.close_old_connections"),
@@ -131,6 +156,10 @@ def _extract_patches(source, schemas, events):
         patch.object(CDCExtractActivity, "_update_schema_sync_type_config"),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
         patch(f"{_ACTIVITIES}.CDCBufferWriter") as MockBufferWriter,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.get_s3_client",
+            return_value=store or MemoryObjectStore(),
+        ),
     ):
         MockSource.objects.get.return_value = source
         # The real meter records only a float.
@@ -150,14 +179,55 @@ class TestExtractionMetricsSmoke:
         names = {update.metric.name for update in updates}
         assert "cdc_events_extracted_total" in names
         assert "cdc_slot_advance_total" in names
-        assert "cdc_extraction_duration_seconds" in names
+        # Histograms stay per fleet: a per-source label multiplies every bucket on every pod.
+        histograms = [u for u in updates if u.metric.kind == BUFFERED_METRIC_KIND_HISTOGRAM]
+        assert {u.metric.name for u in histograms} == {
+            "cdc_extraction_duration_seconds",
+            "cdc_buffer_write_duration_seconds",
+        }
+        assert not any({"team_id", "source_id"} & set(u.attributes) for u in histograms)
+        runs = [u for u in updates if u.metric.name == "cdc_extraction_runs_total"]
+        assert [(u.attributes["source_id"], u.attributes["status"], u.value) for u in runs] == [
+            (str(source.id), "completed", 1)
+        ]
         # Dashboards filter the buffer metrics on this label.
         assert {
-            (u.metric.name, u.attributes.get("lane")) for u in updates if u.metric.name.startswith("cdc_buffer_")
+            (u.metric.name, u.attributes.get("lane"))
+            for u in updates
+            if u.metric.name in {"cdc_buffer_files_written_total", "cdc_buffer_write_duration_seconds"}
         } == {
             ("cdc_buffer_files_written_total", "ingress"),
             ("cdc_buffer_write_duration_seconds", "ingress"),
         }
+
+    @pytest.mark.parametrize("fails", [False, True], ids=["completed", "failed"])
+    def test_run_records_lag_and_streaming_backlog(self, metric_env, fails):
+        env, buffer = metric_env
+        source = _make_source()
+        streaming = _make_schema()
+        snapshotting = _make_schema(cdc_mode="snapshot", name="orders")
+        snapshotting.sync_type_config[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+        store = MemoryObjectStore()
+        _put_buffer_file(store, streaming, seq=1, size=10, age=timedelta(hours=2))
+        _put_buffer_file(store, streaming, seq=2, size=5, age=timedelta(minutes=1))
+        # Waits for its table's snapshot to land, so it is not backlog.
+        _put_buffer_file(store, snapshotting, seq=1, size=100, age=timedelta(days=1))
+        observed_from = int(time.time())
+
+        with _extract_patches(source, [streaming, snapshotting], [], store=store, lag_bytes=4096) as reader:
+            if fails:
+                reader.read_changes.side_effect = RuntimeError("boom")
+            try:
+                env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
+            except RuntimeError:
+                assert fails
+
+        values = _last_values(buffer.retrieve_updates())
+        assert values["cdc_wal_lag_bytes"] == 4096
+        assert (values["cdc_buffer_backlog_files"], values["cdc_buffer_backlog_bytes"]) == (2, 15)
+        assert 7200 <= values["cdc_buffer_backlog_oldest_age_seconds"] < 7260
+        assert values["cdc_wal_lag_observed_at_seconds"] >= observed_from
+        assert values["cdc_buffer_backlog_observed_at_seconds"] >= observed_from
 
     def test_no_changes_run_emits_duration(self, metric_env):
         env, buffer = metric_env
@@ -252,10 +322,13 @@ class TestSweeperMetricsSmoke:
         with _sweeper_patches(_sweeper_adapter(lag_bytes=10 * 1024 * 1024)):
             env.run(cleanup_orphan_slots_activity)
 
-        names = _emitted_names(buffer)
-        assert "cdc_wal_lag_bytes" in names
-        assert "cdc_sweeper_sources_checked_total" in names
-        assert "cdc_sweeper_duration_seconds" in names
+        values = _last_values(buffer.retrieve_updates())
+        assert values["cdc_wal_lag_bytes"] == 10 * 1024 * 1024
+        assert "cdc_wal_lag_observed_at_seconds" in values
+        assert "cdc_sweeper_sources_checked_total" in values
+        assert "cdc_sweeper_duration_seconds" in values
+        assert (values["cdc_sweeper_sources_total"], values["cdc_sweeper_sources_processed"]) == (1, 1)
+        assert values["cdc_sweeper_completed_at_seconds"] >= values["cdc_sweeper_started_at_seconds"] > 0
 
     def test_auto_drop_emits_metric(self, metric_env, team):
         env, buffer = metric_env

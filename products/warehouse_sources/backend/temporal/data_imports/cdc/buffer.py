@@ -39,6 +39,7 @@ from __future__ import annotations
 import re
 import time
 import datetime as dt
+from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -73,8 +74,12 @@ _FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([
 _STAGING_SUFFIX = ".staging"
 
 
+def get_team_buffer_prefix(team_id: int) -> str:
+    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/{BUFFER_ROOT_FOLDER}/{team_id}"
+
+
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
-    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/{BUFFER_ROOT_FOLDER}/{team_id}/{schema_id}"
+    return f"{get_team_buffer_prefix(team_id)}/{schema_id}"
 
 
 def build_buffer_file_name(start_seq: int, end_seq: int, file_index: int) -> str:
@@ -311,3 +316,51 @@ def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogg
         if strict:
             raise
         logger.warning("cdc_buffer_prefix_purge_failed", schema_id=schema_id, exc_info=True)
+
+
+@frozen
+class BufferBacklog:
+    files: int
+    bytes: int
+    oldest_written_at: dt.datetime | None
+    oldest_schema_id: str | None
+
+
+def measure_buffer_backlog(team_id: int, schema_ids: Collection[str]) -> BufferBacklog:
+    """Buffer files still waiting under the given schemas' prefixes.
+
+    One recursive listing of the team's prefix serves every schema, so it costs a LIST request per
+    thousand files rather than one per schema. A consumer deletes the files it settled on its next
+    run, so a healthy table still shows up to about two of its ticks of files here.
+    """
+    root = strip_s3_protocol(get_team_buffer_prefix(team_id))
+    s3 = get_s3_client()
+    try:
+        entries = s3.find(root, detail=True)
+    except FileNotFoundError:
+        entries = {}
+    finally:
+        # find() fills the client's directory cache, and a cached listing could hide files that
+        # capture writes later from code that lists without refreshing.
+        s3.invalidate_cache(root)
+
+    wanted = set(schema_ids)
+    files = 0
+    total_bytes = 0
+    oldest: tuple[dt.datetime, str] | None = None
+    for key, entry in entries.items():
+        schema_id, _, file_name = key.removeprefix(f"{root}/").partition("/")
+        if schema_id not in wanted or parse_buffer_file_name(file_name) is None:
+            continue
+        files += 1
+        total_bytes += int(entry.get("size") or 0)
+        written_at = entry.get("LastModified")
+        if isinstance(written_at, dt.datetime) and (oldest is None or written_at < oldest[0]):
+            oldest = (written_at, schema_id)
+
+    return BufferBacklog(
+        files=files,
+        bytes=total_bytes,
+        oldest_written_at=oldest[0] if oldest else None,
+        oldest_schema_id=oldest[1] if oldest else None,
+    )
