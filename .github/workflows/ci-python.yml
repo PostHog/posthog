@@ -139,7 +139,7 @@ jobs:
                         # mypy reads a root mypy.ini or .mypy.ini, and the cache-key filter
                         # that used to list them is gone, so they belong here.
                         - '**/mypy.ini'
-                        - '.mypy.ini'
+                        - '**/.mypy.ini'
                         - '**/ruff.toml'
                         - '**/.ruff.toml'
                         - 'uv.lock'
@@ -571,7 +571,7 @@ jobs:
     # overlapped with the other checks on that runner (see "Run the python static
     # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
     # Two jobs get two runners, so the type check and the rest of the checks run at
-    # the same time and their walls stop adding up. The cost is one extra 2-vCPU job
+    # the same time and their walls stop adding up. The cost is one extra 4-vCPU job
     # on each pull request that touches Python.
     mypy:
         needs: changes
