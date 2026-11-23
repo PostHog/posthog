@@ -106,7 +106,6 @@ def _update_tile_with_new_key(
             return
 
         feature_flag_filter["value"] = feature_flag.key
-        # Only update the insight if it matches what we expect for the system created insights
         product_analytics_api.update_insight_description_and_query(
             team_id=feature_flag.team_id, insight_id=insight["id"], description=new_description, query=query
         )
@@ -160,7 +159,6 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag: FeatureFlag, d
     if dashboard is None:
         return
 
-    # 1 row
     _add_sample_insight_tile(
         dashboard_id=dashboard_id,
         team_id=dashboard.team_id,
