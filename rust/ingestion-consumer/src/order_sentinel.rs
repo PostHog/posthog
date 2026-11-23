@@ -382,6 +382,7 @@ mod tests {
             timestamp: 0,
             key: Some("t:a".to_string()),
             value: None,
+            value_bytes: None,
             headers: HashMap::new(),
             generation: 0,
         }

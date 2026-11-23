@@ -18,6 +18,8 @@ pub(crate) struct PollLimits {
     /// Payload-byte bound; `0` disables it.
     pub(crate) batch_size_bytes: usize,
     pub(crate) batch_timeout: Duration,
+    /// Keep each payload as raw bytes instead of decoding it as UTF-8 text.
+    pub(crate) binary_values: bool,
 }
 
 pub(crate) struct Collector {
@@ -123,10 +125,19 @@ impl Collector {
                 .key()
                 .and_then(|k| std::str::from_utf8(k).ok())
                 .map(|s| s.to_string()),
-            value: message
-                .payload()
-                .and_then(|v| std::str::from_utf8(v).ok())
-                .map(|s| s.to_string()),
+            value: if self.limits.binary_values {
+                None
+            } else {
+                message
+                    .payload()
+                    .and_then(|v| std::str::from_utf8(v).ok())
+                    .map(|s| s.to_string())
+            },
+            value_bytes: if self.limits.binary_values {
+                message.payload().map(bytes::Bytes::copy_from_slice)
+            } else {
+                None
+            },
             headers,
             generation: 0,
         };
@@ -296,6 +307,7 @@ pub(crate) mod tests {
             batch_size,
             batch_size_bytes,
             batch_timeout: BATCH_TIMEOUT,
+            binary_values: false,
         })
     }
 
@@ -384,6 +396,33 @@ pub(crate) mod tests {
         assert_eq!(group.key, None, "a key that is not UTF-8 routes as keyless");
         assert_eq!(group.messages[0].offset, Offset(7));
         assert_eq!(group.messages[0].message.value, None);
+    }
+
+    #[test]
+    fn binary_values_keep_a_payload_that_is_not_utf8() {
+        let mut collector = Collector::new(PollLimits {
+            batch_size: 100,
+            batch_size_bytes: 0,
+            batch_timeout: BATCH_TIMEOUT,
+            binary_values: true,
+        });
+        let now = Instant::now();
+        let sent = Sent {
+            payload: Some(vec![0xff, 0xfe, 0xfd]),
+            ..Sent::new(0, 7)
+        };
+        collector.add(&sent.message(), now);
+        let batch = collector
+            .take_ready(now + BATCH_TIMEOUT)
+            .expect("the batch timeout passed");
+
+        let message = &batch.accumulator.into_groups().remove(0).messages[0].message;
+        assert_eq!(
+            message.value_bytes.as_deref(),
+            Some(&[0xff, 0xfe, 0xfd][..])
+        );
+        assert_eq!(message.value, None);
+        assert_eq!(message.payload_bytes(), "tok:user-1".len() + 3);
     }
 
     #[test]

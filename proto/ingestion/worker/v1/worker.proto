@@ -72,6 +72,10 @@ message KafkaMessage {
   optional string key = 5;
   optional string value = 6;
   map<string, string> headers = 7;
+  // The payload as raw bytes, for a topic whose values are not UTF-8 text
+  // (logs carry Avro containers). Set instead of `value` when the consumer
+  // runs with CONSUMER_BINARY_VALUES.
+  optional bytes value_bytes = 8;
 }
 
 // The consumer reads one topic, so a partition and an offset identify a message.

@@ -205,6 +205,7 @@ pub struct GrpcTransport {
     /// message limit.
     max_body_bytes: usize,
     idle_close: Option<Duration>,
+    gzip: bool,
 }
 
 impl GrpcTransport {
@@ -216,6 +217,7 @@ impl GrpcTransport {
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             idle_close: None,
+            gzip: true,
             // A fresh epoch for standalone construction; production wiring
             // injects the shared one via `set_assignment_epoch`.
             assignment_epoch: AssignmentEpoch::new(),
@@ -242,6 +244,11 @@ impl GrpcTransport {
     pub fn set_max_body_bytes(&mut self, bytes: usize) {
         assert!(bytes > 0, "max_body_bytes must be > 0");
         self.max_body_bytes = bytes;
+    }
+
+    /// Turn gzip of the worker stream off, for payloads that are already compressed.
+    pub fn set_gzip(&mut self, gzip: bool) {
+        self.gzip = gzip;
     }
 
     pub fn set_idle_close(&mut self, after: Duration) {
@@ -342,6 +349,7 @@ impl GrpcTransport {
             consumer_id: self.consumer_id.clone(),
             ack_timeout: self.ack_timeout,
             idle_close: self.idle_close,
+            gzip: self.gzip,
             assignment_epoch: self.assignment_epoch.clone(),
         };
         tokio::spawn(async move { runner.run(rx).await });
@@ -409,6 +417,7 @@ struct WorkerStreamRunner {
     consumer_id: String,
     ack_timeout: Duration,
     idle_close: Option<Duration>,
+    gzip: bool,
     assignment_epoch: AssignmentEpoch,
 }
 
@@ -538,8 +547,10 @@ impl WorkerStreamRunner {
         };
 
         let mut client = WorkerIngestClient::new(channel)
-            .send_compressed(tonic::codec::CompressionEncoding::Gzip)
             .accept_compressed(tonic::codec::CompressionEncoding::Gzip);
+        if self.gzip {
+            client = client.send_compressed(tonic::codec::CompressionEncoding::Gzip);
+        }
 
         let (out_tx, out_rx) = mpsc::unbounded_channel::<IngestStreamRequest>();
         let hello = IngestStreamRequest {
@@ -1033,6 +1044,7 @@ fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {
         timestamp: message.timestamp,
         key: message.key.clone(),
         value: message.value.clone(),
+        value_bytes: message.value_bytes.clone(),
         headers: message.headers.clone(),
     }
 }

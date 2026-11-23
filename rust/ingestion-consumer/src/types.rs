@@ -14,6 +14,10 @@ pub struct SerializedKafkaMessage {
     pub timestamp: i64,
     pub key: Option<String>,
     pub value: Option<String>,
+    /// The payload as raw bytes. Set instead of `value` when
+    /// `CONSUMER_BINARY_VALUES` is on, for topics whose values are not text.
+    #[serde(skip)]
+    pub value_bytes: Option<bytes::Bytes>,
     pub headers: HashMap<String, String>,
     /// The ledger generation the message was charged under. Workers never
     /// see it.
@@ -25,7 +29,9 @@ impl SerializedKafkaMessage {
     /// Approximate payload size for queue accounting: key plus value bytes,
     /// ignoring headers and framing.
     pub fn payload_bytes(&self) -> usize {
-        self.key.as_ref().map_or(0, String::len) + self.value.as_ref().map_or(0, String::len)
+        self.key.as_ref().map_or(0, String::len)
+            + self.value.as_ref().map_or(0, String::len)
+            + self.value_bytes.as_ref().map_or(0, bytes::Bytes::len)
     }
 }
 

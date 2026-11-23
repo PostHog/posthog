@@ -4,6 +4,13 @@ Rust Kafka consumer that routes analytics events to Node.js ingestion workers ov
 It reads batches from Kafka, groups messages by Kafka message key, packs each key's messages into requests (preserving per-key ordering; unkeyed messages can go to any worker), sends each request on its worker's `WorkerIngest` stream, and commits each partition's frontier: one past the prefix every worker accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully: in-flight work finishes, and new work for their keys waits and goes to survivors in order.
 
+## Payloads that are not text
+
+The worker protocol carries a message value as UTF-8 text by default, so a payload that is not UTF-8 reaches the worker empty.
+`CONSUMER_BINARY_VALUES=true` sends every payload as bytes in `KafkaMessage.value_bytes` instead, for a topic such as logs, whose values are Avro containers.
+`INGESTION_TRANSPORT_GZIP=false` turns off the gzip of each frame, for payloads that are already compressed.
+The Node workers do not read `value_bytes`; `rust/logs-ingestion` has a prototype worker that does.
+
 ## Ordering sentinels
 
 `order_sentinel.rs` and the offset ledger turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).

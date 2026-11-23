@@ -135,6 +135,13 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_size: usize,
 
+    /// Send each payload to the workers as raw bytes (`KafkaMessage.value_bytes`)
+    /// instead of UTF-8 text. For topics whose values are not text, such as the
+    /// Avro containers on the logs topic: without it a payload that is not
+    /// UTF-8 reaches the worker empty.
+    #[envconfig(from = "CONSUMER_BINARY_VALUES", default = "false")]
+    pub consumer_binary_values: bool,
+
     /// Maximum payload bytes to collect into one poll, in KiB. `0` (default)
     /// disables the bound. Whichever of this and `CONSUMER_BATCH_SIZE` is reached
     /// first ends collection: the count bounds request shape, this bounds memory,
@@ -311,6 +318,12 @@ pub struct Config {
     /// estimate.
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
+
+    /// Gzip each frame sent to a worker. Turn it off for a topic whose payloads
+    /// are already compressed (the logs topic carries zstd Avro containers),
+    /// where gzip costs CPU on both sides and saves no bytes.
+    #[envconfig(from = "INGESTION_TRANSPORT_GZIP", default = "true")]
+    pub transport_gzip: bool,
 
     /// The worker pods' gRPC port (`INGESTION_API_GRPC_PORT` on the Node.js
     /// side). Worker streams derive each worker's stream address from its HTTP URL's

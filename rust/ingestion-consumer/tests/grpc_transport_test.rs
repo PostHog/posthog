@@ -272,6 +272,7 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
         timestamp: 0,
         key: Some(distinct_id.to_string()),
         value: Some("{}".to_string()),
+        value_bytes: None,
         headers,
         generation: 0,
     }

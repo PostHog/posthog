@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+bytes = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
 
@@ -12,7 +13,7 @@ tonic = { workspace = true }
 tonic-build = { workspace = true }
 
 [package.metadata.cargo-shear]
-ignored = ["prost"]
+ignored = ["prost", "bytes"]
 
 [lints]
 workspace = true

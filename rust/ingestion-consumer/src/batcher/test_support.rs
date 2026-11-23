@@ -10,6 +10,7 @@ pub fn message(key: &str, partition: i32, offset: i64) -> SerializedKafkaMessage
         timestamp: 0,
         key: Some(key.to_string()),
         value: Some("{}".to_string()),
+        value_bytes: None,
         headers: HashMap::new(),
         generation: 0,
     }

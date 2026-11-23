@@ -36,6 +36,7 @@ fn make_msg(key: &str) -> SerializedKafkaMessage {
         timestamp: 0,
         key: Some(key.to_string()),
         value: None,
+        value_bytes: None,
         headers: HashMap::new(),
         generation: 0,
     }

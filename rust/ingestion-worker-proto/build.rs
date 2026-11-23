@@ -4,6 +4,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
+        // `Bytes` makes a payload clone a reference count, not a copy.
+        .bytes(["."])
         .compile_protos(
             &[format!("{proto_root}/ingestion/worker/v1/worker.proto")],
             &[proto_root],

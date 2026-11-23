@@ -33,6 +33,7 @@ impl<P: PollingStrategy> Harness<P> {
             limits: PollLimits {
                 batch_size: 100,
                 batch_size_bytes: 0,
+                binary_values: false,
                 batch_timeout: BATCH_TIMEOUT,
             },
             settlement: Arc::clone(&settlement),

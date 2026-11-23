@@ -23,6 +23,7 @@ hex = "0.4"
 hmac = { workspace = true }
 itoa = { workspace = true }
 ingestion-framework = { path = "../ingestion-framework" }
+ingestion-worker-proto = { path = "../ingestion-worker-proto" }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 rand = { workspace = true }
@@ -48,3 +49,4 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tokio-stream = { version = "0.1", features = ["net"] }

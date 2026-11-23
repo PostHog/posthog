@@ -17,6 +17,7 @@ fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
     msg.topic.len()
         + msg.key.as_deref().map_or(0, str::len)
         + msg.value.as_deref().map_or(0, str::len)
+        + msg.value_bytes.as_ref().map_or(0, bytes::Bytes::len)
         + msg
             .headers
             .iter()
@@ -156,6 +157,7 @@ mod tests {
             timestamp: 0,
             key: None,
             value: Some("x".repeat(value_len)),
+            value_bytes: None,
             headers: std::collections::HashMap::new(),
             generation: 0,
         }

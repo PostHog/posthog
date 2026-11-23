@@ -76,6 +76,35 @@ HTTP_SERVER_PORT=6740 \
 cargo run --release -p logs-ingestion --bin logs-ingestion
 ```
 
+## The gRPC worker (prototype)
+
+The `logs-ingestion-worker` binary runs the same pipeline behind `ingestion.worker.v1.WorkerIngest`, so `rust/ingestion-consumer` can own the Kafka read and the offsets and dispatch batches to it over gRPC.
+It reads the same env as `logs-ingestion`, except the Kafka consumer keys. `INGESTION_API_GRPC_PORT` (default 6739) is the gRPC port and `INGESTION_WORKER_CONCURRENT_BATCHES` (default 1) is how many sub-batches run at once, as on the Node ingestion-api worker. `/_ready` is on `HTTP_SERVER_PORT`.
+
+The consumer needs two settings for a logs topic:
+
+- `CONSUMER_BINARY_VALUES=true` sends each payload as bytes (`KafkaMessage.value_bytes`). Without it a payload that is not UTF-8 reaches the worker empty.
+- `INGESTION_TRANSPORT_GZIP=false` stops the gzip of each frame, which costs CPU on both sides and saves nothing on zstd Avro containers.
+
+What the worker does not do:
+
+- It never answers `PARTIAL` or `BUSY`. A sub-batch runs to its end whatever its soft budget, and the batch limit holds the consumer back through HTTP/2 flow control.
+- It has no feed-order sentinel. Logs messages have no key, so there is no per-key order to check.
+- A failed sub-batch is acked `FAILED` and the worker keeps serving, where the consumer loop exits the process.
+- Shadow mode is untested here: the consumer has no shadow group of its own.
+
+### Benchmark
+
+`scripts/kafka-bench.py` runs the workloads of `nodejs/src/logs/benchmarks` through a real Kafka topic in three shapes: the Node consumer, this crate's consumer loop, and `ingestion-consumer` with the worker. All use in-memory dependencies and discard their outputs, so it measures the read, the dispatch and the pipeline, not the produce.
+
+```bash
+cd nodejs && npx tsx --tsconfig tsconfig.json src/logs/benchmarks/logs-consumer-bench.ts generate /tmp/logs-bench/workloads
+cd ../rust && cargo build --release -p logs-ingestion -p ingestion-consumer
+python3 logs-ingestion/scripts/kafka-bench.py /tmp/logs-bench/workloads /tmp/logs-bench/out
+```
+
+It needs Kafka on localhost:9092 and Redis on 127.0.0.1:6379.
+
 ## Tests
 
 ```bash

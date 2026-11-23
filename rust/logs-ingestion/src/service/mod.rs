@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod consumer_loop;
+pub mod grpc_worker;
 pub mod kafka_outputs;
 pub mod kafka_source;
 pub mod lazy_loader;
@@ -306,4 +307,73 @@ async fn join_or_abort<T>(name: &str, mut task: tokio::task::JoinHandle<T>) -> a
             ))
         }
     }
+}
+
+/// Runs the pipeline as a gRPC worker of the Rust `ingestion-consumer`, which owns the Kafka read and the offsets.
+pub async fn run_worker(
+    config: ServiceConfig,
+    grpc_port: u16,
+    concurrent_batches: usize,
+) -> anyhow::Result<()> {
+    tracing::info!(
+        kind = ?config.kind,
+        mode = ?config.mode,
+        grpc_port,
+        concurrent_batches,
+        routes = ?config.routes,
+        "starting logs-ingestion worker"
+    );
+    let recorder = serve_metrics::setup_metrics_recorder();
+    let mut manager = Manager::builder(SERVICE_NAME)
+        .with_global_shutdown_timeout(config.shutdown_timeout)
+        .build();
+    let metrics_handle =
+        manager.register("metrics", ComponentOptions::new().is_observability(true));
+    let worker_handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_graceful_shutdown(config.shutdown_timeout),
+    );
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+
+    let producers = create_producers(&config)?;
+    let outputs = Arc::new(KafkaOutputs::new(&config.routes, &producers)?);
+    let deps = build_deps(&config, outputs.clone())?;
+    let consumer = LogsIngestionConsumer::new(identity(config.kind), config.consumer.clone(), deps);
+    let ingest = grpc_worker::LogsWorkerIngest::new(Arc::new(consumer), concurrent_batches);
+    let guard = manager.monitor_background();
+
+    let worker_task = tokio::spawn(async move {
+        let handle = worker_handle;
+        let result = tonic::transport::Server::builder()
+            .add_service(ingest.into_server())
+            .serve_with_shutdown(([0, 0, 0, 0], grpc_port).into(), handle.shutdown_signal())
+            .await;
+        outputs.flush(Duration::from_secs(10));
+        match &result {
+            Ok(()) => handle.work_completed(),
+            Err(error) => handle.signal_failure(format!("grpc server failed: {error}")),
+        }
+        result
+    });
+
+    let app = health_router(readiness, liveness, Arc::new(move || recorder.render()));
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.http_port)).await?;
+    let server_task = tokio::spawn(async move {
+        let result = axum::serve(listener, app)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await;
+        match &result {
+            Ok(()) => metrics_handle.work_completed(),
+            Err(error) => metrics_handle.signal_failure(format!("http server failed: {error}")),
+        }
+        result
+    });
+    let monitor = guard.wait().await;
+    let worker_result = join_or_abort("grpc worker", worker_task).await;
+    let server_result = join_or_abort("http server", server_task).await;
+    worker_result??;
+    server_result??;
+    monitor?;
+    Ok(())
 }

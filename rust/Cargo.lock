@@ -6512,6 +6512,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "axum 0.7.9",
+ "bytes",
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
@@ -6608,6 +6609,7 @@ dependencies = [
 name = "ingestion-worker-proto"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "prost 0.13.5",
  "tonic 0.12.3",
  "tonic-build 0.12.3",
@@ -7680,6 +7682,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "ingestion-framework",
+ "ingestion-worker-proto",
  "itoa",
  "lifecycle",
  "metrics",
@@ -7697,6 +7700,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-stream",
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
