@@ -126,7 +126,10 @@
         height: 0.375rem;
         margin-inline: auto;
         margin-top: 1rem;
-        background-color: var(--muted);
+
+        /* --muted sits within a step of the drawer surface in both themes, so the handle all but vanished.
+           Mixing from the muted text tone keeps it quieter than text while still reading as an affordance. */
+        background-color: color-mix(in oklab, var(--muted-foreground) 25%, transparent);
         border-radius: 9999px;
     }
 
