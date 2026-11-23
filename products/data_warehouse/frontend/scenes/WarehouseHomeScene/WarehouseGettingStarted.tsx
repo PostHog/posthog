@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { Heading, ItemGroup } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { WarehouseGettingStartedStep } from './WarehouseGettingStartedStep'
@@ -9,8 +11,14 @@ import { warehouseHomeLogic } from './warehouseHomeLogic'
 
 // pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 
-export function WarehouseGettingStarted(): JSX.Element {
+export function WarehouseGettingStarted(): JSX.Element | null {
     const { sourceStep, viewStep } = useValues(warehouseHomeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // With the console on, the page leads with the warehouse's numbers, so finished setup steps leave the page.
+    if (featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE] && sourceStep === 'done' && viewStep === 'done') {
+        return null
+    }
 
     return (
         <section aria-labelledby="warehouse-getting-started" className="flex flex-col gap-2">

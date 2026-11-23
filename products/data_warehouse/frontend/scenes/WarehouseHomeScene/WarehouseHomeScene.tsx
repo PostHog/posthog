@@ -12,9 +12,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { WarehouseConsoleOverview } from './WarehouseConsoleOverview'
 import { WarehouseGettingStarted } from './WarehouseGettingStarted'
 import { WarehouseHealth } from './WarehouseHealth'
+import { WarehouseHomeSummary } from './WarehouseHomeSummary'
+import { WarehouseHomeUsage } from './WarehouseHomeUsage'
 import { WarehouseRecentRuns } from './WarehouseRecentRuns'
 
 export const scene: SceneExport = {
@@ -30,6 +31,8 @@ export function WarehouseHomeScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    const consoleOn = !!featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -38,17 +41,18 @@ export function WarehouseHomeScene(): JSX.Element {
                 resourceType={{ type: 'data_warehouse' }}
             />
             <div data-quill className="@container/warehouse-home flex flex-col gap-6">
-                <WarehouseConsoleOverview />
                 <WarehouseGettingStarted />
+                <WarehouseHomeSummary />
                 <section aria-labelledby="warehouse-overview" className="flex flex-col gap-2">
                     <Heading render={<h2 id="warehouse-overview" />} size="base" className="m-0">
-                        Overview
+                        {consoleOn ? 'Pipelines' : 'Overview'}
                     </Heading>
                     <div className="grid gap-4 @3xl/warehouse-home:grid-cols-2">
                         <WarehouseHealth />
                         <WarehouseRecentRuns />
                     </div>
                 </section>
+                <WarehouseHomeUsage />
             </div>
         </SceneContent>
     )
