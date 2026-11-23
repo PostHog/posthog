@@ -31,15 +31,15 @@ export class SourceHistory {
     await assertCheckout(revision, args => this.git(args, deadline))
   }
 
-  async alias(revision: string, deadline = Date.now() + this.budgets.comparisonMs): Promise<string> {
+  async alias(revision: string, limit = Infinity): Promise<string> {
     if (!REVISION.test(revision)) throw new Error('Expected full source revision')
-    const ordinal = (await this.git(['rev-list', '--first-parent', '--count', revision], deadline)).trim()
+    const ordinal = (await this.git(['rev-list', '--first-parent', '--count', revision], Math.min(limit, Date.now() + this.budgets.comparisonMs))).trim()
     if (!/^[1-9][0-9]{0,11}$/.test(ordinal)) throw new Error('Source ordinal is out of range')
     return `r${ordinal.padStart(12, '0')}-${revision.slice(0, 6)}`
   }
 
-  async relation(base: string, revision: string): Promise<'equal' | 'older' | 'newer'> {
-    const deadline = Date.now() + this.budgets.comparisonMs
+  async relation(base: string, revision: string, limit = Infinity): Promise<'equal' | 'older' | 'newer'> {
+    const deadline = Math.min(limit, Date.now() + this.budgets.comparisonMs)
     const newer = await this.alias(base, deadline) > await this.alias(revision, deadline) ? base : revision
     const older = newer === base ? revision : base
     await assertFirstParent(older, newer, args => this.git(args, deadline))
@@ -118,8 +118,8 @@ export class SourceHistory {
     return policy
   }
 
-  async policyAt(revision: string): Promise<Policy | undefined> {
-    const deadline = Math.min(this.deadline, Date.now() + this.budgets.fetchMs)
+  async policyAt(revision: string, limit = Infinity): Promise<Policy | undefined> {
+    const deadline = Math.min(this.deadline, limit, Date.now() + this.budgets.fetchMs)
     await this.trees([revision], deadline)
     const [policy] = await this.readPolicies([revision], deadline)
     return policy

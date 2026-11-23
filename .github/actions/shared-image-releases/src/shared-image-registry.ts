@@ -32,12 +32,13 @@ export class ReleaseRegistry {
   constructor(
     private readonly cwd: string, private readonly regctl: string,
     private readonly helper: string, private readonly budgets: RegistryBudgets,
-    private readonly deadline: number
+    private readonly deadline: number, private readonly expiry?: AbortSignal
   ) {
     this.regctl = configureCopyClient(regctl)
   }
 
   private options(timeoutMs = this.budgets.registryMs): CommandOptions {
+    this.expiry?.throwIfAborted()
     return {cwd: this.cwd, maxBuffer: this.budgets.maxBuffer, timeoutMs: Math.min(timeoutMs, this.deadline - Date.now())}
   }
 
@@ -63,7 +64,7 @@ export class ReleaseRegistry {
     let token: string | undefined
     do {
       const page = JSON.parse(await this.aws(destination, [
-        'list-images', '--no-paginate', '--max-results', '1000', '--output', 'json',
+        'list-images', '--filter', 'tagStatus=TAGGED', '--no-paginate', '--max-results', '1000', '--output', 'json',
         ...(token ? ['--next-token', token] : [])
       ])) as {imageIds?: {imageTag?: string; imageDigest?: string}[]; nextToken?: string}
       if (!Array.isArray(page.imageIds)) throw new Error(`${destination.repository}: invalid frontier page`)
