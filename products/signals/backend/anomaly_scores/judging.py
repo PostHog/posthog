@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from django.core.cache import cache
+from django.utils import timezone
 
 import numpy as np
 import structlog
@@ -69,11 +70,10 @@ def _daily_key(team_id: int, now: datetime.datetime) -> str:
     return f"signals:anomaly_scoring:ai_checks:{now.astimezone(datetime.UTC).date().isoformat()}:{team_id}"
 
 
-def reserve_daily_checks(team_id: int, now: datetime.datetime, wanted: int, cap: int) -> int:
-    """Reserve up to ``wanted`` model calls of the project's daily cap, and return how many it got."""
+def reserve_daily_checks(key: str, wanted: int, cap: int) -> int:
+    """Reserve up to ``wanted`` model calls of the daily cap at ``key``, and return how many it got."""
     if wanted <= 0:
         return 0
-    key = _daily_key(team_id, now)
     # `add` sets the key only when it is missing, so two picks of one project never reset each other's count.
     cache.add(key, 0, timeout=int(_DAILY_KEY_TTL.total_seconds()))
     spent = cache.incr(key, wanted)
@@ -83,9 +83,9 @@ def reserve_daily_checks(team_id: int, now: datetime.datetime, wanted: int, cap:
     return wanted - over
 
 
-def release_daily_checks(team_id: int, now: datetime.datetime, unused: int) -> None:
+def release_daily_checks(key: str, unused: int) -> None:
     if unused > 0:
-        cache.decr(_daily_key(team_id, now), unused)
+        cache.decr(key, unused)
 
 
 def _series_label(series: ScoredSeries) -> str:
@@ -143,11 +143,18 @@ class _Judging:
         # Older buckets go first, so a bucket the judge confirmed is an earlier flag for the newer ones.
         earlier: list[EarlierFlag] = []
         points: list[ScoredPoint] = []
+        # Trends can return one bucket start twice, such as the repeated hour at a DST fall-back. The repeat
+        # reuses the first result, so one bucket never makes a second model call.
+        judged: dict[datetime.datetime, JudgeMemberResult] = {}
         for point in series.points:
             if point.flag is None:
                 points.append(point)
                 continue
+            if point.bucket_start in judged:
+                points.append(_with_members(point, self.local_type, judged[point.bucket_start]))
+                continue
             result = self._member(series, point, line, positions.get(point.bucket_start), tuple(earlier))
+            judged[point.bucket_start] = result
             if result.state == MemberState.FIRED and result.judgment is not None:
                 earlier.append(EarlierFlag(date=point.bucket_start.isoformat(), rationale=result.judgment.rationale))
             points.append(_with_members(point, self.local_type, result))
@@ -227,7 +234,6 @@ def judge_flags(
     team: Team,
     insight: Insight,
     ai_judge: AIJudgeConfig,
-    now: datetime.datetime,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[InsightScores, JudgeCounts]:
     """Add the AI member's result to every scored bucket of a profile with an AI member. Never raises for a model error."""
@@ -235,12 +241,14 @@ def judge_flags(
     if member is None or member.judge is None:
         return scores, NO_AI_CHECKS
     flagged = sorted(
-        ((point.bucket_start, series.series_key) for series in scores.series for point in series.points if point.flag),
+        {(point.bucket_start, series.series_key) for series in scores.series for point in series.points if point.flag},
         reverse=True,
     )
     # The newest flagged buckets get the calls that both caps allow.
     wanted = flagged[: ai_judge.max_checks_per_insight_per_run]
-    reserved = reserve_daily_checks(team.id, now, len(wanted), ai_judge.max_checks_per_project_per_day)
+    # The day of the calls, not of the activity start: a scoring query can end after UTC midnight.
+    daily_key = _daily_key(team.id, timezone.now())
+    reserved = reserve_daily_checks(daily_key, len(wanted), ai_judge.max_checks_per_project_per_day)
     allowed = {(series_key, bucket_start) for bucket_start, series_key in wanted[:reserved]}
     judging = _Judging(
         scores,
@@ -255,7 +263,7 @@ def judge_flags(
     try:
         judged = dataclasses.replace(scores, series=[judging.series(series) for series in scores.series])
     finally:
-        release_daily_checks(team.id, now, reserved - judging.calls)
+        release_daily_checks(daily_key, reserved - judging.calls)
     counts = judging.counts()
     logger.info(
         "anomaly_scoring_ai_judged",

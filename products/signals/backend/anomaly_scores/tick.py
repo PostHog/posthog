@@ -613,7 +613,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         split=split,
         ai_judge=input.ai_judge,
     )
-    scores, ai_checks = judge_flags(scores, team=team, insight=insight, ai_judge=input.ai_judge, now=now)
+    scores, ai_checks = judge_flags(scores, team=team, insight=insight, ai_judge=input.ai_judge)
     if scores.artifacts and scores.state is not None:
         # The blob goes first, so every event of this visit names a model that exists.
         stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)

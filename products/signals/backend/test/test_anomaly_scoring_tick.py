@@ -37,6 +37,7 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
+from products.alerts.backend.facade.lazy_judge import LazyAndEnsemble
 from products.alerts.backend.facade.testing import fake_judge_model
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -57,6 +58,7 @@ from products.signals.backend.anomaly_scores.config import (
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
+from products.signals.backend.anomaly_scores.judging import judge_flags
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
@@ -86,6 +88,7 @@ from products.signals.backend.anomaly_scores.queue import (
     within_budget,
 )
 from products.signals.backend.anomaly_scores.scoring import (
+    FetchedSeries,
     InsightScores,
     ScoredPoint,
     ScoredSeries,
@@ -2187,8 +2190,9 @@ class TestAIJudgeProfile(BaseTest):
         self.organization.save()
         self.requests: list[Any] = []
 
-    def _run(self, insight: Insight, ai_judge: AIJudgeConfig) -> list[dict[str, Any]]:
-        now = datetime(2026, 10, 22, 0, 30, tzinfo=UTC)
+    def _run(
+        self, insight: Insight, ai_judge: AIJudgeConfig, now: datetime = datetime(2026, 10, 22, 0, 30, tzinfo=UTC)
+    ) -> list[dict[str, Any]]:
         data = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
         for day in (-2, -8, -14):
             data[day] = 500.0
@@ -2245,12 +2249,14 @@ class TestAIJudgeProfile(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_consent", False, 50, 0, "paused"),
-            ("daily_cap_spent_by_the_other_insight", True, 1, 1, "cap"),
+            ("no_consent", False, 50, 0, "paused", timedelta(0)),
+            ("daily_cap_spent_by_the_other_insight", True, 1, 1, "cap", timedelta(0)),
+            # The second pick started before UTC midnight, and its calls come after it.
+            ("daily_cap_of_the_call_day", True, 1, 1, "cap", timedelta(seconds=30)),
         ]
     )
     def test_no_model_call_without_consent_or_past_the_daily_cap(
-        self, _name: str, consent: bool, daily_cap: int, calls: int, reason: str
+        self, _name: str, consent: bool, daily_cap: int, calls: int, reason: str, started_before_call: timedelta
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
@@ -2259,8 +2265,10 @@ class TestAIJudgeProfile(BaseTest):
         )
         first, second = (Insight.objects.create(team=self.team, saved=True, query=_trends()) for _ in range(2))
 
-        self._run(first, ai_judge)
-        events = self._run(second, ai_judge)
+        call_time = datetime(2026, 10, 22, 0, 0, 20, tzinfo=UTC)
+        with time_machine.travel(call_time, tick=False):
+            self._run(first, ai_judge, call_time)
+            events = self._run(second, ai_judge, call_time - started_before_call)
 
         assert len(self.requests) == calls
         flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
@@ -2268,3 +2276,40 @@ class TestAIJudgeProfile(BaseTest):
         assert {(event["properties"]["$anomaly_flag"], self._members(event)[1]["reason"]) for event in flagged} == {
             (1, reason)
         }
+
+    def test_a_bucket_returned_twice_makes_one_model_call(self) -> None:
+        # Trends returns the repeated hour of a DST fall-back as two buckets with the same start.
+        repeated = datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)
+        buckets = [repeated - timedelta(hours=hours) for hours in range(10, 0, -1)] + [repeated, repeated]
+        point = ScoredPoint(bucket_start=repeated, value=90.0, score=0.99, flag=True, details={})
+        scores = InsightScores(
+            interval=IntervalType.HOUR,
+            profile="default-v2",
+            detector="ensemble",
+            detector_version="v2",
+            series=[ScoredSeries(series_key="s", label="pageview", breakdown_value=None, points=[point, point])],
+            ai_member=LazyAndEnsemble(local={"type": "zscore"}, judge={"type": "llm"}),
+            fetched=(
+                FetchedSeries(
+                    series_key="s",
+                    label="pageview",
+                    breakdown_value=None,
+                    values=[10.0] * 10 + [90.0] * 2,
+                    buckets=buckets,
+                ),
+            ),
+        )
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=1, max_checks_per_project_per_day=1
+        )
+
+        with fake_judge_model(is_anomaly=True, kind="spike", rationale="A spike.") as requests:
+            judged, counts = judge_flags(
+                scores,
+                team=self.team,
+                insight=Insight(team=self.team, query=_trends(interval="hour")),
+                ai_judge=ai_judge,
+            )
+
+        assert (len(requests), counts.made) == (1, 1)
+        assert [point.details["members"][1]["state"] for point in judged.series[0].points] == ["fired", "fired"]
