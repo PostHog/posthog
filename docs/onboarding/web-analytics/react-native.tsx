@@ -16,7 +16,8 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        To automatically capture screen views with React Navigation, use the `usePostHogCapture` hook:
+                        To capture screen views with React Navigation, call `posthog.screen()` when the route changes.
+                        Get the client with the `usePostHog` hook, and render this component inside `PostHogProvider`:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -24,13 +25,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'tsx',
                                 file: 'App.tsx',
                                 code: dedent`
-                                    import { usePostHogCapture } from 'posthog-react-native'
-                                    import { NavigationContainer } from '@react-navigation/native'
+                                    import { useRef } from 'react'
+                                    import { usePostHog } from 'posthog-react-native'
+                                    import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native'
 
                                     function App() {
-                                        const routeNameRef = useRef<string>()
-                                        const navigationRef = useRef<NavigationContainerRef<any>>()
-                                        const captureEvent = usePostHogCapture()
+                                        const routeNameRef = useRef<string | undefined>(undefined)
+                                        const navigationRef = useRef<NavigationContainerRef<any>>(null)
+                                        const posthog = usePostHog()
 
                                         return (
                                             <NavigationContainer
@@ -43,7 +45,9 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                                     const currentRouteName = navigationRef.current?.getCurrentRoute()?.name
 
                                                     if (previousRouteName !== currentRouteName) {
-                                                        captureEvent('$screen', { $screen_name: currentRouteName })
+                                                        if (currentRouteName) {
+                                                            posthog.screen(currentRouteName)
+                                                        }
                                                     }
                                                     routeNameRef.current = currentRouteName
                                                 }}
