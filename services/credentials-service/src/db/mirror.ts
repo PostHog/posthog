@@ -156,15 +156,20 @@ export async function insertMirrored(db: Queryable, input: MirrorInsert): Promis
     )
 }
 
-/** Replaces every mirrored field of a locked live row. The refresh columns keep their values. */
-export async function replaceMirrored(db: Queryable, id: string, fields: MirrorFields): Promise<MirrorWriteResult> {
+/** Replaces every mirrored field of a locked live row of the owner. The refresh columns keep their values. */
+export async function replaceMirrored(
+    db: Queryable,
+    owner: IntegrationOwner,
+    id: string,
+    fields: MirrorFields
+): Promise<MirrorWriteResult> {
     return writeRow(
         db,
         `UPDATE integrations SET
             kind = $2, external_id = $3, auth_type = $4, is_source_row = $5, config = $6, errors = $7,
             created_by_id = $8, created_at = $9::timestamptz, source_version = $10,
             version = version + 1, updated_at = now()
-         WHERE id = $1 AND deleted_at IS NULL
+         WHERE id = $1 AND owner_type = $11 AND owner_id = $12 AND deleted_at IS NULL
          RETURNING ${MIRROR_COLUMNS}`,
         [
             id,
@@ -177,13 +182,16 @@ export async function replaceMirrored(db: Queryable, id: string, fields: MirrorF
             fields.createdById,
             fields.createdAt,
             fields.sourceVersion,
+            owner.type,
+            owner.id,
         ]
     )
 }
 
-/** Soft-deletes a locked live row. A null `sourceVersion` keeps the stored one. */
+/** Soft-deletes a locked live row of the owner. The stored source version never goes down. */
 export async function softDeleteMirrored(
     db: Queryable,
+    owner: IntegrationOwner,
     id: string,
     sourceVersion: number | null
 ): Promise<MirrorWriteResult> {
@@ -191,9 +199,9 @@ export async function softDeleteMirrored(
         db,
         `UPDATE integrations SET
             deleted_at = now(), updated_at = now(), version = version + 1,
-            source_version = COALESCE($2, source_version)
-         WHERE id = $1 AND deleted_at IS NULL
+            source_version = GREATEST($2::bigint, source_version)
+         WHERE id = $1 AND owner_type = $3 AND owner_id = $4 AND deleted_at IS NULL
          RETURNING ${MIRROR_COLUMNS}`,
-        [id, sourceVersion]
+        [id, sourceVersion, owner.type, owner.id]
     )
 }

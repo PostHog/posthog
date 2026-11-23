@@ -25,8 +25,9 @@ function upsert(sourceVersion: number): MirrorRowBody {
     }
 }
 
-function remove(tombstone: boolean): MirrorRowBody {
-    return { legacy_id: 1, deleted: true, kind: 'slack', tombstone }
+function remove(tombstone: boolean, sourceVersion?: number): MirrorRowBody {
+    const row: MirrorRowBody = { legacy_id: 1, deleted: true, kind: 'slack', tombstone }
+    return sourceVersion === undefined ? row : { ...row, source_version: sourceVersion }
 }
 
 const live = (sourceVersion: number | null, ownerId = TEAM.id) => ({
@@ -45,6 +46,8 @@ describe('decideMirror', () => {
         ['tombstone + upsert', tombstone, upsert(99), true, { outcome: 'stale' }],
         ['tombstone + delete', tombstone, remove(true), false, { outcome: 'unchanged' }],
         ['live + delete', live(5), remove(false), false, { write: 'delete' }],
+        ['live + delete with an equal version', live(5), remove(false, 5), false, { write: 'delete' }],
+        ['live + delete with a lower version', live(5), remove(false, 4), true, { outcome: 'stale' }],
         ['live + lower version', live(5), upsert(4), true, { outcome: 'stale' }],
         ['live + equal version', live(5), upsert(5), false, { outcome: 'unchanged' }],
         ['live + equal version with force', live(5), upsert(5), true, { write: 'replace' }],
@@ -62,6 +65,12 @@ describe('mirrorBody', () => {
         const result = mirrorBody.safeParse(FIXTURE)
         expect(result.error?.issues).toBeUndefined()
         expect(result.data).toEqual(FIXTURE)
+    })
+
+    it('accepts a Django external id longer than the create route allows', () => {
+        const body = structuredClone(FIXTURE)
+        body.rows[0].integration_id = Array.from({ length: 60 }, (_, i) => `7${String(i).padStart(9, '0')}`).join(',')
+        expect(mirrorBody.safeParse(body).success).toBe(true)
     })
 
     it.each<[string, (body: any) => void]>([

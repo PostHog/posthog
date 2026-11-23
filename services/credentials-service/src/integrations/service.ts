@@ -249,6 +249,23 @@ export function kmsUnavailable(): IntegrationApiError {
     return new IntegrationApiError('kms_unavailable', 'the key service is not available, retry later')
 }
 
+/** Seals a secret blob for one row. A KMS failure becomes `kms_unavailable`. */
+export async function sealSecret(
+    envelope: Envelope,
+    row: { id: string; ownerId: number; kind: string },
+    blob: JsonObject
+): Promise<SealedSecret> {
+    try {
+        return await envelope.seal(blob, encryptionContext(row))
+    } catch (err) {
+        if (err instanceof KmsError) {
+            logger.error('integrations:seal_failed', { integrationId: row.id, reason: err.reason })
+            throw kmsUnavailable()
+        }
+        throw err
+    }
+}
+
 function unreadableSecret(details: Record<string, unknown> = {}): IntegrationApiError {
     return new IntegrationApiError('unreadable_secret', 'the stored secret cannot be read', details)
 }
@@ -942,16 +959,8 @@ export class IntegrationsService {
         return { found, missing }
     }
 
-    private async seal(row: { id: string; ownerId: number; kind: string }, blob: JsonObject): Promise<SealedSecret> {
-        try {
-            return await this.deps.envelope.seal(blob, encryptionContext(row))
-        } catch (err) {
-            if (err instanceof KmsError) {
-                logger.error('integrations:seal_failed', { integrationId: row.id, reason: err.reason })
-                throw kmsUnavailable()
-            }
-            throw err
-        }
+    private seal(row: { id: string; ownerId: number; kind: string }, blob: JsonObject): Promise<SealedSecret> {
+        return sealSecret(this.deps.envelope, row, blob)
     }
 
     private async open(row: IntegrationRow, stored: StoredSecret): Promise<JsonObject> {

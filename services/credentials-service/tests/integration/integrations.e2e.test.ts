@@ -1751,6 +1751,8 @@ describe('mirror', () => {
             })
         ).toEqual(['stale'])
 
+        expect(await outcomes([{ ...deleteRow(502, false), source_version: 4 }])).toEqual(['stale'])
+
         expect(await resolveAccessToken(502)).toBe(ACCESS_TOKEN)
         expect(await stored(502)).toMatchObject({ source_version: '5', version: 1 })
     })
@@ -1809,6 +1811,8 @@ describe('mirror', () => {
             code: 'unreadable_secret',
             details: { keys: ['access_token'] },
         })
+        const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
+        expect(rows.map((row) => row.fields)).toEqual([['access_token']])
     })
 
     it('stores no secret row for an empty blob with no unreadable keys', async () => {

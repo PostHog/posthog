@@ -89,6 +89,8 @@ export const MIRROR_ORIGINS = ['write', 'retry', 'backfill', 'repair'] as const
 export type MirrorOrigin = (typeof MIRROR_ORIGINS)[number]
 
 const legacyId = z.int().min(1).max(Number.MAX_SAFE_INTEGER)
+// Django stores the external id as unbounded text, kept below the btree row limit by its own unique index.
+const legacyExternalId = z.string().max(2700)
 const sourceVersion = z.int().min(0).max(Number.MAX_SAFE_INTEGER)
 
 const mirrorUpsertRow = z.strictObject({
@@ -96,7 +98,7 @@ const mirrorUpsertRow = z.strictObject({
     deleted: z.literal(false),
     source_version: sourceVersion,
     kind,
-    integration_id: externalId.nullable(),
+    integration_id: legacyExternalId.nullable(),
     auth_type: z.string(),
     is_source_row: z.boolean(),
     config: jsonObject,

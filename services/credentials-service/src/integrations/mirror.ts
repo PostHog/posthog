@@ -8,7 +8,6 @@ import type { Pool, PoolClient } from 'pg'
 import { IntegrationAuthError, assertKindAllowed } from '../auth/integrations'
 import type { JsonObject } from '../crypto/canonical'
 import type { Envelope, SealedSecret } from '../crypto/envelope'
-import { KmsError } from '../crypto/types'
 import type { IntegrationOwner } from '../db/integrations'
 import {
     type MirrorRow,
@@ -22,11 +21,10 @@ import {
 } from '../db/mirror'
 import { deleteSecret, putSecret } from '../db/secrets'
 import { withTransaction } from '../db/transaction'
-import { logger } from '../lib/logging'
 import { type AuditEntry, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError } from './errors'
 import { mirrorRowsTotal } from './metrics'
-import { type Caller, encryptionContext, isEmpty, kmsUnavailable, owner, writeDeadline } from './service'
+import { type Caller, isEmpty, owner, sealSecret, writeDeadline } from './service'
 import {
     type MirrorBody,
     type MirrorDeleteRow,
@@ -84,11 +82,14 @@ export function decideMirror(
     if (stored.deletedAt !== null) {
         return { outcome: row.deleted ? 'unchanged' : 'stale' }
     }
-    if (row.deleted) {
-        return { write: 'delete' }
-    }
-    // A live row with a legacy id but no source version was not written by the mirror: replace it.
+    // A live row with a legacy id but no source version was not written by the mirror.
     const storedVersion = stored.sourceVersion ?? -1
+    if (row.deleted) {
+        // A delete without a version still wins: a deleted Django id never comes back.
+        return row.source_version !== undefined && row.source_version < storedVersion
+            ? { outcome: 'stale' }
+            : { write: 'delete' }
+    }
     if (row.source_version < storedVersion) {
         return { outcome: 'stale' }
     }
@@ -122,16 +123,30 @@ export class MirrorService {
         const teamOwner = owner(caller)
         const results: MirrorResult[] = new Array(body.rows.length)
         let next = 0
+        let failed = false
         const worker = async (): Promise<void> => {
-            while (next < body.rows.length) {
+            while (!failed && next < body.rows.length) {
                 const index = next++
                 const row = body.rows[index] as MirrorRowBody
-                const result = await this.mirrorRow(caller, teamOwner, body, row)
+                let result: MirrorResult
+                try {
+                    result = await this.mirrorRow(caller, teamOwner, body, row)
+                } catch (err) {
+                    failed = true
+                    throw err
+                }
                 mirrorRowsTotal.labels({ origin: body.origin, outcome: result.outcome }).inc()
                 results[index] = result
             }
         }
-        await Promise.all(Array.from({ length: Math.min(MIRROR_CONCURRENCY, body.rows.length) }, worker))
+        // Waits for the rows in flight, so no write commits after the request has failed.
+        const settled = await Promise.allSettled(
+            Array.from({ length: Math.min(MIRROR_CONCURRENCY, body.rows.length) }, worker)
+        )
+        const failure = settled.find((outcome) => outcome.status === 'rejected')
+        if (failure) {
+            throw failure.reason
+        }
         return { results }
     }
 
@@ -157,7 +172,9 @@ export class MirrorService {
                 const secret = row.deleted ? null : secretOf(row)
                 // Sealed before the transaction, so the KMS call holds no row lock or connection.
                 const sealed =
-                    secret === null ? null : await this.seal({ id, ownerId: teamOwner.id, kind: row.kind }, secret)
+                    secret === null
+                        ? null
+                        : await sealSecret(this.deps.envelope, { id, ownerId: teamOwner.id, kind: row.kind }, secret)
                 const committed: AuditEntry[] = []
                 try {
                     const result = await this.writeTransaction(async (tx) => {
@@ -170,8 +187,11 @@ export class MirrorService {
                     logAuditEntries(committed)
                     return result
                 } catch (err) {
-                    if (!(err instanceof RowChanged) || attempt >= 1) {
+                    if (!(err instanceof RowChanged)) {
                         throw err
+                    }
+                    if (attempt >= 1) {
+                        return { legacy_id: legacyId, outcome: 'rejected', code: 'concurrent_write' }
                     }
                 }
             }
@@ -251,7 +271,7 @@ export class MirrorService {
             written =
                 write === 'insert'
                     ? await insertMirrored(tx, { ...fields, id, owner: teamOwner, legacyId, deleted: false })
-                    : await replaceMirrored(tx, id, fields)
+                    : await replaceMirrored(tx, teamOwner, id, fields)
             outcome = write === 'insert' ? 'created' : 'updated'
         } else if (write === 'tombstone') {
             written = await insertMirrored(tx, {
@@ -271,7 +291,7 @@ export class MirrorService {
             })
             outcome = 'deleted'
         } else {
-            written = await softDeleteMirrored(tx, id, (row as MirrorDeleteRow).source_version ?? null)
+            written = await softDeleteMirrored(tx, teamOwner, id, (row as MirrorDeleteRow).source_version ?? null)
             outcome = 'deleted'
         }
         // A concurrent writer took the legacy id or the key after the checks above. The retry sees it.
@@ -294,7 +314,9 @@ export class MirrorService {
             ownerId: written.row.ownerId,
             integrationId: written.row.id,
             kind: written.row.kind,
-            fields: row.deleted ? [] : Object.keys(row.sensitive_config).sort(),
+            fields: row.deleted
+                ? []
+                : [...new Set([...Object.keys(row.sensitive_config), ...row.legacy_unreadable_keys])].sort(),
             details: { origin: body.origin, legacy_id: legacyId, source_version: row.source_version ?? null },
         }
         await insertAuditRows(tx, [entry])
@@ -309,17 +331,5 @@ export class MirrorService {
             checkDeadline()
             return result
         })
-    }
-
-    private async seal(row: { id: string; ownerId: number; kind: string }, blob: JsonObject): Promise<SealedSecret> {
-        try {
-            return await this.deps.envelope.seal(blob, encryptionContext(row))
-        } catch (err) {
-            if (err instanceof KmsError) {
-                logger.error('integrations:seal_failed', { integrationId: row.id, reason: err.reason })
-                throw kmsUnavailable()
-            }
-            throw err
-        }
     }
 }
