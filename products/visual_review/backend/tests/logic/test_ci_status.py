@@ -1,7 +1,7 @@
 """Unit tests for logic/ci_status.py — Commit statuses and CI job reruns."""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 
 import pytest
@@ -995,8 +995,18 @@ def _serve_heads(
     setup_check_conclusions: list[str] | None | Exception = None,
     statuses_by_commit: dict[str, dict[str, github_api.PostedStatus]] | None = None,
     base_changes: tuple[timedelta, ...] | None = (),
+    drafts: tuple[int, ...] = (),
+    committed_ago: dict[str, timedelta | None] | None = None,
 ) -> None:
     carried = statuses_by_commit or {}
+    ages = committed_ago or {}
+
+    def committed_at(repo: Repo, sha: str) -> datetime | None:
+        # A head left out of `committed_ago` was committed just now. None means GitHub cannot say.
+        age = ages.get(sha, timedelta(0))
+        return None if age is None else timezone.now() - age
+
+    mocker.patch.object(github_api, "commit_committer_date", side_effect=committed_at)
     mocker.patch.object(
         github_api, "commit_statuses", side_effect=lambda repo, sha, priority: dict(carried.get(sha, {}))
     )
@@ -1017,7 +1027,7 @@ def _serve_heads(
         github_api,
         "open_pull_request_heads",
         return_value=[
-            github_api.BranchHead(commit_sha=sha, pr_number=n, base_ref=DEFAULT_BRANCH)
+            github_api.BranchHead(commit_sha=sha, pr_number=n, base_ref=DEFAULT_BRANCH, draft=n in drafts)
             for n, sha in pull_requests.items()
         ],
     )
@@ -1566,11 +1576,59 @@ class TestLedgerRecheck:
 
         assert output.splitlines()[0] == (
             "3 open pull requests (1 on the default branch, 2 on other branches), 0 merge-queue branches, "
-            "1 fork pull requests skipped."
+            "1 fork pull requests skipped, 0 drafts skipped, 0 not pushed within 7 days skipped."
         )
         assert "storybook skipped (1) stacked, no run: #6" in dry_run
         assert "1 skipped as stacked without a run" in output
         assert sorted(call.args[1] for call in sender.call_args_list) == ["head-4", "stacked-head-7"]
+
+    @pytest.mark.parametrize(
+        ("drafts", "committed_ago", "flags", "posted_heads", "skipped"),
+        [
+            pytest.param((4,), timedelta(0), (), [], "1 drafts skipped, 0 not pushed within 7 days", id="draft"),
+            pytest.param((), timedelta(days=8), (), [], "0 drafts skipped, 1 not pushed within 7 days", id="old"),
+            pytest.param(
+                (), timedelta(days=6), (), ["head-4"], "0 drafts skipped, 0 not pushed within 7 days", id="recent"
+            ),
+            pytest.param((), None, (), ["head-4"], "0 drafts skipped, 0 not pushed within 7 days", id="date_unknown"),
+            pytest.param(
+                (),
+                timedelta(days=30),
+                ("--pushed-within-days", "0"),
+                ["head-4"],
+                "0 drafts skipped, 0 not pushed within 0 days",
+                id="every_open_pull_request",
+            ),
+            pytest.param(
+                (4,),
+                timedelta(0),
+                ("--pushed-within-days", "0"),
+                [],
+                "1 drafts skipped, 0 not pushed within 0 days",
+                id="draft_with_every_open_pull_request",
+            ),
+        ],
+    )
+    def test_the_recheck_skips_drafts_and_heads_not_pushed_recently_but_keeps_merge_queue_heads(
+        self, repo, sender, mocker, drafts, committed_ago, flags, posted_heads, skipped
+    ) -> None:
+        old_queue_head = timedelta(days=30)
+        _serve_heads(
+            mocker,
+            {4: "head-4"},
+            {3: "queue-3"},
+            ["skipped"],
+            drafts=drafts,
+            committed_ago={"head-4": committed_ago, "queue-3": old_queue_head},
+        )
+
+        dry_run = _recheck_command(repo, *flags)
+        _recheck_command(repo, "--apply", *flags)
+
+        assert dry_run.splitlines()[0].endswith(f"{skipped} skipped.")
+        assert ("#4" in dry_run) == bool(posted_heads)
+        assert "#3" in dry_run
+        assert sorted(call.args[1] for call in sender.call_args_list) == sorted([*posted_heads, "queue-3"])
 
     def test_the_recheck_apply_needs_the_setup_check(self, repo, sender, mocker) -> None:
         _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"])

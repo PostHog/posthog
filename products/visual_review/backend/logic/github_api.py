@@ -466,10 +466,16 @@ def actions_check_runs(
     ]
 
 
+_BASE_CHANGE_EVENTS = ("base_ref_changed", "automatic_base_change_succeeded")
+
+
 def pull_request_base_changes(
     repo: Repo, pr_number: int, priority: Priority = Priority.CRITICAL
 ) -> list[datetime] | None:
-    """When the pull request's base branch was changed, or None when GitHub cannot say."""
+    """When the pull request's base branch was changed, or None when GitHub cannot say.
+
+    GitHub's automatic retarget of a stacked pull request, after its parent merged, counts too.
+    """
     events = _read_all_pages(
         "visual_review.pull_request_timeline_fetch_failed", repo, f"issues/{pr_number}/timeline", {}, priority=priority
     )
@@ -478,9 +484,23 @@ def pull_request_base_changes(
     changed_at = [
         parse_datetime(event["created_at"])
         for event in events
-        if event.get("event") == "base_ref_changed" and event.get("created_at")
+        if event.get("event") in _BASE_CHANGE_EVENTS and event.get("created_at")
     ]
     return [moment for moment in changed_at if moment is not None]
+
+
+def commit_committer_date(repo: Repo, sha: str, priority: Priority = Priority.BATCH) -> datetime | None:
+    """When the commit was committed, or None when GitHub cannot say."""
+    data = _read_json(
+        "visual_review.commit_fetch_failed",
+        partial(_github_api_request, "GET", repo, f"commits/{sha}", priority=priority),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    committed_at = ((data.get("commit") or {}).get("committer") or {}).get("date")
+    return parse_datetime(committed_at) if committed_at else None
 
 
 def merged_pull_requests_for_commit(
@@ -518,6 +538,7 @@ class BranchHead:
     from_fork: bool = False
     # The branch a pull request targets. Empty for a merge-queue branch.
     base_ref: str = ""
+    draft: bool = False
 
 
 _LIST_PAGE_SIZE = 100
@@ -576,6 +597,7 @@ def open_pull_request_heads(repo: Repo) -> list[BranchHead] | None:
             pr_number=item["number"],
             from_fork=_is_from_fork(item),
             base_ref=(item.get("base") or {}).get("ref") or "",
+            draft=bool(item.get("draft")),
         )
         for item in items
     ]

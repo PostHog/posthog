@@ -271,3 +271,49 @@ def test_recheck_reads_the_newest_status_of_each_context_from_every_page() -> No
 
     assert statuses is not None
     assert statuses["gate"] == github_api.PostedStatus(state="failure", description="Changed", creator="app[bot]")
+
+
+def test_a_base_change_counts_a_manual_and_an_automatic_retarget() -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = [
+        {"event": "base_ref_changed", "created_at": "2026-11-20T10:00:00Z"},
+        {"event": "automatic_base_change_succeeded", "created_at": "2026-11-21T10:00:00Z"},
+        {"event": "automatic_base_change_failed", "created_at": "2026-11-22T10:00:00Z"},
+        {"event": "committed"},
+    ]
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        changed_at = github_api.pull_request_base_changes(Repo(repo_full_name="org/repo"), 7)
+
+    assert changed_at == [datetime(2026, 11, 20, 10, tzinfo=UTC), datetime(2026, 11, 21, 10, tzinfo=UTC)]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected"),
+    [
+        pytest.param(
+            200,
+            {
+                "commit": {
+                    "author": {"date": "2026-01-01T10:00:00Z"},
+                    "committer": {"date": "2026-11-20T10:00:00Z"},
+                }
+            },
+            datetime(2026, 11, 20, 10, tzinfo=UTC),
+            id="committer_not_author",
+        ),
+        pytest.param(404, {}, None, id="not_found"),
+    ],
+)
+def test_commit_committer_date(status_code: int, body: dict, expected: datetime | None) -> None:
+    response = MagicMock(status_code=status_code)
+    response.json.return_value = body
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        committed_at = github_api.commit_committer_date(Repo(repo_full_name="org/repo"), "sha")
+
+    assert committed_at == expected

@@ -3,11 +3,13 @@
 import re
 import time
 from collections import Counter
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Count, Exists, OuterRef, Q
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
@@ -148,6 +150,12 @@ class Command(BaseCommand):
             type=float,
             default=8.0,
             help="Seconds to wait between two posts. The default stays below GitHub's 500 writes per hour.",
+        )
+        recheck.add_argument(
+            "--pushed-within-days",
+            type=int,
+            default=7,
+            help="Skip pull request heads committed longer ago than this. 0 covers every open pull request.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -378,7 +386,23 @@ class Command(BaseCommand):
         more = f", and {rest} more" if rest > 0 else ""
         self.stdout.write(f"Pull requests whose run is gated by the commit status: {shown}{more}")
 
-    def _heads(self, repo: Repo) -> _Heads:
+    def _pushed_within(self, repo: Repo, heads: list[github_api.BranchHead], days: int) -> list[github_api.BranchHead]:
+        if days == 0:
+            return heads
+        cutoff = timezone.now() - timedelta(days=days)
+        kept: list[github_api.BranchHead] = []
+        for head in heads:
+            try:
+                committed_at = github_api.commit_committer_date(repo, head.commit_sha)
+            except github_api.GITHUB_READ_REFUSED as e:
+                raise CommandError(
+                    f"GitHub refused the commit read of {head.commit_sha}. Nothing was posted. Run recheck again later."
+                ) from e
+            if committed_at is None or committed_at >= cutoff:
+                kept.append(head)
+        return kept
+
+    def _heads(self, repo: Repo, pushed_within_days: int) -> _Heads:
         default_branch = github_api.default_branch_name(repo)
         if default_branch is None:
             raise CommandError("GitHub did not name the default branch. Nothing was posted.")
@@ -394,22 +418,29 @@ class Command(BaseCommand):
         # there. A fork pull request is recreated in the repository before it merges, so it gets no status.
         in_repo = [head for head in pull_requests if not head.from_fork]
         forks = len(pull_requests) - len(in_repo)
-        on_default_branch = sum(1 for head in in_repo if head.base_ref == default_branch)
+        # Each post counts against GitHub's write limit, so the pass leaves out heads that get their status
+        # another way. CI runs on `ready_for_review`, which posts a draft's status. An old head without a
+        # status cannot merge, as with a status that is not green, and its next push or CI re-run posts it.
+        ready = [head for head in in_repo if not head.draft]
+        drafts = len(in_repo) - len(ready)
+        kept = self._pushed_within(repo, ready, pushed_within_days)
+        on_default_branch = sum(1 for head in kept if head.base_ref == default_branch)
         self.stdout.write(
-            f"{len(in_repo)} open pull requests ({on_default_branch} on the default branch, "
-            f"{len(in_repo) - on_default_branch} on other branches), {len(merge_queue)} merge-queue branches, "
-            f"{forks} fork pull requests skipped."
+            f"{len(kept)} open pull requests ({on_default_branch} on the default branch, "
+            f"{len(kept) - on_default_branch} on other branches), {len(merge_queue)} merge-queue branches, "
+            f"{forks} fork pull requests skipped, {drafts} drafts skipped, "
+            f"{len(ready) - len(kept)} not pushed within {pushed_within_days} days skipped."
         )
-        on_default = {head.commit_sha for head in in_repo if head.base_ref == default_branch}
-        stacked = {head.commit_sha for head in in_repo if head.base_ref != default_branch}
+        on_default = {head.commit_sha for head in kept if head.base_ref == default_branch}
+        stacked = {head.commit_sha for head in kept if head.base_ref != default_branch}
         pull_requests_by_commit: dict[str, tuple[int, ...]] = {}
-        for head in in_repo:
+        for head in kept:
             pull_requests_by_commit[head.commit_sha] = (
                 *pull_requests_by_commit.get(head.commit_sha, ()),
                 head.pr_number,
             )
         return _Heads(
-            heads=in_repo + merge_queue,
+            heads=kept + merge_queue,
             stacked_commits=frozenset(stacked - on_default),
             pull_requests_by_commit=pull_requests_by_commit,
         )
@@ -528,7 +559,7 @@ class Command(BaseCommand):
         # Each run type has its own CI job that creates its run.
         if setup_check and len(run_types) != 1:
             raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")
-        heads = self._heads(repo)
+        heads = self._heads(repo, options["pushed_within_days"])
         if apply:
             self._post_verdicts(repo, heads, run_types, setup_check, options)
         else:
