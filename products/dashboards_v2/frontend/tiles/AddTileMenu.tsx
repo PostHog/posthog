@@ -10,7 +10,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { useDashboardV2 } from '../dashboardV2Context'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { NEW_TILES } from '../widgets/newTiles'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {

@@ -2,7 +2,7 @@ import { memo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
 
 const PLACEHOLDER_LABEL: Record<ContentWidget['type'], string> = {
     stat: 'Number',

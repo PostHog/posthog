@@ -1,4 +1,4 @@
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
 
 export const NEW_TILES: { label: string; widget: ContentWidget }[] = [
     {

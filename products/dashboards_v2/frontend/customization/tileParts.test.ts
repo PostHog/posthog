@@ -1,4 +1,4 @@
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
 import { type ContentWidgetParts, showsPart } from './tileParts'
 
 describe('showsPart', () => {

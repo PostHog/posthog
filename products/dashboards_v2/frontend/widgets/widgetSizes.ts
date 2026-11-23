@@ -1,5 +1,5 @@
 import { isPartShown } from '../customization/tileParts'
-import { type ContentWidget, GRID, type Widget } from './dashboardTypes'
+import { type ContentWidget, GRID, type Widget } from '../dashboard/dashboardTypes'
 
 interface WidgetSize {
     w: number

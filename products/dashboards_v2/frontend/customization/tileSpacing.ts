@@ -1,4 +1,4 @@
-import type { Dashboard } from '../layout/dashboardTypes'
+import type { Dashboard } from '../dashboard/dashboardTypes'
 
 export type TileSpacing = 'tight' | 'compact' | 'standard'
 

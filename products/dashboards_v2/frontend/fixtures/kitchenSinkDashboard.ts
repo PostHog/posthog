@@ -1,4 +1,4 @@
-import type { ContentWidget, Dashboard, Tile } from '../layout/dashboardTypes'
+import type { ContentWidget, Dashboard, Tile } from '../dashboard/dashboardTypes'
 
 const sql = (expr: string): { kind: 'hogql'; sql: string } => ({ kind: 'hogql', sql: expr })
 

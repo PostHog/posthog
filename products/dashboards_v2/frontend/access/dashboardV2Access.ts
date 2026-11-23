@@ -2,7 +2,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { DashboardEdit } from '../layout/dashboardEdits'
+import type { DashboardEdit } from '../dashboard/dashboardEdits'
 
 /**
  * Everything a person can do to a v2 dashboard, and the access level it needs. Each edit kind must appear here, so a

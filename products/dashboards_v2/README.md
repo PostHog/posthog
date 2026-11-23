@@ -16,7 +16,7 @@ A dashboard has tabs. A tab has one grid. A grid holds tiles, and nothing else.
 | Section | A widget that is itself a grid. A section can sit inside another section.    |
 | Tab     | A named grid. Tabs belong to the dashboard only. A section cannot hold tabs. |
 
-The whole dashboard is one JSON tree (`Dashboard` in `frontend/layout/dashboardTypes.ts`).
+The whole dashboard is one JSON tree (`Dashboard` in `frontend/dashboard/dashboardTypes.ts`).
 
 ## The grid
 
@@ -39,7 +39,7 @@ A section moved into a narrower grid gets narrower, and its tiles are placed aga
 
 ## Where a tile goes
 
-One function decides every place: `placeTiles` in `frontend/layout/placeTiles.ts`.
+One function decides every place: `placeTiles` in `frontend/grid/placeTiles.ts`.
 A drag inside a grid, a drop from another grid, and a saved dashboard all go through it.
 
 1. With no drag or resize running, tiles only move up to close gaps.
@@ -55,14 +55,14 @@ A drag inside a grid, a drop from another grid, and a saved dashboard all go thr
 
 ## Drag and resize
 
-`react-grid-layout` moves and sizes the tiles inside one grid (`frontend/components/TileGrid.tsx`).
+`react-grid-layout` moves and sizes the tiles inside one grid (`frontend/grid/TileGrid.tsx`).
 It does not decide places: its compactor is `placeTiles`.
 
 - A tile is dragged by its title bar. A tile without a title is dragged by its body. A section is dragged by its header.
 - The tile follows the pointer. A dashed outline shows where it will land, and it lands exactly there.
 - While a tile is over another grid, that grid shows the outline and makes room.
   The tile's own grid closes up.
-- The grid a tile is over is decided from where every grid was when the drag began (`frontend/layout/dropTargets.ts`).
+- The grid a tile is over is decided from where every grid was when the drag began (`frontend/grid/dropTargets.ts`).
   A preview moves and resizes grids, so reading them during the drag makes the outline jump between two grids.
 - A tile leaves a section when the pointer leaves the area the section covered when the drag began.
 - A tile dropped on another tab's name moves to the bottom of that tab.
@@ -71,16 +71,18 @@ It does not decide places: its compactor is `placeTiles`.
 
 ## Editing
 
-- Every change goes through one pure function, `applyEdit` in `frontend/layout/dashboardEdits.ts`, and comes out settled: no overlaps, no gaps, and correct section heights.
+- Every change goes through one pure function, `applyEdit` in `frontend/dashboard/dashboardEdits.ts`, and comes out settled: no overlaps, no gaps, and correct section heights.
 - Tabs can be added, renamed, and removed. The last tab cannot be removed.
 - Undo and redo cover every edit, and a press that moves nothing adds no undo step.
 - Only people who can edit dashboards can change the layout. Everyone else sees it read-only.
 
 ## Embedding a dashboard
 
+The frontend is grouped by concept: `dashboard/`, `grid/`, `tiles/`, `widgets/`, `customization/` and `access/`. Only the `/dashboard-v2` host, `DashboardV2Scene.tsx` and `dashboardV2Logic.ts`, sits at the root.
+
 The components hold no business logic and never import a kea logic, so any page can render a dashboard.
 
-- `DashboardV2View` in `frontend/components/DashboardV2View.tsx` renders the tabs and the grid from a `DashboardV2Controller` (`frontend/dashboardV2Context.ts`).
+- `DashboardV2View` in `frontend/dashboard/DashboardV2View.tsx` renders the tabs and the grid from a `DashboardV2Controller` (`frontend/dashboard/dashboardV2Context.ts`).
 - The host owns the dashboard, undo history, access rules, saving and the URL. It passes values in and gets edits back through `onEdit`.
 - The view owns only what the screen and a drag decide: the stacked layout on narrow screens, the drop target, and the undo shortcut.
 - The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
@@ -92,7 +94,7 @@ The components hold no business logic and never import a kea logic, so any page 
 
 - `tileSpacing` is the gap between tiles: Tight (8px), Compact (12px, the default) or Standard (16px). Editors set it from the Customize menu.
 - A tile always keeps room for its parts. Each content tile has a minimum height made of its header, its footer and the least its body needs, so on a tight dashboard a tile with a footer can get one more row.
-- Spacing, tile parts, their edits and their menus live in `frontend/customization/`. Layout code lives in `frontend/layout/`.
+- Spacing, tile parts, their edits and their menus live in `frontend/customization/`. Placement lives in `frontend/grid/`.
 - A customization edit still goes through `applyEdit`, because spacing and parts change tile heights, and the layout has to settle after them.
 
 ## Narrow screens
@@ -106,8 +108,8 @@ Below 768px of canvas width (`GRID.stackBelowPx`), the dashboard is read-only an
 
 ## Adding a widget type
 
-1. Add the type to `ContentWidget` in `frontend/layout/dashboardTypes.ts`.
-2. Add its default and minimum size to `frontend/layout/widgetSizes.ts`.
+1. Add the type to `ContentWidget` in `frontend/dashboard/dashboardTypes.ts`.
+2. Add its default and minimum size to `frontend/widgets/widgetSizes.ts`.
 3. Render it in `frontend/widgets/WidgetView.tsx`.
 4. Add it to the add menu in `frontend/widgets/newTiles.ts`.
 
@@ -117,6 +119,6 @@ The grid never looks inside a widget, so no layout code changes.
 
 Layout bugs show up under a real pointer, not in a unit test.
 
-1. `frontend/layout/placeTiles.test.ts` covers the placement rules as a table. Add a row for a new rule.
+1. `frontend/grid/placeTiles.test.ts` covers the placement rules as a table. Add a row for a new rule.
 2. The stories in `frontend/DashboardV2Scene.stories.tsx` drag real tiles in a browser and assert that each one lands on its outline with nothing overlapping. Add a story for a new gesture.
 3. Try the gesture by hand with a real pointer.

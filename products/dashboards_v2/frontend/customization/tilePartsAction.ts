@@ -1,6 +1,6 @@
-import type { TileAction } from '../components/TileContextMenu'
-import type { DashboardEdit } from '../layout/dashboardEdits'
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { DashboardEdit } from '../dashboard/dashboardEdits'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
+import type { TileAction } from '../tiles/TileContextMenu'
 import { type ContentWidgetParts, hasPart, showsPart } from './tileParts'
 
 const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [

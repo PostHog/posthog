@@ -1,5 +1,7 @@
 import { type CustomizationEdit, applyCustomizationEdit } from '../customization/customizationEdits'
 import { gapPxOf } from '../customization/tileSpacing'
+import { type PlacedItem, bottomOf, placeTiles } from '../grid/placeTiles'
+import { minRows, widgetSize } from '../widgets/widgetSizes'
 import {
     type Dashboard,
     GRID,
@@ -10,9 +12,7 @@ import {
     type Widget,
     isSection,
 } from './dashboardTypes'
-import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
 import { allTiles, changeTileEverywhere, findTile } from './tileTree'
-import { minRows, widgetSize } from './widgetSizes'
 
 export type LayoutEdit =
     | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace>; resized?: string }

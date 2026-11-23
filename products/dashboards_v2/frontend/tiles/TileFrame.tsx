@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import type { Tile } from '../layout/dashboardTypes'
+import type { Tile } from '../dashboard/dashboardTypes'
 import { ContentTile } from './ContentTile'
 import { SectionTile } from './SectionTile'
 

@@ -4,9 +4,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { type DashboardV2Action, dashboardV2DisabledReason } from './access/dashboardV2Access'
+import { type DashboardEdit, applyEdit, settleDashboard, withFolds } from './dashboard/dashboardEdits'
+import { type Dashboard, type DashboardTab } from './dashboard/dashboardTypes'
 import { kitchenSinkDashboard } from './fixtures/kitchenSinkDashboard'
-import { type DashboardEdit, applyEdit, settleDashboard, withFolds } from './layout/dashboardEdits'
-import { type Dashboard, type DashboardTab } from './layout/dashboardTypes'
 
 const HISTORY_LIMIT = 100
 

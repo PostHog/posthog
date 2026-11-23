@@ -12,8 +12,8 @@ import {
 } from '@posthog/quill'
 
 import { tilePartsAction } from '../customization/tilePartsAction'
-import { useDashboardV2 } from '../dashboardV2Context'
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 
 /** One thing a person can do to a tile, shared by the right-click menu and the hover toolbar so the two agree. */
 export interface TileAction {

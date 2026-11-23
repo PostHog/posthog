@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { type FooterWidgetType, isFooterWidgetType } from '../customization/tileParts'
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
 
 function UpdatedAt({ refreshedAt }: { refreshedAt?: string }): JSX.Element {
     if (!refreshedAt) {

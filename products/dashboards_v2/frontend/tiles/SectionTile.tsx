@@ -3,12 +3,12 @@ import { useCallback, useState } from 'react'
 import { IconDrag, IconTrash } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useDashboardV2 } from '../dashboardV2Context'
-import { GRID, type SectionWidget, spanPx } from '../layout/dashboardTypes'
+import { GRID, type SectionWidget, spanPx } from '../dashboard/dashboardTypes'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { TileGrid } from '../grid/TileGrid'
 import { AddTileMenu } from './AddTileMenu'
 import { SectionTitle } from './SectionTitle'
 import { TileContextMenu, useSectionActions } from './TileContextMenu'
-import { TileGrid } from './TileGrid'
 
 export function SectionTile({
     id,

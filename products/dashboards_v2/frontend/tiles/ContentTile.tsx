@@ -4,7 +4,7 @@ import { IconTrash } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
 import { isPartShown } from '../customization/tileParts'
-import type { ContentWidget } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../dashboard/dashboardTypes'
 import { WidgetFooter } from '../widgets/WidgetFooter'
 import { WidgetView } from '../widgets/WidgetView'
 import { ContentTileFooter } from './ContentTileFooter'

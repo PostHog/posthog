@@ -2,8 +2,8 @@ import { IconRedo, IconUndo } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { TileSpacingMenu } from '../customization/TileSpacingMenu'
-import { useDashboardV2 } from '../dashboardV2Context'
-import { AddTileMenu } from './AddTileMenu'
+import { AddTileMenu } from '../tiles/AddTileMenu'
+import { useDashboardV2 } from './dashboardV2Context'
 
 export function DashboardV2Actions(): JSX.Element {
     const { history, can, activeTab } = useDashboardV2()

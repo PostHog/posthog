@@ -13,7 +13,7 @@ import {
     TabsTrigger,
 } from '@posthog/quill'
 
-import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
+import { useDashboardV2, useDashboardV2Drag } from './dashboardV2Context'
 
 interface TabDraft {
     id: string

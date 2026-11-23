@@ -1,5 +1,5 @@
-import { type Dashboard, isSection } from '../layout/dashboardTypes'
-import { changeTileEverywhere } from '../layout/tileTree'
+import { type Dashboard, isSection } from '../dashboard/dashboardTypes'
+import { changeTileEverywhere } from '../dashboard/tileTree'
 import type { ContentWidgetParts } from './tileParts'
 import type { DashboardAppearance } from './tileSpacing'
 

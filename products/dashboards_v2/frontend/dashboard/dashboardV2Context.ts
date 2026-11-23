@@ -1,9 +1,9 @@
 import { createContext, useContext } from 'react'
 
-import type { DashboardV2Action } from './access/dashboardV2Access'
-import type { DashboardEdit } from './layout/dashboardEdits'
-import type { Dashboard, DashboardTab } from './layout/dashboardTypes'
-import type { DropTarget } from './layout/dropTargets'
+import type { DashboardV2Action } from '../access/dashboardV2Access'
+import type { DropTarget } from '../grid/dropTargets'
+import type { DashboardEdit } from './dashboardEdits'
+import type { Dashboard, DashboardTab } from './dashboardTypes'
 
 /**
  * What a host passes to `DashboardV2View`. The host owns the state and the rules behind it (history, access, saving,

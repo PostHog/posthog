@@ -6,9 +6,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { DashboardV2Actions } from './components/DashboardV2Actions'
-import { DashboardV2View } from './components/DashboardV2View'
-import type { DashboardV2Controller } from './dashboardV2Context'
+import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
+import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
+import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
 
 export const scene: SceneExport = {

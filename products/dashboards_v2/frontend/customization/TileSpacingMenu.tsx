@@ -10,7 +10,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { useDashboardV2 } from '../dashboardV2Context'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { TILE_SPACINGS, type TileSpacing } from './tileSpacing'
 
 export function TileSpacingMenu(): JSX.Element {

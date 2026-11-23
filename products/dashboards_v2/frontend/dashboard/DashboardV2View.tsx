@@ -1,22 +1,22 @@
-import '../DashboardV2.scss'
+import './DashboardV2.scss'
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo, useState } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
 import { gapPxOf } from '../customization/tileSpacing'
+import type { DropTarget } from '../grid/dropTargets'
+import { TileGrid } from '../grid/TileGrid'
+import { stackTiles } from './dashboardEdits'
+import { GRID } from './dashboardTypes'
 import {
     type DashboardV2Controller,
     DashboardV2DragContext,
     type DashboardV2DragState,
     type DashboardV2State,
     DashboardV2StateContext,
-} from '../dashboardV2Context'
-import { stackTiles } from '../layout/dashboardEdits'
-import { GRID } from '../layout/dashboardTypes'
-import type { DropTarget } from '../layout/dropTargets'
+} from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
-import { TileGrid } from './TileGrid'
 
 const STACKED_REASON = 'Open this dashboard on a wider screen to edit it'
 
