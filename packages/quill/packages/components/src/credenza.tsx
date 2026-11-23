@@ -11,15 +11,14 @@ import {
     DialogTitle,
     DialogTrigger,
     Drawer,
+    DrawerBody,
     DrawerClose,
     DrawerContent,
     DrawerDescription,
     DrawerFooter,
     DrawerHeader,
     DrawerTitle,
-    DrawerTrigger,
-    ScrollArea,
-    cn,
+    createDrawerHandle,
 } from '@posthog/quill-primitives'
 
 import { useMediaQuery } from './use-media-query'
@@ -29,10 +28,25 @@ const DIALOG_QUERY = '(min-width: 48rem)'
 
 type CredenzaMode = 'dialog' | 'drawer'
 
+interface CredenzaProps {
+    open?: boolean
+    defaultOpen?: boolean
+    onOpenChange?: (open: boolean) => void
+    children?: React.ReactNode
+}
+
+/** The props both roots share, so `CredenzaContent` spreads them onto whichever root fits the mode. */
+interface CredenzaRootProps {
+    /** Connects the triggers to whichever root is mounted, so a change of mode never remounts a trigger. */
+    handle: ReturnType<typeof createDrawerHandle>
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    onOpenChangeComplete: (open: boolean) => void
+}
+
 interface CredenzaContextValue {
     mode: CredenzaMode
-    /** Comes from the root, because a change of mode remounts every part. */
-    triggerId: string
+    rootProps: CredenzaRootProps
 }
 
 const CredenzaContext = React.createContext<CredenzaContextValue | null>(null)
@@ -45,31 +59,16 @@ function useCredenzaContext(part: string): CredenzaContextValue {
     return context
 }
 
-interface CredenzaProps {
-    open?: boolean
-    defaultOpen?: boolean
-    onOpenChange?: (open: boolean) => void
-    children?: React.ReactNode
-}
-
-interface OpenChangeDetails {
-    trigger: Element | undefined
-}
-
-interface CredenzaRootProps {
-    open: boolean
-    onOpenChange: (open: boolean, details: OpenChangeDetails) => void
-    onOpenChangeComplete: (open: boolean) => void
-}
-
 /**
  * A change of mode remounts the popup and loses what the user typed, and a rotated phone crosses the breakpoint.
- * So the mode stays fixed from open until the close animation ends, then focus moves to the remounted trigger.
+ * So the mode stays fixed from open until the close animation ends.
  */
-function useCredenzaState({ open, defaultOpen = false, onOpenChange }: Omit<CredenzaProps, 'children'>): {
-    mode: CredenzaMode
-    rootProps: CredenzaRootProps
-} {
+function useCredenzaState({
+    open,
+    defaultOpen = false,
+    onOpenChange,
+}: Omit<CredenzaProps, 'children'>): CredenzaContextValue {
+    const [handle] = React.useState(createDrawerHandle)
     const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
     const isOpen = open ?? uncontrolledOpen
 
@@ -79,12 +78,8 @@ function useCredenzaState({ open, defaultOpen = false, onOpenChange }: Omit<Cred
         setPopupMode(viewportMode)
     }
 
-    const openedByTriggerId = React.useRef<string | null>(null)
     const handleOpenChange = React.useCallback(
-        (next: boolean, details: OpenChangeDetails) => {
-            if (next) {
-                openedByTriggerId.current = details.trigger?.id || null
-            }
+        (next: boolean) => {
             setUncontrolledOpen(next)
             onOpenChange?.(next)
         },
@@ -95,47 +90,50 @@ function useCredenzaState({ open, defaultOpen = false, onOpenChange }: Omit<Cred
             setPopupMode(null)
         }
     }, [])
-    React.useLayoutEffect(() => {
-        const triggerId = openedByTriggerId.current
-        if (popupMode !== null || triggerId === null) {
-            return
-        }
-        openedByTriggerId.current = null
-        if (document.activeElement === document.body) {
-            document.getElementById(triggerId)?.focus()
-        }
-    }, [popupMode])
 
-    return {
-        mode: popupMode ?? viewportMode,
-        rootProps: { open: isOpen, onOpenChange: handleOpenChange, onOpenChangeComplete: handleOpenChangeComplete },
-    }
+    return React.useMemo(
+        () => ({
+            mode: popupMode ?? viewportMode,
+            rootProps: {
+                handle,
+                open: isOpen,
+                onOpenChange: handleOpenChange,
+                onOpenChangeComplete: handleOpenChangeComplete,
+            },
+        }),
+        [popupMode, viewportMode, handle, isOpen, handleOpenChange, handleOpenChangeComplete]
+    )
 }
 
 /** A dialog on a wide viewport and a bottom drawer on a phone, with one set of parts for both. */
 function Credenza({ children, ...state }: CredenzaProps): React.ReactElement {
-    const { mode, rootProps } = useCredenzaState(state)
-    const triggerId = React.useId()
-    const context = React.useMemo(() => ({ mode, triggerId }), [mode, triggerId])
-
-    return (
-        <CredenzaContext.Provider value={context}>
-            {mode === 'dialog' ? (
-                <Dialog {...rootProps}>{children}</Dialog>
-            ) : (
-                <Drawer {...rootProps} swipeDirection="down">
-                    {children}
-                </Drawer>
-            )}
-        </CredenzaContext.Provider>
-    )
+    return <CredenzaContext.Provider value={useCredenzaState(state)}>{children}</CredenzaContext.Provider>
 }
 
-interface CredenzaButtonProps extends React.ComponentPropsWithoutRef<'button'> {
-    render?: React.ReactElement
-    /** Set to `false` when `render` is not a native `<button>`. */
-    nativeButton?: boolean
-}
+/** Base UI's drawer trigger is its dialog trigger, so one trigger serves both modes. */
+const CredenzaTrigger = React.forwardRef<
+    HTMLButtonElement,
+    Omit<React.ComponentPropsWithoutRef<typeof DialogTrigger>, 'handle'>
+>(function CredenzaTrigger(props, ref) {
+    const { handle } = useCredenzaContext('CredenzaTrigger').rootProps
+    return <DialogTrigger ref={ref} handle={handle} data-slot="credenza-trigger" {...props} />
+})
+
+/** The root lives here rather than in `Credenza`, so a change of mode remounts the popup and not the triggers. */
+const CredenzaContent = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<'div'>>(
+    function CredenzaContent(props, ref) {
+        const { mode, rootProps } = useCredenzaContext('CredenzaContent')
+        return mode === 'dialog' ? (
+            <Dialog {...rootProps}>
+                <DialogContent ref={ref} {...props} />
+            </Dialog>
+        ) : (
+            <Drawer {...rootProps} swipeDirection="down">
+                <DrawerContent ref={ref} {...props} />
+            </Drawer>
+        )
+    }
+)
 
 /** Not `React.ComponentType`: its `propTypes` check fails on Base UI's function `className`. */
 type ModePart<Props, Ref> = (props: React.PropsWithoutRef<Props> & React.RefAttributes<Ref>) => React.ReactNode
@@ -153,66 +151,24 @@ function credenzaPart<Props extends object, Ref extends HTMLElement>(
     return Part
 }
 
-const DrawerBody = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<'div'>>(function DrawerBody(
-    { className, ...props },
-    ref
-) {
-    return (
-        <ScrollArea
-            ref={ref}
-            data-slot="credenza-body"
-            // The drawer has no fixed height, so the viewport fills the space the flex layout leaves it.
-            className={cn('flex min-h-0 flex-1 flex-col', className)}
-            viewportClassName="min-h-0 flex-1 px-4"
-            {...props}
-        />
-    )
-})
-
-const DrawerStackedFooter = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<'div'>>(
-    function DrawerStackedFooter({ className, ...props }, ref) {
-        return <DrawerFooter ref={ref} className={cn('flex-col-reverse', className)} {...props} />
-    }
-)
-
-/** A credenza with more than one trigger needs an `id` on each, because they cannot share the default id. */
-const CredenzaTrigger = React.forwardRef<HTMLButtonElement, CredenzaButtonProps>(function CredenzaTrigger(
-    { id, ...props },
-    ref
-) {
-    const { mode, triggerId } = useCredenzaContext('CredenzaTrigger')
-    return mode === 'dialog' ? (
-        <DialogTrigger ref={ref} id={id ?? triggerId} {...props} />
-    ) : (
-        <DrawerTrigger ref={ref} id={id ?? triggerId} {...props} />
-    )
-})
-
-const CredenzaContent = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
-    'CredenzaContent',
-    DialogContent,
-    DrawerContent
-)
-
 const CredenzaHeader = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
     'CredenzaHeader',
     DialogHeader,
     DrawerHeader
 )
 
-const CredenzaTitle = credenzaPart<React.ComponentPropsWithoutRef<'h2'>, HTMLHeadingElement>(
+const CredenzaTitle = credenzaPart<React.ComponentPropsWithoutRef<typeof DialogTitle>, HTMLHeadingElement>(
     'CredenzaTitle',
     DialogTitle,
     DrawerTitle
 )
 
-const CredenzaDescription = credenzaPart<React.ComponentPropsWithoutRef<'p'>, HTMLParagraphElement>(
-    'CredenzaDescription',
-    DialogDescription,
-    DrawerDescription
-)
+const CredenzaDescription = credenzaPart<
+    React.ComponentPropsWithoutRef<typeof DialogDescription>,
+    HTMLParagraphElement
+>('CredenzaDescription', DialogDescription, DrawerDescription)
 
-const CredenzaBody = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
+const CredenzaBody = credenzaPart<React.ComponentPropsWithoutRef<typeof DialogBody>, HTMLDivElement>(
     'CredenzaBody',
     DialogBody,
     DrawerBody
@@ -221,10 +177,14 @@ const CredenzaBody = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDiv
 const CredenzaFooter = credenzaPart<React.ComponentPropsWithoutRef<'div'>, HTMLDivElement>(
     'CredenzaFooter',
     DialogFooter,
-    DrawerStackedFooter
+    DrawerFooter
 )
 
-const CredenzaClose = credenzaPart<CredenzaButtonProps, HTMLButtonElement>('CredenzaClose', DialogClose, DrawerClose)
+const CredenzaClose = credenzaPart<React.ComponentPropsWithoutRef<typeof DialogClose>, HTMLButtonElement>(
+    'CredenzaClose',
+    DialogClose,
+    DrawerClose
+)
 
 export {
     Credenza,

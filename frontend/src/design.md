@@ -393,7 +393,4 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 ## 9. Review before handoff
 
 - Render in light and dark; check narrow widths; run lint and types; fix and repeat
-- For every `Credenza` you touched, open it at a wide viewport (1280px) and at a phone viewport (390px). Use content long enough to overflow, and check both modes:
-  - The wide viewport shows a centered dialog, and the phone viewport shows a bottom drawer
-  - `CredenzaBody` scrolls, and the header and footer stay in view
-  - Nothing overflows the popup or hides behind the footer, and the footer buttons show in the correct order
+- For every `Credenza` you touched, open it at 1280px and at 390px with content long enough to overflow. Check that `CredenzaBody` scrolls with the header and footer in view, in both the dialog and the drawer
