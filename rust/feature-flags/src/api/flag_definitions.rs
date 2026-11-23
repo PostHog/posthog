@@ -233,7 +233,7 @@ pub struct FlagDefinitionsQueryParams {
 /// - `token`: Team API token (e.g., `phc_...`) - specifies which team's flags to return
 ///
 /// **Authentication Methods (one required via Authorization header):**
-/// 1. Team secret API tokens (secret_api_token, secret_api_token_backup)
+/// 1. Project secret API keys (phs_-prefixed, legacy team secret tokens match via their mirror rows)
 /// 2. Personal API keys with feature_flag:read or feature_flag:write scopes
 ///
 /// The authentication must have access to the team specified by the token parameter.
@@ -742,7 +742,7 @@ async fn write_rebuild_request(
 /// Validates that the authentication credential has access to the specified team.
 ///
 /// Supports two authentication methods:
-/// 1. Team secret API tokens (secret_api_token, secret_api_token_backup) from Authorization header
+/// 1. Project secret API keys (phs_-prefixed) from the Authorization header
 /// 2. Personal API keys with feature_flag:read or feature_flag:write scopes
 ///
 /// Priority: Secret API tokens take precedence over personal API keys when both are provided.
