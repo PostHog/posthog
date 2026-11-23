@@ -400,22 +400,27 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == 1
 
-    @parameterized.expand(
-        [
-            ("flag_off", False, 0, {}),
-            ("already_scored", True, 1, {}),
-            ("already_scored_with_enabled_hash", True, 1, {"enabled_content_hash": "a" * 64}),
-        ]
-    )
+    @parameterized.expand([("flag_off", False, 0), ("already_scored", True, 1)])
     def test_a_queued_task_skips_work_that_is_no_longer_due(
-        self, _name: str, flag_on: bool, expected_requests: int, task_kwargs: dict[str, Any]
+        self, _name: str, flag_on: bool, expected_requests: int
     ) -> None:
         self.flags.enabled[TEAM_FLAG] = flag_on
         hog_function = self.create_destination()
 
-        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id), **task_kwargs)
+        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_a_queued_task_with_an_enabled_content_hash_still_scores_due_work(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(hog="print(event.event)")
+
+        classify_hog_function_for_abuse.delay(
+            team_id=self.team.id, hog_function_id=str(hog_function.id), enabled_content_hash="a" * 64
+        )
+
+        assert len(self.gateway.requests) == 2
+        assert "risk_score" in self.captured_events()[-1]["properties"]
 
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
