@@ -1156,7 +1156,33 @@ source_schemas: PostgresTable = PostgresTable(
             name="sync_type", description="Sync strategy, e.g. 'full_refresh' or 'incremental'."
         ),
         "last_synced_at": DateTimeDatabaseField(
-            name="last_synced_at", description="When this table last finished syncing."
+            name="last_synced_at",
+            description=(
+                "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, "
+                "so judge staleness with last_checked_at."
+            ),
+        ),
+        "_last_checked_at": DateTimeDatabaseField(name="last_checked_at", hidden=True),
+        # Falls back to `last_synced_at` for rows whose last run predates the column.
+        "last_checked_at": ExpressionField(
+            name="last_checked_at",
+            expr=ast.Call(
+                name="greatest",
+                args=[
+                    ast.Call(
+                        name="coalesce",
+                        args=[ast.Field(chain=["_last_checked_at"]), ast.Field(chain=["last_synced_at"])],
+                    ),
+                    ast.Call(
+                        name="coalesce",
+                        args=[ast.Field(chain=["last_synced_at"]), ast.Field(chain=["_last_checked_at"])],
+                    ),
+                ],
+            ),
+            description=(
+                "When a sync last checked the source successfully, including runs that found no new rows. "
+                "Use this, not last_synced_at, to judge whether an enabled table is stale."
+            ),
         ),
         "latest_error": StringDatabaseField(name="latest_error", description="Most recent sync error message, if any."),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the schema config was created."),

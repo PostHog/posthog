@@ -745,12 +745,28 @@ function ManagedSchemaTable({
                     sorter: (a, b) =>
                         (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
                         (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
-                    render: (_, schema) =>
-                        schema.last_synced_at ? (
+                    render: (_, schema) => {
+                        const lastSynced = schema.last_synced_at ? (
                             <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                         ) : (
                             <span className="text-muted">Never</span>
-                        ),
+                        )
+                        const lastChecked = schema.last_checked_at
+                        if (
+                            !lastChecked ||
+                            (schema.last_synced_at && !dayjs(lastChecked).isAfter(schema.last_synced_at))
+                        ) {
+                            return lastSynced
+                        }
+                        return (
+                            <div className="flex flex-col">
+                                {lastSynced}
+                                <span className="text-xs text-muted">
+                                    Checked <TZLabel time={lastChecked} />, no new rows
+                                </span>
+                            </div>
+                        )
+                    },
                 },
                 {
                     title: 'Row count',

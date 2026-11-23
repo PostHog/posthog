@@ -333,6 +333,9 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Start of the last successful run, including one that found no new rows. `last_synced_at` stays
+    # put on such a run because it is also the signals watermark, so staleness reads this instead.
+    last_checked_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
     # User-managed vendor API version override for this schema. NULL (the norm) means the schema
     # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
@@ -684,10 +687,12 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def last_run_at(self) -> datetime | None:
         """When a sync last ran, whether or not it moved any rows.
 
-        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
-        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+        `last_checked_at` covers every successful run. The older stamps cover rows whose last run
+        predates that column.
         """
-        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        stamps = [
+            stamp for stamp in (self.last_checked_at, self.last_synced_at, self.last_full_run) if stamp is not None
+        ]
         return max(stamps) if stamps else None
 
     @property

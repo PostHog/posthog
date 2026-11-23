@@ -50,6 +50,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         latest_error: str | None = None,
         should_sync: bool = True,
         last_full_run_at: str | None = None,
+        last_checked_at: datetime | None = None,
     ) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name="Charge",
@@ -61,6 +62,7 @@ class TestWarehouseSyncWarnings(BaseTest):
             sync_frequency_interval=sync_frequency_interval,
             latest_error=latest_error,
             should_sync=should_sync,
+            last_checked_at=last_checked_at,
             sync_type_config={"last_full_run_at": last_full_run_at} if last_full_run_at is not None else {},
         )
 
@@ -125,15 +127,18 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert "password" not in warnings[0].message
         assert "data warehouse source" in warnings[0].message.lower()
 
-    def test_no_warning_when_recent_runs_extracted_nothing(self) -> None:
+    @parameterized.expand([("legacy_run_stamp", True), ("check_stamp", False)])
+    def test_no_warning_when_recent_runs_extracted_nothing(self, _name: str, legacy: bool) -> None:
         # The v3 pipeline leaves `last_synced_at` alone on a run that extracts zero rows, because
-        # it doubles as the signals watermark. Such a run stamps `last_full_run_at`, so a schema
-        # whose source is simply quiet must not be reported as stale.
+        # it doubles as the signals watermark. Such a run stamps `last_checked_at` (and, before that
+        # column, only `last_full_run_at`), so a schema whose source is quiet must not read as stale.
+        recent = self.now - timedelta(hours=1)
         self._make_schema(
             status=ExternalDataSchema.Status.COMPLETED,
             sync_frequency_interval=timedelta(hours=6),
             last_synced_at=self.now - timedelta(hours=15),
-            last_full_run_at=(self.now - timedelta(hours=1)).isoformat(),
+            last_full_run_at=recent.isoformat() if legacy else None,
+            last_checked_at=None if legacy else recent,
         )
         assert get_warehouse_sync_warnings(self.table, now=self.now) == []
 

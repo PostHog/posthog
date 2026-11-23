@@ -6728,6 +6728,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */

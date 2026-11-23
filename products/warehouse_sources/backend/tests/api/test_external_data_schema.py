@@ -6052,6 +6052,9 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema.status = ExternalDataSchema.Status.FAILED
         schema.should_sync = True
         schema.latest_error = "failed for key 123 " + "y" * 2000
+        # Every run found nothing new, so only the check stamp exists.
+        schema.last_synced_at = None
+        schema.last_checked_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
         schema.save()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")
@@ -6070,6 +6073,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 "sync_type",
                 "status",
                 "last_synced_at",
+                "last_checked_at",
                 "latest_error",
             }
             assert row["source_id"] == str(source.id)
@@ -6079,6 +6083,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         else:
             assert {"table", "sync_frequency", "incremental_field", "webhook_not_registered"} <= set(row)
             assert len(row["latest_error"]) > 2000
+        assert row["last_synced_at"] is None
+        assert row["last_checked_at"] == "2026-11-20T08:00:00Z"
 
     def test_list_compact_rejects_invalid_flag(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?compact=nope")

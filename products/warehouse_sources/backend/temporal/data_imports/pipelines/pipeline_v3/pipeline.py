@@ -1270,10 +1270,10 @@ class PipelineV3(Generic[ResumableData]):
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
 
-        Writes only `last_full_run_at`.
-        `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
-        the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
-        loaded nothing would narrow the next run's signal window.
+        Writes `last_full_run_at` and `last_checked_at`.
+        `last_synced_at` is deliberately left alone: it is the signals watermark
+        (`partition_field > last_synced_at`), so moving it on a run that loaded nothing would
+        narrow the next run's signal window.
 
         Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
         how the observed-columns write above treats the same risk.
@@ -1283,6 +1283,7 @@ class PipelineV3(Generic[ResumableData]):
                 self._schema.id,
                 self._job.team_id,
                 updates={"last_full_run_at": datetime.datetime.now(datetime.UTC).isoformat()},
+                extra_model_fields={"last_checked_at": self._job.created_at},
             )
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")

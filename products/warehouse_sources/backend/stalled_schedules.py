@@ -122,11 +122,11 @@ def stalled_schema_queryset(
     five-minute schema and a daily one. A daily schema therefore needs days of silence to
     qualify, which is the cost of not flagging every schema that merely ran slowly.
 
-    The window runs from the later of `last_synced_at` and `last_full_run_at`, because a run
-    that imports nothing advances only the second (see `ExternalDataSchema.last_run_at`).
+    The window runs from the latest run stamp, because a run that imports nothing leaves
+    `last_synced_at` alone (see `ExternalDataSchema.last_run_at`).
     """
     # NULL for a missing or unusable stamp. Postgres GREATEST skips NULLs, so `latest_run_at` then
-    # falls back to `last_synced_at`.
+    # falls back to the other stamps.
     last_full_run = Case(
         When(
             sync_type_config__last_full_run_at__regex=_AWARE_ISO_TIMESTAMP,
@@ -162,7 +162,11 @@ def stalled_schema_queryset(
         # key evaluates to SQL NULL, and `.exclude()` compiles to `NOT (...)` — NOT NULL is NULL,
         # not TRUE, so Postgres drops the row from the result entirely instead of keeping it.
         # That silently wipes out every schema without the key, not just the ones carrying it.
-        .annotate(latest_run_at=Greatest(F("last_synced_at"), last_full_run, output_field=DateTimeField()))
+        .annotate(
+            latest_run_at=Greatest(
+                F("last_checked_at"), F("last_synced_at"), last_full_run, output_field=DateTimeField()
+            )
+        )
         .annotate(
             stalled_after=ExpressionWrapper(
                 F("latest_run_at") + stall_window,

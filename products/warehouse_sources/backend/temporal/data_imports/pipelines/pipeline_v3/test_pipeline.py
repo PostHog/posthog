@@ -1826,7 +1826,8 @@ class TestZeroBatchRunStampsTheFullRunMarker:
 
         update.assert_called_once()
         assert "last_full_run_at" in update.call_args.kwargs["updates"]
-        assert "extra_model_fields" not in update.call_args.kwargs
+        # `last_synced_at` is the signals watermark, so only the check stamp moves.
+        assert update.call_args.kwargs["extra_model_fields"] == {"last_checked_at": pipeline._job.created_at}
 
     @pytest.mark.asyncio
     async def test_a_run_that_extracted_nothing_stores_its_source_cursor_directly(self) -> None:

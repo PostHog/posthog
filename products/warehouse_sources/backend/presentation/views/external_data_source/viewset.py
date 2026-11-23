@@ -64,7 +64,7 @@ class ExternalDataSourceReadQuerySerializer(serializers.Serializer):
         help_text=(
             "Return source health only: id, created_at, source_type, prefix, description, access_method, status, "
             "latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, "
-            "latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
+            "last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
         ),
     )
     include_schemas = serializers.BooleanField(
@@ -198,6 +198,7 @@ class ExternalDataSourceViewSet(
                 "sync_type",
                 "latest_error",
                 "last_synced_at",
+                "last_checked_at",
                 "table_id",
                 "table__row_count",
                 "table__deleted",
