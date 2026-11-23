@@ -3,6 +3,7 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
+import { hasJwtKeys } from '~/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
@@ -22,6 +23,7 @@ import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
 import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
+    BlockRefParamsSchema,
     DeleteRecordingsBodySchema,
     EncryptBlocksBodySchema,
     GetBlockQuerySchema,
@@ -91,7 +93,11 @@ export class RecordingApi {
                       getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
               )
             : null
-        this.publicBlockLimits = this.servesPublicRoutes ? parsePublicBlockLimits(config) : null
+        // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
+        this.publicBlockLimits =
+            this.servesPublicRoutes || hasJwtKeys(config.RECORDING_API_STAFF_JWT_SECRET || '')
+                ? parsePublicBlockLimits(config)
+                : null
     }
 
     private get servesInternalRoutes(): boolean {
@@ -293,6 +299,8 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
+        const blockRefPath = '/api/projects/:team_id/recordings/:session_id/blocks/:ref'
+
         const encryptPath = '/api/projects/:team_id/recordings/:session_id/encrypt'
 
         if (this.servesPublicRoutes) {
@@ -328,6 +336,7 @@ export class RecordingApi {
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
+        router.get(blockRefPath, asyncHandler(this.getBlockByListedRef))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
@@ -360,18 +369,6 @@ export class RecordingApi {
         if (!this.recordingService.validateS3Key(key)) {
             res.status(400).json({ error: this.recordingService.formatS3KeyError() })
             return
-        }
-
-        // A staff token names its team in the path, so the key must come from that session's own listing.
-        if (res.locals.staffRead) {
-            const listed = await this.recordingService.listBlocks(sessionId, teamId)
-            const inListing = listed.some(
-                (block) => block.key === key && block.start_byte <= startByte && endByte <= block.end_byte
-            )
-            if (!inListing) {
-                res.status(403).json({ error: 'Forbidden: block is not part of this recording' })
-                return
-            }
         }
 
         // Call service
@@ -553,11 +550,31 @@ export class RecordingApi {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
+        await this.serveBlockByRef(req, res, paramsResult.data, false)
+    }
+
+    // The internal twin of the browser route, for a ref from the block listing: only that session's key decodes it.
+    private getBlockByListedRef = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = BlockRefParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+        const decompress = req.query.decompress === 'true' || req.query.decompress === '1'
+        await this.serveBlockByRef(req, res, paramsResult.data, decompress)
+    }
+
+    private async serveBlockByRef(
+        req: express.Request,
+        res: express.Response,
+        params: { team_id: number; session_id: string; ref: string },
+        decompress: boolean
+    ): Promise<void> {
         if (!this.recordingService) {
             res.status(503).json({ error: 'Service not initialized' })
             return
         }
-        const { team_id: teamId, session_id: sessionId, ref } = paramsResult.data
+        const { team_id: teamId, session_id: sessionId, ref } = params
         let admittedBytes = 0
 
         try {
@@ -590,7 +607,8 @@ export class RecordingApi {
                     }
                     return admission
                 },
-                this.publicBlockLimits!.readTimeoutMs
+                this.publicBlockLimits!.readTimeoutMs,
+                decompress
             )
             if (!result.ok) {
                 RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
@@ -611,7 +629,7 @@ export class RecordingApi {
                 return
             }
             RecordingApiMetrics.incrementReplayBlockRequest('ok')
-            res.set('Content-Type', 'application/octet-stream')
+            res.set('Content-Type', decompress ? 'application/jsonl' : 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
             // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.

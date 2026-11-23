@@ -309,7 +309,8 @@ export class RecordingService {
         sessionId: string,
         ref: string,
         admit: (bytes: number) => BlockAdmission = () => 'ok',
-        timeoutMs?: number
+        timeoutMs?: number,
+        decompress = false
     ): Promise<GetBlockByRefResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
@@ -327,7 +328,15 @@ export class RecordingService {
         if (admission !== 'ok') {
             return { ok: false, error: admission }
         }
-        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true, timeoutMs })
+        return this.getBlock({
+            sessionId,
+            teamId,
+            ...location,
+            sessionKey,
+            accessDeniedMeansMissing: true,
+            timeoutMs,
+            decompress,
+        })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {

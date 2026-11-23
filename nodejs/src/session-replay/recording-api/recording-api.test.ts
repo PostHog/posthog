@@ -819,7 +819,7 @@ describe('RecordingApi', () => {
             mockService.listBlocks.mockResolvedValue([
                 { key: KEY, start_byte: 0, end_byte: 999, start_timestamp: '', end_timestamp: '' },
             ])
-            mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('block') })
+            mockService.getBlockByRef.mockResolvedValue({ ok: true, data: Buffer.from('{"type":2}') })
             mockService.encryptBlocks.mockResolvedValue({ ok: true, blocks: [Buffer.from('sealed')] })
         })
 
@@ -827,24 +827,32 @@ describe('RecordingApi', () => {
             server.close()
         })
 
-        it.each([
-            ['a block from the session listing', KEY, '0', '100', 200],
-            ['a byte range past the listed block', KEY, '0', '5000', 403],
-            [
-                'a key the session listing does not hold',
-                'session_recordings/30d/1764634738680-0000000000000000',
-                '0',
-                '100',
-                403,
-            ],
-        ])('answers a request for %s', async (_, key, start, end, expectedStatus) => {
+        it('reads a block by its ref, decompressed on request', async () => {
             const res = await supertest(app)
-                .get('/api/projects/1/recordings/session-123/block')
-                .query({ key, start_byte: start, end_byte: end })
+                .get('/api/projects/1/recordings/session-123/blocks/v1.abc')
+                .query({ decompress: 'true' })
                 .set('Authorization', staffToken())
 
-            expect(res.status).toBe(expectedStatus)
-            expect(mockService.getBlock).toHaveBeenCalledTimes(expectedStatus === 200 ? 1 : 0)
+            expect(res.status).toBe(200)
+            expect(res.headers['content-type']).toMatch(/application\/jsonl/)
+            expect(mockService.getBlockByRef).toHaveBeenCalledWith(
+                1,
+                'session-123',
+                'v1.abc',
+                expect.any(Function),
+                expect.any(Number),
+                true
+            )
+        })
+
+        it('refuses to read a block by raw key', async () => {
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/block')
+                .query({ key: KEY, start_byte: '0', end_byte: '100' })
+                .set('Authorization', staffToken())
+
+            expect(res.status).toBe(403)
+            expect(mockService.getBlock).not.toHaveBeenCalled()
         })
 
         it('lists blocks', async () => {
@@ -957,7 +965,8 @@ describe('RecordingApi', () => {
                 'session-123',
                 'v1.abc',
                 expect.any(Function),
-                10000
+                10000,
+                false
             )
             expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },

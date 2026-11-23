@@ -202,8 +202,6 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
                 reason: staffClaims.reason,
                 path: req.path,
             })
-            // getBlock then checks the key belongs to this session, since the path names the team but the key does not.
-            res.locals.staffRead = true
             next()
             return
         }
@@ -236,8 +234,8 @@ const STAFF_TOKEN_MAX_AGE = '15m'
 // jsonwebtoken lets iat 0 through maxAge, so isStaffReadForTeam also bounds iat itself.
 const STAFF_TOKEN_MAX_AGE_SECONDS = 15 * 60
 
-// Staff tokens read blocks only, so a GET route added later is not readable with one.
-const STAFF_READ_PATH = /^\/api\/projects\/[^/]+\/recordings\/[^/]+\/blocks?$/
+// Staff tokens list blocks and read them by ref, never by raw key, so only that session's key can name a block.
+const STAFF_READ_PATH = /^\/api\/projects\/[^/]+\/recordings\/[^/]+\/blocks(\/[^/]+)?$/
 
 function requestPath(req: Request): string {
     return (req.originalUrl ?? req.path ?? '').split('?')[0]

@@ -30,11 +30,11 @@ describe('createRecordingApiAuthMiddleware', () => {
     // Mirrors what the middleware actually receives: it is mounted on the '/api/projects' prefix, so
     // ultimate-express strips the mount from req.path and exposes no req.params, leaving originalUrl
     // as the only source of team_id.
-    const mockRequest = (teamIdSegment: string, headers: Record<string, string> = {}) =>
+    const mockRequest = (teamIdSegment: string, headers: Record<string, string> = {}, route = 'block') =>
         ({
             headers,
-            originalUrl: `/api/projects/${teamIdSegment}/recordings/abc/block`,
-            path: `/${teamIdSegment}/recordings/abc/block`,
+            originalUrl: `/api/projects/${teamIdSegment}/recordings/abc/${route}`,
+            path: `/${teamIdSegment}/recordings/abc/${route}`,
             method: 'GET',
         }) as unknown as Request
 
@@ -261,7 +261,10 @@ describe('createRecordingApiAuthMiddleware', () => {
                 401,
             ],
         ] as const)('handles %s', (_, op, teamId, token, expected) => {
-            const { res, next } = run({ op, staffJwtSecret: STAFF_SECRET }, mockRequest(teamId, bearer(token)))
+            const { res, next } = run(
+                { op, staffJwtSecret: STAFF_SECRET },
+                mockRequest(teamId, bearer(token), 'blocks/v1.abc')
+            )
             if (expected === 'allowed') {
                 expect(next).toHaveBeenCalled()
                 expect(res.status).not.toHaveBeenCalled()

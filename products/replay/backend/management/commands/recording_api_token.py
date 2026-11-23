@@ -17,10 +17,10 @@ POD_LABELS_PATH = Path("/etc/podinfo/labels")
 CLAIM_LABEL = "toolbox-claimed"
 
 USAGE = """\
-List the blocks, then fetch one with a key and byte range from that list:
+List the blocks, then fetch each one by the ref the listing gives it:
   curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks"
-  curl -H "Authorization: Bearer $TOKEN" \\
-    "$URL/api/projects/<team_id>/recordings/<session_id>/block?key=<key>&start_byte=<start>&end_byte=<end>&decompress=true"
+  curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks/<ref>?decompress=true"
+Recordings from before encryption have no refs, so they cannot be read this way.
 """
 
 
