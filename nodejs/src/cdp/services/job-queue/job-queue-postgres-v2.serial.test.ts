@@ -459,6 +459,12 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         it.each([
             ['a send with files after an older writer left it out', null, {}, '1000'],
             ['a send whose new state carries no files', '1000', { state: baseInvocation.state }, null],
+            [
+                'a send whose new state carries one empty file',
+                '1000',
+                withFiles({}, [{ ...invoice, sizeBytes: 0 }]),
+                '0',
+            ],
         ])('is set on the row of %s when it is deferred', async (_name, before, deferredAs, stored) => {
             const queue = await startQueue()
             const id = await enqueue(queue, { queue: 'email', ...withFiles() })
