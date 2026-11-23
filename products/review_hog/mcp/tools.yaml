@@ -78,10 +78,11 @@ tools:
         description: >
             Start a PostHog Review run on a pull request. Pass the PR as `pr_url` (e.g.
             `https://github.com/PostHog/posthog/pull/123`). The repository must be accessible to the project's GitHub
-            App installation. `run_mode` picks the variant: `review` (the default) is a Deep review, published to the
-            PR, followed by the Resolve stage; `review_only` is a Deep review without Resolve; `flash` is a Standard
-            review on a lower-cost model that never resolves; `resolve_only` skips the review and only works the PR's
-            existing unresolved review threads. Resolve runs only when the pull request owner opted in to resolving
+            App installation. `run_mode` picks the variant: `flash` (the default) is a Standard review on a
+            lower-cost model that never resolves, the same review as an `@posthog review` comment; `review` is a Deep
+            review, published to the PR, followed by the Resolve stage; `review_only` is a Deep review without Resolve;
+            `resolve_only` skips the review and only works the PR's existing unresolved review threads. After a
+            published Deep review, `flash` is refused with `flash_after_full`, so ask for `review_only` there. Resolve runs only when the pull request owner opted in to resolving
             comments, not the requester. The owner is the PR author, or the Inbox reviewer for a PR the PostHog app
             opened. The response's `resolve_will_run` says whether Resolve will run, and `resolve_skip_reason` says why
             not. IMPORTANT: Resolve writes to the PR itself. It may push signed fix commits to the PR's branch, reply to
