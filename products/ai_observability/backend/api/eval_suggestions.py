@@ -322,9 +322,11 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=EvalSuggestionSettingsSerializer, responses={200: EvalSuggestionSettingsSerializer})
     @project_settings.mapping.patch
     def update_project_settings(self, request: Request, **kwargs: Any) -> Response:
-        """Turn suggestions off or back on for the project."""
-        body = EvalSuggestionSettingsSerializer(data=request.data)
+        """Turn suggestions off or back on for the project. A body without `enabled` changes nothing."""
+        body = EvalSuggestionSettingsSerializer(data=request.data, partial=True)
         body.is_valid(raise_exception=True)
+        if "enabled" not in body.validated_data:
+            return Response(EvalSuggestionSettingsSerializer(facade.get_eval_suggestion_settings(self.team)).data)
         updated = facade.update_eval_suggestion_settings(self.team, enabled=body.validated_data["enabled"])
         return Response(EvalSuggestionSettingsSerializer(updated).data)
 

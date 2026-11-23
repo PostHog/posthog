@@ -490,6 +490,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             "products.ai_observability.backend.facade.eval_suggestions.start_first_visit_run", new=AsyncMock()
         ) as start:
             turned_off = self.client.patch(f"{self.url}/settings/", {"enabled": False}, format="json")
+            empty_patch = self.client.patch(f"{self.url}/settings/", {}, format="json").json()
             listed_while_off = self.client.get(f"{self.url}/").json()
             # A project with no run yet must not start one either.
             self.suggestion_run.delete()
@@ -500,7 +501,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
         assert (listed_while_off["results"], listed_while_off["pending"]) == ([], False)
-        assert settings_while_off == {"enabled": False}
+        assert settings_while_off == empty_patch == {"enabled": False}
         assert listed_when_back_on["pending"] is True
         assert start.await_count == 1
 

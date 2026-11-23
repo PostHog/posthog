@@ -31,6 +31,7 @@ from products.ai_observability.backend.logic.eval_suggestions.coverage import (
     ExistingEval,
     earlier_review_cards,
 )
+from products.ai_observability.backend.logic.eval_suggestions.eligibility import set_suggestions_turned_off
 from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
@@ -737,14 +738,16 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch.object(pipeline, "runs_for_organization", return_value=False)
+    @parameterized.expand([("organization_out_of_the_rollout", False, False), ("project_turned_off", True, True)])
     @patch.object(pipeline.coverage_stage, "fetch_coverage")
-    def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
-        self, fetch_coverage: MagicMock, _flag: MagicMock
+    def test_a_queued_run_that_may_no_longer_run_does_nothing(
+        self, _name: str, in_rollout: bool, turned_off: bool, fetch_coverage: MagicMock
     ) -> None:
         run = create_run(self.team, "scheduled")
+        set_suggestions_turned_off(self.team, turned_off)
 
-        assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
+        with patch.object(pipeline, "runs_for_organization", return_value=in_rollout):
+            assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED

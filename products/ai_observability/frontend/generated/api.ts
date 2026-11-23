@@ -2249,7 +2249,7 @@ export const getEvaluationSuggestionsSettingsPartialUpdateUrl = (projectId: stri
 }
 
 /**
- * Turn suggestions off or back on for the project.
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
  */
 export const evaluationSuggestionsSettingsPartialUpdate = async (
     projectId: string,

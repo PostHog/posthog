@@ -829,7 +829,7 @@ export const EvaluationSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Turn suggestions off or back on for the project.
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
  */
 export const EvaluationSuggestionsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod
