@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from posthoganalytics import FeatureFlagResult
 from prometheus_client import REGISTRY
 
 from posthog.integrations import rollout
@@ -23,6 +24,10 @@ from posthog.models import Team
 
 FLAG_ERRORS = "integrations_service_rollout_flag_errors_total"
 MISSING_TEAM_ID = 987_654_321
+
+
+def _flag_result(payload: Any = None, enabled: bool = True) -> FeatureFlagResult:
+    return FeatureFlagResult(key=DUAL_WRITE_FLAG, enabled=enabled, variant=None, payload=payload, reason=None)
 
 
 def _flag_errors() -> float:
@@ -43,9 +48,9 @@ class TestDualWriteRollout(BaseTest):
         reset_caches()
         self.addCleanup(reset_caches)
 
-    def _payload(self, payload: Any = None, side_effect: Any = None) -> MagicMock:
-        mock = MagicMock(return_value=payload, side_effect=side_effect)
-        patcher = patch.object(rollout.posthoganalytics, "get_feature_flag_payload", mock)
+    def _flag(self, result: FeatureFlagResult | None = None, side_effect: Any = None) -> MagicMock:
+        mock = MagicMock(return_value=result, side_effect=side_effect)
+        patcher = patch.object(rollout.posthoganalytics, "get_feature_flag_result", mock)
         patcher.start()
         self.addCleanup(patcher.stop)
         return mock
@@ -58,7 +63,7 @@ class TestDualWriteRollout(BaseTest):
             ("wildcard", {"kinds": ["*"]}, frozenset({ALL_KINDS})),
             ("wildcard_with_other_kinds", {"kinds": ["slack", "*"]}, frozenset({ALL_KINDS})),
             ("empty_kinds", {"kinds": []}, frozenset()),
-            ("flag_off", None, frozenset()),
+            ("no_payload", None, frozenset()),
             ("malformed_json", '{"kinds": ["slack"', frozenset()),
             ("json_string_not_object", '"slack"', frozenset()),
             ("list_payload", ["slack"], frozenset()),
@@ -67,10 +72,11 @@ class TestDualWriteRollout(BaseTest):
             ("kind_not_string", {"kinds": ["slack", 1]}, frozenset()),
             ("empty_kind", {"kinds": [""]}, frozenset()),
             ("boolean_payload", True, frozenset()),
+            ("deeply_nested_json", "[" * 100_000 + "]" * 100_000, frozenset()),
         ]
     )
     def test_payload_sets_kinds(self, _name: str, payload: Any, expected: frozenset[str]) -> None:
-        self._payload(payload)
+        self._flag(_flag_result(payload))
 
         assert dual_write_kinds(self.team.id) == expected
         assert dual_write_kinds_for_teams([self.team.id]) == {self.team.id: expected}
@@ -78,20 +84,21 @@ class TestDualWriteRollout(BaseTest):
 
     @parameterized.expand(
         [
-            ("listed_kind", {"kinds": ["slack", "github"]}, "slack", True),
-            ("unlisted_kind", {"kinds": ["slack", "github"]}, "hubspot", False),
-            ("wildcard", {"kinds": ["*"]}, "hubspot", True),
-            ("flag_off", None, "slack", False),
-            ("malformed", "not json", "slack", False),
+            ("listed_kind", _flag_result({"kinds": ["slack", "github"]}), "slack", True),
+            ("unlisted_kind", _flag_result({"kinds": ["slack", "github"]}), "hubspot", False),
+            ("wildcard", _flag_result({"kinds": ["*"]}), "hubspot", True),
+            ("flag_off", _flag_result(None, enabled=False), "slack", False),
+            ("flag_off_with_false_payload", _flag_result({"kinds": ["*"]}, enabled=False), "slack", False),
+            ("malformed", _flag_result("not json"), "slack", False),
         ]
     )
-    def test_dual_write_enabled(self, _name: str, payload: Any, kind: str, expected: bool) -> None:
-        self._payload(payload)
+    def test_dual_write_enabled(self, _name: str, result: FeatureFlagResult, kind: str, expected: bool) -> None:
+        self._flag(result)
 
         assert dual_write_enabled(self.team.id, kind) is expected
 
     def test_evaluates_flag_for_team_with_its_groups(self) -> None:
-        evaluate = self._payload({"kinds": ["slack"]})
+        evaluate = self._flag(_flag_result({"kinds": ["slack"]}))
 
         dual_write_kinds(self.team.id)
 
@@ -108,8 +115,14 @@ class TestDualWriteRollout(BaseTest):
             send_feature_flag_events=False,
         )
 
-    def test_failed_evaluation_reads_off_and_is_not_cached(self) -> None:
-        evaluate = self._payload(side_effect=[RuntimeError("flag service down"), {"kinds": ["slack"]}])
+    @parameterized.expand(
+        [
+            ("raised_exception", RuntimeError("flag service down")),
+            ("no_result", None),
+        ]
+    )
+    def test_failed_evaluation_reads_off_and_is_not_cached(self, _name: str, failure: Exception | None) -> None:
+        evaluate = self._flag(side_effect=[failure, _flag_result({"kinds": ["slack"]})])
         errors_before = _flag_errors()
 
         with self.assertLogs(level="WARNING") as logs:
@@ -124,10 +137,10 @@ class TestDualWriteRollout(BaseTest):
     def test_cache_expires_after_ttl(self) -> None:
         clock = _FakeClock()
         with patch.object(rollout, "_cache", rollout._ExpiringKinds(clock=clock)):
-            evaluate = self._payload({"kinds": ["slack"]})
+            evaluate = self._flag(_flag_result({"kinds": ["slack"]}))
             assert dual_write_kinds(self.team.id) == frozenset({"slack"})
 
-            evaluate.return_value = {"kinds": ["github"]}
+            evaluate.return_value = _flag_result({"kinds": ["github"]})
             clock.now += rollout.CACHE_TTL_SECONDS - 0.1
             assert dual_write_kinds(self.team.id) == frozenset({"slack"})
             assert evaluate.call_count == 1
@@ -137,7 +150,7 @@ class TestDualWriteRollout(BaseTest):
             assert evaluate.call_count == 2
 
     def test_missing_team_reads_off(self) -> None:
-        evaluate = self._payload({"kinds": ["*"]})
+        evaluate = self._flag(_flag_result({"kinds": ["*"]}))
 
         assert dual_write_kinds(MISSING_TEAM_ID) == frozenset()
         assert dual_write_enabled(MISSING_TEAM_ID, "slack") is False
@@ -148,7 +161,7 @@ class TestDualWriteRollout(BaseTest):
         evaluate.assert_not_called()
 
     def test_require_team_kinds_raises_for_missing_team_with_cached_kinds(self) -> None:
-        self._payload({"kinds": ["*"]})
+        self._flag(_flag_result({"kinds": ["*"]}))
         rollout._cache.put(MISSING_TEAM_ID, frozenset({ALL_KINDS}))
 
         with self.assertRaises(TeamGone):
@@ -156,11 +169,11 @@ class TestDualWriteRollout(BaseTest):
 
     def test_bulk_issues_one_team_query_and_one_evaluation_per_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        payloads = {
-            str(self.team.uuid): {"kinds": ["slack"]},
-            str(other_team.uuid): '{"kinds": ["*"]}',
+        results = {
+            str(self.team.uuid): _flag_result({"kinds": ["slack"]}),
+            str(other_team.uuid): _flag_result('{"kinds": ["*"]}'),
         }
-        evaluate = self._payload(side_effect=lambda _flag, distinct_id, **_kwargs: payloads[distinct_id])
+        evaluate = self._flag(side_effect=lambda _flag, distinct_id, **_kwargs: results[distinct_id])
         expected = {
             self.team.id: frozenset({"slack"}),
             other_team.id: frozenset({ALL_KINDS}),

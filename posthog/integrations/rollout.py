@@ -3,6 +3,9 @@
 The `integrations-service-dual-write` feature flag selects the teams, and its payload selects the
 integration kinds: `{"kinds": ["slack", "github"]}`, or `{"kinds": ["*"]}` for every kind. A team with
 the flag off, no payload, a malformed payload or a failed evaluation has no kinds.
+
+Results are cached per process for `CACHE_TTL_SECONDS`, so a change to the flag, or the deletion of a
+team, can take that long to show in `dual_write_kinds` and `dual_write_kinds_for_teams`.
 """
 
 import json
@@ -75,7 +78,7 @@ class _ExpiringKinds:
         with self._lock:
             self._entries.pop(team_id, None)
             # Entries are in insertion order, so the first entry is the oldest one.
-            while len(self._entries) >= self._max_entries:
+            while self._entries and len(self._entries) >= self._max_entries:
                 del self._entries[next(iter(self._entries))]
             self._entries[team_id] = (expires_at, kinds)
 
@@ -88,7 +91,11 @@ _cache = _ExpiringKinds()
 
 
 def dual_write_kinds(team_id: int) -> frozenset[str]:
-    """The integration kinds that the team dual writes. `ALL_KINDS` in the set means every kind."""
+    """The integration kinds that the team dual writes. `ALL_KINDS` in the set means every kind.
+
+    A team deleted within the cache TTL can still return its cached kinds. Use `require_team_kinds`
+    where that matters.
+    """
     cached = _cache.get(team_id)
     if cached is not None:
         return cached
@@ -104,6 +111,10 @@ def dual_write_enabled(team_id: int, kind: str) -> bool:
 
 
 def dual_write_kinds_for_teams(team_ids: Iterable[int]) -> dict[int, frozenset[str]]:
+    """`dual_write_kinds` for many teams, with one `Team` query for the teams that are not cached.
+
+    A team deleted within the cache TTL can still return its cached kinds, as in `dual_write_kinds`.
+    """
     result: dict[int, frozenset[str]] = {}
     missing: list[int] = []
     for team_id in dict.fromkeys(team_ids):
@@ -146,7 +157,7 @@ def _load_teams(team_ids: list[int]) -> dict[int, _TeamIdentity]:
 
 def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
     try:
-        payload = posthoganalytics.get_feature_flag_payload(
+        result = posthoganalytics.get_feature_flag_result(
             DUAL_WRITE_FLAG,
             str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
@@ -159,15 +170,15 @@ def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
             send_feature_flag_events=False,
         )
     except Exception as error:
-        # Not cached, so that one failure does not turn the dual write off for the whole TTL.
-        FLAG_ERRORS.inc()
-        logger.warning(
-            "integrations_service_rollout_flag_failed",
-            team_id=team.id,
-            flag=DUAL_WRITE_FLAG,
-            error_type=type(error).__name__,
-        )
+        return _evaluation_failed(team, type(error).__name__)
+    # The SDK returns None, and does not raise, when a remote evaluation times out or fails.
+    if result is None:
+        return _evaluation_failed(team, "NoResult")
+    # The payload of the flag's `false` result must not enable a team outside the rollout.
+    if not result.enabled:
+        _cache.put(team.id, NO_KINDS)
         return NO_KINDS
+    payload = result.payload
     kinds = _parse_kinds(payload)
     if kinds is None:
         logger.warning(
@@ -181,6 +192,18 @@ def _evaluate_and_cache(team: _TeamIdentity) -> frozenset[str]:
     return kinds
 
 
+def _evaluation_failed(team: _TeamIdentity, error_type: str) -> frozenset[str]:
+    # Not cached, so that one failure does not turn the dual write off for the whole TTL.
+    FLAG_ERRORS.inc()
+    logger.warning(
+        "integrations_service_rollout_flag_failed",
+        team_id=team.id,
+        flag=DUAL_WRITE_FLAG,
+        error_type=error_type,
+    )
+    return NO_KINDS
+
+
 def _parse_kinds(payload: object) -> frozenset[str] | None:
     """The kinds in the payload, or None when the payload is malformed."""
     if payload is None:
@@ -188,7 +211,7 @@ def _parse_kinds(payload: object) -> frozenset[str] | None:
     if isinstance(payload, str | bytes):
         try:
             payload = json.loads(payload)
-        except ValueError:
+        except (ValueError, RecursionError):
             return None
     if not isinstance(payload, dict):
         return None
