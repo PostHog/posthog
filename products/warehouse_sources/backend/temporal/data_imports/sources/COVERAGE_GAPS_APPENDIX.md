@@ -6365,10 +6365,10 @@ Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 - [x] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
 - [x] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
 - [x] `events/identify` — identity resolution events tying anonymous activity to the synced users and accounts (medium)
-- [ ] `events/formSubmit` — in-product form submissions, the conversion event for guides and surveys (medium)
-- [ ] `events/email` — email engagement events (send/open/click) for engagements delivered by email (medium)
-- [ ] `feature/adoption/{featureId}` — vendor-precomputed adoption statistics per feature — a breakdown dimension that is expensive to recompute (medium)
-- [ ] `events/lead` — lead capture events from in-product forms, for acquisition attribution (low)
+- [x] `events/formSubmit` — in-product form submissions, the conversion event for guides and surveys (medium)
+- [x] `events/email` — email engagement events (send/open/click) for engagements delivered by email (medium)
+- [ ] `feature/adoption/{featureId}` — vendor-precomputed adoption statistics per feature — a breakdown dimension that is expensive to recompute (medium) Skipped: one aggregate per feature and window of at most 7 days, derivable from feature_match_events, and the spec documents the 200 body as Feature, not FeatureAdoption.
+- [x] `events/lead` — lead capture events from in-product forms, for acquisition attribution (low)
 
 Note: Fetched the Swagger 2.0 spec behind the Apiary docs (api.aptrinsic.com). PostHog syncs the seven entity/config objects but none of the /v1/events/\* streams, which are the bulk of what Gainsight PX actually captures and where all the product-analytics value sits.
 
