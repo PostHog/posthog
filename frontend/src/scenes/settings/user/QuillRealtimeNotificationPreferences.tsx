@@ -70,7 +70,6 @@ export function QuillRealtimeNotificationPreferences({
                                 >{`Notification types for ${team.name}`}</CollapsibleTrigger>
                                 <QuillNotificationCheckbox
                                     id={`realtime-project-${team.id}`}
-                                    className="ps-8"
                                     label={team.name}
                                     tag={`id: ${team.id}`}
                                     checked={state === 'on'}

@@ -187,6 +187,12 @@ jobs:
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
+        # A full scan runs as parallel shards to cut its wall time. A changed-files scan is
+        # mostly job setup, so it stays one job: each extra shard would only add setup.
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: ${{ fromJSON((github.event_name != 'pull_request' || needs.changes.outputs.scan-setup == 'true') && '["core", "products-a-m", "products-n-s", "products-t-z"]' || '["all"]') }}
         runs-on: ubuntu-24.04
         # A copy of the repository lands on a slower GitHub-hosted runner pool, so
         # it gets a longer budget for the full scan.
@@ -214,6 +220,27 @@ jobs:
               with:
                   fetch-depth: 2
 
+            - name: Pick the scan targets of this shard
+              id: targets
+              env:
+                  SHARD: ${{ matrix.shard }}
+              run: |
+                  core='--include /bin --include /common --include /ee --include /posthog --include /services/llm-gateway --include /services/stripe-mock --include /tools'
+                  case "$SHARD" in
+                      all) paths="$core --include /products" ;;
+                      core) paths="$core" ;;
+                      products-a-m) paths='--include /products/[a-m]*' ;;
+                      products-n-s) paths='--include /products/[n-s]*' ;;
+                      # The negated range also takes a product whose name starts with a digit or
+                      # another character, so every product lands in exactly one shard.
+                      products-t-z) paths='--include /products/[!a-s]*' ;;
+                      *)
+                          echo "::error::Unknown semgrep-python shard: $SHARD"
+                          exit 1
+                          ;;
+                  esac
+                  echo "paths=$paths" >> "$GITHUB_OUTPUT"
+
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
               with:
@@ -228,14 +255,7 @@ jobs:
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
                       --exclude-rule python.django.security.audit.csrf-exempt.no-csrf-exempt
                       --exclude-rule generic.html-templates.security.var-in-href.var-in-href
-                      --include /bin
-                      --include /common
-                      --include /ee
-                      --include /posthog
-                      --include /products
-                      --include /services/llm-gateway
-                      --include /services/stripe-mock
-                      --include /tools
+                      ${{ steps.targets.outputs.paths }}
                       --exclude products/desktop
                       --jobs 4
 
@@ -250,14 +270,7 @@ jobs:
                   full-scan: 'true'
                   args: >-
                       --config .semgrep/rules/security/idor-team-scoped-models.yaml
-                      --include /bin
-                      --include /common
-                      --include /ee
-                      --include /posthog
-                      --include /products
-                      --include /services/llm-gateway
-                      --include /services/stripe-mock
-                      --include /tools
+                      ${{ steps.targets.outputs.paths }}
                       --exclude products/desktop
                       --jobs 4
 

@@ -2,6 +2,8 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.aws_cost_explorer._config import AwsCostExplorerSourceConfig
 from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer import (
+    DISCOUNT_PERMISSION_ERROR_MESSAGE,
+    DISCOUNT_PERMISSION_ERROR_RESOLUTION,
     THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerResumeConfig,
@@ -61,6 +63,9 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         }
         errors["AWS access key ID and secret access key are required"] = (
             "Enter both an AWS access key ID and a secret access key."
+        )
+        errors[f"AWS Cost Explorer request failed: ValidationException - {DISCOUNT_PERMISSION_ERROR_MESSAGE}"] = (
+            DISCOUNT_PERMISSION_ERROR_RESOLUTION
         )
         return errors
 

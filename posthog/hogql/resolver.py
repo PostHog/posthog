@@ -987,6 +987,8 @@ class Resolver(CloningVisitor):
                     first_type.columns = {
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
+                    if cte_expr.type.columns:
+                        cte_expr.type.columns = dict(zip(node.columns, cte_expr.type.columns.values()))
 
         if node.using_key is not None:
             if node.columns:
@@ -2896,6 +2898,11 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
+        return node
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):

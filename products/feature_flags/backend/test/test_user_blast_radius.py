@@ -9,7 +9,6 @@ from posthog.models import Team
 from posthog.models.property import PropertyValidationError
 
 from products.feature_flags.backend.user_blast_radius import (
-    UNEVALUABLE_FILTERS_MESSAGE,
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
@@ -33,13 +32,13 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
                 "no_supertype",
                 386,
                 "There is no supertype for types String, UInt8 because some of them are String",
-                UNEVALUABLE_FILTERS_MESSAGE,
+                CLICKHOUSE_ERROR_CODE_LOOKUP[386].user_safe,
             ),
             (
                 "illegal_type_of_argument",
                 43,
                 "Illegal type String of argument of function equals",
-                UNEVALUABLE_FILTERS_MESSAGE,
+                CLICKHOUSE_ERROR_CODE_LOOKUP[43].user_safe,
             ),
             ("curated_copy", 70, "CANNOT_CONVERT_TYPE", CLICKHOUSE_ERROR_CODE_LOOKUP[70].user_safe),
         ]

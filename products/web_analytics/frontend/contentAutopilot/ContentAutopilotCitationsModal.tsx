@@ -2,12 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import { ContentAutopilotCitationsActions } from './ContentAutopilotCitationsActions'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotCitationsTable } from './ContentAutopilotCitationsTable'
 import { segmentPrompts } from './utils'
+
+/** The lookup's window in words, such as "Last 90 days" or "October 18 - November 17, 2026". */
+const lookupRange = ({ dateFrom, dateTo }: CitationsLookup): string =>
+    dateFilterToText(dateFrom, dateTo, null, undefined, true) ?? `${dateFrom} to ${dateTo ?? 'today'}`
 
 const modalTitle = ({ kind, value }: CitationsLookup): string =>
     kind === 'domain'
@@ -32,7 +37,7 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
             title={lookup ? modalTitle(lookup) : ''}
             description={
                 lookup
-                    ? `Answers to ${segmentPrompts(lookup.branded)} over the last ${lookup.days} days, newest first.`
+                    ? `Answers to ${segmentPrompts(lookup.branded)}, newest first. Date range: ${lookupRange(lookup)}.`
                     : undefined
             }
             width={960}
