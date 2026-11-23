@@ -2065,7 +2065,7 @@ database "posthog" {
       type = "Map(String, String)"
     }
     column "properties_group_feature_flags" {
-      type = "Map(String, LowCardinality(String))"
+      type = "Map(LowCardinality(String), LowCardinality(String))"
     }
     engine "distributed" {
       cluster_name    = "flags"

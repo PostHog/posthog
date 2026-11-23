@@ -457,7 +457,7 @@ CREATE TABLE posthog.flag_evaluations (
   _partition UInt64,
   properties_group_custom Map(String, String),
   person_properties_map_custom Map(String, String),
-  properties_group_feature_flags Map(String, LowCardinality(String))
+  properties_group_feature_flags Map(LowCardinality(String), LowCardinality(String))
 ) ENGINE = Distributed('flags', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE TABLE posthog.groups (
   group_type_index UInt8,
