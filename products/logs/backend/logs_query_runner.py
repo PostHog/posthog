@@ -1,3 +1,4 @@
+import re
 import json
 import base64
 import datetime as dt
@@ -215,12 +216,17 @@ def _generate_resource_attribute_filters(
     )
 
 
+# Python's float() also accepts "1_000", " 1 " and True, which ClickHouse can't convert to Float64.
+_CLICKHOUSE_FLOAT_PATTERN = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?")
+
+
 def _get_property_type(value) -> str:
-    try:
-        float(value)
+    if isinstance(value, bool):
+        return "str"
+    if isinstance(value, int | float):
         return "float"
-    except ValueError:
-        pass
+    if isinstance(value, str) and _CLICKHOUSE_FLOAT_PATTERN.fullmatch(value):
+        return "float"
     # todo: datetime?
     return "str"
 

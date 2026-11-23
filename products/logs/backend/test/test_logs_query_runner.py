@@ -35,7 +35,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import LogsQueryRunner, _map_attribute_filter_type
 from products.logs.backend.models import TeamLogsConfig
 from products.logs.backend.presentation.views.api import LogsViewSet
 
@@ -1640,6 +1640,37 @@ class TestLogsQueryCachedResponse(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
         self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", "uuid": "02"})
+
+
+class TestAttributeFilterTypeMapping(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("integer_string", "500", "float"),
+            ("decimal_string", "1.5", "float"),
+            ("exponent_string", "1e3", "float"),
+            ("signed_string", "-2", "float"),
+            ("int", 42, "float"),
+            ("float", 1.5, "float"),
+            ("all_numeric_list", ["1", "2.5"], "float"),
+            ("underscore_digit_separators", "123_456", "str"),
+            ("underscore_in_list", ["1", "1_000"], "str"),
+            ("surrounding_whitespace", " 1 ", "str"),
+            ("bool", True, "str"),
+            ("nan", "nan", "str"),
+            ("infinity", "inf", "str"),
+            ("text", "web-server", "str"),
+        ]
+    )
+    def test_only_clickhouse_parsable_numbers_target_the_float_map(self, _name, value, expected_type):
+        mapped = _map_attribute_filter_type(
+            LogPropertyFilter(
+                key="external_id",
+                operator=PropertyOperator.EXACT,
+                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                value=value,
+            )
+        )
+        self.assertEqual(mapped.key, f"external_id__{expected_type}")
 
 
 _IS_SET_LEAF = {"key": "k", "operator": "is_set", "type": "log_attribute"}
