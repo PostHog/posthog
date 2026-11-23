@@ -40,6 +40,7 @@ const startTimeout = 8000
 const finishTimeout = 2500
 const listeningInactivityTimeout = 60000
 const permissionReturnTimeout = 1500
+const scriptSubtag = /^[a-z]{4}$/
 
 // The native module broadcasts events without a session identifier.
 let nativeSession: Session | null = null
@@ -77,13 +78,30 @@ function localeBaseName(locale: string): string {
     }
 }
 
+function speechLocaleKey(base: string): string {
+    const [language, subtag = ''] = base.split('-')
+    if (language !== 'zh' || scriptSubtag.test(subtag)) {
+        return base
+    }
+    // Hermes lacks Intl.Locale. Use the CLDR defaults for Chinese speech models without a script tag.
+    const script = ['hk', 'mo', 'tw'].includes(subtag) ? 'hant' : 'hans'
+    return `zh-${script}${base.slice(2)}`
+}
+
 function installedLocale(languageTag: string, installedLocales: string[]): string | undefined {
-    const base = localeBaseName(languageTag)
-    const language = base.split('-', 1)[0]
+    const preference = localeBaseName(languageTag)
+    const key = speechLocaleKey(preference)
+    const [language, subtag] = key.split('-')
+    const languageAndScript = scriptSubtag.test(subtag ?? '') ? `${language}-${subtag}` : language
+    const models = installedLocales.map((locale) => {
+        const base = localeBaseName(locale)
+        return { locale, base, key: speechLocaleKey(base) }
+    })
     return (
-        installedLocales.find((locale) => localeBaseName(locale) === base) ??
-        installedLocales.find((locale) => localeBaseName(locale) === language)
-    )
+        models.find((model) => model.base === preference) ??
+        models.find((model) => model.key === key) ??
+        models.find((model) => model.key === languageAndScript)
+    )?.locale
 }
 
 export function useChatDictation({ onTranscript, disabled = false, scopeKey, draftText = '' }: Options): Dictation {
@@ -245,31 +263,45 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
                 let startFailed = false
                 let stopping = false
                 let aborted = false
+                let abortedBeforeIosStart = false
+                const waitingForIosStart = (): boolean => Platform.OS === 'ios' && !started && !startFailed
 
-                const abort = (): void => {
-                    if (aborted) {
+                const watchForTeardown = (): void => {
+                    if (nativeSession !== current) {
+                        return
+                    }
+                    const probe = setTimeout(async () => {
+                        let inactive: boolean
+                        try {
+                            inactive = (await recognizer.getStateAsync()) === 'inactive'
+                        } catch {
+                            inactive = false
+                        }
+                        if (nativeSession !== current || watchdog !== probe) {
+                            return
+                        }
+                        if (inactive) {
+                            release()
+                        } else {
+                            watchForTeardown()
+                        }
+                    }, finishTimeout)
+                    watchdog = probe
+                }
+
+                const abort = (retryAfterLateStart = false): void => {
+                    if (nativeSession !== current || (aborted && !retryAfterLateStart)) {
                         return
                     }
                     aborted = true
+                    abortedBeforeIosStart ||= waitingForIosStart()
                     clearTimeout(watchdog)
                     try {
                         recognizer.abort()
                     } catch {
                         // Check if the native service has torn down below.
                     }
-                    // Normally abort emits end. If the service omits it, wait for teardown before accepting a new session.
-                    if (nativeSession === current) {
-                        watchdog = setTimeout(() => {
-                            void recognizer.getStateAsync().then(
-                                (state) => {
-                                    if (state === 'inactive' && nativeSession === current) {
-                                        release()
-                                    }
-                                },
-                                () => {}
-                            )
-                        }, finishTimeout)
-                    }
+                    watchForTeardown()
                 }
 
                 const complete = (): void => {
@@ -297,26 +329,26 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
                 }
 
                 nativeSession = current
-                // iOS starts asynchronously. Abort once the native start arrives so it cannot open the mic after abort.
                 current.cancelNative = () => {
-                    clearTimeout(watchdog)
                     finalTranscript = ''
                     partialTranscript = ''
-                    if (started || startFailed || Platform.OS === 'android') {
+                    // iOS can open the mic after an early abort. Retain the watchdog while waiting for start.
+                    if (!waitingForIosStart()) {
                         abort()
                     }
                 }
                 watchdog = setTimeout(() => {
                     finish(recognitionFailed)
-                    current.cancelNative?.()
+                    abort()
                 }, startTimeout)
 
                 try {
                     subscriptions.push(
                         recognizer.addListener('start', () => {
+                            const retryAfterLateStart = abortedBeforeIosStart && !started
                             started = true
                             if (session.current !== current) {
-                                abort()
+                                abort(retryAfterLateStart)
                                 return
                             }
                             current.stop = () => {
@@ -376,8 +408,11 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
                             awaitEnd()
                         }),
                         recognizer.addListener('end', () => {
-                            release()
-                            complete()
+                            // An early iOS abort can emit end before the queued start opens the mic.
+                            if (!abortedBeforeIosStart) {
+                                release()
+                                complete()
+                            }
                         })
                     )
                     recognizer.start({

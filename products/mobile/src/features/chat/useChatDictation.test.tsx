@@ -115,7 +115,10 @@ describe('chat dictation', () => {
     test.each([
         { tag: 'en-US-u-hc-h23', installed: ['en', 'en_US'], expected: 'en_US' },
         { tag: 'en-US-u-hc-h23', installed: ['en-GB', 'en'], expected: 'en' },
-        { tag: 'zh-Hant-TW-x-local', installed: ['zh-Hans-TW', 'zh-Hant-HK'], expected: undefined },
+        { tag: 'zh-Hans-CN', installed: ['zh-Hant-CN', 'zh_CN'], expected: 'zh_CN' },
+        { tag: 'zh-Hant-TW-x-local', installed: ['zh', 'zh-TW'], expected: 'zh-TW' },
+        { tag: 'zh-TW', installed: ['zh-Hant-TW', 'zh-TW'], expected: 'zh-TW' },
+        { tag: 'zh-Hant-TW', installed: ['zh-Hans-TW', 'zh-Hant-HK', 'zh'], expected: undefined },
     ])('matches installed speech models for $tag', async ({ tag, installed, expected }) => {
         mockLocale.mockReturnValueOnce(tag)
         recognizer.getSupportedLocales.mockResolvedValueOnce({ locales: installed, installedLocales: installed })
@@ -297,40 +300,74 @@ describe('chat dictation', () => {
         expect(recognizer.stop).toHaveBeenCalledTimes(1)
     })
 
-    test('finishes with the preview and aborts when native stop omits its terminal event', async () => {
-        const { result } = renderDictation()
-        await act(async () => result.current.toggle())
-        emit('start')
-        speech('What is our retention?')
-        act(() => result.current.toggle())
-        act(() => jest.advanceTimersByTime(2500))
-        expect(result.current.phase).toBe('idle')
-        expect(recognizer.abort).toHaveBeenCalledTimes(1)
-        expect(onTranscript).toHaveBeenCalledWith('What is our retention?')
+    test.each(['inactive', 'stopping', 'unavailable'] as const)(
+        'recovers after a missing end event when the first teardown check is %s',
+        async (firstState) => {
+            if (firstState === 'unavailable') {
+                recognizer.getStateAsync.mockRejectedValueOnce(new Error('State unavailable'))
+            } else {
+                recognizer.getStateAsync.mockResolvedValueOnce(firstState)
+            }
+            const { result } = renderDictation()
+            await act(async () => result.current.toggle())
+            emit('start')
+            speech('What is our retention?')
+            act(() => result.current.toggle())
+            act(() => jest.advanceTimersByTime(2500))
+            expect(result.current.phase).toBe('idle')
+            expect(onTranscript).toHaveBeenCalledWith('What is our retention?')
 
-        await act(async () => result.current.toggle())
-        expect(recognizer.start).toHaveBeenCalledTimes(1)
-        speech('Stale final result', true)
-        expect(onTranscript).toHaveBeenCalledTimes(1)
+            await act(async () => result.current.toggle())
+            expect(result.current.error).toMatch(/still stopping/)
+            speech('Stale final result', true)
+            expect(onTranscript).toHaveBeenCalledTimes(1)
 
-        await act(async () => jest.advanceTimersByTime(2500))
-        await act(async () => result.current.toggle())
-        expect(recognizer.start).toHaveBeenCalledTimes(2)
-    })
+            await act(async () => jest.advanceTimersByTime(2500))
+            if (firstState !== 'inactive') {
+                await act(async () => result.current.toggle())
+                expect(result.current.error).toMatch(/still stopping/)
+                await act(async () => jest.advanceTimersByTime(2500))
+            }
+            await act(async () => result.current.toggle())
+            emit('start')
+            expect(result.current.phase).toBe('listening')
+        }
+    )
 
-    test('unblocks the composer when start stalls and aborts if the start arrives later', async () => {
-        const { result } = renderDictation()
-        await act(async () => result.current.toggle())
-        act(() => jest.advanceTimersByTime(8000))
-        expect(result.current.phase).toBe('idle')
-        expect(result.current.error).toMatch(/stopped unexpectedly/)
-        expect(recognizer.abort).not.toHaveBeenCalled()
-        emit('start')
-        expect(recognizer.abort).toHaveBeenCalledTimes(1)
-        speech('Stale final result', true)
-        emit('end')
-        expect(onTranscript).not.toHaveBeenCalled()
-    })
+    test.each(['missing start', 'late start', 'chat change'] as const)(
+        'lets the next chat dictate after a native start timeout with %s',
+        async (scenario) => {
+            const { result, rerender } = renderDictation()
+            await act(async () => result.current.toggle())
+            if (scenario === 'chat change') {
+                rerender('chat-b')
+            }
+            act(() => jest.advanceTimersByTime(8000))
+            expect(result.current.phase).toBe('idle')
+            expect(result.current.error).toBe(
+                scenario === 'chat change' ? null : 'Dictation stopped unexpectedly. Try again.'
+            )
+
+            if (scenario === 'late start') {
+                emit('end')
+                await act(async () => result.current.toggle())
+                expect(result.current.error).toMatch(/still stopping/)
+                emit('start')
+                expect(recognizer.abort).toHaveBeenCalledTimes(2)
+                speech('Stale final result', true)
+                expect(onTranscript).not.toHaveBeenCalled()
+            }
+
+            await act(async () => jest.advanceTimersByTime(2500))
+            rerender('chat-b')
+            await act(async () => result.current.toggle())
+            emit('start')
+            speech('New chat transcript', true)
+            emit('end')
+            expect(onTranscript).toHaveBeenCalledTimes(1)
+            expect(onTranscript).toHaveBeenCalledWith('New chat transcript')
+        }
+    )
 
     test('discards results when the app backgrounds or the hook unmounts', async () => {
         const { result, unmount } = renderDictation()
