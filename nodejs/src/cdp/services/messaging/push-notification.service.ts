@@ -24,6 +24,7 @@ import {
     pushRecipientOtherThanRunPerson,
     runDistinctIdMatching,
 } from '../../utils/push-subscription-utils'
+import { TRANSACTIONAL_PUSH_EVENT } from '../hogflows/transactional-push'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PersonsManagerService } from '../managers/persons-manager.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
@@ -78,6 +79,16 @@ const pushNotificationRescheduledCounter = new Counter({
     help: 'Push sends rescheduled after a transient provider failure (throttle / 5xx / network) instead of being dropped. A sustained rate for one platform means that provider is rate-limiting the sending project.',
     labelNames: ['platform'],
 })
+
+const pushNotificationRecipientWaitCounter = new Counter({
+    name: 'push_notification_recipient_wait_total',
+    help: 'Transactional push sends rescheduled because the recipient had no person or no device token yet, by reason. Each wait is counted, so one send can add up to one per wait.',
+    labelNames: ['reason'],
+})
+
+// A transactional push is often sent right after signup, before ingestion has created the person or stored
+// their device token. These waits add up to about five minutes after the first attempt.
+const RECIPIENT_WAIT_DELAYS_MS = [10_000, 20_000, 40_000, 80_000, 160_000]
 
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
 // than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Valkey
@@ -242,7 +253,11 @@ function retriableTokenRejection(error: PushSendError): PushSendError {
 }
 
 // apnsAcceptedKeys holds a short prefix of each key fingerprint, never key material.
-type PushQueueMetadata = { tries?: number; apnsAcceptedKeys?: string[] }
+// recipientWaits is kept apart from tries, so waiting for a device does not use up the retry budget for provider
+// failures.
+type PushQueueMetadata = { tries?: number; recipientWaits?: number; apnsAcceptedKeys?: string[] }
+
+type ChannelOutcome = 'delivered' | 'no_token' | 'unregistered'
 
 // Whose devices a send goes to. `properties` is the person snapshot the tokens are read from, and
 // `isRunPerson` says it is the run's own person, so a pruned token has to leave the invocation's
@@ -315,6 +330,7 @@ export class PushNotificationService {
         // invocation's queue metadata across reschedules.
         const metadata = (invocation.queueMetadata as PushQueueMetadata) || {}
         const tries = metadata.tries ?? 0
+        const recipientWaits = metadata.recipientWaits ?? 0
 
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
         // rescheduled attempt must not re-count the same notification's skips or failures on every retry.
@@ -363,7 +379,7 @@ export class PushNotificationService {
         // Resolved once for the send: every channel reads the same person's tokens.
         let recipient: PushRecipient | null
         try {
-            recipient = await this.resolveRecipient(invocation, params)
+            recipient = await this.resolveRecipient(invocation, params, recipientWaits > 0)
         } catch (error) {
             // The person service is down or slow. Nothing was sent yet, so retry later instead of dropping the push.
             if (tries >= this.fetchUtils.maxRetries) {
@@ -385,10 +401,8 @@ export class PushNotificationService {
             )
             return result
         }
-        if (!recipient) {
-            addLog('warn', `No person found for distinct_id: ${params.distinctId.trim()}; push notification skipped.`)
-            pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'no_person' }).inc()
-        }
+        const noTokenPlatforms: PushPlatform[] = []
+        let unregisteredCount = 0
         for (const integrationId of integrationIds) {
             // Nobody to read tokens from, so every channel is skipped the way a person with no device is.
             if (!recipient) {
@@ -407,11 +421,11 @@ export class PushNotificationService {
                     )
                 }
 
-                let sent: boolean
+                let outcome: ChannelOutcome
                 if (integration.kind === 'firebase') {
-                    sent = await this.executeFcm(result, params, integration, invocation, recipient, skipMessages)
+                    outcome = await this.executeFcm(result, params, integration, invocation, recipient, skipMessages)
                 } else if (integration.kind === 'apns') {
-                    sent = await this.executeApns(
+                    outcome = await this.executeApns(
                         result,
                         params,
                         integration,
@@ -424,12 +438,17 @@ export class PushNotificationService {
                     throw new Error(`Unsupported push integration kind: ${integration.kind}`)
                 }
 
-                if (sent) {
+                if (outcome === 'delivered') {
                     successCount++
                     deliveredPlatforms.add(integration.kind === 'firebase' ? 'Firebase' : 'APNs')
                 } else {
                     // A channel with no registered device token for this recipient is skipped, not failed.
                     skippedCount++
+                    if (outcome === 'no_token') {
+                        noTokenPlatforms.push(integration.kind === 'firebase' ? 'fcm' : 'apns')
+                    } else {
+                        unregisteredCount++
+                    }
                 }
             } catch (error) {
                 firstError = firstError ?? error.message
@@ -445,13 +464,46 @@ export class PushNotificationService {
             }
         }
 
+        const errorCount = errors.length + otherErrorCount
+
+        // Only an API send waits: a workflow triggered by an event already has its person, and a test send
+        // should answer right away. A token the provider called dead won't come back by waiting.
+        const recipientMissing = successCount === 0 && errorCount === 0 && skippedCount > 0 && unregisteredCount === 0
+        if (
+            recipientMissing &&
+            !isTest &&
+            invocation.state.globals.event?.event === TRANSACTIONAL_PUSH_EVENT &&
+            recipientWaits < RECIPIENT_WAIT_DELAYS_MS.length
+        ) {
+            const nextWaits = recipientWaits + 1
+            const delayMs = RECIPIENT_WAIT_DELAYS_MS[recipientWaits]
+            // An API run's own snapshot has no person id when the distinct id had no person at the send.
+            const reason = recipient?.personId ? 'no_token' : 'no_person'
+            // Restore queueParameters, which createInvocationResult cleared: see the reschedule below.
+            result.invocation.queueParameters = invocation.queueParameters
+            result.invocation.queueMetadata = { ...metadata, recipientWaits: nextWaits }
+            result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: delayMs })
+            result.finished = false
+            pushNotificationRecipientWaitCounter.labels({ reason }).inc()
+            addLog(
+                'info',
+                `${reason === 'no_person' ? 'No person found' : 'No device registered'} for distinct_id ${params.distinctId.trim()} yet; retrying in ${delayMs / 1000}s (attempt ${nextWaits}/${RECIPIENT_WAIT_DELAYS_MS.length}).`
+            )
+            return result
+        }
+
+        if (!recipient) {
+            addLog('warn', `No person found for distinct_id: ${params.distinctId.trim()}; push notification skipped.`)
+            pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'no_person' }).inc()
+        }
+        for (const platform of noTokenPlatforms) {
+            pushNotificationSkippedCounter.labels({ platform, reason: 'no_token' }).inc()
+        }
         // Most recipients have a device on one platform only, so a skip next to a delivery is expected.
         const skipLogLevel = successCount > 0 ? 'info' : 'warn'
         for (const message of skipMessages) {
             addLog(skipLogLevel, message)
         }
-
-        const errorCount = errors.length + otherErrorCount
         const success = successCount > 0 || errorCount === 0
         const retriableErrors = errors.filter((e) => e.retriable)
 
@@ -561,7 +613,8 @@ export class PushNotificationService {
     // notify someone the step did not name.
     private async resolveRecipient(
         invocation: CyclotronJobInvocationHogFunction,
-        params: CyclotronInvocationQueueParametersSendPushNotificationType
+        params: CyclotronInvocationQueueParametersSendPushNotificationType,
+        afterRecipientWait: boolean
     ): Promise<PushRecipient | null> {
         const { event, person } = invocation.state.globals
         // Only a workflow push step may name another person: the opt-out and frequency cap checks run there
@@ -571,6 +624,20 @@ export class PushNotificationService {
         const distinctId = isWorkflowPushStep
             ? pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
             : null
+        // The run's person was loaded before the wait and may be cached, so after a wait look the person up fresh.
+        if (!distinctId && afterRecipientWait) {
+            const runDistinctId =
+                runDistinctIdMatching(params.distinctId, invocation.state.globals) ??
+                (event.distinct_id || person?.distinct_id || '')
+            const fresh = runDistinctId
+                ? await this.personsManager.getCyclotronPerson(invocation.teamId, runDistinctId, 'distinct_id', {
+                      forceFresh: true,
+                  })
+                : null
+            return fresh
+                ? { distinctId: runDistinctId, personId: fresh.id, properties: fresh.properties, isRunPerson: false }
+                : null
+        }
         if (!distinctId) {
             return {
                 distinctId:
@@ -590,7 +657,6 @@ export class PushNotificationService {
         return { distinctId, personId: named.id, properties: named.properties, isRunPerson: false }
     }
 
-    /** Returns true if a notification was handed off to FCM, false if skipped (no device token). */
     private async executeFcm(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
@@ -598,7 +664,7 @@ export class PushNotificationService {
         invocation: CyclotronJobInvocationHogFunction,
         recipient: PushRecipient,
         skipMessages: string[]
-    ): Promise<boolean> {
+    ): Promise<ChannelOutcome> {
         const addLog = createAddLogFunction(result.logs)
 
         const projectId = integration.config.project_id
@@ -611,8 +677,7 @@ export class PushNotificationService {
 
         if (subscriptions.length === 0) {
             skipMessages.push(`No active FCM device token found for distinct_id: ${recipient.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
-            return false
+            return 'no_token'
         }
 
         const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
@@ -643,7 +708,7 @@ export class PushNotificationService {
             // A throw here would re-run the step and push again to every device already delivered to.
             // A device that failed retryably loses this one notification instead, which is the better
             // of the two: a missed push on one device rather than a duplicate on the others.
-            return true
+            return 'delivered'
         }
 
         const failure = retriableFailure ?? failures.at(-1)
@@ -651,7 +716,7 @@ export class PushNotificationService {
             throw failure
         }
 
-        return false
+        return 'unregistered'
     }
 
     /** One FCM send. Reports the outcome rather than throwing, so the caller can weigh it against the
@@ -725,7 +790,6 @@ export class PushNotificationService {
         return { sent: true }
     }
 
-    /** Returns true if a notification was handed off to APNS, false if skipped (no device token). */
     private async executeApns(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
@@ -734,7 +798,7 @@ export class PushNotificationService {
         recipient: PushRecipient,
         apnsAcceptedKeys: Set<string>,
         skipMessages: string[]
-    ): Promise<boolean> {
+    ): Promise<ChannelOutcome> {
         const addLog = createAddLogFunction(result.logs)
 
         const signingKey = integration.sensitive_config.signing_key
@@ -749,8 +813,7 @@ export class PushNotificationService {
 
         if (subscriptions.length === 0) {
             skipMessages.push(`No active APNS device token found for distinct_id: ${recipient.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
-            return false
+            return 'no_token'
         }
 
         let jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
@@ -823,7 +886,7 @@ export class PushNotificationService {
             reportPartialDeviceFailures(failures, addLog)
             // See executeFcm: retrying after a partial success would push again to the devices already
             // delivered to.
-            return true
+            return 'delivered'
         }
 
         const failure = retriableFailure ?? failures.at(-1)
@@ -831,7 +894,7 @@ export class PushNotificationService {
             throw failure
         }
 
-        return false
+        return 'unregistered'
     }
 
     /** One APNs send. Reports the outcome rather than throwing, so the caller can weigh it against the
