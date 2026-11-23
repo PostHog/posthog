@@ -47,6 +47,7 @@ export type CanvasDashboardActionType =
     | 'build_unpin'
     | 'fix_request'
     | 'make_public_opened'
+    | 'access_control_opened'
     | 'visibility_change'
 
 /** Captures a canvas action from the scene or its side panel. Never pass prompt, comment, or source text. */

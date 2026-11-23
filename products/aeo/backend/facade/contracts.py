@@ -131,6 +131,17 @@ class PromptTopic:
 
 
 @frozen
+class BrandSentimentSentence:
+    """One sentence of an answer that names the brand, with its own sentiment."""
+
+    # Offsets into the answer text, in Unicode code points.
+    start: int
+    end: int
+    label: str
+    score: float
+
+
+@frozen
 class PromptCheck:
     """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
 
@@ -153,6 +164,18 @@ class PromptCheck:
     # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
     brand_sentiment: str | None = None
     brand_sentiment_score: float | None = None
+    # Empty until scored, when the brand is not named, and on checks scored before sentences were stored.
+    brand_sentiment_sentences: tuple[BrandSentimentSentence, ...] = ()
+
+
+@frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
 
 
 @frozen
@@ -302,7 +325,7 @@ class PromptSetSearch:
 
 @frozen
 class PromptSetOverview:
-    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+    """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
 
     days: int
     window_from: dt.date
@@ -312,6 +335,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -380,6 +405,7 @@ BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
+COMPETITOR_CANDIDATE_DAYS = 7
 
 
 class BrandKind(LabeledStrEnum):
@@ -416,6 +442,17 @@ class Brand:
 
 
 @frozen
+class CompetitorCandidate:
+    """A suggested brand that answers to non-branded prompts both name and cite, so likely a competitor."""
+
+    brand_id: str
+    name: str
+    domain: str
+    answers_naming: int
+    answers_citing: int
+
+
+@frozen
 class BrandUpdate:
     """A partial edit of one brand. None leaves the field as it is."""
 
@@ -443,6 +480,21 @@ class BrandSyncResult:
 
 class BrandNotFoundError(Exception):
     pass
+
+
+# "-90d" counts today too, so the longest relative range has 91 days.
+MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_DATE_FROM = "-30d"
+KEYWORD_DEFAULT_DATE_FROM = "-7d"
+
+
+class InvalidDateRangeError(Exception):
+    """`date_from` or `date_to` cannot be read, or the range is too long. The message is safe to show the user."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 class BrandCreateError(Exception):
@@ -589,13 +641,15 @@ class RankedPage:
 
 @frozen
 class PromptSetRankings:
-    """Brand visibility against competitors, and the domains and pages the engines cite, over the
-    last `days` days."""
+    """Brand visibility against competitors, and the domains and pages the engines cite, from
+    `window_from` to `window_to`."""
 
     days: int
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]

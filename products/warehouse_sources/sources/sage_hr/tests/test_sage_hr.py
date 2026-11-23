@@ -20,7 +20,7 @@ from products.warehouse_sources.sources.sage_hr.sage_hr import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.sage_hr.settings import ENDPOINTS, SAGE_HR_ENDPOINTS
-from products.warehouse_sources.sources.sdk import SyncWindow
+from products.warehouse_sources.sources.sdk import RetryableHTTPError, SyncWindow
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = sage_hr._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -90,7 +90,7 @@ class TestFetchPage:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
-        with pytest.raises(SageHRRetryableError):
+        with pytest.raises(RetryableHTTPError):
             _fetch_page_unwrapped(session, "https://acme.sage.hr/api/employees?page=1", MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])

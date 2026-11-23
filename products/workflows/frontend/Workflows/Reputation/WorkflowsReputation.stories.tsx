@@ -105,6 +105,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
     email_sending_suspended: false,
     email_sending_suspended_at: null,
     email_sending_suspension_reason: '',
+    infrastructure: null,
 }
 
 const meta: Meta<typeof WorkflowsReputation> = {
@@ -163,3 +164,18 @@ export const HighBounceRate: StoryFn = () => {
     return <WorkflowsReputation />
 }
 HighBounceRate.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const WithInfrastructureHealth: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            infrastructure: {
+                emails_sent_at_least: 4_000_000,
+                delivery_rate: 0.991,
+                bounce_rate: 0.0028,
+                complaint_rate: 0.0003,
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}

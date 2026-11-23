@@ -15,7 +15,13 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.whop._config import WhopSourceConfig
-from products.warehouse_sources.sources.whop.settings import BASE_URL, ENDPOINTS, PAGE_SIZE, WHOP_ENDPOINTS
+from products.warehouse_sources.sources.whop.settings import (
+    BASE_URL,
+    ENDPOINTS,
+    PAGE_SIZE,
+    RETIRED_ENDPOINTS,
+    WHOP_ENDPOINTS,
+)
 from products.warehouse_sources.sources.whop.source import WhopSource
 from products.warehouse_sources.sources.whop.whop import (
     WhopCursorPaginator,
@@ -80,11 +86,12 @@ class TestListParams:
         "api_version, filter_param, other_param",
         [(LEGACY, "company_id", "account_id"), (LATEST, "account_id", "company_id")],
     )
-    def test_company_and_page_size_always_sent(self, endpoint, api_version, filter_param, other_param):
+    def test_company_filter_sent_unless_the_list_takes_none(self, endpoint, api_version, filter_param, other_param):
+        # `/transfers` takes no account filter; Whop answers an unknown filter with a 400.
         params = _list_params(endpoint, COMPANY_ID, None, api_version)
-        assert params[filter_param] == COMPANY_ID
+        assert params.get(filter_param) == (COMPANY_ID if WHOP_ENDPOINTS[endpoint].company_filter else None)
         assert other_param not in params
-        assert params["first"] == PAGE_SIZE
+        assert params[WHOP_ENDPOINTS[endpoint].page_size_param] == PAGE_SIZE
 
     @pytest.mark.parametrize(
         "endpoint",
@@ -118,12 +125,16 @@ class TestApiVersion:
         assert request.path == path
         assert request.param(filter_param) == COMPANY_ID
 
+    @pytest.mark.parametrize(
+        "table",
+        ["external_accounts", "variants", "payouts", "financial_activity", "transfers", "reviews", "courses"],
+    )
     @pytest.mark.parametrize("pinned, served", [(LEGACY, False), ("v1", False), (PREVIOUS, True), (LATEST, True)])
-    def test_discovery_follows_what_each_version_documents(self, pinned, served):
+    def test_discovery_follows_what_each_version_documents(self, table, pinned, served):
         schemas = WhopSource().get_schemas(
             WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
         )
-        assert ("external_accounts" in {schema.name for schema in schemas}) is served
+        assert (table in {schema.name for schema in schemas}) is served
         invoices = next(schema for schema in schemas if schema.name == "invoices")
         assert invoices.supports_webhooks is (pinned != LATEST)
 
@@ -135,30 +146,59 @@ class TestApiVersion:
         assert result.requests == []
 
 
+class TestRetiredEndpoints:
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    @pytest.mark.parametrize("pinned", [LEGACY, PREVIOUS, LATEST])
+    def test_retired_table_is_off_the_catalog(self, endpoint, pinned):
+        schemas = WhopSource().get_schemas(
+            WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
+        )
+        assert endpoint not in {schema.name for schema in schemas}
+
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    def test_existing_schema_fails_with_a_non_retryable_reason_before_any_request(self, endpoint):
+        result = _driver().run(endpoint, [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == RETIRED_ENDPOINTS[endpoint]
+        assert RETIRED_ENDPOINTS[endpoint] in WhopSource().get_non_retryable_errors()
+        assert result.requests == []
+
+
+# (endpoint, page size param, cursor param): the Relay lists and the ledger feed page differently.
+PAGING_STYLES = [
+    (SYNC_ENDPOINT, "first", "after"),
+    ("financial_activity", "limit", "cursor"),
+]
+
+
 class TestPagination:
-    def test_follows_end_cursor_and_saves_resume_state(self):
+    @pytest.mark.parametrize("endpoint, size_param, cursor_param", PAGING_STYLES)
+    def test_follows_end_cursor_and_saves_resume_state(self, endpoint, size_param, cursor_param):
         result = _driver().run(
-            SYNC_ENDPOINT,
+            endpoint,
             [
-                _page([{"id": "pay_1"}], end_cursor="cursor-1", has_next_page=True),
-                _page([{"id": "pay_2"}], end_cursor="cursor-2", has_next_page=False),
+                _page([{"id": "row_1"}], end_cursor="cursor-1", has_next_page=True),
+                _page([{"id": "row_2"}], end_cursor="cursor-2", has_next_page=False),
             ],
         )
 
-        assert [row["id"] for row in result.rows] == ["pay_1", "pay_2"]
-        assert result.params("after") == [None, "cursor-1"]
+        assert [row["id"] for row in result.rows] == ["row_1", "row_2"]
+        assert result.params(cursor_param) == [None, "cursor-1"]
+        assert result.params(size_param) == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # State is persisted only while a next page remains, after the page was yielded.
         assert result.saved_states == [WhopResumeConfig(cursor="cursor-1")]
 
-    def test_resumes_from_saved_cursor(self):
+    @pytest.mark.parametrize("endpoint, size_param, cursor_param", PAGING_STYLES)
+    def test_resumes_from_saved_cursor(self, endpoint, size_param, cursor_param):
         result = _driver().run(
-            SYNC_ENDPOINT,
-            [_page([{"id": "pay_9"}], end_cursor="cursor-9", has_next_page=False)],
+            endpoint,
+            [_page([{"id": "row_9"}], end_cursor="cursor-9", has_next_page=False)],
             resume_state=WhopResumeConfig(cursor="cursor-8"),
         )
 
-        assert [row["id"] for row in result.rows] == ["pay_9"]
-        assert result.params("after") == ["cursor-8"]
+        assert [row["id"] for row in result.rows] == ["row_9"]
+        assert result.params(cursor_param) == ["cursor-8"]
 
     def test_paginator_stops_on_unparseable_body(self):
         # Nothing to page with, so stopping beats re-requesting the same cursor forever.
@@ -173,18 +213,36 @@ class TestPagination:
 
 
 class TestSourceResponseMetadata:
-    def test_framework_incremental_injection_is_not_used(self):
-        # `created_after` is baked into the request params; letting the framework also inject the
+    @pytest.mark.parametrize(
+        "endpoint, incremental_field, filter_param, query, sort_mode",
+        [
+            (SYNC_ENDPOINT, "created_at", "created_after", {"first", "account_id", "order", "direction"}, "asc"),
+            ("variants", "created_at", "created_after", {"first", "account_id", "order", "direction"}, "asc"),
+            # Documented newest first, with no sort param to force ascending.
+            ("payouts", "created_at", "created_after", {"first", "account_id"}, "desc"),
+            ("financial_activity", "posted_at", "posted_after", {"limit", "account_id"}, "desc"),
+            ("reviews", "created_at", "created_after", {"first", "account_id", "order", "direction"}, "asc"),
+            # Bounded by the key's account scope, not by a filter.
+            ("transfers", "created_at", "created_after", {"first", "order", "direction"}, "asc"),
+        ],
+    )
+    def test_incremental_sync_filters_server_side_with_the_endpoint_param(
+        self, endpoint, incremental_field, filter_param, query, sort_mode
+    ):
+        # The filter is baked into the request params; letting the framework also inject the
         # watermark would add a second, wrongly-named filter param.
         result = _driver().run(
-            SYNC_ENDPOINT,
+            endpoint,
             [_page([], end_cursor=None, has_next_page=False)],
-            incremental_field="created_at",
+            incremental_field=incremental_field,
             db_incremental_field_last_value="2024-05-01T10:00:00Z",
         )
 
-        assert result.requests[0].param("created_after") == "2024-05-01T10:00:00.000Z"
-        assert set(result.requests[0].query) == {"first", "account_id", "created_after", "order", "direction"}
+        request = result.requests[0]
+        assert request.param(filter_param) == "2024-05-01T10:00:00.000Z"
+        assert set(request.query) == query | {filter_param}
+        assert result.response is not None
+        assert result.response.sort_mode == sort_mode
 
 
 class TestWebhookTableTransformer:

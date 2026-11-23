@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
+import type { RelatedInsight, RelatedSurvey } from './releaseRelated'
 import { RolloutStep } from './releaseRollout'
 import {
     CALENDAR_DAYS_AFTER,
@@ -17,22 +18,15 @@ import {
 export const DAY = 30
 export const TOTAL = CALENDAR_DAYS_BEFORE + CALENDAR_DAYS_AFTER
 export const LANE = 34
-export const FLAG_LANE = 52
 export const DETAILED_LANE = 44
 const NO_STEPS: RolloutStep[] = []
 
 export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; color: string }> = {
-    flag: { top: 30, height: 14, color: STAGE_COLOR.flag },
+    flag: { top: 26, height: 20, color: STAGE_COLOR.flag },
     early_access: { top: 4, height: 14, color: STAGE_COLOR.early_access },
     experiment: { top: 4, height: 14, color: STAGE_COLOR.experiment },
-    experiment_done: { top: 4, height: 14, color: STAGE_COLOR.ended },
-}
-
-export const TONE_COLOR: Record<NonNullable<ReleaseSpan['tone']>, string> = {
-    default: STAGE_COLOR.ended,
-    info: STAGE_COLOR.experiment,
-    warning: STAGE_COLOR.early_access,
-    success: STAGE_COLOR.released,
+    experiment_done: { top: 4, height: 14, color: STAGE_COLOR.experiment },
+    survey: { top: 4, height: 14, color: 'var(--release-survey)' },
 }
 
 export interface Scale {
@@ -49,6 +43,101 @@ export const CALENDAR_SCALE = (): Scale => ({
 
 export function x(date: string, scale: Scale): number {
     return Math.max(0, Math.min(scale.days, dayjs(date).startOf('day').diff(scale.start, 'day'))) * scale.day
+}
+
+export function spanWidth(span: ReleaseSpan, scale: Scale): number {
+    const left = x(span.from, scale)
+    return span.ongoing ? scale.days * scale.day - left : Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
+}
+
+const MIN_SEGMENT_WIDTH = 4
+
+export interface RolloutSegment {
+    step: RolloutStep
+    left: number
+    width: number
+    projected: boolean
+}
+
+export function rolloutSegments(
+    steps: RolloutStep[],
+    scale: Scale,
+    today: dayjs.Dayjs,
+    isArchived = false
+): RolloutSegment[] {
+    const end = scale.days * scale.day
+    const windowEnd = scale.start.add(scale.days, 'day')
+    const todayX = x(today.toISOString(), scale) + scale.day / 2
+    const past = steps.filter((step) => !step.upcoming)
+    const upcoming = isArchived ? [] : steps.filter((step) => step.upcoming)
+    const current = past[past.length - 1]
+    const endsToday = upcoming.length > 0 || isArchived
+    const currentEnd = endsToday ? todayX : end
+    const raw = [
+        ...past.map((step) => ({
+            step,
+            from: step.from,
+            to: step === current ? (endsToday ? today.toISOString() : windowEnd.toISOString()) : step.to,
+            left: x(step.from, scale),
+            right: step === current ? currentEnd : x(step.to, scale),
+            projected: false,
+        })),
+        ...(current && upcoming.length
+            ? [
+                  {
+                      step: current,
+                      from: today.toISOString(),
+                      to: upcoming[0].from,
+                      left: todayX,
+                      right: x(upcoming[0].from, scale),
+                      projected: true,
+                  },
+              ]
+            : []),
+        ...upcoming.map((step, index) => {
+            const left = x(step.from, scale)
+            const next = upcoming[index + 1]
+            return {
+                step,
+                from: step.from,
+                to: next ? next.from : step.to,
+                left,
+                right: next ? x(next.from, scale) : end,
+                projected: false,
+            }
+        }),
+    ]
+    return raw
+        .filter(({ from, to }) => dayjs(from).isBefore(windowEnd) && !dayjs(to).isBefore(scale.start, 'day'))
+        .map(({ step, left, right, projected }) => ({
+            step,
+            left,
+            width: Math.max(right - left, MIN_SEGMENT_WIDTH),
+            projected,
+        }))
+}
+
+const PAST_SHARE = 0.65
+
+export function todayScrollLeft(
+    scale: Scale,
+    viewportWidth: number,
+    stickyWidth: number,
+    today: dayjs.Dayjs
+): number | null {
+    const visible = viewportWidth - stickyWidth
+    const todayX = x(today.toISOString(), scale) + scale.day / 2
+    const left = todayX - visible * PAST_SHARE
+    return left > 0 ? left : null
+}
+
+export function linkedKeys(row: ReleaseRow, related: TrackRelated | undefined): Set<string> {
+    return new Set([
+        ...row.flags.map((flag) => `flag:${flag.id}`),
+        ...row.broadcasts.map((broadcast) => `broadcast:${broadcast.id}`),
+        ...(related?.surveys ?? []).map((survey) => `survey:${survey.id}`),
+        ...(related?.insights ?? []).map((insight) => `insight:${insight.id}`),
+    ])
 }
 
 export type Lane =
@@ -83,6 +172,16 @@ export type Lane =
           events: ReleaseEvent[]
           href: string
       }
+    | {
+          key: string
+          kind: 'survey'
+          title: string
+          status: string
+          live: boolean
+          span: ReleaseSpan
+          href: string
+          survey: RelatedSurvey
+      }
 
 export interface Track {
     row: ReleaseRow
@@ -90,7 +189,57 @@ export interface Track {
     lanes: Lane[]
 }
 
-export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep[]>): Track {
+export interface TrackRelated {
+    surveys: RelatedSurvey[]
+    insights: RelatedInsight[]
+}
+
+const NO_RELATED: TrackRelated = { surveys: [], insights: [] }
+
+export function relatedFor(
+    release: { survey_ids?: string[]; insight_ids?: number[] } | undefined,
+    surveysById: Record<string, RelatedSurvey>,
+    insightsById: Record<number, RelatedInsight>
+): TrackRelated {
+    if (!release) {
+        return NO_RELATED
+    }
+    return {
+        surveys: (release.survey_ids ?? []).flatMap((id) => (surveysById[id] ? [surveysById[id]] : [])),
+        insights: (release.insight_ids ?? []).flatMap((id) => (insightsById[id] ? [insightsById[id]] : [])),
+    }
+}
+
+export function surveyStatus(survey: RelatedSurvey): 'Archived' | 'Complete' | 'Running' | 'Draft' {
+    return survey.archived ? 'Archived' : survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
+}
+
+function groupEvents<K>(events: ReleaseEvent[], keyOf: (event: ReleaseEvent) => K | undefined): Map<K, ReleaseEvent[]> {
+    const groups = new Map<K, ReleaseEvent[]>()
+    for (const event of events) {
+        const key = keyOf(event)
+        if (key === undefined) {
+            continue
+        }
+        const group = groups.get(key)
+        if (group) {
+            group.push(event)
+        } else {
+            groups.set(key, [event])
+        }
+    }
+    return groups
+}
+
+export function buildTrack(
+    row: ReleaseRow,
+    stepsByFlag: Map<number, RolloutStep[]>,
+    related: TrackRelated = NO_RELATED
+): Track {
+    const scheduledByFlag = groupEvents(row.events, (event) =>
+        event.kind === 'schedule' && event.upcoming ? event.flagId : undefined
+    )
+    const sendsByHref = groupEvents(row.events, (event) => (event.kind === 'broadcast' ? event.href : undefined))
     const lanes: Lane[] = []
     for (const flag of row.flags) {
         lanes.push({
@@ -100,16 +249,14 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? NO_STEPS,
-            events: row.events.filter(
-                (event) => event.kind === 'schedule' && event.upcoming && event.flagId === flag.id
-            ),
+            events: scheduledByFlag.get(flag.id) ?? [],
             span: {
                 key: `flag-span-${flag.id}`,
                 kind: 'flag',
                 from: flag.created_at,
                 to: dayjs().toISOString(),
+                ongoing: !flag.archived,
                 label: flag.active ? 'Live' : 'Off',
-                tone: flag.active ? undefined : 'default',
                 href: urls.featureFlag(flag.id),
             },
             href: urls.featureFlag(flag.id),
@@ -147,10 +294,38 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             title: broadcast.name || 'Untitled broadcast',
             status: broadcast.status,
             live: broadcast.status === 'active',
-            events: row.events.filter(
-                (event) => event.kind === 'broadcast' && event.href === urls.broadcast(broadcast.id)
-            ),
+            events: sendsByHref.get(urls.broadcast(broadcast.id)) ?? [],
             href: urls.broadcast(broadcast.id),
+        })
+    }
+    for (const survey of related.surveys) {
+        const status = surveyStatus(survey)
+        lanes.push({
+            key: `survey-${survey.id}`,
+            kind: 'survey',
+            title: survey.name,
+            status,
+            live: status === 'Running',
+            span: {
+                key: `survey-span-${survey.id}`,
+                kind: 'survey',
+                from: survey.startDate ?? survey.createdAt,
+                to:
+                    survey.endDate ??
+                    (status === 'Archived' ? (survey.startDate ?? survey.createdAt) : dayjs().toISOString()),
+                ongoing: status === 'Running',
+                label:
+                    status === 'Draft'
+                        ? 'Survey draft'
+                        : status === 'Running'
+                          ? 'Survey running'
+                          : status === 'Archived'
+                            ? 'Survey archived'
+                            : 'Survey',
+                href: urls.survey(survey.id),
+            },
+            href: urls.survey(survey.id),
+            survey,
         })
     }
     return { row, steps: row.flags[0] ? (stepsByFlag.get(row.flags[0].id) ?? NO_STEPS) : NO_STEPS, lanes }
@@ -161,8 +336,8 @@ export function sendLabel(event: ReleaseEvent): string {
     return event.upcoming ? 'Scheduled' : kind ? kind[0].toUpperCase() + kind.slice(1) : 'Sent'
 }
 
-export function laneHeight(lane: Lane, detailed?: boolean): number {
-    return lane.kind === 'flag' ? FLAG_LANE : detailed ? DETAILED_LANE : LANE
+export function laneHeight(detailed?: boolean): number {
+    return detailed ? DETAILED_LANE : LANE
 }
 
 export function statusLabel(status: string): string {
@@ -182,9 +357,9 @@ export function mergeOverlapping(spans: ReleaseSpan[]): ReleaseSpan[] {
         }
         previous.count += 1
         previous.to = dayjs(span.to).isAfter(dayjs(previous.to)) ? span.to : previous.to
+        previous.ongoing = previous.ongoing || span.ongoing
         if (span.kind === 'experiment') {
             previous.kind = 'experiment'
-            previous.tone = span.tone
         }
         previous.label = span.kind.startsWith('experiment')
             ? `${previous.count} experiments`

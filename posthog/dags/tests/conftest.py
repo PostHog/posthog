@@ -53,19 +53,12 @@ def refresh_person_from_persons_db(person) -> None:
     """
     with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
         cursor.execute(
-            "SELECT properties, version, is_identified, properties_last_updated_at, properties_last_operation "
-            f"FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s AND uuid = %s",
+            f"SELECT properties, version, is_identified FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s AND uuid = %s",
             (person.team_id, person.uuid),
         )
         row = cursor.fetchone()
     assert row is not None, f"person {person.uuid} not found in persons DB"
-    (
-        person.properties,
-        person.version,
-        person.is_identified,
-        person.properties_last_updated_at,
-        person.properties_last_operation,
-    ) = row
+    person.properties, person.version, person.is_identified = row
 
 
 def save_person_to_persons_db(person) -> None:

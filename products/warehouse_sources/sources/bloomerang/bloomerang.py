@@ -33,6 +33,8 @@ class BloomerangResumeConfig:
     next_offset: int
     # Fan-out tables only: the first parent on that parent page that is not fully read.
     parent_index: int = 0
+    # Tables with `param_variants` only: the params set that `next_offset` belongs to.
+    param_variant: int = 0
 
 
 # A constituent or pledge can be deleted between the parent listing and the child request.
@@ -42,9 +44,9 @@ _IGNORE_NOT_FOUND = create_response_hooks([{"status_code": 404, "action": "ignor
 def _flatten_audit_trail(item: dict[str, Any]) -> dict[str, Any]:
     """Promote AuditTrail.CreatedDate/LastModifiedDate onto the row root.
 
-    Every endpoint except Appeals, Campaigns, Funds, and Phones nests its timestamps under an
-    `AuditTrail` object; flattening them makes `CreatedDate` usable as a partition key and
-    `LastModifiedDate` usable as the incremental cursor column.
+    Every endpoint except Appeals, Campaigns, Funds, Phones, Users, Tributes, and Processors nests
+    its timestamps under an `AuditTrail` object; flattening them makes `CreatedDate` usable as a
+    partition key and `LastModifiedDate` usable as the incremental cursor column.
     """
     audit_trail = item.pop("AuditTrail", None)
     if isinstance(audit_trail, dict):
@@ -201,6 +203,49 @@ def _fanout_rows(
         offset += PAGE_SIZE
 
 
+def _param_variant_rows(
+    client: RESTClient,
+    config: BloomerangEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[BloomerangResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    first_variant = resume.param_variant if resume else 0
+    next_offset: Optional[int] = None
+
+    def track_page(state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        nonlocal next_offset
+        offset = state.get("offset") if state else None
+        next_offset = int(offset) if has_next_page and offset is not None else None
+
+    for variant_index in range(first_variant, len(config.param_variants)):
+        for page in client.paginate(
+            path=config.path,
+            params={**config.extra_params, **config.param_variants[variant_index]},
+            paginator=_paginator(),
+            data_selector="Results",
+            data_selector_required=True,
+            initial_paginator_state={"offset": resume.next_offset}
+            if resume is not None and variant_index == first_variant
+            else None,
+            page_state_hook=track_page,
+        ):
+            rows = [row for row in page if isinstance(row, dict)]
+            if config.has_audit_trail:
+                rows = [_flatten_audit_trail(row) for row in rows]
+            if not rows:
+                resumable_source_manager.safe_point()
+                continue
+            if next_offset is not None:
+                resumable_source_manager.save_state(
+                    BloomerangResumeConfig(next_offset=next_offset, param_variant=variant_index)
+                )
+            elif variant_index + 1 < len(config.param_variants):
+                resumable_source_manager.save_state(
+                    BloomerangResumeConfig(next_offset=0, param_variant=variant_index + 1)
+                )
+            yield rows
+
+
 def _source_response(config: BloomerangEndpointConfig, items: Callable[[], Any]) -> SourceResponse:
     return SourceResponse(
         name=config.name,
@@ -229,6 +274,9 @@ def bloomerang_source(
     if fanout is not None:
         client = _rest_client(api_key)
         return _source_response(config, lambda: _fanout_rows(client, config, fanout, resumable_source_manager))
+    if config.param_variants:
+        client = _rest_client(api_key)
+        return _source_response(config, lambda: _param_variant_rows(client, config, resumable_source_manager))
 
     is_incremental = config.supports_incremental and should_use_incremental_field
 

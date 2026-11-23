@@ -87,6 +87,7 @@ import {
     keepOnlyRealtimeCohort,
 } from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
+import { isRejectedAudience } from '../Workflows/hogflows/steps/rejectedAudience'
 import { getTemplatingError } from '../Workflows/hogflows/steps/templatingError'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
@@ -375,7 +376,18 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
     return !base || !objectsEqual(read(latest), read(base))
 }
 
-export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
+export type BroadcastSummaryTab = 'overview' | 'content' | 'runs' | 'history'
+
+/** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
+export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
+    if (!limit || !remaining) {
+        return ''
+    }
+    // An estimate: the worker holds sends under the limit by rescheduling them, and it
+    // retries on a jittered delay, so the real send runs a little longer than this.
+    const perSecond = limit.count / (limit.period === 'hour' ? 3600 : 60)
+    return humanFriendlyDuration(Math.ceil(remaining / perSecond), { maxUnits: 2 })
+}
 
 export interface BroadcastWizardLogicProps {
     id: string // 'new' for new broadcasts, or a UUID for editing/viewing
@@ -397,6 +409,7 @@ export interface broadcastWizardLogicValues {
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     blastRadius: BlastRadiusApi | null
+    blastRadiusError: string | null
     blastRadiusLoading: boolean
     breadcrumbs: Breadcrumb[]
     broadcast: HogFlowApi | null
@@ -565,7 +578,9 @@ export interface broadcastWizardLogicActions {
         batchJobs: HogFlowBatchJobApi[]
         payload?: any
     }
-    loadBlastRadius: () => any
+    loadBlastRadius: () => {
+        value: true
+    }
     loadBlastRadiusFailure: (
         error: string,
         errorObject?: any
@@ -575,10 +590,14 @@ export interface broadcastWizardLogicActions {
     }
     loadBlastRadiusSuccess: (
         blastRadius: BlastRadiusApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         blastRadius: BlastRadiusApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadBroadcast: () => any
     loadBroadcastFailure: (
@@ -707,6 +726,9 @@ export interface broadcastWizardLogicActions {
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
+    setBlastRadiusError: (error: string | null) => {
+        error: string | null
+    }
     setChannel: (channel: BroadcastChannel) => {
         channel: BroadcastChannel
     }
@@ -779,6 +801,9 @@ export interface broadcastWizardLogicActions {
         tags: string[]
     }
     showSavedDraftUrl: () => {
+        value: true
+    }
+    stayOnRecipients: () => {
         value: true
     }
 }
@@ -935,6 +960,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         editEmailContent: true,
         landOnStep: (step: BroadcastWizardStep) => ({ step }),
         landOnPrefilledStep: true,
+        stayOnRecipients: true,
         nextStep: true,
         prevStep: true,
         continueStep: true,
@@ -944,6 +970,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
+        loadBlastRadius: true,
+        setBlastRadiusError: (error: string | null) => ({ error }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -1000,7 +1028,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -1015,14 +1043,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(
-                        String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
-                    )
+                    try {
+                        return await hogFlowsUserBlastRadiusCreate(
+                            String(values.currentProjectId),
+                            audiencePreviewRequest(values.audienceProperties, values.channel)
+                        )
+                    } catch (error) {
+                        if (!isRejectedAudience(error)) {
+                            throw error
+                        }
+                        breakpoint()
+                        actions.setBlastRadiusError(error.detail)
+                        return null
+                    }
                 },
             },
         ],
@@ -1141,6 +1178,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
             loadBlastRadiusFailure: () => null,
         },
+        blastRadiusError: [
+            null as string | null,
+            {
+                loadBlastRadius: () => null,
+                setBlastRadiusError: (_, { error }) => error,
+            },
+        ],
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
@@ -1817,14 +1861,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 blastRadius: BlastRadiusApi | null,
                 channel: BroadcastChannel
             ): string => {
-                const recipients = blastRadius?.affected
-                if (!emailRateLimit || !recipients || channel !== 'email') {
-                    return ''
-                }
-                // An estimate: the worker holds sends under the limit by rescheduling them, and it
-                // retries on a jittered delay, so the real send runs a little longer than this.
-                const perSecond = emailRateLimit.count / (emailRateLimit.period === 'hour' ? 3600 : 60)
-                return humanFriendlyDuration(Math.ceil(recipients / perSecond), { maxUnits: 2 })
+                return channel === 'email' ? remainingSendDuration(blastRadius?.affected ?? null, emailRateLimit) : ''
             },
         ],
         breadcrumbs: [
@@ -1885,11 +1922,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.applyDefaultSender()
             actions.landOnPrefilledStep()
         },
+        stayOnRecipients: () => {
+            // A person editing the audience keeps their place, so the landing never runs.
+            cache.landOnPrefilledStep = false
+            cache.landingAwaitsAiDraft = false
+        },
         landOnPrefilledStep: () => {
             // A link that filled the audience skips ahead to the first step that still needs input,
             // or to Review when nothing does. It waits for the senders, because the default sender
             // decides whether the email is complete, and it runs once.
             if (!cache.landOnPrefilledStep || values.integrations === null || values.integrationsLoading) {
+                return
+            }
+            // A drafted email can complete the content step, so the landing waits for it.
+            if (cache.landingAwaitsAiDraft) {
                 return
             }
             if (!values.currentTeam) {
@@ -2443,10 +2489,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.saveBroadcastFinished(saved)
 
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
-                    const blastRadius = await hogFlowsUserBlastRadiusCreate(
-                        projectId,
-                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
-                    )
+                    const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
+                        ...audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit),
+                        refresh: true,
+                    })
 
                     // The resolver silently caps the batch at this limit, so dispatching an audience over
                     // it would confirm N recipients and deliver to the first slice. Stop at the step that
@@ -2781,6 +2827,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     listeners(({ actions, values, cache }) => ({
+        // Registered after the listener that applies the draft, so the landing sees the drafted email.
+        loadAiEmailDraftSuccess: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
+        loadAiEmailDraftFailure: () => {
+            if (cache.landingAwaitsAiDraft) {
+                cache.landingAwaitsAiDraft = false
+                actions.landOnPrefilledStep()
+            }
+        },
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
             actions.loadChannelReach(null)
@@ -2821,6 +2880,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     afterMount(({ actions, props, values, cache }) => {
         if (props.id !== 'new') {
+            // A copied activity link only adds `?activity=`, and the summary tab isn't in the URL, so the
+            // entry it points at would sit on a hidden tab.
+            if (router.values.searchParams.activity) {
+                actions.setSummaryTab('history')
+            }
             actions.loadBroadcast()
             return
         }
@@ -2875,15 +2939,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
         // The link stays in the URL until the draft exists, so a reload before Continue opens the same prefill.
         actions.loadBlastRadius()
-        actions.landOnPrefilledStep()
         const draftSource = parseEmailDraftSource(draftSourceParam)
         if (draftSource) {
+            cache.landingAwaitsAiDraft = !email
             actions.loadAiEmailDraft(draftSource)
             if (!email) {
                 // The lookup checks each brand against the draft's text, so it waits until the draft exists.
                 cache.brandAwaitsAiDraft = true
             }
         }
+        actions.landOnPrefilledStep()
     }),
 ])
 

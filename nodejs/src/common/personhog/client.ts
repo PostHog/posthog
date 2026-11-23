@@ -11,6 +11,7 @@ import { ConnectionWindowSessionManager } from './connection-window-session-mana
 import { PersonHogGroupOperations } from './groups'
 import { PersonHogPersonOperations } from './persons'
 import { SessionStateMonitor } from './session-state-monitor'
+import { SingleFrameRequestSessionManager } from './single-frame-request-session-manager'
 
 const textDecoder = new TextDecoder()
 
@@ -306,15 +307,16 @@ export function createPersonhogTransport(config: PersonHogClientConfig): {
             config.stateMonitorPollIntervalMs ?? 5_000
         )
 
+        const windowedSessionManager =
+            connectionWindowBytes === undefined
+                ? stateMonitor
+                : new ConnectionWindowSessionManager(stateMonitor, connectionWindowBytes)
         const transport = createGrpcTransport({
             baseUrl: `${scheme}://${config.addr}`,
             defaultTimeoutMs: config.timeoutMs ?? 1_000,
             readMaxBytes: config.readMaxBytes ?? 128 * 1024 * 1024,
             writeMaxBytes: config.writeMaxBytes ?? 4 * 1024 * 1024,
-            sessionManager:
-                connectionWindowBytes === undefined
-                    ? stateMonitor
-                    : new ConnectionWindowSessionManager(stateMonitor, connectionWindowBytes),
+            sessionManager: new SingleFrameRequestSessionManager(windowedSessionManager),
             interceptors,
         })
         return { transport, stateMonitor }

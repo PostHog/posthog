@@ -1,4 +1,5 @@
 import json
+import socket
 import hashlib
 import dataclasses
 from collections import Counter
@@ -9,6 +10,7 @@ from typing import Any, Optional
 from requests import Request, Response, Session
 from requests.exceptions import HTTPError, RequestException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3 import exceptions as urllib3_exceptions
 
 from products.warehouse_sources.sources.mailchimp.settings import (
     MAILCHIMP_ENDPOINTS,
@@ -97,6 +99,42 @@ INVALID_API_KEY_FORMAT_ERROR = (
     "This isn't a valid Mailchimp API key. Copy the full key, which ends in your data center such as -us6, "
     "from Profile > Extras > API keys, then reconnect."
 )
+
+
+INVALID_DATA_CENTER_ERROR = (
+    "Your Mailchimp API key ends in a data center that doesn't exist. "
+    "Copy the full key from your Mailchimp account, including the part after the dash, then try again."
+)
+
+MAILCHIMP_UNREACHABLE_ERROR = "Couldn't reach Mailchimp to check your API key. Try again in a few minutes."
+
+# The resolver failing (unreachable, timed out, out of memory) says nothing about the name.
+_TEMPORARY_RESOLUTION_ERRNOS = frozenset({socket.EAI_AGAIN, socket.EAI_SYSTEM, socket.EAI_MEMORY})
+
+# urllib3 2.x raises NameResolutionError; 1.x only leaves the socket.gaierror in the chain.
+_DNS_ERROR_TYPES: tuple[type[BaseException], ...] = tuple(
+    t for t in (socket.gaierror, getattr(urllib3_exceptions, "NameResolutionError", None)) if t is not None
+)
+
+
+def _is_dns_resolution_failure(error: BaseException) -> bool:
+    """Whether the host name does not resolve, found anywhere in the exception chain, its args or urllib3's `reason`.
+
+    A resolver outage (EAI_AGAIN and similar) is not a verdict on the name, so it does not count.
+    """
+    pending: list[Any] = [error]
+    seen: set[int] = set()
+    name_not_found = False
+    while pending:
+        current = pending.pop()
+        if id(current) in seen or not isinstance(current, BaseException):
+            continue
+        seen.add(id(current))
+        if isinstance(current, socket.gaierror) and current.errno in _TEMPORARY_RESOLUTION_ERRNOS:
+            return False
+        name_not_found = name_not_found or isinstance(current, _DNS_ERROR_TYPES)
+        pending.extend([current.__cause__, current.__context__, getattr(current, "reason", None), *current.args])
+    return name_not_found
 
 
 def extract_data_center(api_key: str) -> str:
@@ -253,8 +291,10 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             pass
 
         return False, response.text
-    except RequestException:
-        return False, "Could not reach the Mailchimp API. Check your network connection and try again."
+    except RequestException as e:
+        if _is_dns_resolution_failure(e):
+            return False, INVALID_DATA_CENTER_ERROR
+        return False, MAILCHIMP_UNREACHABLE_ERROR
 
 
 def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:

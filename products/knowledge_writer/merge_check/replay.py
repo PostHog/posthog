@@ -14,9 +14,12 @@ from anthropic import APIError
 from posthog.egress.limiter.policies import Priority
 
 from ..backend.facade.contracts import MergeCheckReport
-from ..backend.settings import DocsSource, docs_source_for
-from .check import merge_reports_by_variant, run_merge_check
-from .judge import Variant, judge_client
+from ..backend.logic.pull_requests import CompanionCheck, changed_files_for, decoded_text, head_texts, publication_check
+from ..backend.logic.server_commit import BaseEntry, BaseTree, ancestor_directories
+from ..backend.logic.writer_change import WriterChangeRefused, parse_writer_change
+from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, docs_source_for
+from .check import run_merge_check
+from .judge import judge_client
 from .sources import (
     GitHubReader,
     LandedChange,
@@ -24,6 +27,7 @@ from .sources import (
     UnexpectedGitHubResponse,
     landed_change,
     read_closed_pull_requests,
+    read_github,
 )
 
 MAX_RECENT_MERGES = 100
@@ -31,7 +35,9 @@ EVAL_JOBS = 8
 ERROR_MESSAGE_LIMIT = 200
 GITHUB_CACHE_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-eval" / "github"
 CACHED_STATUS_CODES = frozenset({200, 404})
-DEGRADED_REASONS = frozenset({"facts_unavailable", "page_check_unavailable"})
+COMMIT_FILES_PER_PAGE = 100
+PATCHED_FILE_STATUSES = frozenset({"modified", "changed"})
+COMMIT_MAX_LISTED_FILES = 3000
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
     "release_state": "release_state",
@@ -40,11 +46,22 @@ SCORED_CRITERION_BY_TRUTH_KEY = {
     "no_public_page_fits": "no_public_page_fits",
 }
 UNSCORED_TRUTH_VALUES = frozenset({"not_applicable"})
+PUBLISH_EVAL_MISTAKE_BY_TRUTH_AND_OUTCOME = {
+    ("refuse", "publish"): "false_publish",
+    ("refuse", "flag"): "false_publish",
+    ("flag", "publish"): "missed_flag",
+    ("publish", "refuse"): "false_refuse",
+    ("flag", "refuse"): "false_refuse",
+    ("publish", "flag"): "false_flag",
+}
+PUBLISH_EVAL_MISTAKES = ("false_publish", "missed_flag", "false_refuse", "false_flag")
 
 
 def replay_command(arguments: argparse.Namespace) -> int:
     if arguments.eval:
         return eval_command(arguments)
+    if arguments.publish_eval:
+        return publish_eval_command(arguments.publish_eval)
     flagged = 0
     github = environment_github()
     source = docs_source_for(arguments.docs_repository)
@@ -69,7 +86,6 @@ def replay_command(arguments: argparse.Namespace) -> int:
                     anthropic_client=anthropic_client,
                     source=source,
                     writer_login=arguments.writer_login,
-                    variant=arguments.variant or Variant.JUDGE,
                 )
             flagged += report.needs_docs
             page_hits = sorted(set(report.page_urls) & set(merge.get("page_urls", [])))
@@ -86,10 +102,9 @@ def environment_github() -> PersonalTokenGitHub:
 def eval_command(arguments: argparse.Namespace) -> int:
     github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
     source = docs_source_for(arguments.docs_repository)
-    variants = (arguments.variant,) if arguments.variant else tuple(Variant)
     eval_rows = read_merges(arguments.eval)
-    scored_rows_by_variant: dict[Variant, list[tuple[dict, MergeCheckReport]]] = {variant: [] for variant in variants}
-    failed_count_by_variant = dict.fromkeys(variants, 0)
+    scored_rows: list[tuple[dict, MergeCheckReport]] = []
+    failed_count = 0
     with httpx.Client(timeout=30) as http, ThreadPoolExecutor(max_workers=EVAL_JOBS) as pool:
         pending_checks = {
             pool.submit(
@@ -99,7 +114,6 @@ def eval_command(arguments: argparse.Namespace) -> int:
                 http=http,
                 source=source,
                 writer_login=arguments.writer_login,
-                variants=variants,
             ): eval_row
             for eval_row in eval_rows
         }
@@ -107,10 +121,9 @@ def eval_command(arguments: argparse.Namespace) -> int:
             for finished_check in as_completed(pending_checks):
                 eval_row = pending_checks[finished_check]
                 try:
-                    report_by_variant = finished_check.result()
+                    report = finished_check.result()
                 except EVAL_ROW_ERRORS as error:
-                    for variant in variants:
-                        failed_count_by_variant[variant] += 1
+                    failed_count += 1
                     error_line = {
                         "commit_sha": eval_row["commit_sha"],
                         "error": type(error).__name__,
@@ -119,18 +132,15 @@ def eval_command(arguments: argparse.Namespace) -> int:
                     }
                     print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
                     continue
-                for variant, report in report_by_variant.items():
-                    print(json.dumps(eval_line(variant, eval_row, report)), flush=True)  # noqa: T201 — one eval row per variant
-                    if is_degraded(report):
-                        failed_count_by_variant[variant] += 1
-                        continue
-                    scored_rows_by_variant[variant].append((eval_row, report))
+                print(json.dumps(eval_line(eval_row, report)), flush=True)  # noqa: T201 — eval row
+                if is_degraded(report):
+                    failed_count += 1
+                    continue
+                scored_rows.append((eval_row, report))
         except BaseException:
             pool.shutdown(cancel_futures=True)
             raise
-    for variant, scored_rows in scored_rows_by_variant.items():
-        summary = {"variant": variant, "failed": failed_count_by_variant[variant], **eval_score(scored_rows)}
-        print(json.dumps(summary))  # noqa: T201 — eval summary per variant
+    print(json.dumps({"failed": failed_count, **eval_score(scored_rows)}))  # noqa: T201 — eval summary
     return 0
 
 
@@ -223,15 +233,14 @@ def check_eval_row(
     http: httpx.Client,
     source: DocsSource,
     writer_login: str | None,
-    variants: tuple[Variant, ...],
-) -> dict[Variant, MergeCheckReport]:
+) -> MergeCheckReport:
     change = LandedChange(
         repository=eval_row["repository"],
         after=eval_row["commit_sha"],
         pull_request_number=eval_row["pull_request_number"],
     )
     with judge_client(change.after) as anthropic_client:
-        return merge_reports_by_variant(
+        return run_merge_check(
             change,
             is_final_attempt=True,
             github=github,
@@ -239,7 +248,6 @@ def check_eval_row(
             anthropic_client=anthropic_client,
             source=source,
             writer_login=writer_login,
-            variants=variants,
             is_pinned_to_merge=True,
         )
 
@@ -253,13 +261,11 @@ def error_status_code(error: Exception) -> int | None:
 
 
 def is_degraded(report: MergeCheckReport) -> bool:
-    has_unavailable_facts = any(row.criterion == "facts" and row.value == "unavailable" for row in report.criteria)
-    return has_unavailable_facts or report.reason in DEGRADED_REASONS
+    return any(row.criterion == "facts" and row.value == "unavailable" for row in report.criteria)
 
 
-def eval_line(variant: Variant, eval_row: dict, report: MergeCheckReport) -> dict:
+def eval_line(eval_row: dict, report: MergeCheckReport) -> dict:
     return {
-        "variant": variant,
         "commit_sha": report.commit_sha,
         "truth": eval_row["truth"],
         "needs_docs": report.needs_docs,
@@ -309,6 +315,175 @@ def criterion_text(value: object) -> str | None:
     return str(value)
 
 
+def publish_eval_command(labelled_commits_path: Path) -> int:
+    github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
+    wrong_commits_by_kind: dict[str, list[str]] = {kind: [] for kind in PUBLISH_EVAL_MISTAKES}
+    labelled_commits = [json.loads(line) for line in labelled_commits_path.read_text().splitlines() if line.strip()]
+    failed_commits: list[str] = []
+    for labelled_commit in labelled_commits:
+        repository, commit_sha = labelled_commit["repository"], labelled_commit["commit_sha"]
+        try:
+            publication = commit_publication_check(github, repository, commit_sha)
+        except EVAL_ROW_ERRORS as error:
+            failed_commits.append(commit_sha)
+            error_line = {
+                "commit_sha": commit_sha,
+                "error": type(error).__name__,
+                "status_code": error_status_code(error),
+                "message": str(error)[:ERROR_MESSAGE_LIMIT],
+            }
+            print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
+            continue
+        truth = labelled_commit["truth"]
+        print(  # noqa: T201 — one eval row per labelled commit
+            json.dumps(
+                {
+                    "commit_sha": commit_sha,
+                    "truth": truth,
+                    "outcome": publish_outcome(publication),
+                    "refusal": publication.refusal,
+                    "flags": list(publication.all_flags),
+                }
+            ),
+            flush=True,
+        )
+        mistake = publish_eval_mistake(truth, publish_outcome(publication))
+        if mistake is not None:
+            wrong_commits_by_kind[mistake].append(commit_sha)
+    summary = {
+        "commits": len(labelled_commits),
+        "failed": len(failed_commits),
+        **{kind: len(shas) for kind, shas in wrong_commits_by_kind.items()},
+    }
+    print(json.dumps({**summary, "wrong_commits": wrong_commits_by_kind, "failed_commits": failed_commits}))  # noqa: T201 — eval summary
+    return 0
+
+
+def publish_outcome(publication: CompanionCheck) -> str:
+    if publication.refusal is not None:
+        return "refuse"
+    return "flag" if publication.all_flags else "publish"
+
+
+def publish_eval_mistake(truth: str, outcome: str) -> str | None:
+    return PUBLISH_EVAL_MISTAKE_BY_TRUTH_AND_OUTCOME.get((truth, outcome))
+
+
+def refused_publication(reason: str) -> CompanionCheck:
+    return CompanionCheck(refusal=reason, flags=())
+
+
+def commit_publication_check(github: GitHubReader, repository: str, commit_sha: str) -> CompanionCheck:
+    commit_files, parent_tree_sha = commit_change(github, repository, commit_sha)
+    try:
+        change = parse_writer_change(writer_change_manifest(github, repository, commit_files))
+    except WriterChangeRefused as refused:
+        return refused_publication(refused.reason)
+    if not change.paths:
+        return refused_publication("no_changes")
+    tree = parent_tree(github, repository, parent_tree_sha, change.paths)
+    try:
+        changed_files = changed_files_for(change, tree)
+    except WriterChangeRefused as refused:
+        return refused_publication(refused.reason)
+    if changed_files is None:
+        return refused_publication("unsafe_base_entry")
+    return publication_check(
+        changed_files, (DEFAULT_DOCS_PATHS.strip("/"),), repository, tree.texts, head_texts(change)
+    )
+
+
+def commit_change(github: GitHubReader, repository: str, commit_sha: str) -> tuple[list[dict], str]:
+    commit_files: list[dict] = []
+    page = 1
+    while True:
+        commit = read_github(
+            github,
+            f"/repos/{repository}/commits/{commit_sha}",
+            endpoint="/repos/{owner}/{repo}/commits/{ref}",
+            params={"page": page, "per_page": COMMIT_FILES_PER_PAGE},
+        ).json()
+        commit_files.extend(commit["files"])
+        if len(commit["files"]) < COMMIT_FILES_PER_PAGE:
+            break
+        page += 1
+    if len(commit_files) >= COMMIT_MAX_LISTED_FILES:
+        raise UnexpectedGitHubResponse(f"GitHub lists at most {COMMIT_MAX_LISTED_FILES} files of a commit")
+    parent = read_github(
+        github,
+        f"/repos/{repository}/git/commits/{commit['parents'][0]['sha']}",
+        endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}",
+    ).json()
+    return commit_files, parent["tree"]["sha"]
+
+
+def writer_change_manifest(github: GitHubReader, repository: str, compared_files: list[dict]) -> bytes:
+    written = {
+        compared_file["filename"]: blob_base64(github, repository, compared_file["sha"])
+        for compared_file in compared_files
+        if compared_file["status"] != "removed"
+    }
+    deleted = [
+        compared_file["previous_filename"] if compared_file["status"] == "renamed" else compared_file["filename"]
+        for compared_file in compared_files
+        if compared_file["status"] in ("removed", "renamed")
+    ]
+    patches = {
+        compared_file["filename"]: github_patch(compared_file)
+        for compared_file in compared_files
+        if compared_file["status"] in PATCHED_FILE_STATUSES
+    }
+    return json.dumps({"written": written, "deleted": deleted, "patches": patches}).encode()
+
+
+def github_patch(compared_file: dict) -> str:
+    patch = compared_file.get("patch", "" if compared_file["status"] == "changed" else None)
+    if not isinstance(patch, str):
+        raise UnexpectedGitHubResponse(f"GitHub omitted the patch of {compared_file['filename']}")
+    return patch
+
+
+def blob_base64(github: GitHubReader, repository: str, blob_sha: str) -> str:
+    blob = read_github(
+        github, f"/repos/{repository}/git/blobs/{blob_sha}", endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}"
+    )
+    return "".join(blob.json()["content"].split())
+
+
+def parent_tree(github: GitHubReader, repository: str, root_tree_sha: str, paths: frozenset[str]) -> BaseTree:
+    directories = sorted({directory for path in paths for directory in ancestor_directories(path)})
+    tree_sha_by_directory = {"": root_tree_sha}
+    listed_entries: dict[str, dict] = {}
+    for directory in directories:
+        tree_sha = tree_sha_by_directory.get(directory)
+        if tree_sha is None:
+            continue
+        listing = read_github(
+            github, f"/repos/{repository}/git/trees/{tree_sha}", endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}"
+        )
+        for entry in listing.json()["tree"]:
+            entry_path = f"{directory}/{entry['path']}" if directory else entry["path"]
+            listed_entries[entry_path] = entry
+            if entry["type"] == "tree":
+                tree_sha_by_directory[entry_path] = entry["sha"]
+    every_path = paths | {directory for directory in directories if directory}
+    return BaseTree(
+        entries={
+            path: BaseEntry(mode=int(listed_entries[path]["mode"], 8), oid=listed_entries[path]["sha"])
+            if path in listed_entries
+            else None
+            for path in every_path
+        },
+        texts={path: parent_blob_text(github, repository, listed_entries.get(path)) for path in paths},
+    )
+
+
+def parent_blob_text(github: GitHubReader, repository: str, entry: dict | None) -> str | None:
+    if entry is None or entry["type"] != "blob":
+        return None
+    return decoded_text(base64.b64decode(blob_base64(github, repository, entry["sha"])))
+
+
 def read_merges(merges_path: Path) -> list[dict]:
     merges = [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
     if any(not isinstance(merge.get("pull_request_number"), int) for merge in merges):
@@ -340,10 +515,15 @@ def main(argv: list[str] | None = None) -> int:
     merge_source = replay.add_mutually_exclusive_group(required=True)
     merge_source.add_argument("merges", type=Path, nargs="?")
     merge_source.add_argument(
-        "--eval", type=Path, help="score each variant against a labelled jsonl such as evals/needs_docs.jsonl"
+        "--eval", type=Path, help="score the merge check against a labelled jsonl such as evals/needs_docs.jsonl"
     )
     merge_source.add_argument(
         "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
+    )
+    merge_source.add_argument(
+        "--publish-eval",
+        type=Path,
+        help="score the publish check against docs commits labelled publish or refuse, such as evals/publish_check.jsonl",
     )
     replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
     replay.add_argument(
@@ -353,13 +533,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     replay.add_argument(
         "--writer-login", help="GitHub login whose docs pull requests block a verdict, such as app-slug[bot]"
-    )
-    replay.add_argument(
-        "--variant",
-        type=Variant,
-        choices=list(Variant),
-        help="judge decides with one model call; rules decides from quoted facts and a page check. "
-        "Replay defaults to judge; --eval scores every variant unless one is named",
     )
     replay.set_defaults(handler=replay_command)
     arguments = parser.parse_args(argv)

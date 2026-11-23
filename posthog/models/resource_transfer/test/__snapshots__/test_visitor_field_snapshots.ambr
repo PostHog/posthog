@@ -30,6 +30,7 @@
     'pending_version',
     'people',
     'person_filters_shape_hash',
+    'realtime_enabled_at',
     'version',
   ])
 # ---
@@ -561,6 +562,8 @@
     'people',
     'person_filters_shape_hash',
     'properties',
+    'realtime_enabled',
+    'realtime_enabled_at',
     'realtime_ready_at',
     'remove_user_by_uuid',
     'save',

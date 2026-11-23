@@ -126,6 +126,26 @@ class TestFlattenNode:
                 {"id": "we_1", "manuallyTriggeredBy": None},
                 {"manuallyTriggeredByType": None, "manuallyTriggeredById": None},
             ),
+            (
+                {"id": "ta_1", "account": None, "assignedTo": None},
+                {"accountId": None, "assignedToId": None, "assignedToType": None},
+            ),
+            (
+                {"id": "ta_2", "account": {"id": "acc_1"}, "assignedTo": {"assigneeType": "MachineUser", "id": "mu_1"}},
+                {"accountId": "acc_1", "assignedToId": "mu_1", "assignedToType": "MachineUser"},
+            ),
+            (
+                {"id": "kg_1", "task": None, "labelTypes": []},
+                {"taskId": None, "labelTypeIds": []},
+            ),
+            (
+                {"id": "kg_2", "task": {"id": "ta_1"}, "labelTypes": [{"id": "lt_1"}, {"id": "lt_2"}]},
+                {"taskId": "ta_1", "labelTypeIds": ["lt_1", "lt_2"]},
+            ),
+            (
+                {"id": "tfs_1", "dependsOnLabels": [{"labelTypeId": "lt_1"}], "dependsOnThreadField": None},
+                {"dependsOnLabelTypeIds": ["lt_1"], "dependsOnThreadField": None},
+            ),
         ],
     )
     def test_flattens_nullable_references_into_stable_columns(self, node, expected):
@@ -142,6 +162,11 @@ class TestFlattenNode:
                 "channelDetails",
                 "template",
                 "manuallyTriggeredBy",
+                "account",
+                "assignedTo",
+                "task",
+                "labelTypes",
+                "dependsOnLabels",
             }
             & result.keys()
         )
@@ -444,6 +469,10 @@ class TestLookupEndpoints:
             ("customer_surveys", "PaginatedCustomerSurveys"),
             ("discussions", "PaginatedDiscussions"),
             ("workflow_executions", "PaginatedWorkflowExecutions"),
+            ("tiers", "PaginatedTiers"),
+            ("tasks", "PaginatedTasks"),
+            ("thread_field_schemas", "PaginatedThreadFieldSchemas"),
+            ("knowledge_gaps", "PaginatedKnowledgeGaps"),
         ],
     )
     def test_walks_pages_until_has_next_page_is_false(self, endpoint, operation):

@@ -1,8 +1,9 @@
-"""Canonical, documentation-sourced descriptions for the Adjust Report Service API reports.
+"""Canonical, documentation-sourced descriptions for the Adjust reports and lookup tables.
 
 Sourced from the official Adjust Report Service API reference
-(https://dev.adjust.com/en/api/rs-api/), including its dimensions and metrics glossaries.
-Keyed by the report names in `settings.py` `ADJUST_REPORTS` (plus the events catalog), which match the
+(https://dev.adjust.com/en/api/rs-api/), including its dimensions and metrics glossaries, and the
+Campaign API reference (https://dev.adjust.com/en/api/campaign-api/).
+Keyed by the report names in `settings.py` `ADJUST_REPORTS` (plus the lookup tables), which match the
 `ExternalDataSchema.name` of a synced Adjust table. Column names are the dimension and metric
 names Adjust returns verbatim; columns absent here fall back to LLM enrichment.
 """
@@ -43,6 +44,21 @@ def _columns(*extra: dict[str, str]) -> dict[str, str]:
         merged.update(block)
     return merged
 
+
+_TRACKER_COLUMNS = {
+    "app_token": "Adjust app token of the app the link belongs to.",
+    "token": "Link token, used as the tracker token in Adjust reports and links.",
+    "name": "Full name of the link. Sublink names join each level with `::`.",
+    "label": "Name of this link level.",
+    "level": "Link level: 1 network, 2 campaign, 3 ad group, 4 creative.",
+    "archived": "Whether the link is archived.",
+    "has_subtrackers": "Whether sublinks are nested under the link.",
+    "partner_id": "ID of the partner attached to the link, matching the id column of the partners table.",
+    "cost_data_enabled": "Whether cost data is enabled for the link.",
+    "url": "Tracking URL of the link.",
+    "click_url": "Click tracking URL of the link, with the partner's macros.",
+    "impression_url": "Impression tracking URL of the link, with the partner's macros.",
+}
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "daily_report": {
@@ -94,6 +110,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": _columns(
             _USER_COLUMNS,
             {"os_name": "Operating system of the device (for example ios or android)."},
+        ),
+    },
+    "device_type_report": {
+        "description": "Daily aggregated performance per app broken down by device type.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            _USER_COLUMNS,
+            {"device_type": "Type of device (for example phone, tablet, pc, or tv)."},
         ),
     },
     "retention_report": {
@@ -162,6 +186,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tokens": "Event token or tokens.",
             "is_skad_event": "Whether the event is a SKAdNetwork event.",
             "app_token_x_event_tokens_mapping": "Mapping of app tokens to the event's tokens in each app.",
+        },
+    },
+    "filters_data": {
+        "description": "Lookups for the IDs used to filter Adjust reports, such as apps, partners, networks, channels, and countries.",
+        "docs_url": "https://dev.adjust.com/en/api/rs-api/filters-data/",
+        "columns": {
+            "filter_type": "Filter the item belongs to, for example apps, partners, or countries.",
+            "id": "ID of the filter item, used to filter report requests.",
+            "name": "Readable name of the filter item.",
+            "short_name": "Shortened name of the filter item.",
+            "section": "Section the filter item is associated with.",
+            "formatting": "Data format of the filter item, for example money, decimal, or string.",
+            "description": "Description of the filter item.",
+        },
+    },
+    "partners": {
+        "description": "Ad network partners available in Adjust.",
+        "docs_url": "https://dev.adjust.com/en/api/campaign-api/",
+        "columns": {
+            "id": "Partner ID, matching the partner_id column of the links table.",
+            "display_name": "Name of the partner.",
+            "supports_cost_data": "Whether the partner supports cost data.",
+        },
+    },
+    "links": {
+        "description": "Network-level tracking links (trackers) of each app.",
+        "docs_url": "https://dev.adjust.com/en/api/campaign-api/",
+        "columns": _TRACKER_COLUMNS,
+    },
+    "sublinks": {
+        "description": "Campaign, ad group, and creative sublinks nested under each tracking link.",
+        "docs_url": "https://dev.adjust.com/en/api/campaign-api/",
+        "columns": {
+            **_TRACKER_COLUMNS,
+            "parent_token": "Token of the link the sublink is nested under.",
         },
     },
 }

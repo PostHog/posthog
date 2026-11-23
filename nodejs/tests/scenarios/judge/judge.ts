@@ -1,24 +1,31 @@
 import { setTimeout as sleep } from 'timers/promises'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
-
+import type { ResidentBacklog } from '../backlog/backlog'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
-import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
-import { INVARIANTS, deliveryKey } from './invariants'
+import type { TruthRecord } from '../provider-edge'
+import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
+import type { JudgeEvidence } from './invariants'
+import type { TruthSource } from './truth'
+
+export type IntakeAnswer = (
+    | { accepted: true }
+    | { accepted: false; transportError: string }
+    | { accepted: false; status: number; outcome?: string }
+) & { retries?: number }
+
+export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional'
     teamId: number
     offeredAt: number
-    answer:
-        | { accepted: true }
-        | { accepted: false; transportError: string }
-        | { accepted: false; status: number; outcome?: string }
+    step?: number
+    answer: IntakeAnswer
     expect: { deliveries: string[] }
+    followUp?: FollowUpAnswer
 }
 
 export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }
@@ -30,25 +37,36 @@ export type InvariantResult = {
     gate?: number
     violation?: string
     unitIds: string[]
+    crossedBy?: string
 }
+
+export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
 
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
 }
 
 export type JudgeOptions = {
-    edgeUrl: string
+    truth: TruthSource
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
+    residentBacklog?: () => Promise<ResidentBacklog>
     pollMs?: number
     now?: () => number
 }
 
-export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
+export function createJudge({
+    truth: source,
+    probe,
+    fetchRetries,
+    residentBacklog,
+    pollMs = 1000,
+    now = Date.now,
+}: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -56,25 +74,13 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now =
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
-            const response = await internalFetch(`${edgeUrl}/_truth?after=${cursor}`)
-            if (response.status !== 200) {
-                throw new Error(`The edge answered /_truth with ${response.status}`)
-            }
-            const page = parseJSON(await response.text()) as TruthPage
+            const page = await source.after(cursor)
             if (page.records.length === 0) {
                 return
             }
             truth.push(...page.records)
             cursor = page.next
         }
-    }
-
-    const truthHead = async (): Promise<number> => {
-        const response = await internalFetch(`${edgeUrl}/_truth/head`)
-        if (response.status !== 200) {
-            throw new Error(`The edge answered /_truth/head with ${response.status}`)
-        }
-        return (parseJSON(await response.text()) as TruthHead).head
     }
 
     const unrecordedUnits = (): string[] => {
@@ -95,7 +101,7 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now =
     return {
         async open(seed) {
             journal = []
-            cursor = await truthHead()
+            cursor = await source.head()
             truth = []
             teams = [...seed.teamIds]
         },
@@ -119,14 +125,18 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now =
             }
         },
 
-        async check(invariants, gates) {
+        async check(invariants, gates, run) {
             await pullTruth()
+            const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
+                ? await residentBacklog?.()
+                : undefined
             return invariants.map(({ name }) => {
                 const definition = INVARIANTS.find((invariant) => invariant.name === name)
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                return { name, gate: gates[name], ...definition.check({ journal, truth, fetchRetries }, gates[name]) }
+                const evidence = { journal, truth, fetchRetries, resident, ...run }
+                return { name, gate: gates[name], ...definition.check(evidence, gates[name]) }
             })
         },
 

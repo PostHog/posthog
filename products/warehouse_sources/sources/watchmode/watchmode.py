@@ -1,17 +1,23 @@
 import json
 import dataclasses
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import RequestException, Response
+import structlog
+from requests import RequestException, Response, Session
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
+    OffsetPaginator,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
@@ -21,12 +27,26 @@ from products.warehouse_sources.sources.watchmode.settings import (
     WATCHMODE_PAGE_LIMIT,
 )
 
+logger = structlog.get_logger(__name__)
+
 VALIDATE_CREDENTIALS_TIMEOUT_SECONDS = 15
+
+# The release calendar has no paging, so it is read in date windows over a fixed range around today.
+RELEASE_DATES_LOOKBACK_DAYS = 365
+RELEASE_DATES_LOOKAHEAD_DAYS = 180
+RELEASE_DATES_WINDOW_DAYS = 30
+RELEASE_DATES_TIMEOUT_SECONDS = (10, 120)
+# Set to "1" when a release-dates response hit the server's result cap and dropped rows.
+TRUNCATED_HEADER = "X-Watchmode-Truncated"
 
 
 @dataclasses.dataclass(frozen=False)
 class WatchmodeResumeConfig:
-    page: int
+    page: Optional[int] = None
+    # Per-title tables: the state `build_dependent_resource` checkpoints over the titles listing.
+    fanout_state: Optional[dict[str, Any]] = None
+    # Release calendar: the first day (ISO date) that is not read yet.
+    release_dates_start: Optional[str] = None
 
 
 class WatchmodePaginator(PageNumberPaginator):
@@ -87,6 +107,75 @@ def get_resource(name: str) -> EndpointResource:
     }
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": WATCHMODE_BASE_URL,
+        "auth": {
+            # Watchmode accepts the key as an `apiKey` query param or an `X-API-Key`
+            # header. Use the header so the secret never lands in request URLs (and
+            # from there into access/proxy logs).
+            "type": "api_key",
+            "name": "X-API-Key",
+            "api_key": api_key,
+            "location": "header",
+        },
+        # `requests` replays custom headers like `X-API-Key` across a cross-host
+        # redirect, so a 3xx from upstream could forward the key off-host. Pin
+        # redirects off to keep the credential on the validated host.
+        "allow_redirects": False,
+    }
+
+
+def _title_fanout_resource(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WatchmodeResumeConfig],
+    resume_config: Optional[WatchmodeResumeConfig],
+) -> Any:
+    endpoint_config = WATCHMODE_ENDPOINTS[endpoint]
+    assert endpoint_config.fanout is not None
+    parent_config = WATCHMODE_ENDPOINTS[endpoint_config.fanout.parent_name]
+
+    def save_fanout_state(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WatchmodeResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=WATCHMODE_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=endpoint_config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # The per-title endpoints take no page size, so the titles `limit` is in the parent params.
+        page_size_param=None,
+        parent_endpoint_extra={
+            "data_selector": parent_config.data_selector,
+            "data_selector_required": True,
+            "paginator": WatchmodePaginator(),
+        },
+        child_endpoint_extra={
+            # Without a selector, a required body must be a list; a single-object body is the row.
+            "data_selector_required": not endpoint_config.single_object,
+            "paginator": (
+                # The body is a bare list with no total, so a short page ends the title.
+                OffsetPaginator(limit=endpoint_config.offset_page_size, total_path=None)
+                if endpoint_config.offset_page_size
+                else SinglePagePaginator()
+            ),
+        },
+        resume_hook=save_fanout_state,
+        initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        # The titles listing can save its page, so a resume starts there instead of keeping
+        # every finished title in the state.
+        resume_parent_pagination=True,
+    )
+
+
 def watchmode_source(
     api_key: str,
     endpoint: str,
@@ -95,24 +184,27 @@ def watchmode_source(
     resumable_source_manager: ResumableSourceManager[WatchmodeResumeConfig],
 ) -> SourceResponse:
     endpoint_config = WATCHMODE_ENDPOINTS[endpoint]
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if endpoint_config.date_windowed:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _release_date_rows(
+                api_key, endpoint_config.path, resumable_source_manager, resume_config, datetime.now(UTC).date()
+            ),
+            primary_keys=list(endpoint_config.primary_keys),
+        )
+
+    if endpoint_config.fanout is not None:
+        child = _title_fanout_resource(api_key, endpoint, team_id, job_id, resumable_source_manager, resume_config)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=list(endpoint_config.primary_keys),
+        )
 
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": WATCHMODE_BASE_URL,
-            "auth": {
-                # Watchmode accepts the key as an `apiKey` query param or an `X-API-Key`
-                # header. Use the header so the secret never lands in request URLs (and
-                # from there into access/proxy logs).
-                "type": "api_key",
-                "name": "X-API-Key",
-                "api_key": api_key,
-                "location": "header",
-            },
-            # `requests` replays custom headers like `X-API-Key` across a cross-host
-            # redirect, so a 3xx from upstream could forward the key off-host. Pin
-            # redirects off to keep the credential on the validated host.
-            "allow_redirects": False,
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {
             "write_disposition": "replace",
         },
@@ -120,10 +212,8 @@ def watchmode_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"page": resume_config.page}
+    if resume_config is not None and resume_config.page is not None:
+        initial_paginator_state = {"page": resume_config.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's a next page to resume to; the Redis TTL
@@ -145,6 +235,71 @@ def watchmode_source(
         items=lambda: resource,
         primary_keys=list(endpoint_config.primary_keys),
     )
+
+
+def _api_date(day: date) -> str:
+    return day.strftime("%Y%m%d")
+
+
+def _release_date_rows(
+    api_key: str,
+    path: str,
+    resumable_source_manager: ResumableSourceManager[WatchmodeResumeConfig],
+    resume_config: Optional[WatchmodeResumeConfig],
+    today: date,
+) -> Iterator[list[dict[str, Any]]]:
+    session = make_tracked_session(headers={"X-API-Key": api_key}, redact_values=(api_key,), allow_redirects=False)
+    last_day = today + timedelta(days=RELEASE_DATES_LOOKAHEAD_DAYS)
+    first_day = today - timedelta(days=RELEASE_DATES_LOOKBACK_DAYS)
+    if resume_config is not None and resume_config.release_dates_start:
+        first_day = date.fromisoformat(resume_config.release_dates_start)
+
+    # Both dates of a window are inclusive. A stack, read from the end, keeps the windows in date order.
+    windows: list[tuple[date, date]] = []
+    start = first_day
+    while start <= last_day:
+        end = min(start + timedelta(days=RELEASE_DATES_WINDOW_DAYS - 1), last_day)
+        windows.append((start, end))
+        start = end + timedelta(days=1)
+    windows.reverse()
+
+    while windows:
+        start, end = windows.pop()
+        rows, truncated = _fetch_release_dates(session, path, start, end)
+        if truncated and start < end:
+            middle = start + (end - start) // 2
+            windows.append((middle + timedelta(days=1), end))
+            windows.append((start, middle))
+            # Nothing from this window was yielded, so the staged cursor still starts at this window.
+            resumable_source_manager.safe_point()
+            continue
+        if truncated:
+            logger.warning(
+                "Watchmode release dates truncated for a single day",
+                day=start.isoformat(),
+                rows=len(rows),
+            )
+
+        resumable_source_manager.save_state(
+            WatchmodeResumeConfig(release_dates_start=(end + timedelta(days=1)).isoformat())
+        )
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _fetch_release_dates(session: Session, path: str, start: date, end: date) -> tuple[list[dict[str, Any]], bool]:
+    response = session.get(
+        f"{WATCHMODE_BASE_URL}{path}",
+        params={"start_date": _api_date(start), "end_date": _api_date(end)},
+        timeout=RELEASE_DATES_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    body = response.json()
+    if not isinstance(body, list):
+        raise ValueError(f"Watchmode release dates returned {type(body).__name__}, expected a list")
+    return body, response.headers.get(TRUNCATED_HEADER) == "1"
 
 
 def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:

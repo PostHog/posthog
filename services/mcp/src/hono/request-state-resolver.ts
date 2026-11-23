@@ -1,9 +1,11 @@
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { METRIC_LIST_TOOL } from '@/lib/metric-catalog'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -12,6 +14,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -23,11 +26,24 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
+import type {
+    BusinessKnowledgeContent,
+    Context,
+    Env,
+    MetricCatalogContent,
+    PinnedActiveContext,
+    Tool,
+    ZodObjectAny,
+} from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import {
+    MCP_CURSOR_EXEC_MODE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_INBOX_FIRST_FLAG,
+    MCP_TIME_SERIES_CHARTS_FLAG,
+} from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -44,6 +60,7 @@ import {
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+import { resolveProjectSecretKeyProjectId } from './project-secret-key-project'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -53,6 +70,7 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -70,6 +88,7 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    suppliedHandleHadNoSavedSelection?: boolean
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
@@ -77,6 +96,7 @@ export interface ResolvedState {
     aiConsentGiven?: boolean | undefined
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    metricCatalog?: MetricCatalogContent | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -113,15 +133,19 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+export function resolveMode(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    cursorExecMode?: boolean | undefined
+}): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile } = args
+    const { mode, clientProfile, cursorExecMode } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
     // header always wins over auto-detection.
-    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
@@ -185,6 +209,15 @@ export class RequestStateResolver {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
+        if (usesProjectSecretKey) {
+            // The key decides the project. An ID the caller sent is dropped, so it cannot pin another one.
+            props.projectId = await resolveProjectSecretKeyProjectId(props, reqCtx.tokenCache)
+            props.organizationId = undefined
+            requestContext.projectId = props.projectId
+            requestContext.organizationId = undefined
+        }
+
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
         reqCtx.setPinnedContext(pinned)
@@ -206,15 +239,18 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
+        // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
+                MCP_TIME_SERIES_CHARTS_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -223,14 +259,13 @@ export class RequestStateResolver {
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            usesProjectSecretKey
+                ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
+                : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
-        const [oauthClientName, oauthClientId] = await Promise.all([
-            reqCtx.tokenCache.get('clientName'),
-            reqCtx.tokenCache.get('oauthClientId'),
-        ])
+        const oauthClientId = await reqCtx.tokenCache.get('oauthClientId')
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
         const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         const source = resolveEventSource({
@@ -242,7 +277,13 @@ export class RequestStateResolver {
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
-        const mergedFlags = { ...allFlags, ...overrides }
+        const mergedFlags: EvaluatedFlags = {
+            ...allFlags,
+            // The API gates the key's routes on this flag, and `getApiKey` above succeeded only
+            // because the key passed that gate.
+            ...(usesProjectSecretKey ? { [PROJECT_SECRET_KEY_FEATURE_FLAG]: true } : {}),
+            ...overrides,
+        }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
         if (
             recruitmentPayload === undefined &&
@@ -288,9 +329,7 @@ export class RequestStateResolver {
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
-            clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
@@ -299,12 +338,16 @@ export class RequestStateResolver {
         const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
+            mode: requestContext.mode ?? (usesProjectSecretKey ? 'tools' : undefined),
             clientProfile,
+            cursorExecMode: mergedFlags[MCP_CURSOR_EXEC_MODE_FLAG] === true,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
+        // Wrappers gate writes on the `exec` name, so they never get `exec-write`.
+        const splitWrites =
+            useSingleExec && props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -316,6 +359,8 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            // The API refuses to create an organization for a key scoped to specific organizations.
+            ...(_apiKey?.scoped_organizations?.length ? ['organization-create'] : []),
             ...(props.excludeTools ?? []),
         ]
 
@@ -344,9 +389,12 @@ export class RequestStateResolver {
                 () => context.stateManager.getUser()
             )
         ).filter(isHeld)
-        const businessKnowledgeContent = allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
-            ? await this.resolveBusinessKnowledgeContent(context)
-            : undefined
+        const [businessKnowledgeContent, metricCatalog] = await Promise.all([
+            allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+                ? this.resolveBusinessKnowledgeContent(context)
+                : undefined,
+            allTools.some(({ name }) => name === METRIC_LIST_TOOL) ? this.resolveMetricCatalog(context) : undefined,
+        ])
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
@@ -365,6 +413,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
@@ -376,9 +425,11 @@ export class RequestStateResolver {
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
+            metricCatalog,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
+            suppliedHandleHadNoSavedSelection: pinned?.hasSavedSelection === false,
             sessionContext,
             allTools,
             scopeGatedTools,
@@ -407,7 +458,7 @@ export class RequestStateResolver {
     private async resolvePinnedContext(
         reqCtx: RequestContext,
         pin: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<PinnedActiveContext | undefined> {
+    ): Promise<(PinnedActiveContext & { hasSavedSelection?: boolean }) | undefined> {
         const { organizationId, projectId } = pin
         const hasPin = Boolean(organizationId || projectId)
 
@@ -456,6 +507,7 @@ export class RequestStateResolver {
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
+                hasSavedSelection: hasSessionState,
                 orgId:
                     activeOrg !== undefined
                         ? (activeOrg ?? undefined)
@@ -489,6 +541,7 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
+            hasSavedSelection: hasSessionState,
             orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
             projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }
@@ -498,6 +551,15 @@ export class RequestStateResolver {
         try {
             const projectId = await context.stateManager.getProjectId()
             return await context.stateManager.getOrFetchBusinessKnowledgeContent(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveMetricCatalog(context: Context): Promise<MetricCatalogContent | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchMetricCatalog(projectId)
         } catch {
             return undefined
         }
@@ -519,7 +581,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance, Inbox-first and chart experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -528,6 +590,7 @@ export class RequestStateResolver {
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
                             key !== MCP_INBOX_FIRST_FLAG &&
+                            key !== MCP_TIME_SERIES_CHARTS_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.culture_amp.settings import (
@@ -15,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -61,16 +61,6 @@ def _make_auth(client_id: str, client_secret: str, account_id: str, scopes: str)
         grant_type="client_credentials",
         scopes=_scoped(account_id, scopes),
     )
-
-
-def _format_timestamp(value: Any) -> str:
-    """Format an incremental cursor for the RFC 3339 after_date filter."""
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
 
 
 def _paginator() -> JSONResponseCursorPaginator:
@@ -177,7 +167,7 @@ def culture_amp_source(
     else:
         params: dict[str, Any] = {}
         if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value is not None:
-            params["after_date"] = _format_timestamp(db_incremental_field_last_value)
+            params["after_date"] = format_datetime(db_incremental_field_last_value)
 
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resume is not None and resume.cursor is not None:

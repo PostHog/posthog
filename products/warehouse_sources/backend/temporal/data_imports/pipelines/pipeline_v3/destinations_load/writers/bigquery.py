@@ -72,6 +72,12 @@ MISSING_PERMISSION_DETAIL = (
     "BigQuery Data Editor and BigQuery Job User roles on the project, then run the sync again."
 )
 
+BILLING_NOT_ENABLED_DETAIL = (
+    "Billing is not enabled on the Google Cloud project this destination writes to, and BigQuery's "
+    "free tier does not allow the DML queries this sync runs. Enable billing on the project, then "
+    "run the sync again."
+)
+
 
 # The Arrow type that loads into each BigQuery column type. A merge chunk whose column loads as a
 # different type is cast to it first, because a `MERGE` does not convert a STRING into an INT64.
@@ -158,6 +164,16 @@ def _is_missing_permission(err: Exception) -> bool:
     return "does not have" in message and "permission" in message
 
 
+def _is_billing_not_enabled(err: Exception) -> bool:
+    """Whether Google refused a DML query because the project has no billing account.
+
+    e.g. "... 403 Billing has not been enabled for this project. ...; reason: billingNotEnabled,
+    ...". A free-tier project never gains the right to run DML on its own, so unlike a
+    quota-exceeded 403 this never recovers without the customer attaching a billing account.
+    """
+    return isinstance(err, Forbidden) and "reason: billingNotEnabled" in str(err)
+
+
 def staging_table_name(ctx: DestinationRunContext) -> str:
     return f"{ctx.table_name}__ph_stage_{run_scope(ctx.run_uuid)}"
 
@@ -241,6 +257,8 @@ class BigQueryDestinationWriter:
                 raise DestinationConfigurationError(self._ctx.destination_name, IMPERSONATION_DENIED_DETAIL) from err
             if _is_missing_permission(err):
                 raise DestinationConfigurationError(self._ctx.destination_name, MISSING_PERMISSION_DETAIL) from err
+            if _is_billing_not_enabled(err):
+                raise DestinationConfigurationError(self._ctx.destination_name, BILLING_NOT_ENABLED_DETAIL) from err
             raise
 
     def _table_ref(self, table: str) -> str:
@@ -537,6 +555,14 @@ class BigQueryDestinationWriter:
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
             autodetect=True,
+            # Without this, autodetect only ever offers NUMERIC (precision 38, scale 9) for a
+            # parquet decimal column, and a source decimal wider than that — a decimal128 with a
+            # scale above 9 is a common shape — fails the load outright instead of landing as
+            # BIGNUMERIC.
+            decimal_target_types=[
+                bigquery.enums.DecimalTargetType.NUMERIC,
+                bigquery.enums.DecimalTargetType.BIGNUMERIC,
+            ],
         )
         if disposition == bigquery.WriteDisposition.WRITE_APPEND:
             # Additive evolution: a column the source grew is added rather than rejected.

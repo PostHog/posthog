@@ -9,19 +9,22 @@ interface BroadcastWizardStepperProps {
     currentStep: BroadcastWizardStep
     onStepClick: (step: BroadcastWizardStep) => void
     stepErrors?: Partial<Record<BroadcastWizardStep, string[]>>
+    forwardBlockedReason?: string | null
 }
 
 export function BroadcastWizardStepper({
     currentStep,
     onStepClick,
     stepErrors = {},
+    forwardBlockedReason = null,
 }: BroadcastWizardStepperProps): JSX.Element {
     const currentOrder = BROADCAST_WIZARD_STEPS.indexOf(currentStep)
     const currentStepHasErrors = (stepErrors[currentStep]?.length ?? 0) > 0
+    const blockedReason = currentStepHasErrors ? 'Fix errors before proceeding' : forwardBlockedReason
 
     const handleStepClick = (step: BroadcastWizardStep): void => {
         const targetOrder = BROADCAST_WIZARD_STEPS.indexOf(step)
-        if (currentStepHasErrors && targetOrder > currentOrder) {
+        if (blockedReason && targetOrder > currentOrder) {
             return
         }
         onStepClick(step)
@@ -33,7 +36,7 @@ export function BroadcastWizardStepper({
                 const isCompleted = currentOrder > index
                 const isCurrent = currentStep === step
                 const hasErrors = (stepErrors[step]?.length ?? 0) > 0
-                const isBlocked = currentStepHasErrors && index > currentOrder
+                const isBlocked = !!blockedReason && index > currentOrder
 
                 const button = (
                     <button
@@ -95,7 +98,7 @@ export function BroadcastWizardStepper({
                                 )}
                             />
                         )}
-                        {isBlocked ? <Tooltip title="Fix errors before proceeding">{button}</Tooltip> : button}
+                        {isBlocked ? <Tooltip title={blockedReason}>{button}</Tooltip> : button}
                     </div>
                 )
             })}

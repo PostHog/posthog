@@ -1,12 +1,20 @@
-"""The GitHub side of the CI gate: commit statuses and job reruns."""
+"""The GitHub side of the gate: commit statuses and job reruns.
+
+A `ci_job` run is gated by the CI job that completes it, and a rerun of that job reads a new verdict.
+A `commit_status` run is gated by the status itself, which `commit_status` decides and posts through
+`_send_commit_status`, so nothing here reruns a job for it.
+"""
 
 from __future__ import annotations
+
+from enum import StrEnum
+from urllib.parse import quote
 
 import structlog
 
 from ..facade.enums import RunPurpose
 from ..models import Repo, Run
-from . import app_urls, github_api
+from . import app_urls, errors, github_api
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +93,60 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     return False, f"GitHub API returned {response.status_code} when rerunning job"
 
 
+class StatusPost(StrEnum):
+    POSTED = "posted"
+    SKIPPED = "skipped"
+    REFUSED = "refused"
+
+
+def gating_context(run_type: str) -> str:
+    return f"PostHog Visual Review / {run_type}"
+
+
+def _send_commit_status(
+    repo: Repo, commit_sha: str, *, context: str, state: str, description: str, target_url: str | None
+) -> StatusPost:
+    """Post one commit status to GitHub. Never raises.
+
+    Uses the GitHub Commit Statuses API: POST /repos/{owner}/{repo}/statuses/{sha}
+    """
+    if not repo.repo_full_name:
+        return StatusPost.SKIPPED
+
+    try:
+        github = github_api.get_github_integration_for_repo(repo)
+    except errors.GitHubIntegrationNotFoundError:
+        logger.debug("visual_review.status_check_skipped", commit_sha=commit_sha, reason="no_github_integration")
+        return StatusPost.SKIPPED
+    except Exception:
+        # A lookup that failed for another reason can work on a retry, and a refused post is retried.
+        logger.warning("visual_review.status_check_integration_failed", commit_sha=commit_sha, exc_info=True)
+        return StatusPost.REFUSED
+
+    body = {"state": state, "description": description[:140], "context": context}
+    if target_url:
+        body["target_url"] = target_url
+    try:
+        # One path segment, so a SHA with a slash or a "#" cannot reach another path or commit.
+        response = github.api_request(
+            "POST", f"/repos/{repo.repo_full_name}/statuses/{quote(commit_sha, safe='')}", json_body=body
+        )
+    except Exception:
+        logger.warning("visual_review.status_check_error", commit_sha=commit_sha, context=context, exc_info=True)
+        return StatusPost.REFUSED
+
+    if response.status_code != 201:
+        logger.warning(
+            "visual_review.status_check_failed",
+            commit_sha=commit_sha,
+            context=context,
+            status_code=response.status_code,
+            response=response.text[:200],
+        )
+        return StatusPost.REFUSED
+    return StatusPost.POSTED
+
+
 def _post_commit_status(
     run: Run,
     repo: Repo,
@@ -92,10 +154,7 @@ def _post_commit_status(
     description: str,
 ) -> None:
     """
-    Post a commit status to GitHub (best-effort, never raises).
-
-    Uses the GitHub Commit Statuses API:
-    POST /repos/{owner}/{repo}/statuses/{sha}
+    Post a run's commit status to GitHub while the commit status gate is off (best-effort, never raises).
 
     state: "pending", "success", "failure", "error"
 
@@ -109,10 +168,7 @@ def _post_commit_status(
     must require the partial context explicitly to gate on partial runs. The
     description is also annotated so the disclosure is visible to humans.
     """
-    if not repo.repo_full_name:
-        return
-
-    context = f"PostHog Visual Review / {run.run_type}"
+    context = gating_context(run.run_type)
     # Tracking-only (observe) and partial runs must never satisfy the gating context that
     # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
     # observe run posted to the gating context could green a PR head SHA's required check
@@ -123,32 +179,11 @@ def _post_commit_status(
         context = f"{context} (partial)"
         description = f"{description} (partial run)"
 
-    try:
-        github = github_api.get_github_integration_for_repo(repo)
-    except Exception:
-        logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
-        return
-
-    target_url = app_urls.run_url(run, repo)
-
-    try:
-        response = github.api_request(
-            "POST",
-            f"/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
-            json_body={
-                "state": state,
-                "description": description[:140],
-                "context": context,
-                "target_url": target_url,
-            },
-        )
-
-        if response.status_code != 201:
-            logger.warning(
-                "visual_review.status_check_failed",
-                run_id=str(run.id),
-                status_code=response.status_code,
-                response=response.text[:200],
-            )
-    except Exception:
-        logger.warning("visual_review.status_check_error", run_id=str(run.id), exc_info=True)
+    _send_commit_status(
+        repo,
+        run.commit_sha,
+        context=context,
+        state=state,
+        description=description,
+        target_url=app_urls.run_url(run, repo),
+    )

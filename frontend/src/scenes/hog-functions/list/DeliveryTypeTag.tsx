@@ -1,5 +1,5 @@
 import { IconClock, IconLive } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
 
@@ -17,7 +17,7 @@ export function DeliveryTypeTag({ item }: { item: { id: string } }): JSX.Element
     )
 }
 
-export const DELIVERY_TYPE_FILTER_OPTIONS: LemonSelectOptions<HogFunctionDeliveryType | null> = [
+export const DELIVERY_TYPE_FILTER_OPTIONS: { label: string; value: HogFunctionDeliveryType | null }[] = [
     { label: 'All types', value: null },
     { label: 'Realtime', value: 'realtime' },
     { label: 'Batch', value: 'batch' },

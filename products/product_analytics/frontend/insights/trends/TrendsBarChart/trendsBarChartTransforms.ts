@@ -1,11 +1,15 @@
 import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
 import type { Series, TimeInterval, TimeSeriesBarChartConfig, TooltipContext, YAxisConfig } from '@posthog/quill-charts'
 
-import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
+import { COMPARE_PREVIOUS_DIM_OPACITY, compareLegendTag, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
-import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
-import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import {
+    applyTrendsYAxisPositions,
+    buildTrendsYAxisConfig,
+    resolveTrendsYAxisIds,
+    type TrendsYAxisPositions,
+} from '../shared/trendsAxisFormat'
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
@@ -34,6 +38,7 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     // Grouped (unstacked) bars only — stacked layouts must share one axis, so the adapter
     // never sets this for them.
     showMultipleYAxes?: boolean
+    yAxisPositions?: TrendsYAxisPositions
 }
 
 export interface BuildTrendsBarAggregatedSeriesOpts<
@@ -68,6 +73,7 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
+        legendTag: compareLegendTag(r),
         data,
         color,
         meta,
@@ -80,7 +86,11 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): Series<M>[] {
-    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    const yAxisIds = resolveTrendsYAxisIds(
+        results.map((r) => r.data),
+        opts.yAxisPositions,
+        opts.showMultipleYAxes
+    )
     return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data, yAxisIds?.[index]))
 }
 
@@ -95,6 +105,7 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
+    yAxisPositions?: TrendsYAxisPositions
     hideAxes?: boolean
     // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
     // interval/timezone for the auto date formatter. Mirrors the line config.
@@ -106,10 +117,12 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
 
 export function buildTrendsBarTimeSeriesConfig(
     opts: BuildTrendsBarTimeSeriesConfigOpts
-): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig | YAxisConfig[] } {
     // No range extras: bar length encodes magnitude from zero, so a bound carried over from another
     // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        label: opts.yAxisLabel,
+        hide: opts.hideAxes,
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
     })
@@ -123,11 +136,10 @@ export function buildTrendsBarTimeSeriesConfig(
             tickFormatter: opts.xAxisTickFormatter,
             hide: opts.hideAxes,
         },
-        yAxis: {
-            ...yAxis,
-            label: normalizeAxisLabel(opts.yAxisLabel),
-            hide: opts.hideAxes,
-        },
+        yAxis: applyTrendsYAxisPositions(
+            yAxis,
+            opts.isGrouped && !opts.isPercentStackView ? opts.yAxisPositions : undefined
+        ),
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',
@@ -168,6 +180,7 @@ export function buildTrendsBarChartModel<R extends TrendsBarResultLike, M = unkn
         getColor: opts.getColor,
         getHidden: opts.getHidden,
         buildMeta: opts.buildMeta,
+        yAxisPositions: opts.isGrouped && !opts.isPercentStackView ? opts.yAxisPositions : undefined,
     })
     const config = buildTrendsBarTimeSeriesConfig(opts)
     return { series, labels: opts.labels, config }

@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { WorkflowsConfig } from '~/types'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 
 import {
     MAX_FREQUENCY_CAP_MESSAGES,
@@ -45,6 +45,7 @@ export const WIZARD_ENTRIES = [
     'automation_empty_state',
     'automation_banner',
     'broadcasts_empty_state',
+    'broadcast_audience_suggestions',
 ] as const
 export type WizardEntry = (typeof WIZARD_ENTRIES)[number]
 
@@ -259,7 +260,7 @@ export function sendingRulesToSave(
     holdHours: number | null,
     engagementEvents: boolean,
     canEdit: boolean
-): WorkflowsConfig | null {
+): TeamWorkflowsConfigApi | null {
     // The backend lets only project admins change any part of workflows_config.
     if (!canEdit) {
         return null

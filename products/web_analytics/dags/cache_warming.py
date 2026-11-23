@@ -9,7 +9,7 @@ import threading
 import statistics
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -42,6 +42,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.storage import object_storage
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
     can_use_lazy_precompute as can_use_goals_lazy_precompute,
 )
@@ -68,6 +69,8 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute as can_use_vitals_paths_lazy_precompute,
 )
+from products.web_analytics.backend.warming.predictive import READ_HISTORY_HOURS, ShapeDemand, WarmingArm, warming_arm
+from products.web_analytics.backend.warming.read_history import shape_read_hours
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 if TYPE_CHECKING:
@@ -89,9 +92,14 @@ WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
     # outcome: warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
-    # skipped_cold | skipped_already_warmed | failed | unsupported
+    # skipped_cold | skipped_already_warmed | skipped_model | failed | unsupported
     # lane: demand (selected by query volume) | preset (selected by a saved filter preset)
     ["outcome", "lane"],
+)
+WARMING_MODEL_DECISIONS_COUNTER = Counter(
+    "posthog_web_analytics_warming_model_decisions_total",
+    "What the demand model would do with each scored query shape, by experiment arm",
+    ["arm", "decision"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -544,7 +552,12 @@ def _valid_preset_ids(ids_by_team: dict[int, set[str]]) -> set[tuple[int, str]]:
     return valid
 
 
-def _apply_preset_lane(context: dagster.OpExecutionContext, rows: list[dict], minimum_query_count: int) -> list[dict]:
+def _apply_preset_lane(
+    context: dagster.OpExecutionContext,
+    rows: list[dict],
+    minimum_query_count: int,
+    experiment_team_ids: frozenset[int] = frozenset(),
+) -> list[dict]:
     """Validate the preset ids ClickHouse reported and hold the lane to its caps.
 
     Every row keeps only the preset ids Postgres vouches for. A row left with none is no
@@ -616,7 +629,8 @@ def _apply_preset_lane(context: dagster.OpExecutionContext, rows: list[dict], mi
         # Not (or no longer) a preset shape: it has to earn its place on demand alone,
         # against the same floor and per-team cap as everything else.
         row["preset_ids"] = []
-        if row["query_count"] < minimum_query_count or demand_shapes_per_team.get(team_id, 0) >= MAX_SHAPES_PER_TEAM:
+        below_floor = row["query_count"] < minimum_query_count and team_id not in experiment_team_ids
+        if below_floor or demand_shapes_per_team.get(team_id, 0) >= MAX_SHAPES_PER_TEAM:
             continue
         demand_shapes_per_team[team_id] = demand_shapes_per_team.get(team_id, 0) + 1
         selected.append(row)
@@ -643,6 +657,7 @@ def queries_to_keep_fresh(
     minimum_query_count: int = 2,
     max_shapes: int = 40000,
     preset_lane: bool = False,
+    experiment_team_ids: frozenset[int] = frozenset(),
 ) -> list[dict]:
     """Fleet-wide demand selection: every (team, query shape) with at least
     `minimum_query_count` runs in the window, hottest first, capped at
@@ -743,6 +758,8 @@ def queries_to_keep_fresh(
         preset_order_by = ""
         max_shapes_per_team = MAX_SHAPES_PER_TEAM
 
+    having = f"({preset_having}) OR has(%(experiment_team_ids)s, team_id)" if experiment_team_ids else preset_having
+
     if preset_lane:
         row_columns, source, demand_filter = _QUERY_LOG_ROW_COLUMNS, _QUERY_LOG_SOURCE, _QUERY_LOG_DEMAND_FILTER
     else:
@@ -819,7 +836,7 @@ def queries_to_keep_fresh(
         GROUP BY
             team_id,
             normalized_shape
-        HAVING {preset_having}
+        HAVING {having}
         ORDER BY
             {preset_order_by}query_count DESC
         LIMIT %(max_shapes_per_team)s BY team_id
@@ -831,6 +848,7 @@ def queries_to_keep_fresh(
             "minimum_query_count": minimum_query_count,
             "max_shapes": max_shapes,
             "max_shapes_per_team": max_shapes_per_team,
+            "experiment_team_ids": sorted(experiment_team_ids),
             "shape_ignored_fields": sorted(SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS),
             "kind_prefix": WARMABLE_QUERY_KIND_PREFIX,
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
@@ -869,7 +887,7 @@ def queries_to_keep_fresh(
         for result in results
     ]
     if preset_lane:
-        rows = _apply_preset_lane(context, rows, minimum_query_count)
+        rows = _apply_preset_lane(context, rows, minimum_query_count, experiment_team_ids)
     return rows
 
 
@@ -895,7 +913,12 @@ _WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v7.json.gz"
 
 
 def _read_cached_warmable_queries(
-    days: int, minimum_query_count: int, max_shapes: int, preset_lane: bool, ttl_seconds: int
+    days: int,
+    minimum_query_count: int,
+    max_shapes: int,
+    preset_lane: bool,
+    experiment_team_ids: frozenset[int],
+    ttl_seconds: int,
 ) -> Optional[list[dict]]:
     # Fail open: any storage, decode, or unexpected-payload problem is treated as
     # a miss so warming falls back to a fresh scan rather than erroring. The field
@@ -914,7 +937,8 @@ def _read_cached_warmable_queries(
             # next run rather than at the end of the TTL — otherwise the kill switch is
             # cosmetic for up to six hours.
             payload["preset_lane"],
-        ) == (days, minimum_query_count, max_shapes, preset_lane)
+            payload.get("experiment_team_ids", []),
+        ) == (days, minimum_query_count, max_shapes, preset_lane, sorted(experiment_team_ids))
         is_fresh = time.time() - payload["generated_at"] < ttl_seconds
         if not params_match or not is_fresh:
             return None
@@ -925,13 +949,19 @@ def _read_cached_warmable_queries(
 
 
 def _write_cached_warmable_queries(
-    days: int, minimum_query_count: int, max_shapes: int, preset_lane: bool, queries: list[dict]
+    days: int,
+    minimum_query_count: int,
+    max_shapes: int,
+    preset_lane: bool,
+    experiment_team_ids: frozenset[int],
+    queries: list[dict],
 ) -> None:
     payload = {
         "days": days,
         "minimum_query_count": minimum_query_count,
         "max_shapes": max_shapes,
         "preset_lane": preset_lane,
+        "experiment_team_ids": sorted(experiment_team_ids),
         "generated_at": time.time(),
         "queries": queries,
     }
@@ -1010,6 +1040,56 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
     return True
 
 
+def _predictive_warming_team_ids() -> frozenset[int]:
+    return frozenset(
+        team_id
+        for team_id in Team.objects.values_list("id", flat=True).iterator(chunk_size=5000)
+        if warming_arm(team_id) == "predictive"
+    )
+
+
+_ReadHistory = tuple[dict[str, list[datetime]], set[datetime]]
+
+
+class _TeamDemand:
+    def __init__(self, now: datetime, history_available: bool) -> None:
+        self._now = now
+        self._history_available = history_available
+        self._lock = threading.Lock()
+        self._team_locks: dict[int, threading.Lock] = {}
+        self._histories: dict[int, Optional[_ReadHistory]] = {}
+
+    def request_probability(self, team_id: int, shape_key: str) -> Optional[float]:
+        if not self._history_available:
+            return None
+        history = self._history(team_id)
+        if history is None:
+            return None
+        shape_hours, project_hours = history
+        demand = ShapeDemand.from_history(
+            shape_hours=shape_hours.get(shape_key, []), project_hours=project_hours, now=self._now
+        )
+        return demand.request_probability()
+
+    def _history(self, team_id: int) -> Optional[_ReadHistory]:
+        with self._lock:
+            team_lock = self._team_locks.setdefault(team_id, threading.Lock())
+        with team_lock:
+            if team_id not in self._histories:
+                self._histories[team_id] = self._load(team_id)
+            return self._histories[team_id]
+
+    def _load(self, team_id: int) -> Optional[_ReadHistory]:
+        try:
+            shape_hours = shape_read_hours(team_id=team_id, now=self._now, hours=READ_HISTORY_HOURS)
+        except Exception:
+            logger.warning("web_analytics_warming_read_history_failed", team_id=team_id, exc_info=True)
+            return None
+        if not shape_hours:
+            return None
+        return shape_hours, {hour for hours in shape_hours.values() for hour in hours}
+
+
 @dagster.op
 def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published: bool = True) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
@@ -1018,7 +1098,11 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
     ttl_seconds = get_instance_setting("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS")
     preset_lane = bool(get_instance_setting("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED"))
 
-    queries = _read_cached_warmable_queries(days, minimum_query_count, max_shapes, preset_lane, ttl_seconds)
+    experiment_team_ids = _predictive_warming_team_ids()
+
+    queries = _read_cached_warmable_queries(
+        days, minimum_query_count, max_shapes, preset_lane, experiment_team_ids, ttl_seconds
+    )
     from_cache = queries is not None
     if queries is None:
         queries = queries_to_keep_fresh(
@@ -1027,8 +1111,9 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
             minimum_query_count=minimum_query_count,
             max_shapes=max_shapes,
             preset_lane=preset_lane,
+            experiment_team_ids=experiment_team_ids,
         )
-        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, preset_lane, queries)
+        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, preset_lane, experiment_team_ids, queries)
 
     # `selection_cap_reached` reflects the selection query alone: sticky entries
     # are appended below and floor-dropped shapes still consumed cap slots, so
@@ -1343,6 +1428,13 @@ def _warm_queries(
     raw_preset_replays_by_team: dict[int, int] = {}
     seen_lock = threading.Lock()
 
+    arms: dict[int, WarmingArm] = {team_id: warming_arm(team_id) for team_id in team_ids}
+    demand = _TeamDemand(
+        now=datetime.now(UTC),
+        history_available=bool(get_instance_setting("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED")),
+    )
+    model_threshold = get_instance_setting("WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT") / 100
+
     release_after = {
         team_id: deterministic_offset(str(team_id), release_window).total_seconds() for team_id in team_ids
     }
@@ -1382,6 +1474,8 @@ def _warm_queries(
                 normalized_query_hash=query_info.get("normalized_query_hash"),
                 lane="preset" if query_info.get("preset_ids") else "demand",
                 preset_ids=query_info.get("preset_ids") or None,
+                warming_arm=query_info.get("_warming_arm"),
+                request_probability=query_info.get("_request_probability"),
             )
         except Exception:
             # Observability must never abort the pass: a malformed shape already
@@ -1442,6 +1536,18 @@ def _warm_queries(
             if not lazy_eligible and query_info.get("representative_query_count", 0) < raw_floor:
                 WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_raw_low_demand").inc()
                 return "skipped_raw_low_demand"
+
+            arm = arms.get(team.pk, "current")
+            query_info["_warming_arm"] = arm
+            if isinstance(runner, WebAnalyticsQueryRunner):
+                probability = demand.request_probability(team.pk, runner.shape_key)
+                query_info["_request_probability"] = probability
+                if probability is not None:
+                    model_warms = probability >= model_threshold
+                    WARMING_MODEL_DECISIONS_COUNTER.labels(arm=arm, decision="warm" if model_warms else "skip").inc()
+                    if arm == "predictive" and not model_warms:
+                        WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_model").inc()
+                        return "skipped_model"
 
             cache_key = runner.get_cache_key()
             with seen_lock:

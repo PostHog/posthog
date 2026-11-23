@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { HealthIssueActions } from '../../components/HealthIssueActions'
 import { HealthIssueSnoozedTag } from '../../components/HealthIssueSnoozedTag'
+import { HealthShowMoreFooter } from '../../components/HealthShowMoreFooter'
 import { severityToTagType } from '../../healthUtils'
 import type { HealthIssue } from '../../types'
 import { getErrorLabelForMaterializedView } from '../../utils/materializedViewErrors'
@@ -21,6 +22,9 @@ export default function DataModelingDetailContent({
     onRefresh,
     showDismissed,
     onSetShowDismissed,
+    onLoadMore,
+    isLoadingMore,
+    remainingCount,
 }: CategoryDetailContentProps): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -81,6 +85,15 @@ export default function DataModelingDetailContent({
                             />
                         ))}
                     </div>
+                    {onLoadMore && (
+                        <HealthShowMoreFooter
+                            shown={issues.length}
+                            total={statusSummary.count}
+                            remaining={remainingCount ?? 0}
+                            loading={!!isLoadingMore}
+                            onShowMore={onLoadMore}
+                        />
+                    )}
                 </>
             )}
 

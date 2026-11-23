@@ -148,7 +148,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         if (!this.config.CDP_DLQ_ENABLED) {
             return
         }
-        const failures = await this.options.outputs.checkTopics()
+        const failures = await this.options.outputs.checkTopics(undefined, [this.options.output])
         if (failures.includes(this.options.output)) {
             throw new Error(
                 `CDP_DLQ_ENABLED is on but the dead-letter topic for ${this.options.output} is not reachable — ` +
