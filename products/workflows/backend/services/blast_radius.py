@@ -47,10 +47,9 @@ REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
 AUDIENCE_COUNT_CACHE_SECONDS = 600
 
 
-def audience_sizing_data_scopes(filters: dict[str, Any] | None, is_group_audience: bool) -> list[str]:
+def audience_sizing_data_scopes(filters: dict[str, Any], is_group: bool) -> list[str]:
     """The API scopes, beyond workflow read, that sizing an audience needs for the data its filters read."""
-    properties = filters.get("properties") if filters else None
-    return blast_radius_data_scopes(properties, 0 if is_group_audience else None)
+    return blast_radius_data_scopes(filters.get("properties"), is_group=is_group)
 
 
 def _realtime_audience_total(team: Team) -> int:
@@ -67,7 +66,7 @@ def _count_audience(
     filters: dict,
     group_type_index: GroupTypeIndex | None,
     dedupe_key: str | None,
-    user: User | None = None,
+    user: User | None,
 ) -> BlastRadiusResult:
     if group_type_index is not None:
         return get_user_blast_radius(team, filters, group_type_index, user=user)
@@ -81,7 +80,7 @@ def _cached_count_audience(
     filters: dict,
     group_type_index: GroupTypeIndex | None,
     dedupe_key: str | None,
-    user: User | None = None,
+    user: User | None,
 ) -> BlastRadiusResult:
     # The count depends on the property restrictions that apply to the user, so the key holds their fingerprint.
     restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(

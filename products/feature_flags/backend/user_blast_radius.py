@@ -67,7 +67,7 @@ def use_blast_radius_query_v2(team: Team) -> bool:
     )
 
 
-def blast_radius_data_scopes(properties: object, group_type_index: object) -> list[str]:
+def blast_radius_data_scopes(properties: object, is_group: bool) -> list[str]:
     """
     The API scopes that read the data a blast radius count reads, beyond the caller's own resource scope.
 
@@ -75,7 +75,7 @@ def blast_radius_data_scopes(properties: object, group_type_index: object) -> li
     property. Any other filter, such as a HogQL expression or a cohort, can read persons through a subquery, so
     the count also needs person:read. A filter shape this function cannot classify counts as that other kind.
     """
-    if group_type_index is None:
+    if not is_group:
         return ["person:read"]
     plain_group_filters = properties is None or (
         isinstance(properties, list)

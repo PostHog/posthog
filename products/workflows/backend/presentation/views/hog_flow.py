@@ -5745,12 +5745,9 @@ class HogFlowViewSet(
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
-        # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
-        # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
-        # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
-        # session auth, so live sizing while editing is unaffected.
+        # Sizing an audience reads person or group data through caller-supplied filters, so the scopes depend
+        # on the request. The web builder uses session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
-            # Scopes come from the values the handler validates, so a form or JSON body cannot be read two ways.
             # A body that fails validation gets the strictest scopes, and the handler then rejects it.
             serializer = BlastRadiusRequestSerializer(data=request.data)
             if not serializer.is_valid():
@@ -5758,9 +5755,7 @@ class HogFlowViewSet(
             params = serializer.validated_data
             return [
                 "hog_flow:read",
-                *audience_sizing_data_scopes(
-                    params["filters"], is_group_audience=params.get("group_type_index") is not None
-                ),
+                *audience_sizing_data_scopes(params["filters"], is_group=params.get("group_type_index") is not None),
             ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read

@@ -164,4 +164,4 @@ class TestBlastRadiusDataScopes(SimpleTestCase):
         ]
     )
     def test_scopes_follow_what_the_filters_can_read(self, _name, properties, group_type_index, expected):
-        assert blast_radius_data_scopes(properties, group_type_index) == expected
+        assert blast_radius_data_scopes(properties, is_group=group_type_index is not None) == expected

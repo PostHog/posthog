@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 import time_machine
@@ -9735,6 +9735,19 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
+    def _create_two_group_types(self, properties_by_index: dict[int, dict], group_key: str = "acme") -> None:
+        for index, name in [(0, "organization"), (1, "company")]:
+            create_group_type_mapping(
+                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=index,
+                group_key=group_key,
+                properties=properties_by_index[index],
+            )
+        flush_persons_and_events()
+
     def test_user_blast_radius_honors_member_group_property_access(self):
         create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
@@ -9758,15 +9771,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
     def test_user_blast_radius_ignores_another_group_types_property_restriction(self):
-        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
-        for index, name in group_types:
-            create_group_type_mapping(
-                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
-            )
-            create_group(
-                team_id=self.team.pk, group_type_index=index, group_key="acme", properties={"industry": "tech"}
-            )
-        flush_persons_and_events()
+        self._create_two_group_types({0: {"industry": "tech"}, 1: {"industry": "tech"}})
         self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=1)
         body = {
             "condition": {
@@ -9782,18 +9787,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert (response.json()["affected"], response.json()["total"]) == (1, 1)
 
     def test_group_count_keeps_other_group_type_restrictions_for_hogql_filters(self):
-        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
-        for index, name in group_types:
-            create_group_type_mapping(
-                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
-            )
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=index,
-                group_key="shared",
-                properties={"secret": "hidden"} if index == 1 else {},
-            )
-        flush_persons_and_events()
+        self._create_two_group_types({0: {}, 1: {"secret": "hidden"}}, group_key="shared")
         self._restrict_for_member("secret", PropertyDefinition.Type.GROUP, group_type_index=1)
         condition = {
             "properties": [
