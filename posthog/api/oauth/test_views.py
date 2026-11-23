@@ -4150,7 +4150,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("experiment:read", body["error_description"])
 
     @parameterized.expand([("first_party",), ("auto_approval",)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_skipped_consent_waits_for_a_recent_sign_in_then_completes_on_reload(self, grant_path):
+        self.client.force_login(self.user)
         url = f"{self.base_authorization_url}&state=request-state-123"
         if grant_path == "first_party":
             self.confidential_application.is_first_party = True
@@ -4168,7 +4170,9 @@ class TestOAuthAPI(APIBaseTest):
             )
             url += "&scope=experiment:read&approval_prompt=auto"
 
-        with time_machine.travel(timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(
+            timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
+        ):
             with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
                 stale_response = self.client.get(url)
 
