@@ -42,6 +42,9 @@ class HeyReachEndpointConfig:
     stats_window_days: int | None = None
     # The endpoint pages with `pageNumber`/`pageSize` in the body instead of `offset`/`limit`.
     page_number_pagination: bool = False
+    # A GET endpoint that takes the fan-out parent id as a query param and returns one node tree,
+    # which is reshaped into one row per node.
+    sequence_tree: bool = False
     should_sync_default: bool = True
 
 
@@ -133,6 +136,26 @@ ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
         ),
         # One full window walk per sender account multiplies the requests of `campaign_stats`, so it is opt-in.
         should_sync_default=False,
+    ),
+    "campaign_sequences": HeyReachEndpointConfig(
+        name="campaign_sequences",
+        path="/campaign/GetCampaignSequence",
+        # Nodes carry no id; the branch path from the root names a node within its campaign.
+        primary_keys=["campaignId", "path"],
+        fanout=HeyReachFanoutConfig(parent="campaigns", body_param="campaignId"),
+        sequence_tree=True,
+    ),
+    "blacklisted_leads": HeyReachEndpointConfig(
+        name="blacklisted_leads",
+        path="/blacklist/GetLeads",
+        primary_keys=["id"],
+        partition_key="creationTime",
+    ),
+    "blacklisted_companies": HeyReachEndpointConfig(
+        name="blacklisted_companies",
+        path="/blacklist/GetCompanies",
+        primary_keys=["id"],
+        partition_key="creationTime",
     ),
     "sender_network": HeyReachEndpointConfig(
         name="sender_network",

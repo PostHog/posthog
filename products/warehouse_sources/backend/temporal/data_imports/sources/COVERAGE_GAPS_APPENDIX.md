@@ -2764,9 +2764,9 @@ Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML pa
 
 Re-audited 2026-11-19 against: <https://apidocs.callrail.com/>
 
-- [ ] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
-- [ ] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
-- [ ] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
+- [x] `Message flows (GET /v3/a/{account_id}/message-flows.json)` — auto-reply and routing flow definitions per account, explains how text conversations are handled (low)
+- [x] `Integrations (GET /v3/a/{account_id}/integrations.json)` — which third-party integrations are active per account, for audit of lead routing (low)
+- [x] `Notifications (GET /v3/a/{account_id}/notifications.json)` — which users get alerts for which events, for account configuration audits (low)
 
 Note (2026-11-19): Parsed the v3 reference page (one large HTML file) and listed every /v3/a/{account_id} path. All data collections are already synced, including leads, timelines, page views, SMS threads and summaries. The three gaps are configuration objects, so they are low value. Excluded recordings (files), integration triggers and filters, summary email subscriptions and ignored fields as settings.
 
@@ -2957,7 +2957,7 @@ Note: Parsed the OpenAPI YAML served at /docs/openapi.en.yaml (Scalar page). The
 
 ## Chargebee — gaps
 
-Today (13): `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `Subscriptions`, `Transactions`
+Today (17): `Coupons`, `CreditNotes`, `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `PaymentSources`, `Subscriptions`, `Transactions`, `Usages`
 
 Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
@@ -2971,18 +2971,20 @@ Note: `metered_features` has only write endpoints (create, archive, reactivate, 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
-- [ ] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
-- [ ] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
+- [x] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
+- [x] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
 - [ ] `Coupon codes (GET /coupon_codes)` — individual redeemable codes under each coupon set (low)
 - [ ] `Item families (GET /item_families)` — lookup resolving the item_family_id carried on items (medium)
 - [ ] `Promotional credits (GET /promotional_credits)` — credit grants and deductions on customer accounts (medium)
-- [ ] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
+- [x] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
 - [ ] `Quotes (GET /quotes)` — sales quotes and their status for quote-to-subscription analysis (low)
-- [ ] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
+- [x] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
 - [ ] `Features (GET /features)` — feature catalog behind entitlements (low)
 - [ ] `Unbilled charges (GET /unbilled_charges)` — charges queued for the next invoice (low)
 
 Note (2026-11-19): Listed all GET routes in the pc_v2 OpenAPI spec and removed the ones we sync or that need a parent id (ledger_operations, grant_blocks, ramps, addresses). The list routes above need no required filter. Usages may need a filter such as subscription id in practice, so check before building. Existing appendix skips (email_logs, ledger_entries, metered_features) are not repeated. Gateway logs, hosted pages and webhook endpoints were excluded as plumbing.
+
+Note (2026-11-22): Credit notes, coupons, payment sources and usages were built. The pc_v2 spec gives `GET /usages` no required filter, so it is a site-wide list. A usage is read through `/subscriptions/{id}/usages`, so the table keys on `subscription_id` and `id`. Coupons sync as full refresh only, because a coupon's `updated_at` does not change when its `redemptions` count changes.
 
 ## Chargedesk — adequate
 
@@ -3357,7 +3359,7 @@ Re-audited 2026-11-19 against <https://developer.clari.com/default/documentation
 
 ## Clarifai — gaps
 
-Today (14): `annotations`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `tasks`, `workflow_versions`, `workflows`
+Today (18): `annotations`, `apps`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `pipeline_version_runs`, `pipeline_versions`, `pipelines`, `tasks`, `workflow_versions`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
@@ -3376,10 +3378,10 @@ Note: Vendor Swagger and documentation hosts failed DNS resolution, so the offic
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
-- [ ] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
-- [ ] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
-- [ ] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
-- [ ] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
+- [x] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
+- [x] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
+- [x] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
+- [x] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
 - [ ] `Deployments (ListDeployments, GET /v2/users/{user_id}/deployments)` — Model deployments on compute, to see what is serving and where (medium)
 - [ ] `Compute clusters (ListComputeClusters, GET /v2/users/{user_id}/compute_clusters)` — Compute infrastructure the user owns, parent for nodepools and deployments (low)
 - [ ] `Nodepools (ListNodepools, GET /v2/users/{user_id}/compute_clusters/{compute_cluster_id}/nodepools)` — Nodepool capacity and config per cluster, fan-out under compute clusters (low)
@@ -4184,7 +4186,7 @@ Note: Coupa Core API is very large (several hundred documented resources across 
 
 ## Courier — gaps
 
-Today (19): `AudienceMembers`, `Audiences`, `AuditEvents`, `Automations`, `Brands`, `DigestInstances`, `JourneyVersions`, `Journeys`, `ListSubscriptions`, `Lists`, `MessageHistory`, `Messages`, `NotificationTemplateVersions`, `NotificationTemplates`, `PreferenceChanges`, `PreferenceSections`, `PreferenceTopics`, `TenantUsers`, `Tenants`
+Today (23): `AudienceMembers`, `Audiences`, `AuditEvents`, `AutomationRuns`, `Automations`, `Brands`, `Broadcasts`, `DigestInstances`, `JourneyRuns`, `JourneyVersions`, `Journeys`, `ListSubscriptions`, `Lists`, `MessageHistory`, `Messages`, `NotificationTemplateVersions`, `NotificationTemplates`, `PreferenceChanges`, `PreferenceSections`, `PreferenceTopics`, `TenantTemplates`, `TenantUsers`, `Tenants`
 
 Diffed against: <https://www.courier.com/docs/llms.txt>
 
@@ -4205,10 +4207,10 @@ Note: The payload's docs URLs (www.courier.com/docs/reference/...) now 404; the 
 
 Re-audited 2026-11-19 against: <https://www.courier.com/docs/_llms/api-reference.txt>
 
-- [ ] `Journey runs (GET /journeys/runs)` — Execution history of journeys, newest first, with status filters, for flow success and failure rates (high)
-- [ ] `Automation runs (GET /automations/runs)` — Run history of the automations we already sync (medium)
-- [ ] `Broadcasts (GET /broadcasts)` — Broadcast sends to lists or audiences, with cursor paging (medium)
-- [ ] `Templates in a tenant (GET /tenants/{tenant_id}/templates)` — Tenant-specific template overrides for tenants we already sync (low)
+- [x] `Journey runs (GET /journeys/runs)` — Execution history of journeys, newest first, with status filters, for flow success and failure rates (high) — added as `JourneyRuns`
+- [x] `Automation runs (GET /automations/runs)` — Run history of the automations we already sync (medium) — added as `AutomationRuns`
+- [x] `Broadcasts (GET /broadcasts)` — Broadcast sends to lists or audiences, with cursor paging (medium) — added as `Broadcasts`
+- [x] `Templates in a tenant (GET /tenants/{tenant_id}/templates)` — Tenant-specific template overrides for tenants we already sync (low) — added as `TenantTemplates`
 
 Note (2026-11-19): Used the API reference index and the per-page OpenAPI snippets to confirm each path. Journey and automation runs also have step lists per run (fan-out) that were left out. Providers and routing strategies stay excluded as configuration, as in the earlier audit.
 
@@ -4245,10 +4247,10 @@ Today (12): `AffiliateInvites`, `Affiliates`, `CreditAccounts`, `Customers`, `Di
 
 Diffed against: <https://docs.creem.io/api-reference/openapi.json>
 
-- [ ] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
-- [ ] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
-- [ ] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
-- [ ] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
+- [x] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
+- [x] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
+- [x] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
+- [x] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
 - [ ] `Customer orders (GET /v1/customers/{id}/orders)` — Per-customer orders, may overlap Transactions (low)
 
 Note: Parsed the OpenAPI file and compared every GET path with the synced tables. Affiliate commissions, credit entries and product prices need a request per parent. Excluded webhooks, single-record GETs, stats/summary (aggregate), and consumed-units lookups.
@@ -4259,10 +4261,10 @@ Today (8): `conversations`, `helpdesk_articles`, `helpdesk_locales`, `messages`,
 
 Diffed against: <https://docs.crisp.chat/references/rest-api/v1/>
 
-- [ ] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high)
-- [ ] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium)
-- [ ] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium)
-- [ ] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium)
+- [x] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high) → `teams` (full refresh)
+- [x] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium) → `inboxes` (full refresh)
+- [x] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium) → `conversation_events` (full refresh, fan-out over `conversations`)
+- [x] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium) → `helpdesk_feedbacks` (full refresh, fan-out over `helpdesk_locales`, `articles` type only)
 - [ ] `Campaign templates (GET /v1/website/{website_id}/campaigns/templates/{page_number})` — Campaign template catalog for the website (low)
 - [ ] `Conversation files (GET /v1/website/{website_id}/conversation/{session_id}/files/{page_number})` — File attachment metadata per conversation (low)
 
@@ -4391,14 +4393,14 @@ Note: Pulled the raw Postman collection JSON behind the published documenter lin
 
 ## Cyberimpact — gaps
 
-Today (13): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_opens`, `mailing_stats`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
+Today (18): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_deliveries`, `mailing_hard_bounces`, `mailing_opens`, `mailing_soft_bounces`, `mailing_stats`, `mailing_stopped_recipients`, `mailing_unsubscribes`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
 
 Diffed against: <https://api.cyberimpact.com/docs/openapi.yaml>
 
-- [ ] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high)
-- [ ] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium)
-- [ ] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium)
-- [ ] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low)
+- [x] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high) → `mailing_deliveries` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium) → `mailing_hard_bounces`, `mailing_soft_bounces` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium) → `mailing_unsubscribes` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low) → `mailing_stopped_recipients` (full refresh, fan-out over `sent_mailings`)
 - [ ] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low)
 
 Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups, group members, custom fields, mailing lists, stats, opens, clicks and templates. The missing routes are the other per-mailing recipient lists, which follow the same fan-out as mailing_opens and mailing_clicks. /members/{key}/mailings is a per-member view of data already available per mailing, so it was excluded. Writes, batches, tokens and ping were excluded.
@@ -7233,10 +7235,10 @@ Note: Parsed all requests and response examples in the vendor's published Postma
 
 Re-audited 2026-11-19 against: <https://documenter.gw.postman.com/api/collections/23808049/2sA2xb5F75?segregateAuth=true&versionTag=latest>
 
-- [ ] `Campaign sequence (GET /api/public/campaign/GetCampaignSequence)` — Message steps and delays of each campaign we sync, to compare sequence design with reply rates (medium)
-- [ ] `Blacklisted leads (POST /api/public/blacklist/GetLeads)` — Leads excluded from outreach, to audit suppression against campaign leads (medium)
-- [ ] `Blacklisted companies (POST /api/public/blacklist/GetCompanies)` — Companies excluded from outreach, for the same suppression audit (medium)
-- [ ] `Lead tags (POST /api/public/lead/GetTags)` — Tags on each lead, to segment campaign results by tag (low)
+- [x] `Campaign sequence (GET /api/public/campaign/GetCampaignSequence)` — Message steps and delays of each campaign we sync, to compare sequence design with reply rates (medium)
+- [x] `Blacklisted leads (POST /api/public/blacklist/GetLeads)` — Leads excluded from outreach, to audit suppression against campaign leads (medium)
+- [x] `Blacklisted companies (POST /api/public/blacklist/GetCompanies)` — Companies excluded from outreach, for the same suppression audit (medium)
+- [ ] `Lead tags (POST /api/public/lead/GetTags)` — Tags on each lead, to segment campaign results by tag (low) Skipped: list_leads rows already carry tags, and this needs one request per lead profile.
 
 Note (2026-11-19): Listed every request in the vendor Postman collection and diffed against the synced tables. GetCampaignSequence takes a campaignId, so it fans out over campaigns. Blacklist reads are POST routes that page with offset and limit. Lead tags are read per lead profile, so they need a large fan-out. Excluded: writes, webhooks, enrichment jobs, connection checks and the organization management routes, which need an organization key.
 
@@ -12344,10 +12346,10 @@ Diffed against: <https://developer.rechargepayments.com/2021-11>
 - [x] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
 - [x] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
 - [x] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
-- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium)
-- [ ] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
-- [ ] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
-- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low)
+- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium). Skipped: the API has no list route for checkouts, only reads by token.
+- [x] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
+- [x] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
+- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low). Skipped: the only route sends an email notification; the API has no notification history to list.
 
 Note: No OpenAPI spec is served (openapi.json 404s). The docs are a Nuxt SSR app; I extracted the complete 2021-11 reference nav from the embedded \_\_NUXT\_\_ payload - 24 API sections. PostHog covers 10 of them. Note the repo already carries products/warehouse_sources/.../sources/recharge/api_inventory.md, which may pre-date some of these.
 
@@ -15764,8 +15766,8 @@ Diffed against: <https://developers.veeqo.com/api/operations/list-all-customers/
 - [x] `GET stock entry (/sellables/{sellable_id}/warehouses/{warehouse_id}/stock_entry)` — per-warehouse inventory levels, Veeqo's core operational metric, as a flat table (medium)
 - [x] `GET view tracking events (shipments)` — delivery state transitions per shipment, the fulfillment timeline (medium)
 - [x] `GET retrieve bundle detail and GET retrieve bundle content` — bundle/kit composition — resolves which sellables make up a bundled product (low)
-- [ ] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
-- [ ] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
+- [x] `GET view properties (/products/{product_id}/product_property_specifics/{property_id})` — custom product attributes used as breakdown dimensions (low)
+- [x] `GET view company detail (/company)` — single account/company record for currency and locale context (low)
 
 Note: Parsed the complete operation index out of the developers.veeqo.com nav (76 operations, identical on every page; the site ships no OpenAPI file — /openapi.yaml, /openapi.json and /swagger.json all 404). Every documented top-level \*list\* endpoint is already synced (orders, products, customers, purchase_orders, suppliers, warehouses, channels->stores, tags, delivery_methods). Veeqo publishes no list endpoints for allocations, shipments, returns or bundles, so all gaps above require fan-out from orders/products; the repo's own veeqo/api_inventory.md notes allocations and shipments are already embedded in the order payload. Excluded the Carrier/Rate Shopping APIs (label buying, scan forms) as operational, not analytical.
 
@@ -16269,9 +16271,9 @@ Diffed against: <https://wufoo.github.io/docs/>
 - [x] `form fields (GET /api/v3/forms/{hash}/fields.json)` — lookup mapping Field1/Field2 entry column ids to human field titles and choice values (high)
 - [x] `report entries (GET /api/v3/reports/{hash}/entries.json)` — the filtered entry set behind each report we already sync (medium)
 - [x] `report fields (GET /api/v3/reports/{hash}/fields.json)` — lookup resolving column ids on report entries (medium)
-- [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low)
-- [ ] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
-- [ ] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)
+- [ ] `form entries count (GET /api/v3/forms/{hash}/entries/count.json)` — cheap submission-volume metric per form (low) Skipped: it returns one `EntryCount` number per form, which a count of `form_entries` rows by `form_hash` already gives.
+- [x] `report widgets (GET /api/v3/reports/{hash}/widgets.json)` — the aggregate/chart definitions attached to a report (low)
+- [x] `form comments (GET /api/v3/forms/{hash}/comments.json)` — entry-level comments for review workflows (low)
 
 Note: Not dynamic discovery — products/warehouse_sources/sources/wufoo/settings.py hardcodes three account-level endpoints and its comment explicitly defers the per-form fan-out ('require a parent form hash and are intentionally left out of this first cut'). Entries are the product's whole payload, so closing this needs per-form dynamic table generation driven off the forms list. Wufoo v3 is the API's only version and its docs now live at wufoo.github.io/docs (www.wufoo.com/docs/api/v3 redirects to a SurveyMonkey help page).
 
