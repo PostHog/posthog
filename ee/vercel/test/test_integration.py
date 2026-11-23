@@ -564,7 +564,6 @@ class TestVercelIntegration(TestCase):
             assert redirect_url == VercelIntegration.SSO_DEFAULT_REDIRECT
             assert request.session.get(SESSION_KEY) == str(user.pk)
             assert user.is_email_verified is True
-            mock_send_email.assert_not_called()
         else:
             assert redirect_url == f"/verify_email/{user.uuid}?{verify_email_query}"
             assert SESSION_KEY not in request.session

@@ -1158,8 +1158,7 @@ class VercelIntegration:
         try:
             email_verification_code_verifier.send_code(blocked.user)
         except Exception:
-            # The login stays blocked even when the send fails. The verifier captures the error,
-            # and the verify-email page has a button to send a new code.
+            # The login stays blocked when the send fails, because the verify-email page can send a new code.
             email_sent = False
 
         logger.info(
