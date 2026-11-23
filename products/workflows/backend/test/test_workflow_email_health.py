@@ -31,7 +31,6 @@ from products.workflows.backend.services.transactional_email_workflows import (
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
-    _transactional_by_flow,
     find_workflow_email_pauses,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
@@ -63,6 +62,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self,
         *,
         source_id: str | None = None,
+        team_id: int | None = None,
         sent: int = 0,
         complaints: int = 0,
         hard_bounces: int = 0,
@@ -84,7 +84,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         ):
             if count:
                 create_app_metric2(
-                    team_id=self.team.pk,
+                    team_id=team_id or self.team.pk,
                     app_source="hog_flow",
                     app_source_id=source_id or str(self.flow.id),
                     instance_id=instance_id,
@@ -405,6 +405,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 [("is paused", False, True)],
             ),
             (
+                "transactional_sends_leave_the_project_volume",
+                ["transactional"],
+                {"sent": 150, "hard_bounces": 20},
+                [{"sent": 100, "hard_bounces": 15}],
+                [],
+                [],
+            ),
+            (
                 "one_marketing_step_makes_it_pausable",
                 ["transactional", "marketing"],
                 {"sent": 300, "hard_bounces": 60},
@@ -510,11 +518,28 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         ] == emails
         assert [
             (
-                [self.user.email in recipient for recipient in to],
+                to,
                 f"/project/{self.team.id}/workflows/{paused_flow.id}/workflow" in html,
             )
             for _subject, to, html in delivered
-        ] == [([True], True)] * len(emails)
+        ] == [([self.user.email], True)] * len(emails)
+
+    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 2)
+    def test_a_sweep_classifies_every_lookup_batch_across_projects(self):
+        other_team = Team.objects.create(organization=self.organization)
+        flows = [
+            HogFlow.objects.create(name=f"Code send {index}", team=team, actions=code_email_actions(f"key-{index}"))
+            for index, team in enumerate((self.team, self.team, other_team))
+        ]
+        for flow in flows:
+            self._seed(source_id=str(flow.id), team_id=flow.team_id, sent=300, hard_bounces=60)
+
+        self._sweep()
+
+        stored = HogFlow.objects.filter(id__in=[flow.id for flow in flows]).order_by("name")
+        assert [(flow.email_sending_paused_at, flow.email_sending_warned_at is not None) for flow in stored] == [
+            (None, True)
+        ] * 3
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
@@ -890,22 +915,3 @@ def test_a_malformed_exempt_workflow_id_stops_startup(raw: str):
                 importlib.reload(ses_settings)
     finally:
         importlib.reload(ses_settings)
-
-
-class TestTransactionalLookup(BaseTest):
-    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 2)
-    def test_reads_every_workflow_across_batches_and_projects(self):
-        other_team = Team.objects.create(organization=self.organization)
-        marketing = [{"id": "step_0", "type": "function_email", "config": {"message_category_type": "marketing"}}]
-        flows = [
-            (HogFlow.objects.create(name=name, team=team, actions=actions), transactional)
-            for name, team, actions, transactional in (
-                ("Code send", self.team, code_email_actions("password-reset"), True),
-                ("Marketing blast", self.team, marketing, False),
-                ("Other project code send", other_team, code_email_actions("sign-in"), True),
-            )
-        ]
-
-        assert _transactional_by_flow({str(flow.id): flow.team_id for flow, _ in flows}) == {
-            str(flow.id): transactional for flow, transactional in flows
-        }
