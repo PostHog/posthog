@@ -2855,7 +2855,8 @@ class FeatureFlagSerializer(
         """Validate a flag reference and return the referenced flag's key.
 
         A flag the caller cannot read is an error when ``required`` (a dependency this write adds) and is
-        skipped otherwise (a stored reference), so a stored reference reveals nothing about a hidden flag.
+        skipped otherwise (a stored reference). A stored reference to a deleted flag still fails, so a caller can
+        tell that a hidden flag no longer exists.
         """
         flag_id = safe_int(flag_reference)
         if flag_id is None:
@@ -2931,17 +2932,14 @@ class FeatureFlagSerializer(
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
         project_flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"])
-        unchecked_keys: set[str] = set()
 
         def unchecked_dependency_keys(flag_filters: dict, checked_keys: set[str]) -> set[str]:
             dependency_ids = set(flag_dependency_ids(flag_filters))
             if len(dependency_ids) == len(checked_keys):
                 return set()
-            keys = set(
+            return set(
                 project_flags.filter(id__in=dependency_ids).exclude(key__in=checked_keys).values_list("key", flat=True)
             )
-            unchecked_keys.update(keys)
-            return keys
 
         flag_dependencies = self._extract_flag_dependencies(filters, added_ids=added_ids)
         hidden_dependencies = unchecked_dependency_keys(filters, flag_dependencies)
@@ -2956,11 +2954,11 @@ class FeatureFlagSerializer(
         # checks because their messages would name it or reveal the hidden flag's dependencies.
         def has_cycle(flag_key, path, checked):
             if flag_key in path:
-                cycle_path = [*path[path.index(flag_key) :], flag_key]
-                if unchecked_keys.intersection(cycle_path):
+                if not checked:
                     raise serializers.ValidationError(
                         "Circular dependency detected. Remove this dependency to continue."
                     )
+                cycle_path = [*path[path.index(flag_key) :], flag_key]
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 

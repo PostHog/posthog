@@ -236,20 +236,31 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
     def test_runtime_change_over_unreadable_stored_dependency_looks_like_a_missing_flag(
         self, _name: str, hidden_runtime: str
     ) -> None:
-        hidden = self._hidden_flag_as_member("hidden_client_dependency", hidden_runtime)
+        hidden = self._hidden_flag_as_member("hidden_dependency", hidden_runtime)
         dependent = self._flag("dependent", "client", filters=_depends_on(hidden.id))
 
         response = self._patch(dependent, {"evaluation_runtime": "server"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == f"Flag dependency references non-existent flag with ID {hidden.id}"
-        assert "hidden_client_dependency" not in str(response.json())
+        assert "hidden_dependency" not in str(response.json())
         dependent.refresh_from_db()
         assert dependent.evaluation_runtime == "client"
 
-    def test_stored_disabled_hidden_dependency_reveals_nothing_on_an_edit(self) -> None:
+    @parameterized.expand(
+        [("hidden_flag_is_disabled", 0), ("disabled_flag_behind_it", 1), ("disabled_flag_behind_a_readable_flag", 2)]
+    )
+    def test_disabled_flag_in_a_stored_hidden_dependency_reveals_nothing_on_an_edit(
+        self, _name: str, hops_behind_hidden: int
+    ) -> None:
         hidden = self._hidden_flag_as_member("hidden_disabled_dependency", "all")
-        hidden.active = False
+        if hops_behind_hidden == 0:
+            hidden.active = False
+        else:
+            behind = self._flag("disabled_behind_hidden", "all", active=False)
+            if hops_behind_hidden == 2:
+                behind = self._flag("readable_behind_hidden", "all", filters=_depends_on(behind.id))
+            hidden.filters = _depends_on(behind.id)
         hidden.save()
         dependent = self._flag("dependent_on_hidden", "all", filters=_depends_on(hidden.id))
 
