@@ -1,4 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import type { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -189,17 +193,33 @@ describe('evaluationPreviewLogic', () => {
             [400, { error: 'Compilation error on line 2: unexpected token', code: 'hog_compile_error' }],
             'Compilation error on line 2: unexpected token',
             'Compilation error on line 2: unexpected token',
+            false,
         ],
-        ['a busy server', [500, { detail: 'Too many queries' }], 'Too many queries', null],
-    ] as [string, [number, Record<string, string>], string, string | null][])(
+        [
+            'a rejected setting',
+            [400, { detail: 'This field may not be null.', code: 'null' }],
+            'This field may not be null.',
+            null,
+            false,
+        ],
+        ['a busy server', [500, { detail: 'Too many queries' }], 'Too many queries', null, true],
+    ] as [string, [number, Record<string, string>], string, string | null, boolean][])(
         'reports %s',
-        async (_name, response, testError, codeError) => {
+        async (_name, response, testError, codeError, toastedAndCaptured) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            const capture = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             failure = response
             mount(evaluation)
             await expectLogic(logic).toFinishAllListeners()
+            const toasted = toast.mock.calls.length > 0
+            const captured = capture.mock.calls.some(([error]) => (error as ApiError).status === response[0])
+            toast.mockRestore()
+            capture.mockRestore()
 
             expect(logic.values.testError).toBe(testError)
             expect(logic.values.codeError).toBe(codeError)
+            expect(toasted).toBe(toastedAndCaptured)
+            expect(captured).toBe(toastedAndCaptured)
         }
     )
 
