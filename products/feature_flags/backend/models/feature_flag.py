@@ -1,6 +1,4 @@
 import copy
-import json
-from collections import Counter
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -26,7 +24,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
 from products.feature_flags.backend.facade.references import InvalidIds, references
-from products.feature_flags.backend.reserved_variant_keys import non_string_variants
+from products.feature_flags.backend.reserved_variant_keys import non_string_variants, unheld_non_string_variant
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
@@ -127,10 +125,6 @@ def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str |
     if len(variants) > EXPERIMENT_MAX_VARIANTS:
         return f"Feature flag must have at most {EXPERIMENT_MAX_VARIANTS} variants"
     return None
-
-
-def _json_text(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, default=str)
 
 
 class FeatureFlagQuerySet(RootTeamQuerySet):
@@ -321,8 +315,10 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         self._require_string_variant_keys()
 
     def _require_string_variant_keys(self) -> None:
-        unkeyed = non_string_variants(self.filters)
-        if unkeyed and self.pk is not None:
+        if not non_string_variants(self.filters):
+            return
+        stored = None
+        if self.pk is not None:
             # A variant that the stored row already holds passes. A row that holds one therefore stays editable and
             # deletable.
             stored = (
@@ -331,18 +327,9 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
                 .values_list("filters", flat=True)
                 .first()
             )
-            # JSON text tells true from 1 and 1.0, which == does not. The count stops extra copies of a held variant.
-            held = Counter(_json_text(variant) for _, variant in non_string_variants(stored))
-            still_unkeyed = []
-            for path, variant in unkeyed:
-                text = _json_text(variant)
-                if held[text] > 0:
-                    held[text] -= 1
-                else:
-                    still_unkeyed.append((path, variant))
-            unkeyed = still_unkeyed
-        if unkeyed:
-            raise ValidationError({"filters": f"{unkeyed[0][0]} must be a string."})
+        path = unheld_non_string_variant(self.filters, held=stored)
+        if path is not None:
+            raise ValidationError({"filters": f"{path} must be a string."})
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["FeatureFlag"]:

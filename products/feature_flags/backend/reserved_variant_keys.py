@@ -17,6 +17,8 @@ A flag that already serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, becaus
 and chart continuity. The match is exact, so "True" and "NULL" stay allowed.
 """
 
+import json
+from collections import Counter
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any
 
@@ -66,6 +68,27 @@ def non_string_variants(filters: object) -> list[tuple[str, Any]]:
         for index, variant in enumerate(variants)
         if not isinstance(variant, Mapping) or not isinstance(variant.get("key"), str)
     ]
+
+
+def unheld_non_string_variant(filters: object, *, held: object) -> str | None:
+    """The key path of the first variant in ``filters`` without a string key that the ``held`` filters do not hold.
+
+    Each variant in ``held`` excuses one variant in ``filters``, so a second copy of a held variant is refused.
+    """
+    held_texts = Counter(_json_text(variant) for _, variant in non_string_variants(held))
+    for path, variant in non_string_variants(filters):
+        text = _json_text(variant)
+        if held_texts[text]:
+            held_texts[text] -= 1
+        else:
+            return path
+    return None
+
+
+def _json_text(value: Any) -> str:
+    # Unlike canonical_value in facade/config_validation.py, this keeps 1.0 apart from 1. It also keeps true apart from 1,
+    # which == does not.
+    return json.dumps(value, sort_keys=True, default=str)
 
 
 def _variant_lists(filters: object) -> Iterator[tuple[str, Sequence[Any]]]:
