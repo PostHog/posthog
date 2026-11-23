@@ -77,8 +77,8 @@ tools:
             approve the records there; nothing changes until they approve. The URL publishes the email provider's
             records only: after approval, read integrations-email-status-retrieve and publish any record still pending,
             such as an organization TXT record, by hand. Then poll integrations-email-status-retrieve until its status
-            is verified, and call integrations-email-verify-create once. If this tool returns an error,
-            fall back to adding the records from integrations-email-status-retrieve by hand.
+            is verified, and call integrations-email-verify-create once. If this tool returns an error, fall back to
+            adding the records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id
