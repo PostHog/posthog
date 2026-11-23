@@ -573,7 +573,15 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         (
             "anyHeavyIf(user_id, id > 1)",
-            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE ("users"."id" > 1))), 1), \'\')',
+            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))), 1), \'\')',
+        ),
+        (
+            "anyHeavy(user_id) FILTER (WHERE id > 1)",
+            'approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1) FILTER (WHERE id > 2)",
+            'FILTER (WHERE (("users"."id" > 1)) AND (("users"."id" > 2)))',
         ),
         (
             "anyHeavy(toNullable(user_id))",
@@ -781,6 +789,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("medianExact(DISTINCT id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("avgWeighted(id, user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("toNullableString(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("anyHeavy(DISTINCT user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("groupUniqArrayArray(0)([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("to_timestamp(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("lagInFrame(id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),

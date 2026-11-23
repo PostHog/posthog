@@ -2611,6 +2611,10 @@ class TrinoPrinter(PostgresPrinter):
         conditional = node.name.lower() == "anyheavyif"
         if len(node.args) != (2 if conditional else 1):
             self._invalid_function_arguments(node, f"{node.name} expects a value and, for anyHeavyIf, a condition.")
+        if node.params or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(
+                node, f"{node.name} does not support these aggregate modifiers in Trino mode."
+            )
         value_type = self._resolve_type(node.args[0])
         if isinstance(value_type, ast.IntegerType):
             value = f"CAST({self.visit(node.args[0])} AS BIGINT)"
@@ -2618,9 +2622,13 @@ class TrinoPrinter(PostgresPrinter):
             value = self.visit(node.args[0])
         else:
             self._invalid_function_arguments(node, f"{node.name} requires a string or integer value in Trino mode.")
+        conditions = [node.args[1]] if conditional else []
+        if node.filter_expr is not None:
+            conditions.append(node.filter_expr)
         frequent = f"approx_most_frequent(1, {value}, {_ANY_HEAVY_CAPACITY})"
-        if conditional:
-            frequent = f"{frequent} FILTER (WHERE {self._visit_predicate(node.args[1])})"
+        if conditions:
+            predicate = " AND ".join(f"({self._visit_predicate(condition)})" for condition in conditions)
+            frequent = f"{frequent} FILTER (WHERE {predicate})"
         most_frequent = f"element_at(map_keys({frequent}), 1)"
         if value_type.nullable:
             return most_frequent
