@@ -58,12 +58,9 @@ export interface insightDashboardModalLogicActions {
         }[]
     ) => {
         tiles: {
-            insight?:
-                | {
-                      id: number
-                  }
-                | null
-                | undefined
+            insight?: {
+                id: number
+            } | null
         }[]
     }
     toggleInsightOnDashboard: (

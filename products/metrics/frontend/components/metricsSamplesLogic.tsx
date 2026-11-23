@@ -8,6 +8,7 @@ import { AccessControlLevel, AccessControlResourceType, UniversalFiltersGroup } 
 
 import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 import type { _MetricErrorSpikeApi } from 'products/metrics/frontend/generated/api.schemas'
+import type { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { buildSampleRequests, type MetricsSampleRow, mergeSamples, settleSampleRequests } from './metricsSamplesMerge'
@@ -107,10 +108,8 @@ export interface metricsSamplesLogicActions {
     setMetricName: (metricName: string) => {
         metricName: string
     } // metricsViewerLogic
-    setSelectedMetricType: (
-        metricType: null | import('products/metrics/frontend/generated/api.schemas').OtelMetricTypeEnumApi
-    ) => {
-        metricType: null | import('products/metrics/frontend/generated/api.schemas').OtelMetricTypeEnumApi
+    setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
+        metricType: OtelMetricTypeEnumApi | null
     } // metricsViewerLogic
     loadErrorSpikes: (_: any) => any
     loadErrorSpikesFailure: (

@@ -383,9 +383,22 @@ class TestPostHogConnectionForward:
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_request.assert_not_called()
 
-    def test_target_reports_the_connected_project_not_the_local_one(self, client: HttpClient):
+    @pytest.mark.parametrize(
+        "granted_scopes,expected_scopes",
+        [
+            pytest.param(None, [], id="scopes_unknown"),
+            pytest.param(["task:read", "insight:read"], ["insight:read", "task:read"], id="scopes_recorded"),
+        ],
+    )
+    def test_target_reports_the_connected_project_not_the_local_one(
+        self, client: HttpClient, granted_scopes, expected_scopes
+    ):
         # Callers build target API paths from this, so it must report the far side. Reporting the
         # local project id would send every subsequent forward to a project that isn't there.
+        # The MCP server reads `granted_scopes` to refuse a tool the connection cannot run.
+        if granted_scopes is not None:
+            self.integration.config["granted_scopes"] = granted_scopes
+            self.integration.save()
         client.force_login(self.user)
         me = {
             "team": {"id": 4242, "name": "EU Team"},
@@ -403,6 +416,7 @@ class TestPostHogConnectionForward:
             "organization_name": "EU Org",
             "region": "EU",
             "base_url": "https://eu.posthog.com",
+            "granted_scopes": expected_scopes,
         }
 
     @pytest.mark.parametrize(

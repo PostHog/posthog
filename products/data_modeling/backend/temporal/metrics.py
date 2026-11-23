@@ -4,6 +4,7 @@ from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
 from products.data_modeling.backend.temporal.activities.utils import is_externally_aborted
+from products.managed_warehouse.backend.facade.contracts import TRINO_INSTANCE_REPLACED_ERROR_PREFIX
 
 # custom latency histogram buckets,
 # since we lose some important granularity with default max at 60s
@@ -208,6 +209,8 @@ def error_code(error: str) -> str:
         return f"HTTP_{http_status.group(1)}"
     if error.startswith(TRINO_DEADLINE_ERROR_PREFIXES):
         return DEADLINE_EXCEEDED_ERROR_CODE
+    if error.startswith(TRINO_INSTANCE_REPLACED_ERROR_PREFIX):
+        return "ADMINISTRATIVELY_KILLED"
     return OTHER_ERROR_CODE
 
 

@@ -10,6 +10,7 @@ import {
     type LemonMenuItems,
 } from '@posthog/lemon-ui'
 
+import { TagsFilter } from '../TagsFilter'
 import type { CustomerTasksContext } from './customerTaskFilters'
 import {
     CUSTOMER_TASK_ARCHIVE_OPTIONS,
@@ -123,6 +124,11 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                     </LemonButton>
                 </LemonDropdown>
             )}
+            <TagsFilter
+                value={filters.tags ?? []}
+                onChange={(tags) => setFilters({ tags })}
+                data-attr="customer-tasks-tags-filter"
+            />
             <LemonMenu items={archive}>
                 <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                     {CUSTOMER_TASK_ARCHIVE_OPTIONS.find((o) => o.value === filters.archiveState)?.label}

@@ -57,7 +57,12 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.installations import (
+    delete_installation,
+    remove_from_installation_snapshot,
+    reviewable_repo_config,
+    reviewable_repo_configs,
+)
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
@@ -1536,25 +1541,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
-def _reviewable(configs: QuerySet[StamphogRepoConfig], repository: str) -> QuerySet[StamphogRepoConfig]:
-    """The enabled configs for ``repository`` that were bound through the verified sync flow.
-
-    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
-    case-insensitively because callers pass repository names in whatever casing they hold, while
-    configs keep GitHub's casing.
-    """
-    return (
-        configs.using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
-        .exclude(installation_id="")
-    )
-
-
-def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
-    """The team's reviewable config for ``repository``."""
-    return _reviewable(StamphogRepoConfig.objects.for_team(team_id), repository).order_by("created_at", "id").first()
-
-
 def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     """The teams among ``team_ids``, environments included, where a manual review of ``repository``
     would find its config."""
@@ -1563,7 +1549,7 @@ def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     rows = Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
     project_ids = {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
     configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=set(project_ids.values()))
-    reviewing = set(_reviewable(configs, repository).values_list("team_id", flat=True))
+    reviewing = set(reviewable_repo_configs(configs, repository).values_list("team_id", flat=True))
     return [team_id for team_id in team_ids if project_ids.get(team_id) in reviewing]
 
 
@@ -1760,7 +1746,7 @@ def process_inbox_pr_review(
 
     # iexact because tasks stores repository slugs lowercased while configs keep GitHub's casing.
     try:
-        repo_config = _reviewable_repo_config(team_id, repository)
+        repo_config = reviewable_repo_config(team_id, repository)
     except Exception as e:
         logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
@@ -1897,7 +1883,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     Runs synchronously in the API request, so the caller learns right away why a request was
     refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
     """
-    repo_config = _reviewable_repo_config(team_id, repository)
+    repo_config = reviewable_repo_config(team_id, repository)
     if repo_config is None:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_FOUND,
@@ -2416,7 +2402,7 @@ def route_reviewers_after_attestation(
 
 def _route_after_external_review(team_id: int, repository: str, pr_number: int, head_sha: str, task_id: str) -> None:
     # A disabled repo has no config here. Its heads never wait for a silent review, so nothing is lost.
-    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+    repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
     if repo_config is None:
         return
     route_after_external_review(
@@ -2555,7 +2541,7 @@ def silent_review_after_clean_external_review(
     safe: every check runs again, and the head dedupe collapses repeats into one run.
     """
     try:
-        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
         if repo_config is None:
             logger.info(
                 "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"

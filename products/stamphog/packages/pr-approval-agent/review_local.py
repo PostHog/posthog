@@ -527,9 +527,17 @@ def _pending_attestation_wait(pipeline: Pipeline, pending: list[Attestation]) ->
 
 
 def _not_final_reason(pipeline: Pipeline) -> str:
-    """Why a pre-check that did not settle the verdict leaves it to the sandbox, for telemetry."""
+    """Why a pre-check that did not settle the verdict leaves it to the sandbox.
+
+    The server records it for telemetry. Its gate check for other products (`logic/approval_gates.py`) also reads
+    ``no_failing_gate`` as "the gates pass", so that value must mean that no input the pre-check skipped can add a
+    failure.
+    """
     failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
     if not failed:
+        # The manifest scripts scan reads git, so it did not run here. In the sandbox it can still add a deny.
+        if dependency_manifests_without_lockfile(pipeline.pr.file_paths):
+            return "dependency_manifest"
         return "no_failing_gate"
     if failed == {"size"}:
         return "size_folder_override"

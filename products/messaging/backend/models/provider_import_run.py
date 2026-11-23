@@ -12,6 +12,7 @@ class ImportProviderKey(models.TextChoices):
     RESEND = "resend", "Resend"
     POSTMARK = "postmark", "Postmark"
     SENDGRID = "sendgrid", "SendGrid"
+    MAILGUN = "mailgun", "Mailgun"
 
 
 def import_provider_choices() -> list[tuple[str, str | Promise]]:

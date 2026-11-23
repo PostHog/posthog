@@ -102,8 +102,8 @@ def get_settings(team_id: int) -> SupabaseAuthEmailSettings:
 
 
 def _sendable_template_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
-    # Auth emails carry sign-in codes and reset links, and only a sensitive template keeps them out of stored
-    # sends and click tracking.
+    # Auth emails carry sign-in codes and reset links. Only a sensitive template keeps them out of stored sends,
+    # and its click events record only the link's site address.
     return set(
         MessageTemplate.objects.filter(
             team_id=team_id,
@@ -215,6 +215,7 @@ class _HookUser:
     id: str
     email: str
     new_email: str
+    phone: str
     user_metadata: dict[str, Any]
 
 
@@ -230,6 +231,10 @@ class _HookEmailData:
     redirect_to: str
     # The address a user changed away from, set on the email-changed notification.
     old_email: str
+    # The other details security notifications carry, so a template can say what changed.
+    old_phone: str
+    provider: str
+    factor_type: str
 
 
 @frozen
@@ -259,6 +264,7 @@ def _parse_payload(body: bytes) -> tuple[_HookUser, _HookEmailData] | None:
         id=_str(user, "id"),
         email=_str(user, "email"),
         new_email=_str(user, "new_email"),
+        phone=_str(user, "phone"),
         user_metadata=metadata if isinstance(metadata, dict) else {},
     )
     hook_email_data = _HookEmailData(
@@ -270,6 +276,9 @@ def _parse_payload(body: bytes) -> tuple[_HookUser, _HookEmailData] | None:
         token_hash_new=_str(email_data, "token_hash_new"),
         redirect_to=_str(email_data, "redirect_to"),
         old_email=_str(email_data, "old_email"),
+        old_phone=_str(email_data, "old_phone"),
+        provider=_str(email_data, "provider"),
+        factor_type=_str(email_data, "factor_type"),
     )
     # A phone-only user adding an email address has no current address yet, only the new one.
     has_recipient = bool(hook_user.email or hook_user.new_email)
@@ -321,6 +330,11 @@ def _message_data(config: SupabaseAuthEmailConfig, user: _HookUser, data: _HookE
         "email": user.email,
         "new_email": user.new_email,
         "user_metadata": user.user_metadata,
+        "old_email": data.old_email,
+        "phone": user.phone,
+        "old_phone": data.old_phone,
+        "provider": data.provider,
+        "factor_type": data.factor_type,
     }
 
 

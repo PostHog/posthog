@@ -50,8 +50,6 @@ describe('project-create', () => {
             organization: 'org-abc',
             api_token: 'phc_public',
             created_at: '2026-09-19T00:00:00Z',
-            secret_api_token: 'phs_secret',
-            secret_api_token_backup: 'phs_secret_backup',
             live_events_token: 'live_secret',
         })
 

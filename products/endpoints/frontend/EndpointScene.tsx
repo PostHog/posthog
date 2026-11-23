@@ -21,7 +21,8 @@ import {
     IconServer,
     IconTrash,
 } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
+import { Item, ItemContent, Tabs, TabsList, TabsTrigger, Text } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -29,6 +30,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -74,12 +76,13 @@ export function EndpointScene(): JSX.Element {
     const { endpoint, endpointLoading, endpointMissing, activeTab, viewingVersion, isMaterialized } =
         useValues(endpointSceneLogic)
     const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
-    const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
+    const { confirmDeleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const lineageSavedQueryId = (viewingVersion ?? endpoint)?.materialization?.saved_query_id ?? null
     const visibleTab =
         activeTab === EndpointTab.LINEAGE && endpoint && !lineageSavedQueryId ? EndpointTab.QUERY : activeTab
@@ -166,29 +169,7 @@ export function EndpointScene(): JSX.Element {
         if (!endpoint?.name) {
             return
         }
-
-        LemonDialog.open({
-            title: 'Delete endpoint?',
-            content: (
-                <div className="text-sm text-secondary">
-                    Are you sure you want to delete this endpoint? This action cannot be undone.
-                </div>
-            ),
-            primaryButton: {
-                children: 'Delete',
-                type: 'primary',
-                status: 'danger',
-                onClick: () => {
-                    deleteEndpoint(endpoint.name)
-                },
-                size: 'small',
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'tertiary',
-                size: 'small',
-            },
-        })
+        confirmDeleteEndpoint(endpoint.name)
     }
 
     const handleToggleActive = (): void => {
@@ -372,12 +353,24 @@ export function EndpointScene(): JSX.Element {
                     </SceneMenuBar>
                 )}
                 <EndpointSceneHeader />
-                {endpoint && !endpoint.is_active && (
-                    <LemonBanner type="error">
-                        This endpoint is deactivated and cannot be accessed via the API. <br />
-                        This applies to all versions, even if they're active - endpoint status overrules version status.
-                    </LemonBanner>
-                )}
+                {endpoint &&
+                    !endpoint.is_active &&
+                    (todayRailNav ? (
+                        <Item variant="outline" size="sm" tone="destructive" data-quill>
+                            <ItemContent className="min-w-0">
+                                <Text size="xs" render={<div />} className="m-0">
+                                    This endpoint is deactivated and cannot be accessed via the API. This applies to all
+                                    versions, even if they're active. Endpoint status overrules version status.
+                                </Text>
+                            </ItemContent>
+                        </Item>
+                    ) : (
+                        <LemonBanner type="error">
+                            This endpoint is deactivated and cannot be accessed via the API. <br />
+                            This applies to all versions, even if they're active - endpoint status overrules version
+                            status.
+                        </LemonBanner>
+                    ))}
                 {viewingVersion && endpoint && (
                     <VersionBanner
                         version={viewingVersion}
@@ -390,7 +383,33 @@ export function EndpointScene(): JSX.Element {
                 ) : (
                     <>
                         <EndpointOverview />
-                        {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                        {sceneMenuBarEnabled ? (
+                            renderTabContent()
+                        ) : todayRailNav && endpoint ? (
+                            <div className="flex flex-col gap-4" data-quill>
+                                <Tabs
+                                    value={visibleTab}
+                                    onValueChange={(tab: EndpointTab) =>
+                                        router.actions.push(
+                                            combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab }).url
+                                        )
+                                    }
+                                >
+                                    <div className="border-b border-border">
+                                        <TabsList variant="line" aria-label="Endpoint sections">
+                                            {tabs.map((tab) => (
+                                                <TabsTrigger key={tab.key} value={tab.key} data-attr={tab['data-attr']}>
+                                                    {tab.label}
+                                                </TabsTrigger>
+                                            ))}
+                                        </TabsList>
+                                    </div>
+                                </Tabs>
+                                {renderTabContent()}
+                            </div>
+                        ) : (
+                            <LemonTabs activeKey={visibleTab} tabs={tabs} />
+                        )}
                     </>
                 )}
             </SceneContent>
