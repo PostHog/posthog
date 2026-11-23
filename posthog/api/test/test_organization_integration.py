@@ -171,7 +171,7 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
 
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         with (
-            patch("posthog.api.organization_integration.get_cached_instance_license", return_value=True),
+            self.is_cloud(True),
             patch(
                 "ee.vercel.integration.VercelIntegration.delete_installation",
                 side_effect=billing_error,
@@ -188,6 +188,23 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         # The local integration must survive so the UI disconnect can't sidestep the billing guard.
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
         self.assertTrue(Integration.objects.filter(id=team_integration.id).exists())
+
+    def test_delete_org_integration_skips_billing_off_cloud(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
+        with (
+            self.is_cloud(False),
+            patch(
+                "ee.vercel.integration.VercelIntegration.delete_installation",
+                side_effect=RuntimeError("Billing service unreachable"),
+            ),
+        ):
+            response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
 
     def test_delete_organization_integration_unauthorized(self):
         self.client.logout()

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cloud_utils import get_cached_instance_license
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
@@ -111,9 +111,9 @@ class OrganizationIntegrationViewSet(
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         is_marketplace = instance.config.get("type") != "connectable"
 
-        # Without a license there is no billing service that holds a subscription to end,
-        # which is the case on self-hosted instances and in local development.
-        if is_marketplace and instance.integration_id and get_cached_instance_license():
+        # Only cloud deployments have a billing service that holds a Vercel subscription to end.
+        # A license is not enough to tell, because local development creates one when DEBUG is on.
+        if is_marketplace and instance.integration_id and is_cloud():
             from ee.billing.billing_manager import BillingServiceOpenInvoicesError
             from ee.vercel.integration import VercelIntegration
 
