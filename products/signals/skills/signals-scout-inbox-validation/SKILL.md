@@ -18,6 +18,7 @@ allowed_tools:
   - edit_report
 scout-role: operational
 metadata:
+  audience: internal
   owner_team: signals
   scope: inbox_validation
 scout-precheck-query: |

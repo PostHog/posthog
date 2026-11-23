@@ -16,6 +16,7 @@ allowed_tools:
   - emit_report
   - edit_report
 metadata:
+  audience: internal
   owner_team: signals
   scope: web_vitals
 scout-precheck-query: |

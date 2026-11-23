@@ -9,13 +9,23 @@ Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md
 
 ## Choose a location
 
-- Use `products/<product>/skills/` for work through PostHog tools, APIs, or customer code. These skills are published.
+- Use `products/<product>/skills/` for work through PostHog tools, APIs, or customer code. These skills ship in the release.
 - Use `.agents/skills/` for work that requires a checkout of the PostHog repository. These skills stay in the repository.
-- Staff-only access is not a reason to move a skill. An MCP workflow without a checkout stays published.
+- Staff-only access is not a reason to move a skill. An MCP workflow without a checkout stays under `products/`, marked `audience: internal`.
 - For mixed skills, keep customer diagnosis published and move PostHog development steps into an existing internal skill or reference.
 - Published workflows must not depend on internal skill files.
 
 `hogli lint:skills` checks both locations. The scaffold, build, and sync commands below apply to published product skills.
+
+## Say who the skill is for
+
+The MCP `learn` command serves a customer's agent only the skills listed in [`services/mcp/src/skills/served-skills.json`](../../../services/mcp/src/skills/served-skills.json).
+`hogli lint:skills` fails until every skill under `products/*/skills/` has exactly one of these:
+
+- **For a customer's agent:** an entry `"<skill-name>": {}` in that file. If the product's MCP tools need a feature flag, name it: `{"feature_flag": "<flag>"}`. Then only callers with that flag get the skill. A person on `team-context-and-mcp` approves each change to the file.
+- **For a PostHog job or for staff:** `audience: internal` under `metadata` in the frontmatter. Scout runbooks and ReviewHog runtime skills are examples.
+
+A skill is for a customer's agent when the agent can follow it with only what a customer has: no staff access, no PostHog checkout, and no tool or product that customers cannot use.
 
 ## Quick workflow
 

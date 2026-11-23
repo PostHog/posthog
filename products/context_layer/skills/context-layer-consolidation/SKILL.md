@@ -1,5 +1,7 @@
 ---
 name: context-layer-consolidation
+metadata:
+  audience: internal
 description: Keep the context wiki coherent using the deterministic lint report queue
 ---
 

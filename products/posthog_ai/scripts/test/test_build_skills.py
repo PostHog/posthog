@@ -630,6 +630,34 @@ def test_lint_all_checks_served_skills_against_shipped_names(
 
 
 @pytest.mark.parametrize(
+    "header,listed,error",
+    [
+        ("", True, None),
+        ("metadata:\n  audience: internal\n", False, None),
+        ("metadata:\n  owner_team: alpha\n", False, "has no audience"),
+        ("", False, "has no audience"),
+        ("metadata:\n  audience: internal\n", True, "Keep one"),
+        ("metadata:\n  audience: staff\n", False, "not a known audience"),
+    ],
+    ids=["listed", "internal", "other-metadata-only", "neither", "both", "unknown-audience"],
+)
+def test_lint_all_requires_one_audience_per_product_skill(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], header: str, listed: bool, error: str | None
+) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: some-skill\n{header}description: A skill\n---\nBody\n")
+    served_file = tmp_path / "services" / "mcp" / "src" / "skills" / "served-skills.json"
+    served_file.parent.mkdir(parents=True)
+    served_file.write_text(json.dumps({"skills": {"some-skill": {}} if listed else {}, "context_mill_skills": {}}))
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    assert builder.lint_all() is (error is None)
+    assert error is None or error in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
     "relpath,reserved_name,content",
     [
         (

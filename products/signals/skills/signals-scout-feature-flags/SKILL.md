@@ -15,6 +15,7 @@ allowed_tools:
 scout-tags:
   - feature-flags
 metadata:
+  audience: internal
   owner_team: signals
   scope: feature_flags
 scout-precheck-query: |
