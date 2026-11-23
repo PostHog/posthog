@@ -270,10 +270,37 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_reason == "Earlier pause"
         assert paused_email.call_count == 0
 
-    def test_a_workflow_republished_as_transactional_during_the_sweep_is_warned_instead_of_paused(self):
-        self._seed(sent=400, complaints=8)
-        self.flow.actions = [{"id": "e1", "type": "function_email", "config": {"message_category_type": "marketing"}}]
+    def _send_admin_email(self) -> None:
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _delivered(self) -> list[tuple[str, str]]:
+        delivered = []
+        for message in mail.outbox:
+            [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            delivered.append((str(message.subject), html_bytes.decode()))
+        return delivered
+
+    @parameterized.expand(
+        [
+            ("own_breach", {"sent": 400, "complaints": 8}, ["Second blast"], {"Welcome email", "Second blast"}),
+            ("project_breach", {"sent": 100, "hard_bounces": 15}, ["Second blast"], {"Second blast"}),
+        ]
+    )
+    def test_a_workflow_republished_as_transactional_during_the_sweep_is_not_paused(
+        self, _name: str, seed: SeedCounts, paused: list[str], emailed: set[str]
+    ):
+        self._send_admin_email()
+        marketing = [{"id": "e1", "type": "function_email", "config": {"message_category_type": "marketing"}}]
+        self.flow.actions = marketing
         self.flow.save()
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team, actions=marketing)
+        self._seed(**seed)
+        self._seed(source_id=str(sibling.id), **seed)
 
         def decide_then_republish(*, now):
             decisions = find_workflow_email_decisions(now=now)
@@ -283,29 +310,34 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             self.flow.save()
             return decisions
 
-        with patch(
-            "products.workflows.backend.services.workflow_email_health.find_workflow_email_decisions",
-            side_effect=decide_then_republish,
+        with (
+            patch(
+                "products.workflows.backend.services.workflow_email_health.find_workflow_email_decisions",
+                side_effect=decide_then_republish,
+            ),
+            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
         ):
-            applied, paused_email = self._sweep()
+            sweep_workflow_email_health(now=self.now)
 
-        assert applied == []
-        assert paused_email.call_count == 0
-        self.flow.refresh_from_db()
-        assert self.flow.email_sending_paused_at is None
-        assert self.flow.email_sending_warned_at == self.now
-        assert self.warning_email.call_args.kwargs["transactional"] is True
+        flows = HogFlow.objects.filter(team=self.team).order_by("created_at")
+        assert [flow.name for flow in flows if flow.email_sending_paused_at] == paused
+        delivered = self._delivered()
+        assert {name for name in ("Welcome email", "Second blast") for subject, _ in delivered if name in subject} == (
+            emailed
+        )
+        assert [
+            "we don't pause it automatically" in html for subject, html in delivered if "Welcome email" in subject
+        ] == ([True] if "Welcome email" in emailed else [])
 
     def test_a_staff_pause_pauses_a_workflow_that_sends_only_transactional_email(self):
+        self._send_admin_email()
         self.flow.actions = [
             {"id": "e1", "type": "function_email", "config": {"message_category_type": "transactional"}}
         ]
         self.flow.save()
 
         with (
-            patch(
-                "products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"
-            ) as paused_email,
             patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -320,7 +352,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_by == PAUSED_BY_STAFF
-        assert paused_email.delay.call_args.kwargs["staff_pause"] is True
+        [(subject, html)] = self._delivered()
+        assert "Password reset" in subject
+        assert "PostHog staff paused this workflow" in html
 
     def test_warn_band_warns_without_pausing(self):
         # 0.2% complaints over 24h: above the 0.15% warn rate, below the 0.3% pause rate.

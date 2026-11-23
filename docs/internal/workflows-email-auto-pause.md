@@ -62,7 +62,7 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
 4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`. Without it, a transactional breach reaches only the project's admins.
 5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=true` per region via `posthog/charts`, once this release runs in both regions.
-6. To back out, unset the flag; existing pauses stay until resumed. Before rolling back to a release without the transactional warning, unset the flag and let the email queue drain the warnings already queued, since an older worker drops a transactional warning and its cooldown is already saved.
+6. To back out, unset the flag; existing pauses stay until resumed. Before rolling back to a release without the transactional warning, unset the flag, confirm the sweep workers run with it off and any sweep started before that has finished, then let the email queue drain. An older worker drops a transactional warning, and its cooldown is already saved.
 
 `WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
 The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.

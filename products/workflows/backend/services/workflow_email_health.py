@@ -628,6 +628,9 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
     return DetectorDecisions(pauses=pauses, warnings=warnings)
 
 
+PauseOutcome = Literal["paused", "already_paused", "transactional"]
+
+
 def pause_workflow_email_sending(
     *,
     team_id: int,
@@ -636,15 +639,37 @@ def pause_workflow_email_sending(
     reason: str,
     paused_by: str = PAUSED_BY_AUTO,
     now: datetime | None = None,
-    unless_transactional: bool = False,
 ) -> bool:
     """Pause one workflow's email and tell the project's admins.
 
     Returns False if it was already paused, which is how two overlapping sweeps stay down to one
     notification. The row is locked for the read-compare-write so the loser sees the pause.
-    `unless_transactional` also returns False when the workflow sends only transactional email by
-    the time the lock is taken, so a republish between the sweep's read and its pause is not paused.
     """
+    outcome = _pause_workflow_email_sending(
+        team_id=team_id,
+        hog_flow_id=hog_flow_id,
+        hog_flow_name=hog_flow_name,
+        reason=reason,
+        paused_by=paused_by,
+        now=now,
+        unless_transactional=False,
+    )
+    return outcome == "paused"
+
+
+def _pause_workflow_email_sending(
+    *,
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    reason: str,
+    paused_by: str,
+    now: datetime | None,
+    unless_transactional: bool,
+) -> PauseOutcome:
+    """`unless_transactional` skips a workflow that sends only transactional email by the time the
+    lock is taken, so a republish between the sweep's read and its pause is not paused. The outcome
+    is decided under the lock, so the caller never re-reads a row that may have changed again."""
     now = now or timezone.now()
     with transaction.atomic():
         flow = (
@@ -654,9 +679,9 @@ def pause_workflow_email_sending(
             .first()
         )
         if flow is None or flow.email_sending_paused_at is not None:
-            return False
+            return "already_paused"
         if unless_transactional and sends_only_transactional_email(flow.actions):
-            return False
+            return "transactional"
         # A pause landing inside the repeat window of the previous resume is staff-resumable only,
         # and its email must not point the customer at a resume button that will refuse them.
         staff_only = pause_requires_staff(paused_at=now, paused_by=paused_by, resumed_at=flow.email_sending_resumed_at)
@@ -684,15 +709,16 @@ def pause_workflow_email_sending(
                 staff_pause=paused_by == PAUSED_BY_STAFF,
             )
         )
-    return True
+    return "paused"
 
 
-def apply_pause(decision: PauseDecision, *, now: datetime | None = None) -> bool:
-    return pause_workflow_email_sending(
+def apply_pause(decision: PauseDecision, *, now: datetime | None = None) -> PauseOutcome:
+    return _pause_workflow_email_sending(
         team_id=decision.team_id,
         hog_flow_id=decision.hog_flow_id,
         hog_flow_name=decision.hog_flow_name,
         reason=decision.reason,
+        paused_by=PAUSED_BY_AUTO,
         now=now,
         unless_transactional=True,
     )
@@ -779,21 +805,19 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
             # One writer's Redis, database or broker error must not drop every later pause and
             # warning in this sweep. Isolate it so the remaining workflows are still processed; the
             # next hourly run retries the ones left at risk.
-            paused = apply_pause(decision, now=now)
-            # The pause re-reads the steps under its row lock and skips a workflow republished as
-            # transactional since the decision. Its breach still needs the warning and the staff
-            # log line, or it ages out of the window unreported.
-            republished_as_transactional = not paused and _transactional_by_flow(
-                {decision.hog_flow_id: decision.team_id}
-            ).get(decision.hog_flow_id, False)
+            outcome = apply_pause(decision, now=now)
         except Exception:
             failed += 1
             logger.exception("pause_workflow_email_sending_failed", **_decision_log_fields(decision))
             continue
-        if republished_as_transactional:
-            failed += _warn_transactional(replace(decision, transactional=True), now=now)
+        if outcome == "transactional":
+            # Republished as transactional since the decision. Its own breach still needs the
+            # warning and the staff log line, or it ages out of the window unreported. A project
+            # breach does not: a transactional workflow is judged on its own sends only.
+            if decision.project is None:
+                failed += _warn_transactional(replace(decision, transactional=True), now=now)
             continue
-        if not paused:
+        if outcome != "paused":
             continue
         applied.append(decision)
         workflow_email_auto_pause_total.labels(
