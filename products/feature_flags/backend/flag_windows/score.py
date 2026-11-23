@@ -91,25 +91,23 @@ WEB_PARAMETERS = ScoreParameters(
 
 @frozen
 class WindowScore:
-    """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
-    exposed or nobody unexposed, fewer than 5 people in a group, or an edit with watched conditions when
-    `condition_match` is None or the exposure or error query doesn't find it. Level 2 is None without exposure, when
-    nobody is exposed or nobody is unexposed, without the counts by last value, below the minimum volume, or for an
-    edit with watched conditions. Level 4 is None without an error rise after an exposure step, or with fewer than two
-    rises in exposure share of at least `min_share_step` between two adjacent hours, so a share that climbs slowly can
-    make exposure steps and still leave level 4 None. `proximity` is that of the error rise closest after an exposure
-    step, or that of the latest hour when no error rise comes after an exposure step, and weighs levels 2 and 4. Level 5
-    is weighed by the proximity of its own error rise.
-
-    The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
-    volume is enough and `score` reaches the threshold."""
-
+    # None when the test can't run: no exposure, nobody exposed or nobody unexposed, fewer than 5 people in a group, or
+    # an edit with watched conditions when `condition_match` is None or the exposure or error query doesn't find it.
     level_1: ProportionTestResult | None
+    # In [0, 1]. None without exposure, when nobody is exposed or nobody is unexposed, without the counts by last value,
+    # below the minimum volume, or for an edit with watched conditions.
     level_2: float | None
+    # In [0, 1]. None without an error rise after an exposure step, or with fewer than two rises in exposure share of at
+    # least `min_share_step` between two adjacent hours.
     level_4: float | None
+    # In [0, 1], and weighed by the proximity of its own error rise.
     level_5: float
+    # In [0, 1]. The proximity of the error rise closest after an exposure step, or of the latest hour when no error rise
+    # comes after an exposure step. It weighs levels 2 and 4.
     proximity: float
     score: float
+    # True when level 1 finds the exposed people significantly worse with enough volume, or when the volume is enough
+    # and `score` reaches the threshold.
     suspicious: bool
 
 
@@ -121,10 +119,9 @@ class _Split:
 
 @frozen
 class _Excess:
-    """`rate` is the error rate of the hour minus the mean rate of the same hour in earlier weeks, and `spread` is its
-    standard deviation."""
-
+    # The error rate of the hour minus the mean rate of the same hour in earlier weeks.
     rate: float
+    # The standard deviation of `rate`.
     spread: float
     z: float
 
@@ -174,8 +171,10 @@ def score_window(
     # Without an error rise after an exposure step, the steps of the error rate are noise, and noise steps of similar
     # size would pass level 4 as errors that rise with exposure.
     level_4 = _level_4(shares, excess, parameters.min_share_step) if rise_proximity else None
-    # The latest hour then stands in for the error rise, so weak evidence counts less as the window ages.
-    latest_hour = max([*shares, *hours], default=edit.edited_at)
+    # The latest hour then stands in for the error rise, so weak evidence counts less as the window ages. The hours of
+    # the day that haven't happened yet have no active people, so they don't count as the latest hour.
+    elapsed = [start for start, counts in hours.items() if counts.active]
+    latest_hour = max([*shares, *elapsed], default=edit.edited_at)
     proximity = rise_proximity or _proximity(latest_hour, exposure_steps, parameters)
     if error_rises:
         # Each rise counts by its own distance, so that a strong rise days later can't lend strength to an early one.
@@ -228,29 +227,33 @@ def _strength(hour_excess: _Excess, parameters: ScoreParameters) -> float:
 
 
 def _error_rises(excess: Mapping[datetime, _Excess], rise_z: float) -> dict[datetime, _Excess]:
-    """A run of consecutive hours at least `rise_z` over the baseline is one error rise. It starts in the first hour of
-    the run, so errors that rose before an exposure step stay before it, and it has the excess of the strongest hour.
-    An hour whose excess tops the highest of the run by `rise_z` of its spread starts a new rise, so errors that rise
-    again at a later exposure step still count from there."""
+    """A run of hours at least `rise_z` over the baseline, with no hour below `rise_z` between them, is one error rise.
+    An hour without an excess can't show that the errors came down, so it doesn't end the run. The rise starts in the
+    first hour of the run, so errors that rose before an exposure step stay before it, and it has the excess of the
+    strongest hour. An hour whose excess tops the highest of the run by `rise_z` of its spread starts a new rise, so
+    errors that rise again at a later exposure step still count from there."""
     runs: list[list[datetime]] = []
+    in_run = False
     for start, hour_excess in excess.items():
         if hour_excess.z < rise_z:
+            in_run = False
             continue
-        if runs and start - runs[-1][-1] == HOUR:
+        if in_run:
             highest = max(excess[hour].rate for hour in runs[-1])
             if hour_excess.rate - highest < rise_z * hour_excess.spread:
                 runs[-1].append(start)
                 continue
         runs.append([start])
+        in_run = True
     return {run[0]: max((excess[start] for start in run), key=lambda hour_excess: hour_excess.z) for run in runs}
 
 
-def _proximity(error_rise: datetime, exposure_steps: Sequence[datetime], parameters: ScoreParameters) -> float:
+def _proximity(hour: datetime, exposure_steps: Sequence[datetime], parameters: ScoreParameters) -> float:
     # Errors that rise before any exposure step can't come from the people that the flag exposes.
-    latest_step = max((step for step in exposure_steps if step <= error_rise), default=None)
+    latest_step = max((step for step in exposure_steps if step <= hour), default=None)
     if latest_step is None:
         return 0.0
-    return math.exp(-(error_rise - latest_step) / parameters.decay)
+    return math.exp(-(hour - latest_step) / parameters.decay)
 
 
 def _share(counts: ExposureCounts) -> float:

@@ -24,6 +24,8 @@ PEOPLE = 1000
 BASELINE_RATES = (0.010, 0.012, 0.009, 0.011)
 BASELINE_RATE = statistics.fmean(BASELINE_RATES)
 RISE_RATE = 0.08
+SMALL_HOUR = HourErrors(active=1, with_errors=0)
+HOUR_TO_COME = HourErrors(active=0, with_errors=0)
 
 EDIT = WatchedEdit(
     id="edit",
@@ -121,8 +123,11 @@ def _score(
     parameters: ScoreParameters = PARAMETERS,
     edit: WatchedEdit = EDIT,
     condition_match: ConditionMatch | None = None,
+    replaced_hours: Mapping[int, HourErrors] | None = None,
 ) -> WindowScore:
     hours = _hours(rates)
+    for index, counts in (replaced_hours or {}).items():
+        hours[EDITED_AT + index * HOUR] = counts
     return score_window(edit, exposure, errors, hours, _baseline(hours), parameters, condition_match=condition_match)
 
 
@@ -137,6 +142,7 @@ class TestScoreWindow(SimpleTestCase):
                 False,
             ),
             ("exposed_group_better", PARAMETERS, _errors(20, 100), False),
+            ("more_errors_than_unexposed_people", PARAMETERS, _errors(20, 1500), False),
         ]
     )
     def test_a_worse_exposed_group_is_suspicious_however_old_the_window(
@@ -153,6 +159,7 @@ class TestScoreWindow(SimpleTestCase):
             ("with_the_exposure_rise", {0: RISE_RATE}, PARAMETERS, 1.0, True),
             ("two_days_later", {48: RISE_RATE}, PARAMETERS, 1.0, False),
             ("more_errors_than_active_people", {0: 1.001}, PARAMETERS, 1.0, True),
+            ("a_rise_below_rise_z", {0: 0.02}, PARAMETERS, 0.343, False),
             (
                 "a_weak_rise_with_the_exposure_rise_and_a_strong_one_later",
                 {0: 0.027, 48: RISE_RATE},
@@ -199,6 +206,25 @@ class TestScoreWindow(SimpleTestCase):
             ("errors_rise_before_the_exposure_rise_and_stay_up", True, [0.0, 0.0, 0.0, 1.0], [2, 3], 0.0),
             ("errors_rise_before_a_slow_exposure_climb", True, [0.0, 0.0, 0.0, 0.04, 0.08, 0.12], [1], 0.0),
             ("errors_rise_when_the_share_recovers_from_a_dip", True, [0.5, 0.5, 0.5, 0.4, 0.5], [4], math.exp(-4 / 6)),
+            ("errors_rise_before_the_exposure_rise_and_again_at_it", True, [0.0, 0.0, 0.0, 0.5], [0, 3], 1.0),
+            (
+                "errors_stay_up_across_a_small_hour_at_the_exposure_rise",
+                True,
+                [0.0, 0.0, 0.0, 0.5, 0.5],
+                [2, 4],
+                0.0,
+                EDITED_AT,
+                {3: SMALL_HOUR},
+            ),
+            (
+                "first_bucket_hours_after_an_edit_that_doesnt_enable",
+                False,
+                [0.5, 0.5],
+                [0],
+                math.exp(-3 / 6),
+                EDITED_AT - 3 * HOUR,
+            ),
+            ("errors_rise_while_the_share_stays_below_a_step", True, [0.02, 0.03], [0], 1.0),
         ]
     )
     def test_the_proximity_counts_from_the_latest_exposure_step_before_the_error_rise(
@@ -209,11 +235,16 @@ class TestScoreWindow(SimpleTestCase):
         rise_hours: list[int],
         proximity: float,
         edited_at: datetime = EDITED_AT,
+        replaced_hours: Mapping[int, HourErrors] | None = None,
     ) -> None:
         edit = dataclasses.replace(EDIT, enables=enables, edited_at=edited_at)
 
         result = _score(
-            _exposure(shares), _errors(40, 40), _rates(len(shares), dict.fromkeys(rise_hours, RISE_RATE)), edit=edit
+            _exposure(shares),
+            _errors(40, 40),
+            _rates(len(shares), dict.fromkeys(rise_hours, RISE_RATE)),
+            edit=edit,
+            replaced_hours=replaced_hours,
         )
 
         assert result.score == pytest.approx(PARAMETERS.weight_level_5 * proximity)
@@ -329,7 +360,14 @@ class TestScoreWindow(SimpleTestCase):
             ("one_step", [0.1, 0.2], [0.02, 0.03], None),
             ("steps_below_the_minimum", [0.1, 0.12, 0.14], [0.02, 0.03, 0.04], None),
             ("errors_within_the_baseline_noise", [0.1, 0.2, 0.3], [0.010, 0.011, 0.012], None),
-            ("too_few_active_people_between_steps", [0.1, 0.2, 0.3, 0.4], [0.02, 0.03, 0.04, 0.05], None, [2]),
+            (
+                "too_few_active_people_between_steps",
+                [0.1, 0.2, 0.3, 0.4],
+                [0.02, 0.03, 0.04, 0.05],
+                None,
+                {2: SMALL_HOUR},
+            ),
+            ("errors_flat_across_steps", [0.2, 0.4, 0.6], [0.08, 0.08, 0.08], 0.0),
             ("an_error_rise_only_before_the_steps", [0.0, 0.0, 0.0, 0.3, 0.6], [0.08, 0.01, 0.01, 0.011, 0.012], None),
         ]
     )
@@ -339,13 +377,9 @@ class TestScoreWindow(SimpleTestCase):
         shares: list[float],
         rates: list[float],
         expected: float | None,
-        small_hours: Sequence[int] = (),
+        replaced_hours: Mapping[int, HourErrors] | None = None,
     ) -> None:
-        hours = _hours(rates)
-        for index in small_hours:
-            hours[EDITED_AT + index * HOUR] = HourErrors(active=1, with_errors=0)
-
-        result = score_window(EDIT, _exposure(shares), _errors(40, 40), hours, _baseline(hours), PARAMETERS)
+        result = _score(_exposure(shares), _errors(40, 40), rates, replaced_hours=replaced_hours)
 
         assert result.level_4 == pytest.approx(expected)
 
@@ -365,7 +399,15 @@ class TestScoreWindow(SimpleTestCase):
                 None,
                 0.7,
             ),
-            ("level_4_with_errors_already_up", [0.0, 0.0, 0.3, 0.6], [0.08, 0.08, 0.11, 0.14], None, 0.7),
+            ("level_4_with_errors_already_up", [0.0, 0.0, 0.3, 0.6, 0.6], [0.08, 0.08, 0.11, 0.14, 0.14], None, 0.7),
+            (
+                "level_2_with_hours_of_the_day_to_come",
+                [0.5],
+                [BASELINE_RATE],
+                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                0.72,
+                dict.fromkeys(range(1, 12), HOUR_TO_COME),
+            ),
             (
                 "level_2_with_a_rise_before_the_exposure_rise",
                 [0.0, 0.0, 0.5, 0.5],
@@ -390,9 +432,15 @@ class TestScoreWindow(SimpleTestCase):
         ]
     )
     def test_the_score_weighs_levels_by_the_error_rise_at_an_exposure_step(
-        self, _name: str, shares: list[float], rates: list[float], by_last_value: ErrorsByLastValue | None, score: float
+        self,
+        _name: str,
+        shares: list[float],
+        rates: list[float],
+        by_last_value: ErrorsByLastValue | None,
+        score: float,
+        replaced_hours: Mapping[int, HourErrors] | None = None,
     ) -> None:
-        result = _score(_exposure(shares), _errors(40, 40, by_last_value), rates)
+        result = _score(_exposure(shares), _errors(40, 40, by_last_value), rates, replaced_hours=replaced_hours)
 
         assert result.score == pytest.approx(score)
 
