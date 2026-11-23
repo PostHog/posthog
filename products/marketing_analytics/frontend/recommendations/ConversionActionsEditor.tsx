@@ -36,17 +36,16 @@ export function ConversionActionsEditor(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    if (loadFailed) {
-        return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: loadOptions, loading: responseLoading }}
-            >
-                Could not load the Google Ads conversion actions.
-            </LemonBanner>
-        )
-    }
+    const loadError = loadFailed ? (
+        <LemonBanner type="error" action={{ children: 'Try again', onClick: loadOptions, loading: responseLoading }}>
+            Could not load the Google Ads conversion actions.
+        </LemonBanner>
+    ) : null
+
     if (!response) {
+        if (loadError) {
+            return loadError
+        }
         return (
             <div className="flex flex-col gap-2">
                 <LemonSkeleton className="h-5 w-80" />
@@ -65,6 +64,7 @@ export function ConversionActionsEditor(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
+            {loadError}
             <p className="mb-0 text-secondary">
                 Choose the conversion actions that count as conversions in recommendations. An account with no action
                 checked counts its primary actions, the ones Google Ads optimizes for. This applies to everyone in the

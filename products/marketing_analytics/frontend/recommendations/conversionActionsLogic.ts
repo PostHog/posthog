@@ -9,18 +9,17 @@ import {
 
 import { performQuery } from '~/queries/query'
 import {
-    MarketingAnalyticsConfig,
     MarketingAnalyticsConversionActionsQuery,
     MarketingAnalyticsConversionActionsQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { TeamType } from '~/types'
+import { TeamPublicType, TeamType } from '~/types'
 
 import { ConversionActionAccount, conversionActionAccounts, sameConversionActions } from './conversionActions'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export interface conversionActionsLogicValues {
-    marketingAnalyticsConfig: MarketingAnalyticsConfig | null
+    currentTeam: TeamType | TeamPublicType | null
     currentTeamLoading: boolean
     response: MarketingAnalyticsConversionActionsQueryResponse | null
     responseLoading: boolean
@@ -39,9 +38,9 @@ export interface conversionActionsLogicActions extends Pick<
     'updateRecommendationConversionActions'
 > {
     updateCurrentTeamSuccess: (
-        currentTeam: TeamType,
+        currentTeam: TeamType | TeamPublicType,
         payload?: Partial<TeamType>
-    ) => { currentTeam: TeamType; payload?: Partial<TeamType> }
+    ) => { currentTeam: TeamType | TeamPublicType; payload?: Partial<TeamType> }
     loadOptions: () => void
     loadOptionsSuccess: (response: MarketingAnalyticsConversionActionsQueryResponse | null) => {
         response: MarketingAnalyticsConversionActionsQueryResponse | null
@@ -58,7 +57,7 @@ export type conversionActionsLogicType = MakeLogicType<conversionActionsLogicVal
 export const conversionActionsLogic = kea<conversionActionsLogicType>([
     path(['products', 'marketingAnalytics', 'conversionActionsLogic']),
     connect(() => ({
-        values: [marketingAnalyticsSettingsLogic, ['marketingAnalyticsConfig'], teamLogic, ['currentTeamLoading']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
         actions: [
             marketingAnalyticsSettingsLogic,
             ['updateRecommendationConversionActions'],
@@ -84,12 +83,11 @@ export const conversionActionsLogic = kea<conversionActionsLogicType>([
         ],
     }),
     reducers({
-        loadFailed: [false, { loadOptions: () => false, loadOptionsFailure: () => true }],
+        loadFailed: [false, { loadOptionsSuccess: () => false, loadOptionsFailure: () => true }],
         draft: [
             null as string[] | null,
             {
                 setSelection: (_, { selection }) => selection,
-                updateRecommendationConversionActions: () => null,
                 closeEditor: () => null,
             },
         ],
@@ -97,8 +95,12 @@ export const conversionActionsLogic = kea<conversionActionsLogicType>([
     }),
     selectors({
         savedActions: [
-            (s) => [s.marketingAnalyticsConfig],
-            (config: MarketingAnalyticsConfig | null): string[] => config?.recommendation_conversion_actions ?? [],
+            // The settings logic applies a change before the request succeeds, so the team is the saved state.
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | TeamPublicType | null): string[] =>
+                (currentTeam && 'marketing_analytics_config' in currentTeam
+                    ? currentTeam.marketing_analytics_config?.recommendation_conversion_actions
+                    : null) ?? [],
         ],
         selection: [
             (s) => [s.draft, s.savedActions],
@@ -121,14 +123,13 @@ export const conversionActionsLogic = kea<conversionActionsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         save: () => {
-            const selection = values.selection
-            actions.closeEditor()
-            actions.updateRecommendationConversionActions(selection)
+            actions.updateRecommendationConversionActions(values.selection)
         },
         updateCurrentTeamSuccess: ({ payload }) => {
             if (payload?.marketing_analytics_config?.recommendation_conversion_actions === undefined) {
                 return
             }
+            actions.closeEditor()
             // Saved actions that stopped converting are listed only once they are saved, and the recommendations
             // cache is keyed by the saved list, so both have to load again.
             actions.loadOptions()

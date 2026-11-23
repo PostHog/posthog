@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,7 +46,19 @@ describe('conversionActionsLogic', () => {
         logic.mount()
     })
 
+    const useTeamPatchMock = (status: number): void => {
+        useMocks({
+            patch: {
+                '/api/projects/:id': async ({ request }) =>
+                    status === 200
+                        ? [200, { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) }]
+                        : [status, { detail: 'Invalid conversion action' }],
+            },
+        })
+    }
+
     it('saves the selection, drops the draft, and reloads the options once the team saves', async () => {
+        useTeamPatchMock(200)
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openEditor()
         logic.actions.setSelection([SIGNUP])
@@ -53,14 +67,26 @@ describe('conversionActionsLogic', () => {
         await expectLogic(logic, () => logic.actions.save())
             .toDispatchActions([
                 marketingAnalyticsSettingsLogic.actionCreators.updateRecommendationConversionActions([SIGNUP]),
+                'updateCurrentTeamSuccess',
+                'loadOptions',
+                'loadOptionsSuccess',
             ])
-            .toMatchValues({ draft: null, editorOpen: false, selection: [SIGNUP], changed: false })
-
-        await expectLogic(logic).toDispatchActions(['updateCurrentTeamSuccess', 'loadOptions', 'loadOptionsSuccess'])
+            .toMatchValues({ draft: null, editorOpen: false, savedActions: [SIGNUP], changed: false })
         expect(queries).toBe(2)
 
         teamLogic.actions.updateCurrentTeamSuccess(teamLogic.values.currentTeam!, { name: 'Renamed project' })
         await expectLogic(logic).toFinishAllListeners()
         expect(queries).toBe(2)
+    })
+
+    it('keeps the draft and the editor open when the save fails, so it can be retried', async () => {
+        useTeamPatchMock(400)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openEditor()
+        logic.actions.setSelection([SIGNUP])
+
+        await expectLogic(logic, () => logic.actions.save())
+            .toDispatchActions([teamLogic.actionTypes.updateCurrentTeamFailure])
+            .toMatchValues({ draft: [SIGNUP], editorOpen: true, savedActions: [], changed: true })
     })
 })

@@ -7,11 +7,12 @@ import { conversionActionsLogic } from './conversionActionsLogic'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function RecommendationConversionActionsButton(): JSX.Element | null {
-    const { accounts, savedActions } = useValues(conversionActionsLogic)
+    const { accounts, savedActions, loadFailed } = useValues(conversionActionsLogic)
     const { openEditor } = useActions(conversionActionsLogic)
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
 
-    if (accounts.length === 0 && savedActions.length === 0) {
+    // A failed load keeps the entry point, because the editor is where the retry lives.
+    if (accounts.length === 0 && savedActions.length === 0 && !loadFailed) {
         return null
     }
     return (
