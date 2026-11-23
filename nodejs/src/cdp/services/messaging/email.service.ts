@@ -259,41 +259,12 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-// Node names the failed system call on a network error. A failed DNS lookup or TCP connect means no request byte
-// reached SES. When a host has several addresses, Node tries each and raises an AggregateError of the failures.
-const failedBeforeTheConnectionOpened = (error: unknown): boolean => {
-    const { syscall, errors } = (error ?? {}) as { syscall?: string; errors?: unknown }
-    return Array.isArray(errors)
-        ? errors.length > 0 && errors.every(failedBeforeTheConnectionOpened)
-        : syscall === 'getaddrinfo' || syscall === 'connect'
-}
-
-class SesMayHaveSentError extends Error {
-    constructor() {
-        super('The connection to SES dropped before SES answered. It may have sent the email, so it is not sent again.')
-        this.name = 'SesMayHaveSentError'
-    }
-}
-
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand, retryOnlyRefusedAttempts: boolean): () => boolean {
+function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
     let attemptsSesMayHaveAccepted = 0
     command.middlewareStack.add(
         (next) => async (args) => {
-            // The SDK retries a dropped connection on its own. SES can take an attempt whose connection then drops,
-            // so a retry after it can deliver a second copy.
-            if (retryOnlyRefusedAttempts && attemptsSesMayHaveAccepted > 0) {
-                throw new SesMayHaveSentError()
-            }
             attemptsSesMayHaveAccepted++
-            let httpAnswer
-            try {
-                httpAnswer = await next(args)
-            } catch (error) {
-                if (failedBeforeTheConnectionOpened(error)) {
-                    attemptsSesMayHaveAccepted--
-                }
-                throw error
-            }
+            const httpAnswer = await next(args)
             if (sesRefused(httpAnswer.response)) {
                 attemptsSesMayHaveAccepted--
             }
@@ -1842,7 +1813,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command, deadline !== undefined)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
         const sendStartedAt = performance.now()
         try {
             const response = deadline
