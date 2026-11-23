@@ -101,9 +101,9 @@ export function stepRatesOf(
     steps: readonly Pick<DrivenStep, 'index' | 'scale'>[],
     evidence: DeliveryEvidence,
     judged: { lost: boolean; duplicates: boolean },
-    { unfinishedJobs, unread }: Pick<Convergence, 'unfinishedJobs' | 'unread'>
+    { unfinishedJobs }: Pick<Convergence, 'unfinishedJobs'>
 ): StepRates[] {
-    const lossSettled = judged.lost && unfinishedJobs === 0 && unread === undefined
+    const lossSettled = judged.lost && unfinishedJobs === 0
     const stepOf = new Map(evidence.journal.map(({ unitId, step }) => [unitId, step]))
     const countBy = <T>(items: readonly T[], step: (item: T) => number | undefined, by: (item: T) => number) => {
         const counts = new Map<number | undefined, number>()

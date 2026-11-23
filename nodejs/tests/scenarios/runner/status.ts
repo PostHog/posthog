@@ -218,7 +218,7 @@ function withRamp(
 }
 
 const withoutUnreadLosses = (verdict: Verdict): Verdict =>
-    verdict.convergence.unread === undefined
+    verdict.convergence.unfinishedJobs !== null
         ? verdict
         : { ...verdict, invariants: verdict.invariants.filter(({ name }) => name !== 'at_least_once') }
 
@@ -236,7 +236,7 @@ function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
     })
     const { unread, ...read } = convergence
     const rampJudgesConvergence =
-        unread !== undefined ||
+        convergence.unfinishedJobs === null ||
         (convergence.unfinishedJobs ?? 0) > 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
     const unramped = withRamp(
@@ -266,14 +266,10 @@ function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
         : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
 }
 
-const notConvergedOf = ({ converged, unfinishedJobs, unrecorded, unread }: Convergence): string[] =>
-    converged
+const notConvergedOf = ({ converged, unfinishedJobs, unrecorded }: Convergence): string[] =>
+    converged || unfinishedJobs === null
         ? []
-        : unread === undefined
-          ? [`not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record`]
-          : unfinishedJobs
-            ? [`not converged: ${unfinishedJobs} unfinished jobs`]
-            : []
+        : [`not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record`]
 
 function unrampedStatusOf({
     admissions,

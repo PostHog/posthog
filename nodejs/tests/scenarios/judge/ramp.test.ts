@@ -958,9 +958,7 @@ describe('ramp', () => {
         },
     ]
 
-    it.each<
-        [string, { lost: boolean; duplicates: boolean }, StepRates[], Pick<Convergence, 'unfinishedJobs' | 'unread'>?]
-    >([
+    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[], Pick<Convergence, 'unfinishedJobs'>?]>([
         [
             'counts per step the deliveries its accepted units expected, lost and duplicated',
             { lost: true, duplicates: true },
@@ -1010,10 +1008,10 @@ describe('ramp', () => {
             { unfinishedJobs: 1 },
         ],
         [
-            'leaves the losses unrecorded when the judge could not read its last truth, since a delivery may only be unread',
+            'leaves the losses unrecorded when the judge could not read the job count at the deadline',
             { lost: true, duplicates: true },
             UNSETTLED,
-            { unfinishedJobs: 0, unread: 'The operation was aborted due to timeout' },
+            { unfinishedJobs: null },
         ],
         [
             'leaves the losses and duplicates of a card that judges neither unrecorded',
