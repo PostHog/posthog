@@ -34,13 +34,16 @@ def wrapped_team_ids(year: int) -> list[int]:
 
     Each project still has to clear the eligibility bar when its snapshot is generated.
     """
-    # A definition can belong to a child environment, but the wrap is generated for the parent project.
-    team_ids = (
+    # A project keeps one definition per event, under the team of whichever environment sent the event first.
+    # So the definition only names the project, and every root environment in it gets a wrap.
+    project_ids = (
         EventDefinition.objects.filter(name=MCP_TOOL_CALL_EVENT, last_seen_at__gte=datetime(year, 1, 1, tzinfo=UTC))
-        .values_list(Coalesce("team__parent_team_id", "team_id"), flat=True)
+        .values_list(Coalesce("project_id", "team__project_id"), flat=True)
         .distinct()
     )
-    return sorted(team_ids)
+    return sorted(
+        Team.objects.filter(project_id__in=project_ids, parent_team__isnull=True).values_list("id", flat=True)
+    )
 
 
 @activity.defn

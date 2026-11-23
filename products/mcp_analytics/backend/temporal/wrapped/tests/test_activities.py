@@ -23,9 +23,16 @@ class TestWrappedTeamDiscovery(BaseTest):
         child = Team.objects.create(
             organization=self.organization, project=parent.project, name="child", parent_team=parent
         )
-        EventDefinition.objects.create(team=child, name="$mcp_tool_call", last_seen_at=datetime(2026, 3, 1, tzinfo=UTC))
+        EventDefinition.objects.create(
+            team=child, project=parent.project, name="$mcp_tool_call", last_seen_at=datetime(2026, 3, 1, tzinfo=UTC)
+        )
+        first = Team.objects.create(organization=self.organization, name="first")
+        second = Team.objects.create(organization=self.organization, project=first.project, name="second")
+        EventDefinition.objects.create(
+            team=second, project=first.project, name="$mcp_tool_call", last_seen_at=datetime(2026, 3, 1, tzinfo=UTC)
+        )
 
-        assert wrapped_team_ids(2026) == sorted([this_year.id, parent.id])
+        assert wrapped_team_ids(2026) == sorted([this_year.id, parent.id, first.id, second.id])
 
 
 class TestGenerateWrapped(ClickhouseTestMixin, BaseTest):
