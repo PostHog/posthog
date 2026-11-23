@@ -9612,14 +9612,14 @@ Note: Parsed the official OpenAPI 3.0.3 file linked from the docs site and liste
 
 ## Mem0 — gaps
 
-Today (6): `entities`, `events`, `memories`, `memory_history`, `organizations`, `projects`
+Today (7): `entities`, `events`, `memories`, `memory_history`, `organization_members`, `organizations`, `projects`
 
 Diffed against: <https://docs.mem0.ai/openapi.json>
 
 - [x] `GET /v1/memories/{memory_id}/history/` — Per-memory state transition history - how a memory was updated over time (high). Added as `memory_history` (fan-out over `memories`).
 - ~~`GET /v1/stats/`~~ — skipped: it returns one unkeyed, untimestamped object of running totals, so a table of it holds a single row whose meaning depends on when the sync ran. The memory, entity and add/search counts come from queries over `memories`, `entities` and `events`.
 - [x] `GET /api/v1/orgs/organizations/{org_id}/projects/` — Lookup table resolving the project scope that memories and events belong to (medium). Added as `projects` (fan-out over `organizations`).
-- [ ] `GET /api/v1/orgs/organizations/{org_id}/members/` — Org membership rows for attributing memory activity to people (low)
+- [x] `GET /api/v1/orgs/organizations/{org_id}/members/` — Org membership rows for attributing memory activity to people (low). Added as `organization_members` (fan-out over `organizations`).
 - [x] `GET /api/v1/orgs/organizations/` — Parent lookup for the projects and members tables (low). Added as `organizations`.
 
 Note: Mem0 publishes a real OpenAPI spec (33 paths, linked from https://docs.mem0.ai/llms.txt). Most non-covered paths are POST-only write/search operations, so the readable surface is genuinely small and the existing 3 tables cover the bulk of it.
