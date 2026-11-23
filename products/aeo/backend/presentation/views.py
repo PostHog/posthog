@@ -1556,7 +1556,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"])
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        result = import_prompts(self.team_id, request.validated_data["prompts"])
+        result = import_prompts(self.team_id, request.validated_data["prompts"], user_id=request.user.id)
         return Response(AEOPromptImportResultSerializer(result).data)
 
     @validated_request(

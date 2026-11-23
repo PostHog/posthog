@@ -42,6 +42,7 @@ def team(db: None) -> Team:
         ("kill_switch_off", False, False),
         ("not_set_up", True, False),
         ("ai_not_approved", True, False),
+        ("org_deactivated", True, False),
     ],
 )
 def test_dispatch_runs_only_teams_that_setup_turned_on(
@@ -51,6 +52,8 @@ def test_dispatch_runs_only_teams_that_setup_turned_on(
         AEOTeamConfig.objects.for_team(team.id).delete()
     elif state == "ai_not_approved":
         Organization.objects.filter(id=team.organization_id).update(is_ai_data_processing_approved=False)
+    elif state == "org_deactivated":
+        Organization.objects.filter(id=team.organization_id).update(is_active=False)
 
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),

@@ -1,1 +1,1 @@
-0019_aeo_team_config
+0020_enable_allowlisted_teams

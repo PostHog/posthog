@@ -32,7 +32,14 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_overview,
     refresh_stored_results,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.models import (
+    AEOBrand,
+    AEOCitationCheck,
+    AEOKeyword,
+    AEOPrompt,
+    AEOPromptVersion,
+    AEOTeamConfig,
+)
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
@@ -118,6 +125,20 @@ class TestAEOPromptAPI(APIBaseTest):
 
         self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag == "web-analytics-content-autopilot"
         assert self.client.get(self.url).status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("import",), ("turn_on",)])
+    def test_adding_or_turning_on_a_prompt_turns_on_scheduled_checks(self, path: str) -> None:
+        if path == "import":
+            response = self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "Q?"}]}, format="json")
+        else:
+            prompt = AEOPrompt.objects.for_team(self.team.id).create(
+                team=self.team, prompt="Q?", prompt_hash="q", prompt_source=AEOPrompt.Source.MANUAL, active=False
+            )
+            response = self.client.patch(f"{self.url}{prompt.id}/", {"active": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = AEOTeamConfig.objects.for_team(self.team.id).get()
+        assert (config.enabled_at is not None, config.enabled_by_id) == (True, self.user.id)
 
     def test_bulk_import_then_deactivate_survives_a_reimport(self) -> None:
         payload = {

@@ -31,10 +31,12 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
-The scheduled tasks cover the teams with an enabled `AEOTeamConfig` row whose organization approved AI data processing.
-Setup (`POST aeo_setup/`) creates that row, so anyone the early-access flag lets in turns tracking on by running setup.
+The scheduled tasks cover the teams with an enabled `AEOTeamConfig` row whose organization is active, not pending deletion, and approved AI data processing.
+Setup (`POST aeo_setup/`), a prompt import that adds prompts, and turning a prompt on each create that row for someone the early-access flag lets in.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls.
-The `aeo-citation-tracking` feature flag is the ops kill switch, evaluated per organization group: roll it out to 100%, and turn it off for an organization or everyone to stop runs.
+The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
+PostHog pays for every engine call and nothing caps a team's active prompts yet, so add organizations to it by hand and do not roll it out widely.
+Removing an organization from it stops that organization's runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
 Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.

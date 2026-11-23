@@ -259,6 +259,8 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
             elif change.current_version is not None and change.current_version != prompt.current_version:
                 _switch_to_version(prompt, change.current_version)
             _save_edit(prompt)
+    if change.active and not change.archived:
+        tracking.enable(team_id, user_id=user_id)
     return _to_prompts(team_id, [prompt])[0]
 
 
@@ -906,7 +908,7 @@ class _PromptWindowReport:
         return sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:limit]
 
 
-def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportResult:
+def import_prompts(team_id: int, prompts: list[PromptImport], *, user_id: int | None = None) -> PromptImportResult:
     """Add prompts to the team's set, or update the topic and evidence of
     prompts that already exist. Existing prompts keep their active state."""
     team = Team.objects.get(id=team_id)
@@ -921,6 +923,8 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
         for item in prompts
     ]
     result = upsert_prompts(team, candidates)
+    if result["created"]:
+        tracking.enable(team_id, user_id=user_id)
     return PromptImportResult(created=result["created"], updated=result["updated"], skipped=result["skipped"])
 
 

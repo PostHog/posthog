@@ -70,7 +70,10 @@ RECOMPUTE_RETRY_SECONDS = 60
 
 
 def citation_tracking_available(team: Team) -> bool:
-    if not team.organization.is_ai_data_processing_approved:
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion:
+        return False
+    if not organization.is_ai_data_processing_approved:
         return False
     # No person is behind this scheduled run; the team UUID keeps the flag call
     # well-formed and the organization group lets the flag target teams.
@@ -83,7 +86,6 @@ def citation_tracking_available(team: Team) -> bool:
 
 
 def citation_tracking_enabled(team: Team) -> bool:
-    """Shared by the dispatcher and the per-team task so a task queued directly cannot skip the gate."""
     return tracking.is_enabled(team.id) and citation_tracking_available(team)
 
 
@@ -96,7 +98,7 @@ def _enabled_teams() -> list[Team]:
 def run_aeo_citation_checks_task() -> None:
     """Beat entrypoint: fan out one runner task per enabled team."""
     for team in _enabled_teams():
-        if not citation_tracking_enabled(team):
+        if not citation_tracking_available(team):
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
         run_aeo_citation_checks_for_team_task.delay(team.id)
@@ -108,7 +110,7 @@ def score_aeo_sentiment_backlog_task() -> None:
     """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
     covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
     for team in _enabled_teams():
-        if not citation_tracking_enabled(team):
+        if not citation_tracking_available(team):
             continue
         try:
             start_backlog_sentiment_scoring(team.id)
@@ -122,7 +124,7 @@ def refresh_aeo_stored_results_task() -> None:
     """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
     bounds how long a write that forgot to bump the version can leave an old result in use."""
     for team in _enabled_teams():
-        if citation_tracking_enabled(team):
+        if citation_tracking_available(team):
             refresh_aeo_stored_results_for_team_task.delay(team.id)
 
 
