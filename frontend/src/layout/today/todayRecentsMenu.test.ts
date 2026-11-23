@@ -51,6 +51,27 @@ describe('todayRecentsMenuItems', () => {
             [['Churned users', 'cohort', '2026-01-05T00:00:00.000Z']],
         ],
         [
+            'leaves out a file system row whose href leaves the app',
+            [
+                entry({
+                    type: 'dashboard',
+                    ref: '1',
+                    href: 'https://example.com/login',
+                    last_viewed_at: '2026-01-02T00:00:00Z',
+                }),
+                entry({ type: 'dashboard', ref: '2', href: '//example.com', last_viewed_at: '2026-01-02T00:00:00Z' }),
+                entry({
+                    type: 'dashboard',
+                    ref: '3',
+                    path: 'Unfiled/Revenue',
+                    href: '/dashboard/3',
+                    last_viewed_at: '2026-01-01T00:00:00Z',
+                }),
+            ],
+            [],
+            [['Revenue', 'dashboard', '2026-01-01T00:00:00Z']],
+        ],
+        [
             'leaves out tasks and the unnamed file system releases',
             [
                 entry({ type: 'task', ref: 't1', href: '/tasks/t1', last_viewed_at: '2026-01-01T00:00:00Z' }),

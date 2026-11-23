@@ -1,4 +1,5 @@
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { isExternalLink } from 'lib/utils/url'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes } from '~/products'
@@ -46,6 +47,11 @@ function typeLabel(name: string): string {
     return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
 }
 
+/** A recent opens a page in this app. A row's href is team-writable, so an off-site or scheme href never shows. */
+function isAppPath(href: string): boolean {
+    return href.startsWith('/') && !href.startsWith('//') && !isExternalLink(href)
+}
+
 /** One key per page, whether or not its href carries the project. */
 function pageKey(href: string): string {
     return removeProjectIdIfPresent(href).split('#')[0].replace(/\/+$/, '')
@@ -59,7 +65,7 @@ function fileSystemItem(entry: FileSystemEntry): TodayRecentsMenuItem | null {
     const definition = fileSystemType(baseType)
     const href = entry.href || (entry.ref && definition?.href ? definition.href(entry.ref) : null)
     const name = splitPath(entry.path).pop()
-    if (!href || !name) {
+    if (!href || !isAppPath(href) || !name) {
         return null
     }
     return {
