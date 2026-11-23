@@ -267,8 +267,6 @@ _TEAM_COLS = [
     "autocapture_exceptions_opt_in",
     "autocapture_exceptions_errors_to_ignore",
     "person_processing_opt_out",
-    "secret_api_token",
-    "secret_api_token_backup",
     "session_recording_opt_in",
     "session_recording_sample_rate",
     "session_recording_minimum_duration_milliseconds",
@@ -414,8 +412,6 @@ def _team_ddl() -> str:
             autocapture_exceptions_opt_in Nullable(UInt8),
             autocapture_exceptions_errors_to_ignore Nullable(String),  -- JSON stored as String
             person_processing_opt_out Nullable(UInt8),
-            secret_api_token Nullable(String),
-            secret_api_token_backup Nullable(String),
             session_recording_opt_in UInt8,
             session_recording_sample_rate Nullable(Decimal(3, 2)),
             session_recording_minimum_duration_milliseconds Nullable(Int32),
