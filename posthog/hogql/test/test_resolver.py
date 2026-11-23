@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from itertools import count
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
 from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -898,9 +899,242 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_table_field(self):
+        self.assertEqual(
+            self._print_hogql("with timestamp as ts select ts from events"),
+            "WITH timestamp AS ts SELECT ts FROM events LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql("with toStartOfDay(timestamp) as day select day, count() from events group by day"),
+            "WITH toStartOfDay(timestamp) AS day SELECT day, count() FROM events GROUP BY day LIMIT 50000",
+        )
+
+    @parameterized.expand([("clickhouse",), ("hogql",), ("postgres",)])
+    def test_nested_scalar_subquery_reports_terminal_error_without_exhausting_budget(self, dialect: HogQLDialect):
+        query = "SELECT missing"
+        for index in range(18):
+            query = f"WITH ({query}) AS x{index} SELECT x{index}"
+        with patch("posthog.hogql.compilation.time.monotonic", side_effect=count(0, 0.01)):
+            if dialect == "clickhouse":
+                with self.assertRaisesRegex(QueryError, "Unable to resolve field: missing"):
+                    resolve_types(self._select(query), self.context, dialect=dialect)
+            else:
+                resolve_types(self._select(query), self.context, dialect=dialect)
+                self.assertEqual([error.message for error in self.context.errors], ["Unable to resolve field: missing"])
+
+    def test_scalar_subquery_can_wait_for_an_outer_scalar_alias(self):
+        self.assertEqual(
+            self._print_hogql("WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events"),
+            "WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events LIMIT 50000",
+        )
+
+    def test_inherited_constant_alias_remains_available_to_earlier_joins(self):
+        resolved = resolve_types(
+            self._select(
+                "WITH 1 AS value SELECT (WITH value AS y SELECT y FROM numbers(1) AS n "
+                "JOIN numbers(1) AS m ON n.number = y JOIN numbers(1) AS p ON n.number = p.number)"
+            ),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    @parameterized.expand(
+        [
+            ("pivot", "numbers(1) PIVOT (count() FOR number IN (0))"),
+            ("unpivot", "numbers(1) UNPIVOT (value FOR name IN (number))"),
+        ]
+    )
+    def test_temporary_join_scope_does_not_complete_enclosing_from(self, _name: str, source: str):
+        resolved = resolve_types(
+            self._select(
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) "
+                f"FROM {source} JOIN raw_persons AS t ON 1 = length(y) * 0)"
+            ),
+            self.context,
+            dialect="hogql",
+        )
+        inner = resolved.select[0]
+        assert isinstance(inner, ast.SelectQuery) and inner.ctes is not None
+        field_type = inner.ctes["y"].expr.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        assert isinstance(field_type, ast.FieldType)
+        self.assertEqual(field_type.name, "properties")
+        assert isinstance(field_type.table_type, ast.TableAliasType)
+        self.assertEqual(field_type.table_type.alias, "t")
+        self.assertEqual(self.context.errors, [])
+
+    def test_nested_scalar_subqueries_wait_for_their_from_without_repeated_resolution(self):
+        query = "SELECT 1"
+        for index in range(18):
+            query = f"WITH (({query}), e{index}.timestamp) AS a{index} SELECT a{index} FROM events e{index}"
+        with patch("posthog.hogql.compilation.time.monotonic", side_effect=count(0, 0.01)):
+            resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    def test_scalar_keyword_alias_is_available_to_a_table_cte_before_from(self):
+        resolved = resolve_types(
+            self._select("WITH 1 AS seed, current_date AS d, t AS (SELECT d) SELECT * FROM t"),
+            self.context,
+            dialect="postgres",
+        )
+        assert resolved.ctes is not None
+        self.assertIsInstance(resolved.ctes["d"].expr, ast.Keyword)
+        self.assertEqual(self.context.errors, [])
+
+    @parameterized.expand(
+        [
+            ("table_cte", "WITH 5 AS n SELECT * FROM (WITH n * 2 AS m, t AS (SELECT m AS v) SELECT v FROM t)"),
+            ("from_subquery", "WITH 5 AS n SELECT * FROM (WITH n * 2 AS m SELECT v FROM (SELECT m AS v))"),
+        ]
+    )
+    def test_alias_built_from_an_outer_alias_is_available_before_from(self, _name: str, query: str):
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    def test_scalar_alias_with_its_own_from_does_not_bind_an_outer_table_field(self):
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: n"):
+            resolve_types(
+                self._select("SELECT (WITH number AS n, t AS (SELECT n) SELECT * FROM t) FROM numbers(1)"),
+                self.context,
+                dialect="clickhouse",
+            )
+
+    def test_ctes_column_alias_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(timestamp) as day select event from events join persons on toStartOfDay(persons.created_at) = day"
+            ),
+            "WITH toStartOfDay(timestamp) AS day SELECT event FROM events JOIN persons ON equals(toStartOfDay(persons.created_at), day) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(persons.created_at) as pday select event from events join persons on toStartOfDay(timestamp) = pday"
+            ),
+            "WITH toStartOfDay(persons.created_at) AS pday SELECT event FROM events JOIN persons ON equals(toStartOfDay(timestamp), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_not_in_scope_raises(self):
         with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+            resolve_types(
+                self._select("with no_such_column as alias select alias from events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: no_such_column", str(e.exception))
+
+    def test_ctes_column_alias_forward_join_reference_raises(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    "with persons.created_at as pdate select e.event from events e join numbers(1) n on n.number = 0 and toDate(pdate) = today() join persons on e.distinct_id = persons.id"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: pdate", str(e.exception))
+
+    def test_invalid_scalar_alias_in_join_constraint_reports_the_missing_name(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    """
+                    with non_existent_table.col as bad_alias
+                    select 1
+                    from events e
+                    join numbers(1) n1 on 1=1 and bad_alias = 1
+                    join numbers(1) n2 on 1=1 and bad_alias = 1
+                    """
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: non_existent_table", str(e.exception))
+        self.assertNotIn("later JOIN", str(e.exception))
+
+    def test_ctes_scalar_alias_resolved_in_later_joins(self):
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with n2.number as v
+                select v from numbers(1) n0
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on v=n0.number
+                """
+            ),
+            "WITH n2.number AS v SELECT v FROM numbers(1) AS n0 JOIN numbers(1) AS n1 ON equals(1, 1) JOIN numbers(1) AS n2 ON equals(v, n0.number) LIMIT 50000",
+        )
+
+    def test_nested_scalar_alias_waits_for_its_late_join_dependency(self):
+        resolved = resolve_types(
+            self._select(
+                "WITH n4.number AS x, (SELECT x) AS y SELECT y FROM numbers(1) n0 "
+                "JOIN numbers(1) n1 ON 1=1 JOIN numbers(1) n2 ON 1=1 "
+                "JOIN numbers(1) n3 ON 1=1 JOIN numbers(1) n4 ON y=n0.number"
+            ),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    """
+                    with arrayMap(x -> x + n.number, [1]) as a
+                    select x from numbers(1) n
+                    join numbers(1) m on a[1]=m.number
+                    """
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: x", str(e.exception))
+
+    def test_ctes_scalar_alias_dotted_property_paths_in_joins(self):
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties as p, p.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties AS p, p.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with e.properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH e.properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
 
     def test_ctes_subqueries(self):
         self.assertEqual(
@@ -1130,6 +1364,44 @@ class TestResolver(BaseTest):
         self.assertEqual(
             printed,
             "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
+        )
+
+    @parameterized.expand(
+        [
+            ("unused", "WITH number AS n SELECT n FROM numbers(1) UNION ALL SELECT 0"),
+            (
+                "nested_unused",
+                "WITH number AS n SELECT n FROM numbers(1) UNION ALL (SELECT 0 UNION ALL SELECT n FROM numbers(1))",
+            ),
+            (
+                "local_dependency",
+                "WITH 1 AS a, (SELECT a)+a AS b SELECT b UNION ALL WITH 2 AS a SELECT b",
+            ),
+            (
+                "nested_local_dependency",
+                "WITH 1 AS a, (SELECT a)+a AS b SELECT b UNION ALL WITH (WITH 2 AS b SELECT b) AS a SELECT b",
+            ),
+        ]
+    )
+    def test_union_scalar_aliases_only_resolve_in_branches_that_use_them(self, _name: str, query: str):
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    @parameterized.expand([("arithmetic", "+1"), ("alias_only", "")])
+    def test_union_scalar_alias_dependency_chain_does_not_use_python_recursion(self, _name: str, operation: str):
+        aliases = ["1 AS a0", *(f"a{index - 1}{operation} AS a{index}" for index in range(1, 1100))]
+        query = f"WITH {', '.join(aliases)} SELECT toString(a1099) UNION ALL SELECT toString(a1099)"
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
+
+    def test_parenthesized_union_scalar_override_does_not_escape_its_scope(self):
+        # ClickHouse gives the last branch the root `n`, not the nested first branch's `WITH 2 AS n`.
+        self.assertEqual(
+            self._print_hogql(
+                "WITH 1 AS a, a AS n SELECT n UNION ALL ((WITH 2 AS n SELECT n UNION ALL SELECT n) UNION ALL SELECT n)"
+            ),
+            "WITH 1 AS a, a AS n SELECT n LIMIT 50000 UNION ALL ((WITH 2 AS n SELECT n UNION ALL SELECT n) UNION ALL SELECT n)",
         )
 
     def test_with_clause_before_parens_select_set(self):
