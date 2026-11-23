@@ -29,4 +29,5 @@ def lagging_reader_caches(key_prefix: str) -> dict[str, Any]:
         "LOCATION": [settings.REDIS_URL, reader],
         "KEY_PREFIX": key_prefix,
     }
-    return {"default": default, "throttle_history": {**default, "LOCATION": settings.REDIS_URL}}
+    throttle_history = {**default, "LOCATION": settings.REDIS_URL, "KEY_PREFIX": f"{key_prefix}-history"}
+    return {"default": default, "throttle_history": throttle_history}
