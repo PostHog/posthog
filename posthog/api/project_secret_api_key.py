@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from typing import cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -254,16 +254,21 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
 
     old_mask_value = project_secret_api_key.mask_value or ""
     old_secure_value = project_secret_api_key.secure_value
-    serializer = ProjectSecretAPIKeySerializer(instance=project_secret_api_key)
-    serializer.roll(project_secret_api_key)
-    if old_secure_value is not None:
-        team_id = project_secret_api_key.team_id
-        # The leaked value must stop verifying widget identity too: migration 0056 copied
-        # legacy team tokens into SigningSecret, so a never-rotated team still holds it there.
-        retire_leaked_signing_secret(team_id, old_secure_value, old_mask_value)
-        # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for a
-        # plaintext column value whose rolled PSAK no longer carries its hash.
-        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(team_id=team_id, secure_value=old_secure_value)
+    # One transaction: once the roll commits, the old hash is gone from the PSAK, so a
+    # retried report could never retire a signing secret still carrying the leaked value.
+    with transaction.atomic():
+        serializer = ProjectSecretAPIKeySerializer(instance=project_secret_api_key)
+        serializer.roll(project_secret_api_key)
+        if old_secure_value is not None:
+            team_id = project_secret_api_key.team_id
+            # The leaked value must stop verifying widget identity too: migration 0056 copied
+            # legacy team tokens into SigningSecret, so a never-rotated team still holds it there.
+            retire_leaked_signing_secret(team_id, old_secure_value, old_mask_value)
+            # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for a
+            # plaintext column value whose rolled PSAK no longer carries its hash.
+            RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
+                team_id=team_id, secure_value=old_secure_value
+            )
     send_project_secret_api_key_exposed(
         project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
     )
