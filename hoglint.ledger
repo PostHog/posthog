@@ -1379,7 +1379,6 @@ facade-signature	products.error_tracking.backend.facade.symbol_sets	create_depre
 facade-signature	products.error_tracking.backend.facade.symbol_sets	start_deprecated_upload	param:team	typing.Any	1
 facade-signature	products.error_tracking.backend.facade.symbol_sets	start_deprecated_upload	return	builtins.object	1
 facade-signature	products.experiments.backend.facade	__getattr__	return	typing.Any	1
-facade-signature	products.experiments.backend.facade.api	get_experiment_health_inputs	return	typing.Any	1
 facade-signature	products.experiments.backend.facade.change_signals	connect_experiment_changed	param:receiver	builtins.object	1
 facade-signature	products.experiments.backend.facade.contracts	CreateExperimentInput.__init__	field:exposure_criteria	builtins.dict	1
 facade-signature	products.experiments.backend.facade.contracts	CreateExperimentInput.__init__	field:filters	builtins.dict	1
