@@ -1591,6 +1591,18 @@ def test_prints_empty_for_lowered_json_property_after_second_resolution() -> Non
     assert context.values == {}
 
 
+@pytest.mark.parametrize(
+    "expression", ["coalesce(properties.task_run_id, '')", "ifNull(properties.task_run_id, user_id)"]
+)
+def test_prints_not_empty_for_a_property_read_with_a_string_fallback(expression: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT notEmpty({expression}) FROM users"), _context_with_trino_table(), "trino"
+    )
+
+    assert sql.startswith('SELECT (coalesce(json_extract_scalar("users"."properties", \'$["task_run_id"]\'), ')
+    assert " IS NOT NULL AND coalesce(" in sql
+
+
 def test_lowers_nested_json_keys_and_values_raw() -> None:
     context = _context_with_trino_table()
     sql, _ = prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'teams')"), context, "trino")
