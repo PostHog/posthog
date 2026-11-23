@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS
 from products.warehouse_sources.sources.umami.umami import (
+    TRANSIENT_SERVER_STATUSES,
     UmamiClient,
     UmamiError,
     UmamiResumeState,
@@ -184,3 +185,8 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
             "403 Client Error": "Umami denied access. Give the account read access to the websites you want to import.",
             "Umami configuration:": None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 5xx or Cloudflare 52x/530 that outlasts the transport and login retries is a server-side outage.
+        # Temporal retries the activity, so log it as a warning instead of an error tracking exception.
+        return {f"{status} Server Error" for status in TRANSIENT_SERVER_STATUSES}

@@ -609,6 +609,45 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).watermark == before
 
+    async def test_a_vacuum_commit_conflict_does_not_fail_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        # A test cannot make a concurrent writer win the vacuum's commit on purpose, so the vacuum
+        # raises the error delta-rs gives when that race is lost. The first run takes the
+        # full-refresh path and the second run takes the incremental path.
+        conflict = deltalake.exceptions.CommitFailedError("a concurrent transaction deleted data this operation read")
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake.DeltaTable, "vacuum", side_effect=conflict) as vacuum,
+        ):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+            second = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2, DAY3], [99, 30]))
+
+        assert vacuum.call_count == 2
+        assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 99), (DAY3, 30)]
+        live = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options())
+        assert sorted(second.file_uris) == sorted(live.file_uris())
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        state = get_incremental_state(asaved_query)
+        assert state.last_run_mode == "incremental"
+        assert state.watermark is not None
+
+    async def test_a_vacuum_error_that_is_not_a_conflict_fails_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        error = deltalake.exceptions.DeltaError("Generic error: the object store refused the delete")
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake.DeltaTable, "vacuum", side_effect=error),
+            pytest.raises(deltalake.exceptions.DeltaError, match="object store refused the delete"),
+        ):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+
     async def test_no_config_rebuilds_every_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):

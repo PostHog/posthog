@@ -43,6 +43,7 @@ export function QuillModelsLineageTab(): JSX.Element {
         searchFocusRequest,
         focusNodeIds,
         visibleNodes,
+        graphNodes,
         visibleEdges,
         isFiltered,
         nodePositions,
@@ -108,7 +109,7 @@ export function QuillModelsLineageTab(): JSX.Element {
                     </Empty>
                 ) : (
                     <LineageGraph
-                        nodes={visibleNodes}
+                        nodes={graphNodes}
                         edges={visibleEdges}
                         focusNodeIds={focusNodeIds}
                         searchFocusRequest={searchFocusRequest}
