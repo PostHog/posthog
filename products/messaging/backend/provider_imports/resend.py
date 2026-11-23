@@ -441,6 +441,8 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             for contact in page.data
             if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
         )
+    # Read before the segments, whose contacts are all repeats of contacts already read.
+    repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
     # The opt-out steps saw only these contacts, so a contact added to Resend later waits for the next import.
     scanned = {row["email"].lower() for row in contacts.everyone}
     segments: list[ContactList] = []
@@ -481,7 +483,12 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
         save=partial(
             save_contact_lists,
             context,
-            replace(_everyone(everyone), non_members=non_members),
+            replace(
+                _everyone(everyone),
+                non_members=non_members,
+                repeats_merged=repeats_merged,
+                invalid_skipped=invalid_skipped,
+            ),
             # Unsubscribed contacts stay out of every cohort, as they do for the cohort of all contacts.
             [replace(segment, non_members=non_members) for segment in segments],
             contacts.other_spellings,
