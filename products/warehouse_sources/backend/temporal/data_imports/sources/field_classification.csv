@@ -59,6 +59,7 @@ Apitally,api_key,,,,,apitally
 Apollo,api_key,,,,,apollo
 AppLovin,api_key campaign_api_key account_id,,,,,app-lovin
 AppStoreConnect,issuer_id key_id private_key vendor_number,,,app_ids,,app-store-connect
+Appbot,api_username api_password,,,,,appbot
 Appcues,api_key api_secret account_id region,,,,,appcues
 Appdirect,,,,,,appdirect
 Appdynamics,host account_name auth_method,,,metric_paths event_types,,appdynamics

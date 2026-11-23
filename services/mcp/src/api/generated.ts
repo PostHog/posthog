@@ -62082,6 +62082,8 @@ export namespace Schemas {
       /** CPA figures in the account currency. */
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
+      /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+      detectedChange?: 'negative_keyword' | null;
       identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -115867,7 +115869,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly effective_precheck_query: string | null;
-      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
       readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
       /**
          * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.

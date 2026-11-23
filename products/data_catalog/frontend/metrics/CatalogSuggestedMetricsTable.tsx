@@ -6,7 +6,6 @@ import {
     Button,
     DataTable,
     type DataTableProps,
-    Heading,
     Text,
     Tooltip,
     TooltipContent,
@@ -18,17 +17,19 @@ import { Language } from 'lib/components/CodeSnippet'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { CATALOG_LAYER_PAGE_SIZE } from '../catalogPagination'
 import { newMetricUrl } from '../common'
 import { QuillMetricCodeBlock } from '../components/QuillMetricCodeBlock'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
+import { GovernanceColumnHeader } from '../governance/GovernanceColumnHeader'
 import { ProposedRow, complexityLabel, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
-import { GovernanceColumnHeader } from './GovernanceColumnHeader'
-import { GovernanceSectionFailed } from './GovernanceSectionFailed'
-import { GovernanceTableEmpty } from './GovernanceTableEmpty'
+import { catalogSuggestedMetricsLogic } from './catalogSuggestedMetricsLogic'
 import { QuillProposedMetricSources } from './QuillProposedMetricSources'
 
-const PAGE_SIZE = 10
+function hasSources(row: ProposedRow): boolean {
+    return row.charts.length > 0 || row.other_charts > 0 || row.surfaces.length > 0 || row.agents !== null
+}
 
 function DerivedFrom({ metric }: { metric: DataCatalogMetricApi | undefined }): JSX.Element {
     if (!metric) {
@@ -85,7 +86,17 @@ function ProposedMetricName({ row, expanded }: { row: ProposedRow; expanded: boo
                 // Zero width keeps the SQL out of the column's natural width, so a long query wraps inside the cell.
                 // The ignore attribute lets a person select text in the SQL without collapsing the row.
                 <div className="mt-2 flex w-0 min-w-full flex-col gap-2" data-row-click-ignore>
-                    {row.measures > 1 && <Text size="xs">This proposal merges {row.measures} recurring measures.</Text>}
+                    {hasSources(row) && (
+                        <div className="flex flex-col">
+                            <Text size="xs" variant="muted">
+                                Where it is used
+                            </Text>
+                            <QuillProposedMetricSources metric={row} />
+                        </div>
+                    )}
+                    {row.measures > 1 && (
+                        <Text size="xs">This suggestion merges {row.measures} recurring measures.</Text>
+                    )}
                     <QuillMetricCodeBlock code={row.sql} language={Language.SQL} wrap />
                 </div>
             )}
@@ -111,24 +122,10 @@ function proposedColumns(expandedKeys: Set<string>): DataTableProps<ProposedRow,
         },
         {
             accessorKey: 'name',
-            header: 'Proposed metric',
+            header: 'Suggested metric',
             meta: { expand: true },
             enableSorting: false,
             cell: ({ row }) => <ProposedMetricName row={row.original} expanded={expandedKeys.has(row.original.key)} />,
-        },
-        {
-            id: 'sources',
-            header: () => (
-                <GovernanceColumnHeader
-                    label="Where it is used"
-                    tooltip="Where people wrote the query and where they saw it."
-                />
-            ),
-            cell: ({ row }) => (
-                <div className="min-w-64">
-                    <QuillProposedMetricSources metric={row.original} />
-                </div>
-            ),
         },
         {
             accessorKey: 'complexity',
@@ -177,14 +174,10 @@ function proposedColumns(expandedKeys: Set<string>): DataTableProps<ProposedRow,
     ]
 }
 
-const NO_PROPOSALS = (
-    <GovernanceTableEmpty>
-        No measure needs a metric yet. One appears here once several people compute the same measure.
-    </GovernanceTableEmpty>
-)
-
-export function GovernanceProposedTable(): JSX.Element {
-    const { proposedRows, failureReasons } = useValues(usageLogic)
+// The API and the classic layout name these rows proposed metrics. This layout names them suggested,
+// because the Metrics tab already uses Proposed for the status of a metric that waits for approval.
+export function CatalogSuggestedMetricsTable(): JSX.Element {
+    const { visibleSuggestions } = useValues(catalogSuggestedMetricsLogic)
     const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
 
     const columns = useMemo(() => proposedColumns(expandedKeys), [expandedKeys])
@@ -201,24 +194,18 @@ export function GovernanceProposedTable(): JSX.Element {
     }, [])
 
     return (
-        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-proposed">
-            <Heading size="sm" render={<h3 className="m-0" />}>
-                Proposed metrics
-            </Heading>
-            {failureReasons.uncovered ? (
-                <GovernanceSectionFailed reason={failureReasons.uncovered} />
-            ) : (
-                <DataTable
-                    columns={columns}
-                    data={proposedRows}
-                    getRowId={(row) => row.key}
-                    pageSize={PAGE_SIZE}
-                    size="sm"
-                    fullWidth
-                    onRowClick={toggle}
-                    empty={NO_PROPOSALS}
-                />
-            )}
-        </section>
+        // pinned: autocapture reads the data-attr values in this file, so they keep the name of the tab that first held this table
+        <div className="min-w-0" data-attr="data-catalog-governance-proposed">
+            <DataTable
+                columns={columns}
+                data={visibleSuggestions}
+                getRowId={(row) => row.key}
+                // The table shows its pager for one page too, so a list that fits one page gets no page size.
+                pageSize={visibleSuggestions.length > CATALOG_LAYER_PAGE_SIZE ? CATALOG_LAYER_PAGE_SIZE : undefined}
+                size="sm"
+                fullWidth
+                onRowClick={toggle}
+            />
+        </div>
     )
 }
