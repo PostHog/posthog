@@ -2,6 +2,7 @@ import io
 
 from unittest.mock import MagicMock
 
+from django.db import transaction
 from django.utils import timezone
 
 from PIL import Image
@@ -9,8 +10,15 @@ from PIL import Image
 from posthog.egress.limiter.policies import Priority
 
 from products.visual_review.backend import diffing
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import BaselineMode, RunPurpose, RunStatus, RunType
+from products.visual_review.backend.facade.enums import (
+    BaselineEntrySource,
+    BaselineMode,
+    RunPurpose,
+    RunStatus,
+    RunType,
+)
 from products.visual_review.backend.logic import (
     artifact_store,
     baselines,
@@ -74,6 +82,21 @@ def make_record(**fields) -> BaselineRecord:
         second_candidates={},
         **fields,
     )
+
+
+def move_ledger(repo: Repo, identifier: str, content_hash: str, previous_hash: str = "") -> None:
+    with transaction.atomic(using=WRITER_DB):
+        ledger.lock_ledger(repo.id)
+        ledger.append_entry(
+            repo,
+            run_type=RunType.STORYBOOK,
+            identifier=identifier,
+            content_hash=content_hash,
+            previous_hash=previous_hash,
+            position=0,
+            commit_sha=SEED,
+            source=BaselineEntrySource.MERGE,
+        )
 
 
 class FakeGit:
@@ -200,6 +223,7 @@ class LedgerFlow:
                 self.stored.setdefault(content_hash, content) and f"visual_review/{content_hash}"
             ),
         )
+        self.statuses = mocker.patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED)
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
         self.rerun = mocker.patch.object(ci_status, "_rerun_github_job", return_value=(True, None))

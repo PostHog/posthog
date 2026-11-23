@@ -86,16 +86,37 @@ describe('reportRunOutcome', () => {
         expect(output).not.toContain('::warning::')
     })
 
-    it('gates a review run with unresolved changes', async () => {
-        const exitCode = await reportRunOutcome(
+    // An approval turns only the status green, so a job that failed as well would stay red. No gate means an older backend.
+    it.each([
+        { gate: undefined, exitCode: 1 },
+        { gate: 'ci_job', exitCode: 1 },
+        { gate: 'commit_status', exitCode: 0 },
+    ])('exits $exitCode for a review run with unresolved changes and gate $gate', async ({ gate, exitCode }) => {
+        const result = await reportRunOutcome(
             client,
-            run({ unchanged: 8, changed: 2, unresolved: 2 }),
+            run({ unchanged: 8, changed: 2, unresolved: 2 }, { gate, run_type: 'storybook' } as Partial<Run>),
             'https://vr.example.com/run-1',
             'review'
         )
 
-        expect(exitCode).toBe(1)
+        expect(result).toBe(exitCode)
         expect(output).toContain('Visual changes detected')
+        expect(output).toContain('changed: story--light (12.07% diff)')
+        expect(output.includes('"PostHog Visual Review / storybook" turns green')).toBe(gate === 'commit_status')
+    })
+
+    it.each([
+        { fields: { status: 'failed', error_message: 'boom' }, summary: {}, purpose: 'review' },
+        { fields: {}, summary: { unchanged: 8, changed: 2 }, purpose: 'observe' },
+    ])('still fails a $purpose run gated by the commit status', async ({ fields, summary, purpose }) => {
+        const result = await reportRunOutcome(
+            client,
+            run(summary, { gate: 'commit_status', ...fields } as Partial<Run>),
+            'https://vr.example.com/run-1',
+            purpose
+        )
+
+        expect(result).toBe(1)
     })
 
     it('passes a review run whose changes are all resolved', async () => {
