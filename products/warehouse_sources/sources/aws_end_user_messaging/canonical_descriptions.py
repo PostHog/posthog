@@ -125,6 +125,69 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_timestamp": "The time AWS created the registration, in UTC.",
         },
     },
+    "registration_associations": {
+        "description": "Phone numbers and sender IDs that each registration covers.",
+        "docs_url": _DOCS.format("RegistrationAssociationMetadata"),
+        "columns": {
+            "registration_arn": "The ARN of the registration.",
+            "registration_id": "The identifier of the registration.",
+            "registration_type": "The type of registration form.",
+            "resource_arn": "The ARN of the phone number or sender ID that the registration covers.",
+            "resource_id": "The identifier of the phone number or sender ID, such as a PhoneNumberId or SenderId.",
+            "resource_type": "The type of the origination identity.",
+            "iso_country_code": "The country or region, as an ISO 3166-1 alpha-2 code.",
+            "phone_number": "The phone number that the registration covers, in E.164 format.",
+        },
+    },
+    "registration_versions": {
+        "description": "Versions of each registration, with their review history.",
+        "docs_url": _DOCS.format("RegistrationVersionInformation"),
+        "columns": {
+            "registration_arn": "The ARN of the registration.",
+            "registration_id": "The identifier of the registration.",
+            "version_number": "The version number of the registration.",
+            "registration_version_status": (
+                "The status of the version, such as DRAFT, SUBMITTED, REVIEWING, APPROVED, DENIED, or ARCHIVED."
+            ),
+            "registration_version_status_history": (
+                "The times the version entered each status, such as DraftTimestamp and ApprovedTimestamp, "
+                "in UNIX epoch seconds."
+            ),
+            "denied_reasons": "The reasons AWS denied the version, with short and long descriptions.",
+            "feedback": "Feedback from the review of the version, with comments and requirements.",
+        },
+    },
+    "registration_field_values": {
+        "description": (
+            "Values of the form fields of each registration, one row for each field. "
+            "When no version is requested, AWS returns the values of one version, which version_number gives."
+        ),
+        "docs_url": _DOCS.format("RegistrationFieldValueInformation"),
+        "columns": {
+            "registration_arn": "The ARN of the registration.",
+            "registration_id": "The identifier of the registration.",
+            "version_number": "The version number of the registration that the values belong to.",
+            "field_path": "The path to the registration form field.",
+            "text_value": "The text of a free form field.",
+            "select_choices": "The values chosen for a select field.",
+            "registration_attachment_id": "The identifier of the attachment for an attachment field.",
+            "denied_reason": "The reason AWS denied the value of the field.",
+            "feedback": "Feedback from the review of the field.",
+        },
+    },
+    "pool_origination_identities": {
+        "description": "Phone numbers and sender IDs in each pool.",
+        "docs_url": _DOCS.format("OriginationIdentityMetadata"),
+        "columns": {
+            "pool_arn": "The ARN of the pool that holds the origination identity.",
+            "pool_id": "The identifier of the pool that holds the origination identity.",
+            "origination_identity_arn": "The ARN of the phone number or sender ID.",
+            "origination_identity": "The identifier of the phone number or sender ID.",
+            "iso_country_code": "The country or region, as an ISO 3166-1 alpha-2 code.",
+            "number_capabilities": "Whether the origination identity can send text messages, voice calls, or both.",
+            "phone_number": "The phone number, in E.164 format.",
+        },
+    },
     "verified_destination_numbers": {
         "description": "Destination phone numbers that are verified for a sandbox or simulator account.",
         "docs_url": _DOCS.format("VerifiedDestinationNumberInformation"),

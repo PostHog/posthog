@@ -4,13 +4,15 @@ import { IconSearch } from '@posthog/icons'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
-import { TodayMoreMenu } from './TodayMoreMenu'
+import { TodayPhoneMoreSheet } from './TodayPhoneMoreSheet'
+import { todayPhoneTabsLogic } from './todayPhoneTabsLogic'
 import { TODAY_PANES } from './todayRailItems'
 import { TodayRailPane, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 
 export function TodayTabBar(): JSX.Element {
-    const { activePane, railPanes, sidebarVisible } = useValues(todayShellLogic)
+    const { activePane, sidebarVisible } = useValues(todayShellLogic)
+    const { phoneTabPanes } = useValues(todayPhoneTabsLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { isCommandOpen } = useValues(commandLogic)
     const { toggleCommand, closeCommand } = useActions(commandLogic)
@@ -28,7 +30,7 @@ export function TodayTabBar(): JSX.Element {
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {railPanes.map((pane) => {
+                {phoneTabPanes.map((pane) => {
                     const active = !isCommandOpen && activePane === pane
                     return (
                         <TodayTabBarTab
@@ -50,7 +52,7 @@ export function TodayTabBar(): JSX.Element {
                     dataAttr="today-rail-search"
                     onClick={() => toggleCommand('nav-search-button')}
                 />
-                <TodayMoreMenu placement="tab-bar" />
+                <TodayPhoneMoreSheet />
             </nav>
         </div>
     )

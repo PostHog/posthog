@@ -1081,7 +1081,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
     "API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR", 20_000_000_000, type_cast=int
 )
-API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
+API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 100.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
 API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
     "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
@@ -1457,6 +1457,9 @@ WIZARD_GATEWAY_CLIENT_IDS = [
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+# How much of a run's cap its token may spend on the gateway's decision route. 0 sends the smallest cap the
+# gateway takes, which refuses the token's decisions. An empty value reads as the default, like every setting here.
+WIZARD_GATEWAY_DECISION_CAP_USD = get_from_env("WIZARD_GATEWAY_DECISION_CAP_USD", "0.25")
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
 # posture's floor in wizard_gateway_token, not to the flat settings above, whose

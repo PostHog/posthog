@@ -24,11 +24,7 @@ export type WarehouseProducer = typeof WAREHOUSE_PRODUCER
 export const WARPSTREAM_CYCLOTRON_PRODUCER = 'WARPSTREAM_CYCLOTRON_PRODUCER' as const
 export type WarpstreamCyclotronProducer = typeof WARPSTREAM_CYCLOTRON_PRODUCER
 
-/** The intake topics' producer, on the Warpstream Cyclotron cluster, with message limits of its own. */
-export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER = 'WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER' as const
-export type WarpstreamCyclotronIntakeProducer = typeof WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER
-
-/** The intake topics' producer on the CDP intake MSK cluster, for teams on the per-kind MSK lists. */
+/** The intake topics' producer on the CDP intake MSK cluster. */
 export const MSK_CDP_INTAKE_PRODUCER = 'MSK_CDP_INTAKE_PRODUCER' as const
 export type MskCdpIntakeProducer = typeof MSK_CDP_INTAKE_PRODUCER
 
@@ -37,7 +33,6 @@ export type CdpProducerName =
     | WarpstreamIngestionProducer
     | WarehouseProducer
     | WarpstreamCyclotronProducer
-    | WarpstreamCyclotronIntakeProducer
     | MskCdpIntakeProducer
 
 /** Cluster-named env var prefix mirroring the producer it configures. */
@@ -257,8 +252,8 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
     }
 }
 
-// The cyclotron producer's settings, apart from the ones a route's answer waits on: it barely lingers, because a
-// route's produce holds a request open. The intake consumer's dead letters share the producer and its settings.
+// The MSK intake producer's config when it has no brokers: the cyclotron producer's settings, apart from the ones a
+// route's answer waits on. It barely lingers, because a route's produce holds a request open.
 export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
     ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
     'linger.ms': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS',

@@ -12,13 +12,17 @@ from products.warehouse_sources.sources.sdk import Resource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 from products.warehouse_sources.sources.singlestore._config import SinglestoreSourceConfig
 from products.warehouse_sources.sources.singlestore.settings import (
+    AUDIT_LOGS_ENDPOINT,
     BILLING_USAGE_ENDPOINT,
     ORGANIZATION_ENDPOINT,
+    PROJECTS_ENDPOINT,
     REGIONS_ENDPOINT,
+    STARTER_CLUSTERS_ENDPOINT,
     WORKSPACE_GROUPS_ENDPOINT,
     WORKSPACES_ENDPOINT,
 )
 from products.warehouse_sources.sources.singlestore.singlestore import (
+    SINGLESTORE_API_ROOT,
     SINGLESTORE_BASE_URL,
     singlestore_source,
     validate_credentials,
@@ -55,6 +59,12 @@ class TestListEndpoints:
         [
             (REGIONS_ENDPOINT, f"{SINGLESTORE_BASE_URL}/regions", "regionID"),
             (WORKSPACE_GROUPS_ENDPOINT, f"{SINGLESTORE_BASE_URL}/workspaceGroups", "workspaceGroupID"),
+            (PROJECTS_ENDPOINT, f"{SINGLESTORE_API_ROOT}/v2/projects", "projectID"),
+            (
+                STARTER_CLUSTERS_ENDPOINT,
+                f"{SINGLESTORE_API_ROOT}/v2/sharedtier/virtualClusters",
+                "virtualClusterID",
+            ),
         ]
     )
     def test_yields_dicts_from_raw_array_at_expected_url(self, endpoint: str, expected_url: str, pk: str) -> None:
@@ -166,6 +176,68 @@ class TestBillingUsage:
         assert resource._hints.get("write_disposition") == expected
 
 
+class TestAuditLogs:
+    @parameterized.expand(
+        [
+            ("token_absent_on_last_page", {"auditLogs": [{"auditID": "a3"}]}, 3),
+            # The token marks "newer than this query", so it can come back on the last page too.
+            ("token_present_on_empty_page", {"auditLogs": [], "nextToken": "t3"}, 3),
+            ("token_repeated", {"auditLogs": [{"auditID": "a3"}], "nextToken": "t2"}, 3),
+        ]
+    )
+    def test_walks_next_token_until_terminal_page(
+        self, _name: str, last_page: dict[str, Any], expected_requests: int
+    ) -> None:
+        result = _driver().run(
+            AUDIT_LOGS_ENDPOINT,
+            [
+                _json({"auditLogs": [{"auditID": "a1"}], "nextToken": "t1"}),
+                _json({"auditLogs": [{"auditID": "a2"}], "nextToken": "t2"}),
+                _json(last_page),
+            ],
+        )
+        assert result.raised is None
+        assert [r["auditID"] for r in result.rows] == ["a1", "a2", *[r["auditID"] for r in last_page["auditLogs"]]]
+        assert len(result.requests) == expected_requests
+        assert [r.path for r in result.requests] == ["/v2/auditLogs"] * expected_requests
+        assert [r.param("nextToken") for r in result.requests] == [None, "t1", "t2"]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {}, None),
+            ("first_incremental_sync", {"should_use_incremental_field": True}, "1970-01-01T00:00:00Z"),
+            (
+                "incremental_from_watermark",
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC),
+                },
+                "2026-03-04T05:06:07Z",
+            ),
+            (
+                "incremental_from_string_watermark",
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": "2026-03-04T05:06:07.123456789Z",
+                },
+                "2026-03-04T05:06:07.123456789Z",
+            ),
+        ]
+    )
+    def test_start_date_follows_sync_mode(self, _name: str, inputs: dict[str, Any], expected: str | None) -> None:
+        result = _driver().run(
+            AUDIT_LOGS_ENDPOINT,
+            [
+                _json({"auditLogs": [{"auditID": "a1"}], "nextToken": "t1"}),
+                _json({"auditLogs": []}),
+            ],
+            **inputs,
+        )
+        assert result.raised is None
+        # The lower bound must ride on every page, or later pages walk back through history.
+        assert [r.param("startDate") for r in result.requests] == [expected, expected]
+
+
 class TestRetryAndAuthClassification:
     def test_persistent_5xx_raises_after_retries(self) -> None:
         result = _driver().run(REGIONS_ENDPOINT, always(ScriptedResponse(status=500, json={"error": "boom"})))
@@ -204,6 +276,9 @@ class TestSourceResponseShape:
             (WORKSPACE_GROUPS_ENDPOINT, ["workspaceGroupID"]),
             (WORKSPACES_ENDPOINT, ["workspaceID"]),
             (BILLING_USAGE_ENDPOINT, ["metric", "resourceName", "startTime"]),
+            (PROJECTS_ENDPOINT, ["projectID"]),
+            (STARTER_CLUSTERS_ENDPOINT, ["virtualClusterID"]),
+            (AUDIT_LOGS_ENDPOINT, ["auditID"]),
         ]
     )
     def test_primary_keys_and_sort_mode(self, endpoint: str, expected_pk: list[str]) -> None:

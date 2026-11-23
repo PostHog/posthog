@@ -198,52 +198,69 @@ class TestSkioNestedTransport:
         monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PAGE_SIZE", 2)
         monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PARENT_PAGE_SIZE", 2)
 
-    def test_walks_parent_pages_and_reads_on_a_parent_past_its_row_cap(self) -> None:
+    @parameterized.expand(
+        [
+            ("subscription_parent", "audit_logs", "AuditLogs", "Subscriptions"),
+            ("customer_parent", "reward_credit_histories", "RewardCreditHistories", "StorefrontUsers"),
+        ]
+    )
+    def test_walks_parent_pages_and_reads_on_a_parent_past_its_row_cap(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str
+    ) -> None:
+        def parents(rows: list[tuple[str, list[dict[str, Any]]]]) -> ScriptedResponse:
+            return _parents(rows, relationship=relationship, parent_query=parent_query)
+
         result = _run(
             [
-                _parents([("sub-1", [_child("log-1"), _child("log-2")]), ("sub-2", [_child("log-3")])]),
-                _parents([("sub-1", [_child("log-4")])]),
-                _parents([("sub-3", [_child("log-5")])]),
+                parents([("parent-1", [_child("row-1"), _child("row-2")]), ("parent-2", [_child("row-3")])]),
+                parents([("parent-1", [_child("row-4")])]),
+                parents([("parent-3", [_child("row-5")])]),
             ],
-            endpoint="audit_logs",
+            endpoint=endpoint,
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == ["log-1", "log-2", "log-4", "log-3", "log-5"]
+        assert [row["id"] for row in result.rows] == ["row-1", "row-2", "row-4", "row-3", "row-5"]
+        has_rows = {relationship: {"id": {"_is_null": False}}}
         variables = [request.json()["variables"] for request in result.requests]
         assert [v["parentWhere"] for v in variables] == [
-            HAS_AUDIT_LOGS,
-            {"id": {"_eq": "sub-1"}},
-            {"_and": [{"id": {"_gt": "sub-2"}}, HAS_AUDIT_LOGS]},
+            has_rows,
+            {"id": {"_eq": "parent-1"}},
+            {"_and": [{"id": {"_gt": "parent-2"}}, has_rows]},
         ]
-        assert [v.get("where") for v in variables] == [None, {"id": {"_gt": "log-2"}}, None]
+        assert [v.get("where") for v in variables] == [None, {"id": {"_gt": "row-2"}}, None]
         assert result.saved_states == [
-            SkioResumeConfig(last_id="log-2", parent_id="sub-1"),
-            SkioResumeConfig(parent_id="sub-1"),
-            SkioResumeConfig(parent_id="sub-2"),
-            SkioResumeConfig(parent_id="sub-3"),
+            SkioResumeConfig(last_id="row-2", parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-2"),
+            SkioResumeConfig(parent_id="parent-3"),
         ]
         assert result.response is not None and result.response.sort_mode is None
 
-    def test_incremental_filters_both_parents_and_rows_on_the_watermark(self) -> None:
+    @parameterized.expand(
+        [
+            ("snake_case_cursor", "cancel_flow_v2_sessions", "CancelFlowV2Sessions", "Subscriptions", "updated_at"),
+            ("subscription_parent", "discounts", "Discounts", "Subscriptions", "updatedAt"),
+        ]
+    )
+    def test_incremental_filters_both_parents_and_rows_on_the_watermark(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str, field: str
+    ) -> None:
         result = _run(
-            [
-                _parents(
-                    [("sub-1", [_child("session-1", "updated_at")])],
-                    relationship="CancelFlowV2Sessions",
-                )
-            ],
-            endpoint="cancel_flow_v2_sessions",
-            incremental_field="updated_at",
+            [_parents([("parent-1", [_child("row-1", field)])], relationship=relationship, parent_query=parent_query)],
+            endpoint=endpoint,
+            incremental_field=field,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        watermark = {"updated_at": {"_gte": "2026-01-01T00:00:00+00:00"}}
-        variables = result.requests[0].json()["variables"]
-        assert variables["where"] == watermark
-        assert variables["parentWhere"] == {"CancelFlowV2Sessions": watermark}
-        assert variables["orderBy"] == [{"updated_at": "asc"}, {"id": "asc"}]
-        assert [row["id"] for row in result.rows] == ["session-1"]
+        assert result.raised is None
+        watermark = {field: {"_gte": "2026-01-01T00:00:00+00:00"}}
+        request = result.requests[0].json()
+        assert f"{parent_query}(limit: $parentLimit" in request["query"]
+        assert request["variables"]["where"] == watermark
+        assert request["variables"]["parentWhere"] == {relationship: watermark}
+        assert request["variables"]["orderBy"] == [{field: "asc"}, {"id": "asc"}]
+        assert [row["id"] for row in result.rows] == ["row-1"]
 
     @parameterized.expand(
         [

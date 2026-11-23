@@ -41,6 +41,23 @@ class SavedQuerySuspensionSerializer(serializers.Serializer):
     job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
 
 
+class SavedQueryPlanClampSerializer(serializers.Serializer):
+    previous_target_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text="The refresh interval, in seconds, this view had before the rewrite. Null when it had none.",
+    )
+    plan_floor_seconds = serializers.IntegerField(
+        help_text="The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed.",
+    )
+    at = serializers.DateTimeField(help_text="When the refresh interval was rewritten.")
+
+
+PLAN_CLAMP_HELP_TEXT = (
+    "Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's "
+    "plan allows. Saving a different interval clears it. Null when no such rewrite stands."
+)
+
+
 class ViewCapabilitySerializer(serializers.Serializer):
     available = serializers.BooleanField(help_text="Whether the view supports this.")
     reason = serializers.CharField(
@@ -170,6 +187,22 @@ class DataWarehouseSavedQuerySerializerMixin:
         state = rendered_node_states.rendered_node_states(self.root, view).get(str(view.pk))  # type: ignore[attr-defined]
         suspended = state.suspended if state is not None else {}
         return {engine: SavedQuerySuspensionSerializer(marker).data for engine, marker in suspended.items()}
+
+    @extend_schema_field(SavedQueryPlanClampSerializer(allow_null=True, help_text=PLAN_CLAMP_HELP_TEXT))
+    def get_plan_clamp(self, view: DataWarehouseSavedQuery) -> dict[str, Any] | None:
+        state = rendered_node_states.rendered_node_states(self.root, view).get(str(view.pk))  # type: ignore[attr-defined]
+        clamp = state.plan_clamp if state is not None else None
+        if clamp is None:
+            return None
+        return SavedQueryPlanClampSerializer(
+            {
+                "previous_target_seconds": (
+                    int(clamp.previous_target.total_seconds()) if clamp.previous_target is not None else None
+                ),
+                "plan_floor_seconds": int(clamp.plan_floor.total_seconds()),
+                "at": clamp.at,
+            }
+        ).data
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):

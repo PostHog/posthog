@@ -107,7 +107,7 @@ async def eval_table_choice(ctx: EvalContext) -> None:
             expected={
                 "semantic_metadata_queried": {
                     "surface": "information_schema.relationships",
-                    "required_columns": ["confidence", "reasoning"],
+                    "required_columns": ["reasoning"],
                 },
                 # The decoy join labels every account "unknown", so the media total only comes from the reviewed join.
                 # A lazy join (`deals.account.industry`) never names the joined table, so the value is the check.
