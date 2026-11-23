@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -28,6 +29,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _asset_texts,
+    _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -280,7 +283,12 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "dentist crm,1,11,2026-01-15,10,100,250000000,0,NONE\n"
             "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
             "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
-            "patient records,1,11,2026-01-15,10,100,300000000,0,NONE\n",
+            "patient records,1,11,2026-01-14,5,50,150000000,0,NONE\n"
+            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n"
+            # Another ad group excludes it on the same day that ad group 11 still serves it.
+            "dentist crm,1,12,2026-01-15,0,1,0,0,EXCLUDED\n"
+            # Excluded after the selected dates end.
+            "analytics pricing,1,11,2026-02-05,0,1,0,0,EXCLUDED\n",
         )
         ad_columns = {
             "ad_group_id": "Int64",
@@ -309,7 +317,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             f'101,"{policy_topics}"\n'
             '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
             "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
-            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n",
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n"
+            "12,1,ENABLED,[],[],[],Clinic scheduling,APPROVED,105,[]\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -332,6 +341,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             ("1", ("https://example.com/product",)),
             ("1", ()),
             ("1", ()),
+            ("1", ()),
         ]
         assert runner._policy_ads(source) == [PolicyAds(campaign_id="1", disapproved=1, limited=1)]
         assert runner._flagged_ads(source) == [
@@ -344,7 +354,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             FlaggedAd(campaign_id="1", ad_id="100", headline="Patient records made simple", policy_topics=()),
         ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
-        assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
+        assert [(rec.subject, rec.detectedChange) for rec in wasted] == [
+            ("dentist crm", None),
+            ("analytics pricing", "negative_keyword"),
+            ("patient records", "negative_keyword"),
+        ]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
 
     @parameterized.expand(
@@ -621,3 +635,26 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+
+class TestAdJson(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
+            (
+                "texts_are_not_text",
+                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
+                ("Acme",),
+            ),
+        ]
+    )
+    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
+        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+
+        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+
+    def test_asset_texts_skip_non_text(self) -> None:
+        assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)
