@@ -4973,7 +4973,7 @@ class DashboardsViewSet(
             created = create_unlisted_dashboard(
                 team=self.team, user=cast(User, request.user), template=self.TEMPLATE_MAP[tag]()
             )
-            dashboard = Dashboard.objects.get(pk=created.id)
+            dashboard = Dashboard.objects.get(team_id=self.team_id, pk=created.id)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
