@@ -138,4 +138,6 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Aol",
     "Gmx",
     "Tencent",
+    "Yandex",
+    "MailRu",
 ]

@@ -16,7 +16,7 @@ import {
 import { isObject } from '../utils'
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 import { chunkMutationSnapshot } from './chunk-large-mutations'
-import { decompressEvent } from './decompress'
+import { ExpansionBudget, ExpansionBudgetExceededError, decompressEvent } from './decompress'
 import { extractDimensionsFromMobileSnapshot, ViewportResolution } from './patch-meta-event'
 import { keyForSource, SourceKey } from './source-key'
 import { throttleCapture } from './throttle-capturing'
@@ -545,8 +545,13 @@ export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     })
 }
 
-function coerceToEventWithTime(d: unknown, sessionRecordingId: string, telemetry: ReplayTelemetry): eventWithTime {
-    const currentEvent = decompressEvent(d, sessionRecordingId, telemetry)
+function coerceToEventWithTime(
+    d: unknown,
+    sessionRecordingId: string,
+    telemetry: ReplayTelemetry,
+    budget?: ExpansionBudget
+): eventWithTime {
+    const currentEvent = decompressEvent(d, sessionRecordingId, telemetry, budget)
     return transformEventToWeb(currentEvent, telemetry) ?? (currentEvent as eventWithTime)
 }
 
@@ -554,7 +559,8 @@ export const parseJsonSnapshots = (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
     telemetry: ReplayTelemetry = noOpTelemetry,
-    registerWindowId?: RegisterWindowIdCallback
+    registerWindowId?: RegisterWindowIdCallback,
+    budget?: ExpansionBudget
 ): RecordingSnapshot[] => {
     const registerFn: RegisterWindowIdCallback = registerWindowId || createWindowIdRegistry()
 
@@ -584,7 +590,7 @@ export const parseJsonSnapshots = (
             }
 
             if (isRecordingSnapshot(snapshotLine)) {
-                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry, budget)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine.windowId,
                     ...snap,
@@ -598,7 +604,7 @@ export const parseJsonSnapshots = (
             ) {
                 const rawWindowId: string = snapshotLine['windowId']
                 const windowId = registerFn(rawWindowId)
-                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry, budget)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId,
                     ...snap,
@@ -612,7 +618,7 @@ export const parseJsonSnapshots = (
                 const windowId = registerFn(rawWindowId.toString())
 
                 for (const d of snapshotData) {
-                    const snap = coerceToEventWithTime(d, sessionId, telemetry)
+                    const snap = coerceToEventWithTime(d, sessionId, telemetry, budget)
                     const baseSnapshot: RecordingSnapshot = {
                         windowId,
                         ...snap,
@@ -621,7 +627,10 @@ export const parseJsonSnapshots = (
                     parsedLines.push(...chunkedSnapshots)
                 }
             }
-        } catch {
+        } catch (e) {
+            if (e instanceof ExpansionBudgetExceededError) {
+                throw e
+            }
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }

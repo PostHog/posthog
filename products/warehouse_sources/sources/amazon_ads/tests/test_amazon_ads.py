@@ -1,3 +1,4 @@
+import io
 import gzip
 import json
 import datetime as dt
@@ -22,6 +23,7 @@ from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
     AmazonAdsResumeConfig,
     AmazonAdsRetryableError,
     _base_url,
+    iter_json_array,
     validate_credentials,
 )
 from products.warehouse_sources.sources.amazon_ads.settings import (
@@ -98,6 +100,28 @@ def _report_script(
 
 def _report_requests(requests: list[RecordedRequest]) -> list[RecordedRequest]:
     return [request for request in requests if request.path == "/reporting/reports" and request.method == "POST"]
+
+
+class TestIterJsonArray:
+    _DOCUMENT = (
+        ' [ {"date": "2026-06-20", "cost": 12.5, "searchTerm": "a, [b] {c}"},\n'
+        '{"nested": {"list": [1, 2, {"x": null}]}, "clicks": 1234567}, 9876543,'
+        '{"quote": "say \\"hi\\"", "unicode": "caf\u00e9"} ]  '
+    )
+
+    @pytest.mark.parametrize("chunk_size", [1, 2, 7, 64, 1024 * 1024])
+    def test_streams_the_same_elements_as_a_whole_document_parse(self, chunk_size: int) -> None:
+        stream = io.BytesIO(self._DOCUMENT.encode())
+        assert list(iter_json_array(stream, chunk_size=chunk_size)) == json.loads(self._DOCUMENT)
+
+    @pytest.mark.parametrize("document, expected", [("[]", []), ("  [ ] ", []), ('{"error": "x"}', []), ("", [])])
+    def test_empty_or_non_array_documents_yield_nothing(self, document: str, expected: list[Any]) -> None:
+        assert list(iter_json_array(io.BytesIO(document.encode()), chunk_size=2)) == expected
+
+    @pytest.mark.parametrize("document", ['[{"a": 1}, {"b": 2}', '[{"a": 1}, {"b": '])
+    def test_truncated_array_raises(self, document: str) -> None:
+        with pytest.raises(ValueError):
+            list(iter_json_array(io.BytesIO(document.encode()), chunk_size=3))
 
 
 class TestBaseUrl:
@@ -215,6 +239,9 @@ class TestGetRows:
             ("sb_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_BRANDS"]}}),
             ("sd_ads", {"maxResults": 100, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
             ("sd_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
+            # The Sponsored TV lists cap `maxResults` at 100.
+            ("st_campaigns", {"maxResults": 100}),
+            ("st_targets", {"maxResults": 100}),
         ],
     )
     def test_list_request_body_per_endpoint(self, endpoint: str, expected_body: dict[str, Any]) -> None:
@@ -316,7 +343,7 @@ class TestReportRows:
     ) -> DriveResult:
         return _driver().run("sp_campaign_reports", script, resume_state=resume_state, **inputs)
 
-    def test_report_is_created_polled_and_downloaded_in_date_order(self) -> None:
+    def test_report_is_created_polled_and_downloaded(self) -> None:
         result = self._run(
             _report_script(
                 rows=[{"campaignId": 2, "date": "2026-06-29"}, {"campaignId": 1, "date": "2026-06-20"}],
@@ -326,7 +353,7 @@ class TestReportRows:
             db_incremental_field_last_value="2026-06-20",
         )
         assert result.raised is None
-        assert [row["date"] for row in result.rows] == ["2026-06-20", "2026-06-29"]
+        assert [row["date"] for row in result.rows] == ["2026-06-29", "2026-06-20"]
         assert all(row["_profile_id"] == "7" for row in result.rows)
         created = _report_requests(result.requests)
         assert len(created) == 1
@@ -404,6 +431,119 @@ class TestReportRows:
         assert isinstance(result.raised, ValueError)
         assert "outside Amazon" in str(result.raised)
         assert not any(request.origin == "https://attacker.example.com" for request in result.requests)
+
+
+class TestBreakdownReportRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(_TODAY, tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "endpoint, report_type_id, ad_product, group_by",
+        [
+            ("sp_search_term_reports", "spSearchTerm", "SPONSORED_PRODUCTS", ["searchTerm"]),
+            ("sp_advertised_product_reports", "spAdvertisedProduct", "SPONSORED_PRODUCTS", ["advertiser"]),
+            ("sp_targeting_reports", "spTargeting", "SPONSORED_PRODUCTS", ["targeting"]),
+            ("sp_purchased_product_reports", "spPurchasedProduct", "SPONSORED_PRODUCTS", ["asin"]),
+            ("sb_purchased_product_reports", "sbPurchasedProduct", "SPONSORED_BRANDS", ["purchasedAsin"]),
+        ],
+    )
+    def test_report_rows_get_a_stable_row_id_from_the_grouping_columns(
+        self, endpoint: str, report_type_id: str, ad_product: str, group_by: list[str]
+    ) -> None:
+        report = AMAZON_ADS_ENDPOINTS[endpoint].report
+        assert report is not None
+        base: dict[str, Any] = {column: f"{column}-1" for column in report.key_columns}
+        # The second row differs only in a metric, the third in one grouping column, and the
+        # fourth has a null grouping column.
+        first_key = report.key_columns[0]
+        rows: list[dict[str, Any]] = [
+            {**base, "date": "2026-06-25", "clicks": 1},
+            {**base, "date": "2026-06-26", "clicks": 2},
+            {**base, first_key: "other", "date": "2026-06-26", "clicks": 3},
+            {**base, report.key_columns[-1]: None, "date": "2026-06-26", "clicks": 4},
+        ]
+        script = _report_script(rows=rows)
+
+        first = _driver().run(
+            endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20"
+        )
+        second = _driver().run(
+            endpoint,
+            _report_script(rows=list(reversed(rows))),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
+        )
+
+        assert first.raised is None
+        body = _report_requests(first.requests)[0].json()["configuration"]
+        assert (body["reportTypeId"], body["adProduct"], body["groupBy"]) == (report_type_id, ad_product, group_by)
+        by_clicks = {row["clicks"]: row["_row_id"] for row in first.rows}
+        assert by_clicks[1] == by_clicks[2]
+        assert len({by_clicks[2], by_clicks[3], by_clicks[4]}) == 3
+        assert {row["clicks"]: row["_row_id"] for row in second.rows} == by_clicks
+        keys = {tuple(row[key] for key in AMAZON_ADS_ENDPOINTS[endpoint].primary_keys) for row in first.rows}
+        assert len(keys) == len(rows)
+
+
+class TestBudgetRuleRows:
+    def test_budget_rules_send_the_page_size_on_every_page(self) -> None:
+        result = _driver().run(
+            "sp_budget_rules",
+            [
+                _token(),
+                _profiles([{"profileId": 1}]),
+                ScriptedResponse(json={"budgetRulesForAdvertiserResponse": [{"ruleId": "r1"}], "nextToken": "tok"}),
+                ScriptedResponse(json={"budgetRulesForAdvertiserResponse": [{"ruleId": "r2"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"ruleId": "r1", "_profile_id": "1"}, {"ruleId": "r2", "_profile_id": "1"}]
+        first, second = result.requests[2:]
+        assert (first.method, first.path, second.method, second.path) == (
+            "GET",
+            "/sp/budgetRules",
+            "GET",
+            "/sp/budgetRules",
+        )
+        assert first.query == {"pageSize": ("30",)}
+        assert second.query == {"pageSize": ("30",), "nextToken": ("tok",)}
+        assert first.headers["amazon-advertising-api-scope"] == "1"
+
+    def test_rule_campaigns_fan_out_per_profile_and_rule(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.url == LWA_TOKEN_URL:
+                return _token()
+            if request.path == "/v2/profiles":
+                return _profiles([{"profileId": 1}, {"profileId": 2}])
+            profile = request.headers["amazon-advertising-api-scope"]
+            if request.path == "/sp/budgetRules":
+                rules = [{"ruleId": "r/1"}, {"ruleId": "r2"}] if profile == "1" else [{"ruleId": "r3"}]
+                return ScriptedResponse(json={"budgetRulesForAdvertiserResponse": rules})
+            if request.path == "/sp/budgetRules/r%2F1/campaigns" and "nextToken" not in request.query:
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c1"}], "nextToken": "tok"})
+            if request.path == "/sp/budgetRules/r%2F1/campaigns":
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c2"}]})
+            if request.path == "/sp/budgetRules/r3/campaigns":
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c1"}]})
+            return ScriptedResponse(json={"associatedCampaigns": []})
+
+        result = _driver().run("sp_budget_rule_campaigns", respond)
+        assert result.raised is None
+        assert [(row["_profile_id"], row["ruleId"], row["campaignId"]) for row in result.rows] == [
+            ("1", "r/1", "c1"),
+            ("1", "r/1", "c2"),
+            ("2", "r3", "c1"),
+        ]
+        campaign_requests = [request for request in result.requests if request.path.endswith("/campaigns")]
+        assert [request.path for request in campaign_requests] == [
+            "/sp/budgetRules/r%2F1/campaigns",
+            "/sp/budgetRules/r%2F1/campaigns",
+            "/sp/budgetRules/r2/campaigns",
+            "/sp/budgetRules/r3/campaigns",
+        ]
+        assert all(request.query["pageSize"] == ("30",) for request in campaign_requests)
 
 
 class TestAccountAndBillingRows:

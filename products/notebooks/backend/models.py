@@ -53,6 +53,9 @@ class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # placeholder and a Python cell as a global. A property of the notebook rather than a block
     # in `content`, so editing prose can never delete it. Null until the notebook declares one.
     variables: JSONField = JSONField(default=None, null=True, blank=True)
+    app_draft: JSONField = JSONField(default=None, null=True, blank=True)
+    app_published: JSONField = JSONField(default=None, null=True, blank=True)
+    app_revision = models.PositiveIntegerField(default=0, db_default=0)
 
     class Meta:
         unique_together = ("team", "short_id")

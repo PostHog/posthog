@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressRunConfig
 from products.tasks.backend.logic.services.agent_egress_lifecycle import AgentEgressLifecycle
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 
@@ -18,6 +19,7 @@ class AgentEgressProbeInput:
     team_id: int
     run_id: str
     sandbox_id: str | None = None
+    enrollment: bool = False
 
 
 @frozen
@@ -41,7 +43,14 @@ class AgentEgressCleanupInput:
 
 
 def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> AgentEgressLifecycle:
-    config = AgentEgressProbeConfig.load(Path(input.probe.config_path), cleanup=cleanup)
+    if input.probe.enrollment:
+        if input.probe.sandbox_id is None:
+            raise ValueError("Agent egress enrollment requires a provisioned sandbox")
+        config: AgentEgressProbeConfig = AgentEgressRunConfig.for_run(
+            team_id=input.probe.team_id, run_id=UUID(input.probe.run_id), sandbox_id=input.probe.sandbox_id
+        )
+    else:
+        config = AgentEgressProbeConfig.load(Path(input.probe.config_path), cleanup=cleanup)
     if config.team_id != input.probe.team_id or config.run_id != UUID(input.probe.run_id):
         raise ValueError("The worker configuration belongs to another run")
     config = config.model_copy(update={"sandbox_id": input.probe.sandbox_id})
@@ -85,4 +94,14 @@ async def probe_agent_egress(input: AgentEgressExecutionInput) -> dict[int, int]
 @activity.defn
 @asyncify
 def cleanup_agent_egress(input: AgentEgressCleanupInput) -> None:
-    lifecycle(input.execution, cleanup=True).close(reason=input.reason, sandbox_id=input.sandbox_id)
+    execution = input.execution
+    AgentEgressLifecycle.close_execution(
+        team_id=execution.probe.team_id,
+        run_id=UUID(execution.probe.run_id),
+        execution_id=UUID(execution.execution_id),
+        workflow_run_id=activity.info().workflow_run_id or "",
+        provisioning_deadline=execution.provisioning_deadline,
+        sandbox_id=execution.probe.sandbox_id or input.sandbox_id,
+        owns_sandbox=execution.probe.sandbox_id is None,
+        reason=input.reason,
+    )

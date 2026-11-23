@@ -194,7 +194,7 @@ function needsRead(current: NodeLoad | undefined, trigger: NodeLoadTrigger): boo
     if (!current) {
         return true
     }
-    return current.status === 'error' && (trigger === 'selection' || trigger === 'navigation')
+    return current.status === 'error' && trigger !== 'prefetch' && trigger !== 'thread'
 }
 
 async function prefetchedOrRead<T>(prefetched: Promise<T> | undefined, read: () => Promise<T>): Promise<T> {
@@ -350,7 +350,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
             loadTraceFailure: () => actions.releasePrefetched(props.traceId),
             loadNode: ({ nodeId, trigger }) => {
                 const current = values.nodes.get(nodeId)
-                if (trigger === 'selection' && current?.status !== 'ready') {
+                if ((trigger === 'selection' || trigger === 'keyboard') && current?.status !== 'ready') {
                     firstTimeFor(selectedAt(), nodeId)
                 }
                 if (!needsRead(current, trigger)) {
