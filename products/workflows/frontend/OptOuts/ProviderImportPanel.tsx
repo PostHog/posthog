@@ -223,6 +223,11 @@ const API_KEY_FORMATS: Record<string, { pattern: RegExp; length: number; hint: s
         pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
         hint: "This doesn't look like a Postmark token, which has 36 characters in five groups, like 1b2c3d4e-0000-0000-0000-123456789abc. Check that you copied the whole token and nothing else.",
     },
+    mailchimp: {
+        length: 36,
+        pattern: /^[0-9a-f]{32}-[a-z]{2,4}[0-9]{1,3}$/i,
+        hint: "This doesn't look like a Mailchimp API key, which has 32 letters and numbers, then a dash and your data center, such as -us21. Check that you copied the whole key and nothing else.",
+    },
 }
 
 function ApiKeyFormatHint({ provider }: { provider: ImportProviderOptionApi }): JSX.Element | null {
