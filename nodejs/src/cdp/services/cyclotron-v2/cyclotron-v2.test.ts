@@ -1089,11 +1089,11 @@ describe('Cyclotron V2', () => {
             })
 
             it.each([
-                ['ack', 'completed'],
-                ['cancel', 'canceled'],
+                ['ack', 'completed', 300, '300'],
+                ['cancel', 'canceled', undefined, null],
             ] as const)(
                 'createJob with overwriteExisting=true resets an existing terminal row to available (%s)',
-                async (release, terminalStatus) => {
+                async (release, terminalStatus, rerunFileBytes, storedFileBytes) => {
                     const id = uuidv7()
                     // First insert + drive to terminal state via the worker.
                     await manager.createJob({
@@ -1117,13 +1117,13 @@ describe('Cyclotron V2', () => {
                         teamId: 1,
                         queueName: QUEUE,
                         state: Buffer.from('v2'),
-                        fileBytes: 300,
+                        fileBytes: rerunFileBytes,
                         overwriteExisting: true,
                     })
                     const row = await queryJob(id)
                     expect(row.status).toBe('available')
                     expect(row.state).toEqual(Buffer.from('v2'))
-                    expect(row.file_bytes).toBe('300')
+                    expect(row.file_bytes).toBe(storedFileBytes)
                     expect(row.lock_id).toBeNull()
                     expect(row.last_heartbeat).toBeNull()
                     // transition_count bumps so the janitor's poison-pill guard
