@@ -705,6 +705,38 @@ class BaselineLedgerRepair:
     mismatches: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoptionItem:
+    """One named identifier of a ledger adoption, with the ledger at the cursor and the chosen run's render."""
+
+    identifier: str
+    # Empty when the ledger does not hold the identifier at the cursor.
+    ledger_hash: str
+    render_hash: str
+    # Only reported. An adoption does not change approvals.
+    open_approvals: int
+
+    @property
+    def already_matches(self) -> bool:
+        return self.ledger_hash == self.render_hash
+
+
+@dataclass(frozen=True, kw_only=True)
+class BaselineLedgerAdoption:
+    """What adopting renders into the ledger for one run type plans or wrote, at the newest resolved ledger commit."""
+
+    run_type: str
+    run_id: UUID
+    run_position: int
+    cursor_position: int
+    cursor_sha: str
+    items: tuple[BaselineLedgerAdoptionItem, ...]
+
+    @property
+    def to_append(self) -> tuple[BaselineLedgerAdoptionItem, ...]:
+        return tuple(item for item in self.items if not item.already_matches)
+
+
 # How far back the page reads. Sets the width of the per-day activity strip and
 # the span `headroom` looks over, where more days mean better evidence of the
 # worst case a snapshot can produce.

@@ -133,6 +133,12 @@ class BaselineRepairError(Exception):
     pass
 
 
+class BaselineAdoptionError(Exception):
+    """The ledger cannot be set to what the chosen run rendered."""
+
+    pass
+
+
 class PullRequestClosedError(ValueError):
     """Finalize blocked because the run's pull request is closed or merged.
 

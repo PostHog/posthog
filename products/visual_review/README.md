@@ -396,6 +396,13 @@ Full runs then report that snapshot as changed, and the merge queue stops on it.
 Fix it the same way as a wrong baseline in `yaml` mode: open a pull request that renders the story, approve the snapshot, and merge.
 A revert pull request needs an approval for the pictures it restores.
 
+### Fixing a baseline in ledger mode
+
+When the ledger holds a wrong picture for a story and the default branch renders the right one, `adopt-renders` adopts that render into the ledger without a pull request.
+Pick a full, completed observe run on the default branch whose commit the ledger has resolved, and that shows the right picture.
+Run `adopt-renders` without `--apply` first and check the table, then run it again with `--apply`.
+`repair` does not help here: it compares the ledger with the baseline file, and it only runs in `shadow` mode.
+
 ### Operating it
 
 `./manage.py visual_review_baseline_ledger <subcommand> --repo owner/name`
@@ -404,6 +411,7 @@ A revert pull request needs an approval for the pictures it restores.
 - `seed --from-ledger` starts a new position 0 at the default branch head from the ledger's current state. Use it after the default branch was rewritten, or when the ledger fell too far behind.
 - `mode` prints the mode. `mode --set shadow|ledger|yaml` switches it. `shadow` and `ledger` need a seeded ledger.
 - `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
+- `adopt-renders --run-type <type> --run <run id> --identifier <id>` adopts renders into the ledger: it sets the ledger at its newest resolved commit to what that run rendered, for each named identifier. Repeat `--identifier` for more. It only runs in `ledger` mode, and it refuses a run that is not a full default-branch run, or that is older than the ledger's newest change of a named identifier. It prints the plan with the open approvals of each identifier, and writes only with `--apply`.
 - `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
 - `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is gated by the commit status and has not finished, still has unreviewed changes, or has approved changes that are not finalized.
 - `recheck` shows the `ledger`-mode status of every open pull request head, stacked ones included and forks left out, and of every merge-queue head. It posts nothing. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type: a head without a run passes only when CI skipped that job on it, because retention may have deleted a run. A head without a run of a pull request that targets another branch gets no status: CI decided against that branch, and the push after its retarget creates a run. The same holds for a head whose pull request was retargeted after CI skipped the job. `--apply` posts the statuses, needs `--setup-check` and the commit status gate, and, behind a passing gate verdict, also turns a non-success `PostHog Visual Review / <run type>` green with "Replaced by Visual Review gate / <run type>". `--apply --only-success` posts only the greens, and only with the gate off, before the sitting. A head that already carries the same status, posted by this app, is skipped. It skips draft pull requests and pull request heads not committed within `--pushed-within-days` days (7 by default, 0 covers every open pull request), so a pass needs fewer posts. Merge-queue heads are always covered. A draft gets its status when it is marked ready for review, and a skipped old head gets it on its next push or CI re-run; until then it has no status, which blocks its merge. `--pause` sets the seconds between posts (8 by default, below GitHub's 500 writes per hour). It stops at the first refused read or post and says how many remain; run it again to go on.

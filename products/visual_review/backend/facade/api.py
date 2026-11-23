@@ -44,6 +44,7 @@ from ..logic import (
     flakiness,
     gating,
     history,
+    ledger_adopt,
     ledger_push,
     ledger_repair,
     owners,
@@ -111,6 +112,7 @@ RunNotFullyResolvedError = errors.RunNotFullyResolvedError
 BaselineFilePathNotConfiguredError = errors.BaselineFilePathNotConfiguredError
 CommitStatusNotPostedError = errors.CommitStatusNotPostedError
 BaselineRepairError = errors.BaselineRepairError
+BaselineAdoptionError = errors.BaselineAdoptionError
 
 
 # --- Converters (model -> DTO) ---
@@ -316,6 +318,25 @@ def repair_baseline_ledger(
     if apply:
         return ledger_repair.apply_repair(repo, run_type, on_progress)
     return ledger_repair.plan_repair(repo, run_type, on_progress)
+
+
+def plan_ledger_adoption(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """The entries that would set the ledger to what a full default-branch run rendered, without writing them.
+
+    Ledger mode only. Covers only the named identifiers.
+    """
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.plan_adoption(repo, run_type, run_id, identifiers)
+
+
+def adopt_ledger_renders(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """Write the entries that set the ledger to what a full default-branch run rendered. Ledger mode only."""
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.adopt_renders(repo, run_type, run_id, identifiers)
 
 
 def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:
