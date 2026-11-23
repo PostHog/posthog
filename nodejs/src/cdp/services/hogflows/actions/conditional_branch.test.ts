@@ -667,7 +667,7 @@ describe('action.conditional_branch', () => {
                 expected: 0,
             },
             {
-                name: 'counts a match on an unchanged condition whose bytecode was recompiled',
+                name: 'counts a match on an unchanged condition whose derived fields Django rewrote',
                 parked: {
                     filters: {
                         properties: [{ key: 'plan', type: 'person', value: 'pro' }],
@@ -679,6 +679,7 @@ describe('action.conditional_branch', () => {
                     properties: [{ key: 'plan', type: 'person', value: 'pro' }],
                     bytecode: ['_H', 1, 29],
                     bytecode_contract: 'new',
+                    source: 'events',
                 },
                 expected: 1,
             },

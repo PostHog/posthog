@@ -289,15 +289,13 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
-// Identifies the condition the author saved. Django recompiles the bytecode without an edit, for
-// example when the filter runtime changes, so the compiled fields stay out.
-const COMPILED_FILTER_KEYS = new Set(['bytecode', 'bytecode_contract', 'bytecode_error'])
+// Identifies the condition the author saved. Django writes these fields itself and can rewrite them
+// without an edit, for example when the filter runtime changes, so they stay out.
+const DERIVED_FILTER_KEYS = new Set(['bytecode', 'bytecode_contract', 'bytecode_error', 'source'])
 
-function hashCondition(condition: { filters?: unknown } | undefined): string {
-    const canonical = JSON.stringify(condition?.filters ?? null, (key, value) =>
-        COMPILED_FILTER_KEYS.has(key) ? undefined : value
-    )
-    return createHash('sha256').update(canonical).digest('hex').slice(0, 16)
+function hashCondition(condition: { filters?: object | null } | undefined): string {
+    const authored = Object.entries(condition?.filters ?? {}).filter(([key]) => !DERIVED_FILTER_KEYS.has(key))
+    return createHash('sha256').update(JSON.stringify(authored)).digest('hex').slice(0, 16)
 }
 
 // True when this wait is being evaluated at or past the max_wait_duration it parked against.
