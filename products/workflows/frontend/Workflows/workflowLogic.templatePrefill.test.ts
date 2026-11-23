@@ -259,7 +259,6 @@ describe('workflowLogic pages opened from a link or a template', () => {
             config: {
                 template_id: 'template-email',
                 message_category_type: 'transactional',
-                sensitive: false,
                 inputs: {
                     email: {
                         templating: 'liquid',

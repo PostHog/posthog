@@ -97,7 +97,6 @@ describe('workflowEmailPrefill', () => {
     ])('copies a template email with %s', (_, html, expected) => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',
-            sensitive: false,
             content: { templating: 'liquid', email: { html } },
         } as any)
 
@@ -107,7 +106,6 @@ describe('workflowEmailPrefill', () => {
     it('copies a template whose sender is a plain address as a step without a sender', () => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',
-            sensitive: false,
             content: { templating: 'liquid', email: { from: 'orders@example.com', html: '<p>Hi</p>' } },
         } as any)
 

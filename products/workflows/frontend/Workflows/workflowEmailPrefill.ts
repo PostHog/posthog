@@ -38,12 +38,12 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
 
 /**
  * A new workflow that sends a transactional template's published email, the way its API sends do:
- * on every trigger, past marketing opt-outs, and as sensitive as the template.
+ * on every trigger and past marketing opt-outs. Pass no sensitive template: an event run stores the values it sends.
  */
 export function templatePrefilledWorkflow(
     base: HogFlow,
     trigger: WorkflowTriggerConfig,
-    template: Pick<MessageTemplateApi, 'name' | 'sensitive' | 'content'>
+    template: Pick<MessageTemplateApi, 'name' | 'content'>
 ): HogFlow {
     const email = template.content?.email ?? {}
     const { from, ...content } = someString(email, (text) => OWN_VARIABLES.test(text))
@@ -53,7 +53,7 @@ export function templatePrefilledWorkflow(
         TEMPLATE_EMAIL_ACTION_ID,
         template.name,
         { cc: '', bcc: '', replyTo: '', ...content, from: typeof from === 'object' && from ? from : {} },
-        { message_category_type: 'transactional', sensitive: !!template.sensitive }
+        { message_category_type: 'transactional' }
     )
     return { ...withEmailStep(base, trigger, emailAction), name: template.name }
 }
