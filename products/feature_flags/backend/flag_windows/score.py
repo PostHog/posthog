@@ -147,7 +147,7 @@ def score_window(
             raise ValueError(f"The score needs one-hour buckets that start on the hour, got one at {start}")
 
     exposure_since_edit = exposure[-1].since_edit if exposure else None
-    shares = {bucket.start: _share(bucket.in_bucket) for bucket in exposure}
+    shares = {bucket.start: exposure_share(bucket.in_bucket) for bucket in exposure}
     excess = _excess_by_hour(edit, hours, baseline, parameters.min_active)
 
     level_1: ProportionTestResult | None = None
@@ -256,7 +256,7 @@ def _proximity(hour: datetime, exposure_steps: Sequence[datetime], parameters: S
     return math.exp(-(hour - latest_step) / parameters.decay)
 
 
-def _share(counts: ExposureCounts) -> float:
+def exposure_share(counts: ExposureCounts) -> float:
     return counts.exposed / counts.with_flag if counts.with_flag else 0.0
 
 
