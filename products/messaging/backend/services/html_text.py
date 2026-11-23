@@ -40,7 +40,7 @@ LINK_SCHEMES = ("http://", "https://", "mailto:")
 _JS_WHITESPACE = r"[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]"
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
 _UNSUBSCRIBE_HREF = re.compile(
-    rf"{_JS_WHITESPACE}*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}(?:[?#].*)?{_JS_WHITESPACE}*"
+    rf"{_JS_WHITESPACE}*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}(?:[?#][^\r\n]*|{_JS_WHITESPACE}*)"
 )
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")

@@ -139,3 +139,9 @@ class TestTextFromHtml(SimpleTestCase):
         html = "<div>" * 43690 + "Hi" + "</span>" * 43690
 
         assert text_from_html(html) == "Hi"
+
+    @pytest.mark.timeout(30, func_only=True)
+    def test_long_unsubscribe_suffix_with_spaces_converts_in_linear_time(self):
+        html = f'<a href="{{{{ unsubscribe_url }}}}?{" " * 131072}\nX">Unsubscribe</a>'
+
+        assert text_from_html(html, keep_unsubscribe_link=True) == "Unsubscribe"
