@@ -169,7 +169,18 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
 
         self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
 
+        assert self.world.dns.txt_values(f"_dmarc.{DOMAIN}") == ["v=DMARC1; p=none;"]
         assert self.status_body(sender)["status"] == "verified"
+
+    def test_approved_setup_publishes_dmarc_beneath_the_record_of_a_private_suffix_operator(self) -> None:
+        self.world.dns.add_zone("eu.org", nameservers=CLOUDFLARE_NAMESERVERS)
+        self.world.dns.publish_txt("_dmarc.eu.org", "v=DMARC1; p=reject")
+        self.world.domain_connect.host("eu.org")
+        sender = self.create_sender("hello@send.name.eu.org")
+
+        self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
+
+        assert self.world.dns.txt_values("_dmarc.send.name.eu.org") == ["v=DMARC1; p=none;"]
 
     @parameterized.expand(
         [

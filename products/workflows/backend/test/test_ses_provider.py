@@ -20,8 +20,9 @@ from products.workflows.backend.providers.ses import (
     METRIC_QUERY_BUDGET_SECONDS,
     SESProvider,
 )
-from products.workflows.backend.services.email_domain_dns import PublishedRecords
-from products.workflows.backend.tests.fakes.fake_dns import every_record_published
+from products.workflows.backend.services.email_domain_dns import PublishedRecords, find_published_records
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.faults import FaultInjector
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 TEST_DOMAIN = "test.posthog.com"
@@ -271,12 +272,16 @@ class TestSESProvider(TestCase):
         mock_resolver_cls.assert_not_called()
         assert result["status"] == "pending"
 
-    @patch("products.workflows.backend.providers.ses.find_published_records", side_effect=every_record_published)
-    def test_verify_email_domain_success(self, _find_published_records):
+    def test_verify_email_domain_success(self):
         provider = SESProvider()
+        dns_zone = FakeDnsZone(FaultInjector())
+        dns_zone.add_zone(TEST_DOMAIN)
+        dns_zone.publish_txt(f"_dmarc.{TEST_DOMAIN}", "v=DMARC1; p=none;")
 
         # Patch the SES client to return 'Success' for both verification and DKIM
         with (
+            patch("products.workflows.backend.providers.ses.find_published_records", find_published_records),
+            dns_zone.installed(),
             patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
             patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
             patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,

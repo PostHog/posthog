@@ -12,8 +12,9 @@ from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
-from products.workflows.backend.services.email_domain_dns import PublishedRecords
-from products.workflows.backend.tests.fakes.fake_dns import every_record_published
+from products.workflows.backend.services.email_domain_dns import PublishedRecords, find_published_records
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.faults import FaultInjector
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
@@ -59,13 +60,19 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             "MailFromDomainAttributes": {domain: {"MailFromDomainStatus": "Success"}}
         }
 
-    @patch("products.workflows.backend.providers.ses.find_published_records", side_effect=every_record_published)
-    def test_verify_email_domain_requires_team_tenant_association(self, _find_published_records):
+    def test_verify_email_domain_requires_team_tenant_association(self):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
         self._set_global_ses_success(provider, "partner.com")
+        dns_zone = FakeDnsZone(FaultInjector())
+        dns_zone.add_zone("partner.com")
+        dns_zone.publish_txt("_dmarc.partner.com", "v=DMARC1; p=none;")
 
-        result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
-        result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)
+        with (
+            patch("products.workflows.backend.providers.ses.find_published_records", find_published_records),
+            dns_zone.installed(),
+        ):
+            result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
+            result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)
 
         assert result_team_a["status"] == "success"
         assert result_team_b["status"] == "pending"

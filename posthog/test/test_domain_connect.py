@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import dns.name
 import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
 from cryptography.hazmat.primitives.asymmetric import (
@@ -247,20 +246,6 @@ class TestTemplateResolverAlignment(BaseTest):
         self.assertEqual(resolved.host, "ph")
         if template.get("hostRequired"):
             self.assertTrue(resolved.host, "hostRequired template but resolver returned empty host")
-
-
-class TestDmarcAbsence(SimpleTestCase):
-    @parameterized.expand([("subdomain", "send.example.com"), ("private_suffix_itself", "eu.org")])
-    def test_absence_is_confirmed_when_no_dmarc_name_holds_a_record(self, _name: str, domain: str) -> None:
-        def nothing_published(name: str, *_args: object, **_kwargs: object) -> None:
-            dns.name.from_text(name)
-            raise dns.resolver.NXDOMAIN
-
-        with (
-            patch.object(domain_connect, "is_cloud", return_value=False),
-            patch.object(domain_connect.dns.resolver, "resolve", side_effect=nothing_published),
-        ):
-            self.assertTrue(domain_connect._dmarc_absence_confirmed(domain))
 
 
 class TestOutOfBandDomainsAreNotLookedUp(SimpleTestCase):

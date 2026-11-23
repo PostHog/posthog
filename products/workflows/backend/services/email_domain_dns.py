@@ -32,7 +32,8 @@ MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
-_DMARC_VERSION = re.compile(r"v\s*=\s*dmarc1\s*(;|$)", re.IGNORECASE)
+_DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
+_DMARC_REQUESTS = frozenset({"none", "quarantine", "reject"})
 
 
 @frozen
@@ -98,7 +99,7 @@ def dmarc_record_in_force(
 def _with_published_value(
     record: EmailDomainStatusRecord, published: PublishedRecords
 ) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
-    in_force = replace(record, value=published.dmarc_policies[record][0])
+    in_force = replace(record, value=_policy_in_force(published.dmarc_policies[record][0]) or record.value)
     return in_force, replace(published, records=(published.records - {record}) | {in_force})
 
 
@@ -188,7 +189,8 @@ def _normalized_hostname(hostname: str) -> str:
 
 def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
     if record.kind == Kind.DMARC:
-        return len(_dmarc_policies(answers)) == 1
+        policies = _dmarc_policies(answers)
+        return len(policies) == 1 and _policy_in_force(policies[0]) is not None
     answers = [answer.strip('"') for answer in answers]
     match record.kind, record.type:
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
@@ -207,6 +209,17 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
 
 def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
     return tuple(answer for answer in answers if _DMARC_VERSION.match(answer))
+
+
+def _policy_in_force(policy: str) -> str | None:
+    tags = {
+        name.strip().lower(): value.strip().lower()
+        for name, _, value in (tag.partition("=") for tag in policy.split(";"))
+    }
+    request, subdomain_request = tags.get("p"), tags.get("sp")
+    if request not in _DMARC_REQUESTS or (subdomain_request is not None and subdomain_request not in _DMARC_REQUESTS):
+        return None
+    return f"v=DMARC1; p={request}" + (f"; sp={subdomain_request}" if subdomain_request else "")
 
 
 def _is_spf(answer: str) -> bool:

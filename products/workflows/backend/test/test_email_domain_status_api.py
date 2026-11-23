@@ -609,11 +609,16 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
 
         assert (body["status"], record_statuses(body)["dmarc"]) == ("verified", ["verified"])
 
-    @parameterized.expand([("lowercase_tag", "v=dmarc1; p=quarantine"), ("spaced_tag", " V = DMARC1 ; p=reject")])
-    def test_dmarc_record_counts_whatever_the_case_or_spacing_of_its_version_tag(self, _name: str, dmarc: str) -> None:
+    @parameterized.expand(
+        [
+            ("spaced_tags", [" V = DMARC1 ; p = reject "]),
+            ("lowercase_copy_receivers_ignore", ["v=dmarc1; p=none", "v=DMARC1; p=reject"]),
+        ]
+    )
+    def test_dmarc_record_receivers_apply_counts(self, _name: str, dmarc: list[str]) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS[:-1])
-        self.world.dns.publish_txt(f"_dmarc.{DOMAIN}", dmarc)
+        self.world.dns.publish_txt(f"_dmarc.{DOMAIN}", *dmarc)
 
         assert self.status_body(sender)["status"] == "verified"
         assert (self.verify(sender).status_code, self.is_verified(sender)) == (status.HTTP_200_OK, True)
@@ -636,8 +641,9 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
     ) -> None:
         if organizational_domain != ROOT_DOMAIN:
             self.world.dns.add_zone(organizational_domain)
-        inherited_dmarc = "v=DMARC1; p=quarantine; rua=mailto:reports@example.net"
-        self.world.dns.publish_txt(f"_dmarc.{organizational_domain}", inherited_dmarc)
+        self.world.dns.publish_txt(
+            f"_dmarc.{organizational_domain}", "v=DMARC1; p=quarantine; sp=reject; rua=mailto:reports@example.net"
+        )
         if subdomain_txt:
             self.world.dns.publish_txt(f"_dmarc.{domain}", subdomain_txt)
         if public_resolver_lags:
@@ -654,7 +660,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             (record["hostname"], record["value"], record["status"])
             for record in body["records"]
             if record["kind"] == "dmarc"
-        ] == [(f"_dmarc.{organizational_domain}", inherited_dmarc, "verified")]
+        ] == [(f"_dmarc.{organizational_domain}", "v=DMARC1; p=quarantine; sp=reject", "verified")]
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
 
@@ -673,6 +679,12 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         [
             ("two_policies_at_the_organizational_domain", [], ["v=DMARC1; p=reject", "v=DMARC1; p=none"]),
             ("version_tag_other_than_dmarc1", [], ["v=DMARC10; p=reject"]),
+            ("lowercase_version_value", [], ["v=dmarc1; p=reject"]),
+            ("version_tag_without_a_policy", [], ["v=DMARC1"]),
+            ("policy_value_receivers_do_not_know", [], ["v=DMARC1; p=block"]),
+            ("policy_value_with_invalid_utf8", [], ["v=DMARC1; p=\\255reject"]),
+            ("invalid_subdomain_policy", [], ["v=DMARC1; p=reject; sp=block"]),
+            ("subdomain_record_without_a_policy", ["v=DMARC1; rua=mailto:reports@example.net"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
         ]
