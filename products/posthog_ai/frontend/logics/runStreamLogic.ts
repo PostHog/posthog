@@ -3662,10 +3662,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // A resumed run replays its ancestors' logs. Each run starts with `run_started`, and Claude reports no
+        // config at boot, so an earlier run's confirmed model must not outlive its run.
         sessionModel: [
             null as string | null,
             {
                 setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
                 prepareResumeRun: () => null,
                 reset: () => null,
             },
@@ -3674,6 +3677,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
                 prepareResumeRun: () => null,
                 reset: () => null,
             },

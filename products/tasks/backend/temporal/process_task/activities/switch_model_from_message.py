@@ -4,6 +4,8 @@ The run stays on its runtime adapter, because the harness process is fixed when 
 A new or resumed run reads its first message before the run exists, in the create and run requests.
 """
 
+from time import monotonic
+
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -16,6 +18,11 @@ from products.tasks.backend.logic.services.prompt_model_switch import requested_
 from products.tasks.backend.models import Task, TaskRun
 
 logger = get_logger(__name__)
+
+# A switch that lands after the follow-up starts would change the model in the middle of that turn.
+# So a classification that runs past this budget is dropped, and the workflow timeout leaves room
+# for the budget plus the two `set_config_option` commands that follow it.
+CLASSIFY_BUDGET_SECONDS = 25
 
 
 @frozen
@@ -40,10 +47,14 @@ def switch_model(input: SwitchModelFromMessageInput) -> bool:
     if actor is None or runtime_adapter is None:
         return False
 
+    started = monotonic()
     override = requested_model_switch(
         input.message, team=run.task.team, user=actor, runtime_adapter=runtime_adapter, run_state=state
     )
     if override is None:
+        return False
+    if monotonic() - started > CLASSIFY_BUDGET_SECONDS:
+        logger.warning("switch_model_from_message_classification_overran", run_id=str(run.id))
         return False
     model = override.model if override.model != current_model else None
     effort = filter_unsupported_effort(runtime_adapter, model or current_model, override.reasoning_effort)

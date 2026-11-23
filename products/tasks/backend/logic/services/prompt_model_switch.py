@@ -22,7 +22,10 @@ from products.tasks.backend.logic.model_override import (
     classify_model_override,
     may_request_model_override,
 )
-from products.tasks.backend.logic.services.gateway_model_pin import pinned_run_allows_model
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    model_allowed_by_product_pin,
+    pinned_run_allows_model,
+)
 from products.tasks.backend.logic.services.model_catalogue import (
     TASK_RUN_GATEWAY_PRODUCT,
     available_model_choices,
@@ -37,6 +40,9 @@ logger = structlog.get_logger(__name__)
 # long enough for the second request to reuse it, rather than pay for a second classifier call.
 _CACHE_TTL_SECONDS = 120
 _NO_SWITCH = "none"
+# A PostHog AI run mints its gateway token under this product, so a model outside its pin fails the run.
+# The catalogue lists the wider PostHog Code set, and a new run has no stamped pin to check yet.
+_GATEWAY_PRODUCT = "posthog_ai"
 
 
 def _cache_key(team: Team, user: User, runtime_adapter: str | None, text: str) -> str:
@@ -107,6 +113,7 @@ def requested_model_switch(
         choice
         for choice in catalogue
         if get_model_access_error(choice.model, distinct_id=distinct_id) is None
+        and model_allowed_by_product_pin(_GATEWAY_PRODUCT, choice.model)
         and pinned_run_allows_model(dict(run_state) if run_state is not None else None, choice.model)
     )
     override = classify_model_override(
@@ -152,7 +159,22 @@ def with_prompt_model_switch(data: Mapping[str, Any], *, team: Team, user: User)
                 runtime_adapter, updated["initial_permission_mode"]
             )
     elif override.reasoning_effort:
-        updated["reasoning_effort"] = override.reasoning_effort
+        # The run rejects an effort its model lacks, which would stop the message from starting it.
+        # An unpinned run launches on the stored default, so the check reads the model it resolves to.
+        from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — ai_run_defaults imports the tasks ORM
+            resolve_ai_run_selection,
+        )
+
+        selection = resolve_ai_run_selection(
+            team.id, user.id, runtime_adapter=updated.get("runtime_adapter"), model=updated.get("model")
+        )
+        effort = filter_unsupported_effort(
+            selection.runtime_adapter or runtime_adapter_for(selection.model),
+            selection.model,
+            override.reasoning_effort,
+        )
+        if effort:
+            updated["reasoning_effort"] = effort
     logger.info(
         "prompt_model_switch_applied", model=updated.get("model"), reasoning_effort=updated.get("reasoning_effort")
     )

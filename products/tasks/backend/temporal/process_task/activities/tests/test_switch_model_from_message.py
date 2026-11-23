@@ -80,3 +80,15 @@ class TestSwitchModelFromMessage:
         assert switched is False
         send.assert_not_called()
         assert run.state["model"] == "claude-sonnet-4-6"
+
+    def test_a_classification_past_its_budget_changes_nothing(self, run):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.switch_model_from_message.monotonic",
+            side_effect=[0.0, 26.0],
+        ):
+            switched, _build, send = _switch(run, "use opus for this", reply={"model": "claude-opus-4-8"})
+
+        run.refresh_from_db()
+        assert switched is False
+        send.assert_not_called()
+        assert run.state["model"] == "claude-sonnet-4-6"

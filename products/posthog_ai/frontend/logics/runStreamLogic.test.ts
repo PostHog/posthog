@@ -543,6 +543,23 @@ describe('runStreamLogic', () => {
             }
         )
 
+        it('forgets the confirmed model and effort at the next run boundary', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'config_option_update',
+                        configOptions: [
+                            { id: 'model', currentValue: 'claude-opus-4-8' },
+                            { id: 'effort', currentValue: 'high' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toFinishAllListeners()
+
+            expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual([null, null])
+        })
+
         it('replaces availableCommands on each available_commands_update frame', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(

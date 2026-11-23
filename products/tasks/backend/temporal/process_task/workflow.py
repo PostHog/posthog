@@ -131,7 +131,11 @@ from .activities.start_dev_stack_preview import (
     start_dev_stack_preview,
     wait_dev_stack_preview,
 )
-from .activities.switch_model_from_message import SwitchModelFromMessageInput, switch_model_from_message
+from .activities.switch_model_from_message import (
+    CLASSIFY_BUDGET_SECONDS,
+    SwitchModelFromMessageInput,
+    switch_model_from_message,
+)
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -357,8 +361,10 @@ def _check_rotation_activity_before_boot() -> bool:
 
 _PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
 _PATCH_ID_SWITCH_MODEL_FROM_MESSAGE = "tasks-switch-model-from-message-2026-11"
-# The classifier call is bounded at two attempts of 10s, and a slow call must not hold the message back longer.
-_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT = timedelta(seconds=30)
+# A synchronous activity keeps running after Temporal times it out, so the follow-up could reach the agent
+# while the switch still changes its model. The timeout covers the classification budget, the model and
+# effort commands (each bounded by agent_command.COMMAND_TIMEOUT_SECONDS, 15s), and the database work.
+_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT = timedelta(seconds=CLASSIFY_BUDGET_SECONDS + 2 * 15 + 15)
 
 
 def _check_switch_model_from_message_patch() -> bool:

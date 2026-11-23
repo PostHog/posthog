@@ -342,6 +342,9 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
+    markRunStarted: () => {
+        value: true
+    } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
     } // runStreamLogic
@@ -770,6 +773,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
+                'markRunStarted',
                 'setSessionConfig',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
@@ -1006,6 +1010,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             {
                 setSentModel: (_, { model }) => model,
                 setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
             },
         ],
         sentEffort: [
@@ -1013,6 +1018,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             {
                 setSentEffort: (_, { effort }) => effort,
                 setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
             },
         ],
         sentMode: [
@@ -1576,19 +1582,23 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         values.sentEffort ?? props.currentEffort ?? values.sessionBaseline.effort,
                         activeModel
                     )
-                    if (values.selectedModel !== activeModel) {
-                        await setConfigOption(MODEL_CONFIG_ID, values.selectedModel)
+                    // Read once, before the first command: the agent confirms the model with its whole config,
+                    // which clears the effort pick while the effort command is still to come.
+                    const wantedModel = values.selectedModel
+                    const wantedEffort = values.selectedEffort
+                    if (wantedModel !== activeModel) {
+                        await setConfigOption(MODEL_CONFIG_ID, wantedModel)
                         if (!isCurrent()) {
                             return
                         }
-                        actions.setSentModel(values.selectedModel)
+                        actions.setSentModel(wantedModel)
                     }
-                    if (values.selectedEffort !== activeEffort) {
-                        await setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort)
+                    if (wantedEffort !== activeEffort) {
+                        await setConfigOption(EFFORT_CONFIG_ID, wantedEffort)
                         if (!isCurrent()) {
                             return
                         }
-                        actions.setSentEffort(values.selectedEffort)
+                        actions.setSentEffort(wantedEffort)
                     }
                     if (!isPiTaskRuntime(props.taskRuntime)) {
                         const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude

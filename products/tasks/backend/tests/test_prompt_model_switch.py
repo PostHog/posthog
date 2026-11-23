@@ -16,6 +16,9 @@ CATALOGUE = (
         runtime_adapter="claude", model="claude-opus-4-8", label="Claude Opus 4.8", supported_efforts=("high",)
     ),
     ModelChoice(runtime_adapter="codex", model="gpt-5.5", label="GPT 5.5", supported_efforts=("low", "high")),
+    ModelChoice(runtime_adapter="claude", model="claude-sonnet-4-6", label="Claude Sonnet 4.6", supported_efforts=()),
+    # Served to PostHog Code, but outside the posthog_ai pin a PostHog AI run mints its token under.
+    ModelChoice(runtime_adapter="codex", model="zai-org/glm-5.3", label="GLM 5.3", supported_efforts=()),
 )
 CODEX_SELECTION = {"runtime_adapter": "codex", "model": "gpt-5.5", "initial_permission_mode": "full-access"}
 
@@ -65,6 +68,35 @@ class TestWithPromptModelSwitch(SimpleTestCase):
         assert first_build.call_count == 1
         second_build.assert_not_called()
         assert second_updated["model"] == "claude-opus-4-8"
+
+    @parameterized.expand(
+        [
+            # Sonnet 4.6 supports low, medium and high, and the run rejects any other effort.
+            ("effort_the_model_supports", "high", "high"),
+            ("effort_the_model_lacks", "max", None),
+        ]
+    )
+    def test_an_effort_only_request_is_checked_against_the_run_model(self, _name, requested, expected) -> None:
+        data = {
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-4-6",
+            "pending_user_message": f"use {requested} effort",
+        }
+
+        updated, _build = self._apply(data, reply={"model": None, "reasoning_effort": requested})
+
+        assert updated.get("reasoning_effort") == expected
+
+    def test_a_model_outside_the_posthog_ai_pin_is_never_offered(self) -> None:
+        data = {**CODEX_SELECTION, "pending_user_message": "use glm for this"}
+
+        updated, build = self._apply(data, reply={"model": "zai-org/glm-5.3", "reasoning_effort": None})
+
+        offered = build.return_value.with_options.return_value.chat.completions.create.call_args.kwargs[
+            "response_format"
+        ]["json_schema"]["schema"]["properties"]["model"]["enum"]
+        assert "zai-org/glm-5.3" not in offered
+        assert updated == data
 
     @parameterized.expand(
         [
