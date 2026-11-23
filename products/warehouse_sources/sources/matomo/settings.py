@@ -40,7 +40,6 @@ class MatomoEndpointConfig:
     # Extra request parameters sent alongside the method, e.g. `flat` for hierarchical reports.
     params: dict[str, Any] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
-    # Row fields joined into a `_row_key` column, for reports whose label is not unique.
     row_key_fields: tuple[str, ...] = ()
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Delta partitioning for this endpoint. Left unset (None) means the table is written
@@ -257,8 +256,7 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         primary_keys=["_date", "label"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
-    # Matomo groups these reports by codes and only maps them to names for the label, so two
-    # region codes can share one label. Key the rows on the codes Matomo groups by.
+    # Matomo groups these reports by codes; two region codes can share one label.
     "regions": MatomoEndpointConfig(
         name="regions",
         kind="report",
