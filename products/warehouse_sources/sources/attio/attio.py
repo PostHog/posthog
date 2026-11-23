@@ -37,6 +37,14 @@ class AttioResumeConfig:
     fanout_key: str | None = None
 
 
+@frozen
+class _FanoutChild:
+    # `<target>/<parent id>[/<attribute id>]`. Children are read in ascending key order.
+    key: str
+    target: FanoutTarget
+    path: str
+
+
 # An object, list or attribute can be deleted between the parent listing and the child request.
 _IGNORE_NOT_FOUND = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="attio")
 
@@ -179,20 +187,22 @@ def _fanout_children(
     config: AttioEndpointConfig,
     resumable_source_manager: ResumableSourceManager[AttioResumeConfig],
     resume_key: str | None,
-) -> Iterator[tuple[str, FanoutTarget, str]]:
-    """Yield `(key, target, path)` for each child read, in ascending key order."""
+) -> Iterator[_FanoutChild]:
+    """Yield each child read, in ascending key order."""
     for target, parent_id in _parent_keys(client, config, resumable_source_manager):
         parent_key = f"{target}/{parent_id}"
         path = config.path.replace("{target}", target).replace("{identifier}", parent_id)
         if config.fanout == "parent":
-            yield parent_key, target, path
+            yield _FanoutChild(key=parent_key, target=target, path=path)
             continue
         # Every child key of this parent sorts before the resume key, so skip the attribute listing.
         if resume_key is not None and parent_key < resume_key[: len(parent_key)]:
             continue
         assert config.attribute_type is not None
         for attribute_id in _attribute_ids(client, target, parent_id, config.attribute_type, resumable_source_manager):
-            yield f"{parent_key}/{attribute_id}", target, path.replace("{attribute}", attribute_id)
+            yield _FanoutChild(
+                key=f"{parent_key}/{attribute_id}", target=target, path=path.replace("{attribute}", attribute_id)
+            )
 
 
 def _fanout_rows(
@@ -214,7 +224,8 @@ def _fanout_rows(
         nonlocal next_page_state
         next_page_state = state
 
-    for key, target, path in _fanout_children(client, config, resumable_source_manager, resume_key):
+    for child in _fanout_children(client, config, resumable_source_manager, resume_key):
+        key = child.key
         if resume_key is not None and (key < resume_key or (key == resume_key and resume_offset is None)):
             continue
         start_offset = resume_offset if key == resume_key else None
@@ -227,7 +238,7 @@ def _fanout_rows(
 
         yielded = False
         for page in client.paginate(
-            path=path,
+            path=child.path,
             method=config.method,
             params=dict(config.params) or None,
             paginator=paginator,
@@ -236,7 +247,7 @@ def _fanout_rows(
             initial_paginator_state={"offset": start_offset} if start_offset is not None else None,
             page_state_hook=track_child_page,
         ):
-            rows = [_shape_fanout_row(row, config, target) for row in page if isinstance(row, dict)]
+            rows = [_shape_fanout_row(row, config, child.target) for row in page if isinstance(row, dict)]
             if not rows:
                 continue
             offset = next_page_state.get("offset") if next_page_state else None
