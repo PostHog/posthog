@@ -42,7 +42,8 @@ class PushStatusSerializer(serializers.Serializer):
     id = serializers.CharField(source="run_id", help_text="The `message_id` that the send returned.")
     status = serializers.ChoiceField(
         choices=PushSendStatus.choices,
-        help_text="What happened to the push notification. `sending` means it is still going out. `sent` means Apple "
+        help_text="What happened to the push notification. `sending` means it is still going out, or that it finished in the "
+        "last minute and PostHog hasn't recorded its outcome yet. `sent` means Apple "
         "or Google accepted it for at least one of the person's devices. `not_sent` means none of the person's "
         "devices got it, and `reason` says why. `failed` means the send stopped with an error.",
     )

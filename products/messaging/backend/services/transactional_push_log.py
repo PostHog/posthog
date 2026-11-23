@@ -38,6 +38,8 @@ _MAX_MESSAGES = 10
 # The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
 _ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)?")
 TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
+# A finished run's stored push and log lines land a few seconds after the run row, so until then its outcome is unknown.
+_OUTCOME_LAG = timedelta(minutes=1)
 
 # The lines the push step logs when it skips a send or stops on an error, matched in this order. They come from
 # nodejs/src/cdp/services/messaging/push-notification.service.ts and the message step's opt-out and frequency cap
@@ -66,6 +68,7 @@ _RUNS = """
         min(first_scheduled_at) AS queued_at,
         argMax(status, version) AS run_status,
         argMax(error_message, version) AS run_error,
+        argMax(finished_at, version) AS run_finished_at,
         argMax(distinct_id, version) AS run_distinct_id,
         argMax(person_id, version) AS run_person_id,
         any(function_id) AS run_workflow_id,
@@ -235,7 +238,7 @@ def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | Non
     rows = _execute(
         team_id,
         f"""
-        SELECT queued_at, run_status, send_status
+        SELECT queued_at, run_status, send_status, run_finished_at
         FROM (
             SELECT *, {_SEND_STATUS.format(search=condition)} AS send_status
             FROM ({_RUNS.format(search=condition)})
@@ -252,9 +255,16 @@ def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | Non
     )
     if not rows:
         return None
-    queued_at, run_status, send_status = rows[0]
+    queued_at, run_status, send_status, finished_at = rows[0]
     status = PushSendStatus(send_status)
     step_messages = _step_messages(team_id, workflow_ids, [str(run_id)], period.start).get(str(run_id), [])
+    if (
+        status == PushSendStatus.NOT_SENT
+        and not step_messages
+        and finished_at is not None
+        and finished_at.replace(tzinfo=UTC) > now - _OUTCOME_LAG
+    ):
+        status = PushSendStatus.SENDING
     return TransactionalPushStatus(
         run_id=str(run_id),
         status=status,

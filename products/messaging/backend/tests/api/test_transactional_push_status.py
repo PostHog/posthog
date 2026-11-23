@@ -74,12 +74,15 @@ class TestTransactionalPushStatus(ClickhouseTestMixin, APIBaseTest):
             """
             INSERT INTO hog_invocation_results_data
                 (team_id, function_kind, function_id, invocation_id, parent_run_id, status, scheduled_at,
-                 first_scheduled_at, error_message, distinct_id, person_id, version, _timestamp)
+                 first_scheduled_at, finished_at, error_message, distinct_id, person_id, version, _timestamp)
             VALUES
             """,
             [
-                (team.id, "hog_flow", workflow_id, run_id, "", run_status_, at, at, "", "alice", "", version, at)
-                for run_status_, version in [("running", 1), *([] if run_status == "running" else [(run_status, 2)])]
+                (team.id, "hog_flow", workflow_id, run_id, "", status_, at, at, finished, "", "alice", "", version, at)
+                for status_, finished, version in [
+                    ("running", None, 1),
+                    *([] if run_status == "running" else [(run_status, at, 2)]),
+                ]
             ],
         )
         if sent:
@@ -164,6 +167,17 @@ class TestTransactionalPushStatus(ClickhouseTestMixin, APIBaseTest):
             "reason": expected_reason,
         }
         assert capture.call_args.kwargs["properties"]["authorized_by"] == "transactional_push"
+
+    @parameterized.expand([("just_finished", 10, "sending"), ("finished_a_while_ago", 120, "not_sent")])
+    def test_a_finished_send_whose_outcome_is_not_recorded_yet_is_still_sending(
+        self, _flag, _name, seconds_ago, expected_status
+    ):
+        run_id = self._run("succeeded", at=NOW - timedelta(seconds=seconds_ago))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging/pushes/{run_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == expected_status
 
     @parameterized.expand(
         [
