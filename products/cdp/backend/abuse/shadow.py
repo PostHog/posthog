@@ -11,17 +11,20 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
 from products.cdp.backend.abuse import metrics, rules
+from products.cdp.backend.abuse.account import Account, AccountCutoffs, AccountTier
 from products.cdp.backend.abuse.classifier import (
     AbuseVerdict,
     ClassificationFailed,
@@ -42,7 +45,8 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 logger = structlog.get_logger(__name__)
 
 # Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
-# "control_threshold": 0.7}.
+# "control_threshold": 0.7}, and may override the account cutoffs, for example {"established_min_age_days": 30,
+# "new_max_age_days": 14, "new_max_members": 2}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -69,6 +73,8 @@ class ScoredHogFunction:
     failure: FailureReason | None
     rule_hits: tuple[rules.Rule, ...]
     outbound_call: bool
+    account: Account
+    account_tier: AccountTier
 
     @property
     def would_alert(self) -> bool:
@@ -149,7 +155,7 @@ def backfill_enabled() -> bool:
         return False
 
 
-def thresholds_for(team: Team) -> Thresholds:
+def _flag_payload(team: Team) -> dict[str, Any]:
     try:
         # The flag has one payload. Asking for the "on" value returns it for teams the flag does not match too,
         # so a backfill scores every team against the same thresholds.
@@ -158,14 +164,41 @@ def thresholds_for(team: Team) -> Thresholds:
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
-        if isinstance(payload, dict):
-            control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
-            return Thresholds(
-                alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control
-            )
     except Exception:
-        logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
-    return Thresholds()
+        logger.warning("cdp_abuse_classifier_payload_unreadable", team_id=team.id, exc_info=True)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
+    if not payload:
+        return Thresholds()
+    try:
+        control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
+        return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control)
+    except (KeyError, TypeError, ValueError):
+        logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team_id, exc_info=True)
+        return Thresholds()
+
+
+def _account_cutoffs(payload: dict[str, Any], team_id: int) -> AccountCutoffs:
+    keys = ("established_min_age_days", "new_max_age_days", "new_max_members")
+    try:
+        return AccountCutoffs(**{key: int(payload[key]) for key in keys if key in payload})
+    except (TypeError, ValueError):
+        logger.warning("cdp_abuse_classifier_account_cutoffs_unreadable", team_id=team_id, exc_info=True)
+        return AccountCutoffs()
+
+
+def _account_of(team: Team) -> Account:
+    organization = team.organization
+    return Account(
+        age=timezone.now() - organization.created_at,
+        has_active_subscription=organization.has_active_subscription,
+        member_count=OrganizationMembership.objects.filter(organization_id=organization.id).count(),
+        # Billing keys trust scores by usage key, and CDP usage is counted as trigger events.
+        cdp_trust_score=(organization.customer_trust_scores or {}).get("cdp_trigger_events"),
+    )
 
 
 def _hash_key(hog_function_id: str) -> str:
@@ -286,14 +319,18 @@ def score(hog_function: HogFunction) -> ScoredHogFunction:
 def _score(
     hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], outbound_call: bool
 ) -> ScoredHogFunction:
+    payload = _flag_payload(hog_function.team)
+    account = _account_of(hog_function.team)
+    account_tier = account.tier(_account_cutoffs(payload, hog_function.team_id))
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
         verdict = classify(
             content,
             team_id=hog_function.team_id,
-            thresholds=thresholds_for(hog_function.team),
+            thresholds=_thresholds(payload, hog_function.team_id),
             outbound_call=outbound_call,
+            account_tier=account_tier,
         )
     except ClassificationFailed as error:
         failure = error.reason
@@ -304,6 +341,8 @@ def _score(
         failure=failure,
         rule_hits=rule_hits,
         outbound_call=outbound_call,
+        account=account,
+        account_tier=account_tier,
     )
 
 
@@ -365,6 +404,7 @@ def report(
             "rule_hits": rule_hits,
             "would_alert": scored.would_alert,
             "would_block": scored.would_block,
+            "model_alert_gates": [gate.value for gate in verdict.model_alert_gates],
             "state_truncated": verdict.state_truncated,
             "model": verdict.model,
             "latency_ms": verdict.latency_ms,
@@ -381,10 +421,16 @@ def report(
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
     team = hog_function.team
+    account = scored.account
     properties = {
         "team_id": team.id,
         "organization_id": str(team.organization_id),
         "organization_created_at": team.organization.created_at.isoformat(),
+        "organization_age_days": account.age.days,
+        "organization_member_count": account.member_count,
+        "has_active_subscription": account.has_active_subscription,
+        "cdp_trust_score": account.cdp_trust_score,
+        "account_tier": scored.account_tier.value,
         "hog_function_id": str(hog_function.id),
         "hog_function_type": hog_function.type,
         "template_id": hog_function.template_id,

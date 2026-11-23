@@ -1,0 +1,45 @@
+"""The account behind a hog function, which weighs how far a model score is trusted.
+
+Pure: the shadow task loads the account, so the save path runs no extra query.
+"""
+
+from datetime import timedelta
+from enum import StrEnum
+
+from posthog.dataclasses import frozen
+
+
+class AccountTier(StrEnum):
+    # A long-standing paying customer, unlikely to abuse us.
+    ESTABLISHED = "established"
+    # Fresh, free and small: the shape abuse takes.
+    NEW = "new"
+    STANDARD = "standard"
+
+
+@frozen
+class AccountCutoffs:
+    established_min_age_days: int = 30
+    new_max_age_days: int = 14
+    new_max_members: int = 2
+
+
+@frozen
+class Account:
+    age: timedelta
+    # Synced by billing. None means billing never synced the organization, so nothing is known.
+    has_active_subscription: bool | None
+    member_count: int
+    # Billing's trust level for CDP usage (0 none, 3 low, 7 medium, 10 high). Reported only, never decides the tier.
+    cdp_trust_score: int | None
+
+    def tier(self, cutoffs: AccountCutoffs) -> AccountTier:
+        if self.has_active_subscription is True and self.age > timedelta(days=cutoffs.established_min_age_days):
+            return AccountTier.ESTABLISHED
+        if (
+            self.has_active_subscription is False
+            and self.age < timedelta(days=cutoffs.new_max_age_days)
+            and self.member_count <= cutoffs.new_max_members
+        ):
+            return AccountTier.NEW
+        return AccountTier.STANDARD
