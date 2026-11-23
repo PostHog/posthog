@@ -12,6 +12,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import OrganizationAdminWritePermissions
 
 from products.messaging.backend.facade.categories import (
     MESSAGE_CATEGORY_TYPE_CHOICES,
@@ -186,7 +187,7 @@ class MessageCategoryViewSet(
         updated = update_category(self.team_id, category.id, serializer.validated_data)
         return Response(self.get_serializer(updated).data)
 
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], permission_classes=[OrganizationAdminWritePermissions])
     def import_from_customerio(self, request, **kwargs):
         """
         Import subscription topics and globally unsubscribed users from Customer.io API.

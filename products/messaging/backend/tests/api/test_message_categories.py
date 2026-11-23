@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
@@ -320,6 +321,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         super().setUp()
         OptOutSyncConfig.objects.filter(team=self.team).delete()
         Integration.objects.filter(team=self.team, kind="customerio-app").delete()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
     def _url(self, action: str) -> str:
         return f"/api/environments/{self.team.id}/messaging_categories/{action}/"
@@ -439,6 +442,17 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         mock_service_class.assert_called_once_with(
             team_id=self.team.id, api_key="stored_key", created_by_id=self.user.id
         )
+
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
+    def test_import_from_customerio_requires_an_organization_admin(self, mock_service_class):
+        mock_service_class.return_value.import_api_data.return_value = {"status": "completed", "errors": []}
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self._url("import_from_customerio"), {"app_api_key": "app-key"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not Integration.objects.filter(team=self.team, kind="customerio-app").exists()
 
     def test_import_from_customerio_fails_without_key(self):
         response = self.client.post(

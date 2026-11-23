@@ -29,7 +29,6 @@ from products.messaging.backend.facade.provider_imports import (
     ProviderImportRejected,
     ProviderImportUnavailable,
     get_provider_import_run,
-    import_provider_retains_credentials,
     list_import_providers,
     list_provider_import_runs,
     start_provider_import,
@@ -270,11 +269,10 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
-        if data["provider"] not in {provider.key for provider in self._providers()}:
+        provider = next((option for option in self._providers() if option.key == data["provider"]), None)
+        if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
-        if import_provider_retains_credentials(data["provider"]) and not (
-            OrganizationAdminWritePermissions().has_permission(request, self)
-        ):
+        if provider.retains_credentials and not OrganizationAdminWritePermissions().has_permission(request, self):
             raise PermissionDenied(
                 "Only organization admins can start this import, because it stores the provider's API key as an integration."
             )

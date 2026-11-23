@@ -51,7 +51,7 @@ class TestProviderImportsAPI(APIBaseTest):
     def test_only_organization_admins_can_start_an_import_that_stores_the_key(
         self,
         _mock_client_class: MagicMock,
-        start_workflow: MagicMock,
+        _start_workflow: MagicMock,
         _name: str,
         level: OrganizationMembership.Level,
         project_admin: bool,
@@ -77,14 +77,14 @@ class TestProviderImportsAPI(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
-        stored = Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
-        assert stored == (expected_status == status.HTTP_201_CREATED)
-        assert start_workflow.called == stored
+        started = expected_status == status.HTTP_201_CREATED
+        assert Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists() == started
+        assert ProviderImportRun.objects.for_team(self.team.id).exists() == started
 
     @patch("products.messaging.backend.provider_imports.resend.ResendClient")
     @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=True)
     def test_members_can_start_an_import_that_does_not_keep_the_key(
-        self, _flag: MagicMock, _resend_client: MagicMock, _mock_client_class: MagicMock, start_workflow: MagicMock
+        self, _flag: MagicMock, _resend_client: MagicMock, _mock_client_class: MagicMock, _start_workflow: MagicMock
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -92,7 +92,6 @@ class TestProviderImportsAPI(APIBaseTest):
         response = self.client.post(self._url(), {"provider": "resend", "steps": ["suppressions"], "api_key": "re_key"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        start_workflow.assert_called_once()
         assert not Integration.objects.filter(team_id=self.team.id).exists()
 
     def test_rejects_a_second_import_while_one_is_running(

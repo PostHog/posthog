@@ -173,11 +173,6 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
     ]
 
 
-def import_provider_retains_credentials(provider: str) -> bool:
-    known = PROVIDERS.get(provider)
-    return known is not None and known.retains_credentials
-
-
 def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id: str) -> bool:
     if provider.feature_flag is None:
         return True
