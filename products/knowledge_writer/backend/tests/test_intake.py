@@ -124,8 +124,13 @@ SOURCE_DIFF = (
     "diff --git a/posthog/session_recordings/retention.py b/posthog/session_recordings/retention.py\n"
     '+    """Retention presets keep recordings for 90 days."""\n'
 )
+SOURCE_FILE_TEXT = 'RETENTION_PRESETS = ("30 days", "90 days")  # Presets apply to every project in the team.\n'
+UNCHANGED_SOURCE_LINE_CLAIM = "Presets apply to every project in the team."
 GROUNDING_DID_NOT_RUN = "Grounding did not run"
-SUPPORTED_QUOTES = {NEW_PAGE_LINE: "keep recordings for 90 days"}
+SUPPORTED_QUOTES = {
+    NEW_PAGE_LINE: "keep recordings for 90 days",
+    UNCHANGED_SOURCE_LINE_CLAIM: "Presets apply to every project",
+}
 STRUCTURED_NEW_PAGE_PATCH = "\n".join(
     [
         "@@ -0,0 +1,8 @@",
@@ -325,6 +330,8 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if path.startswith("/repos/PostHog/posthog/contents/"):
+            return MagicMock(status_code=200, text=SOURCE_FILE_TEXT)
         if path.endswith(f"/pulls/{OPENED_PULL_REQUEST_NUMBER}"):
             return _replied(
                 {"number": OPENED_PULL_REQUEST_NUMBER, "requested_reviewers": self.requested_logins_payload()}
@@ -1033,6 +1040,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     "page_patch",
     [
         pytest.param(STRUCTURED_NEW_PAGE_PATCH, id="without_sending_page_structure"),
+        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", id="against_unchanged_lines_of_touched_files"),
     ],
 )
 @pytest.mark.django_db
