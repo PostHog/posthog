@@ -176,9 +176,9 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
 class TestDeactivateOrganizationOperation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.client.force_login(self.user)
+        # Staff deactivate organizations they are not members of.
+        self.staff = User.objects.create(email="staff@example.com", is_staff=True)
+        self.client.force_login(self.staff)
         self.url = f"/admin/console/organizations/{self.organization.pk}/overview/deactivate/"
 
     @parameterized.expand([("active", True, 302, False), ("already_inactive", False, 404, False)])
@@ -202,7 +202,12 @@ class TestDeactivateOrganizationOperation(BaseTest):
         updates = ActivityLog.objects.filter(
             scope="Organization", item_id=str(self.organization.id), activity="updated"
         )
+        # The organization reads its own log, so the row records what changed but not which staff member acted.
         assert [
-            (logged.user_id, [(change["field"], change["after"]) for change in (logged.detail or {})["changes"]])
+            (
+                logged.user_id,
+                logged.is_system,
+                [(change["field"], change["after"]) for change in (logged.detail or {})["changes"]],
+            )
             for logged in updates
-        ] == ([(self.user.id, [("is_active", False), ("is_not_active_reason", reason)])] if active else [])
+        ] == ([(None, False, [("is_active", False), ("is_not_active_reason", reason)])] if active else [])

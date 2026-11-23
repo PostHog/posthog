@@ -65,8 +65,9 @@ class OrganizationOverviewPanel(Panel):
                 handler=deactivate_organization,
                 danger=True,
                 description=(
-                    "Members see the reason you pick instead of the app. This does not end their existing API "
-                    "sessions or stop background work, such as batch exports."
+                    "Members see the reason you pick instead of the app, but they can still sign in and use the API "
+                    "through a browser session, and background work such as batch exports keeps running. To lock "
+                    "an abuser out, also deactivate their user accounts."
                 ),
                 form_class=DeactivationReasonForm,
                 undo_hint="To undo, reactivate the organization on its Django admin page.",
