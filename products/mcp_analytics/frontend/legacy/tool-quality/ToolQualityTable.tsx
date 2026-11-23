@@ -1,0 +1,382 @@
+import { useActions, useValues } from 'kea'
+
+import { IconSearch } from '@posthog/icons'
+import {
+    Badge,
+    Button,
+    Card,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
+    Pagination,
+    PaginationButton,
+    PaginationContent,
+    PaginationEllipsis,
+    PaginationItem,
+    PaginationNext,
+    PaginationPrevious,
+    Skeleton,
+    Table,
+    TableBody,
+    TableCell,
+    TableEmpty,
+    TableHead,
+    TableHeader,
+    TableRow,
+    Text,
+    getPaginationRange,
+} from '@posthog/quill-primitives'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { formatPercentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
+
+import { dimWhileLoading } from '../../components/loadingFeedback'
+import { TableLoadingBar } from '../../components/TableLoadingBar'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../../dashboard/formatters'
+import { SkeletonLine } from '../../dashboard/SkeletonLine'
+import { errorRateChange, p95Change } from '../../tool-quality/qualityChange'
+import { QualityChangeMarker } from '../../tool-quality/QualityChangeMarker'
+import { SessionsCell } from '../../tool-quality/SessionsCell'
+import { TrendCell } from '../../tool-quality/TrendCell'
+import {
+    type SortState,
+    type ToolQualitySortColumn,
+    TOOL_QUALITY_PAGE_SIZE,
+    mcpAnalyticsToolQualityLogic,
+    mcpToolReportUrl,
+} from '../mcpAnalyticsToolQualityLogic'
+
+const TOOL_BUTTON_CLASS =
+    'cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+
+interface ColumnSpec {
+    key: ToolQualitySortColumn
+    label: string
+    align?: 'left' | 'right'
+    tooltip?: string
+}
+
+const SORTABLE_COLUMNS: ColumnSpec[] = [
+    { key: 'total_calls', label: 'Calls', align: 'right', tooltip: 'Total number of times this tool was called' },
+    {
+        key: 'trend_score',
+        label: 'Trend',
+        align: 'right',
+        tooltip:
+            "Change in calls versus the previous period of the same length. Sorting ranks by growth relative to volume, so small tools don't dominate.",
+    },
+    {
+        key: 'error_rate_pct',
+        label: 'Error rate',
+        align: 'right',
+        tooltip:
+            'Percentage of calls marked as failed. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+    },
+    {
+        key: 'p95_duration_ms',
+        label: 'p95',
+        align: 'right',
+        tooltip:
+            '95th-percentile call duration: 95% of calls finished faster than this. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+    },
+    { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
+    {
+        key: 'sessions',
+        label: 'Sessions',
+        align: 'right',
+        tooltip: 'Unique sessions where this tool was called, and their share of all sessions in the period',
+    },
+    { key: 'last_seen', label: 'Last seen' },
+]
+
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%', '60%', '75%', '45%', '65%']
+
+function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
+    if (pct <= 0) {
+        return <Badge variant="success">0%</Badge>
+    }
+    return (
+        <Badge variant={pct >= DESTRUCTIVE_ERROR_RATE_PCT ? 'destructive' : 'warning'}>
+            {formatPercentage(pct, { compact: true })}
+        </Badge>
+    )
+}
+
+function SortableHead({
+    column,
+    sort,
+    loading,
+    onSort,
+}: {
+    column: ColumnSpec
+    sort: SortState
+    loading: boolean
+    onSort: (column: ToolQualitySortColumn, direction: 'ASC' | 'DESC') => void
+}): JSX.Element {
+    const isSorted = sort.column === column.key
+    const nextDirection = isSorted && sort.direction === 'DESC' ? 'ASC' : 'DESC'
+    const head = (
+        <button
+            type="button"
+            disabled={loading}
+            onClick={() => onSort(column.key, nextDirection)}
+            className="inline-flex cursor-pointer select-none items-center gap-1"
+        >
+            {column.label}
+            {isSorted ? <span className="text-[9px]">{sort.direction === 'DESC' ? '▼' : '▲'}</span> : null}
+        </button>
+    )
+    return (
+        <TableHead
+            align={column.align}
+            aria-sort={isSorted ? (sort.direction === 'DESC' ? 'descending' : 'ascending') : 'none'}
+        >
+            {column.tooltip ? <Tooltip title={column.tooltip}>{head}</Tooltip> : head}
+        </TableHead>
+    )
+}
+
+function ToolRowsSkeleton(): JSX.Element {
+    return (
+        <TableBody>
+            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                <TableRow key={i}>
+                    <TableCell expand>
+                        <SkeletonLine style={{ width }} />
+                    </TableCell>
+                    {SORTABLE_COLUMNS.map((column) => (
+                        <TableCell key={column.key} align={column.align}>
+                            <SkeletonLine className={column.align === 'right' ? 'ml-auto w-10' : 'w-16'} />
+                        </TableCell>
+                    ))}
+                    <TableCell align="right">
+                        <Skeleton className="ml-auto h-6 w-18" />
+                    </TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
+    )
+}
+
+function ToolRowsError(): JSX.Element {
+    const { loadToolRowsPage } = useActions(mcpAnalyticsToolQualityLogic)
+    return (
+        <TableEmpty className="py-6">
+            <div className="flex flex-col items-center gap-2 text-center text-secondary">
+                <span>Couldn't load your tools. Try again, or pick a shorter date range.</span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadToolRowsPage()}
+                    data-attr="mcp-tool-quality-rows-retry"
+                >
+                    Try again
+                </Button>
+            </div>
+        </TableEmpty>
+    )
+}
+
+function ToolRows(): JSX.Element {
+    const {
+        toolRows,
+        toolRowsTotalSessions,
+        toolRowsPreviousTotalSessions,
+        toolRowsPageLoading,
+        selectedTool,
+        dateFilter,
+        pinnedInterval,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
+    const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
+
+    if (toolRows.length === 0) {
+        return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
+    }
+    return (
+        <TableBody aria-busy={toolRowsPageLoading} className={dimWhileLoading(toolRowsPageLoading)}>
+            {toolRows.map((row) => (
+                <TableRow
+                    key={row.tool}
+                    data-state={row.tool === selectedTool ? 'selected' : undefined}
+                    className="cursor-pointer"
+                    onClick={() => toggleRow(row.tool)}
+                    data-attr="mcp-tool-quality-row"
+                >
+                    <TableCell expand>
+                        <button
+                            type="button"
+                            className={TOOL_BUTTON_CLASS}
+                            aria-pressed={row.tool === selectedTool}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRow(row.tool)
+                            }}
+                        >
+                            {row.tool}
+                        </button>
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.total_calls)}
+                    </TableCell>
+                    <TableCell align="right">
+                        <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
+                    </TableCell>
+                    <TableCell align="right">
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <ErrorRateBadge pct={row.error_rate_pct} />
+                            <QualityChangeMarker change={errorRateChange(row)} />
+                        </span>
+                    </TableCell>
+                    <TableCell align="right">
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <span className="tabular-nums">{formatMs(row.p95_duration_ms)}</span>
+                            <QualityChangeMarker change={p95Change(row)} />
+                        </span>
+                    </TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.users)}
+                    </TableCell>
+                    <TableCell align="right">
+                        <SessionsCell
+                            sessions={row.sessions}
+                            totalSessions={toolRowsTotalSessions}
+                            previousSessions={row.previous_sessions}
+                            previousTotalSessions={toolRowsPreviousTotalSessions}
+                        />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                        <TZLabel time={row.last_seen} />
+                    </TableCell>
+                    <TableCell align="right">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter, pinnedInterval)} />}
+                            onClick={(e) => e.stopPropagation()}
+                            data-attr="mcp-tool-quality-full-report"
+                        >
+                            Full report
+                        </Button>
+                    </TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
+    )
+}
+
+export function ToolQualityTable(): JSX.Element {
+    const {
+        toolQualitySort,
+        toolQualityPageIndex,
+        loadedToolQualityPageIndex,
+        toolRows,
+        toolRowsPage,
+        toolRowsPageLoading,
+        toolRowsLoadFailed,
+        toolRowsTotalCount,
+        searchTerm,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setToolQualitySort, setToolQualityPageIndex, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
+    const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
+    const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
+    const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
+    const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
+    const showSkeleton = toolRowsPageLoading && toolRowsPage === null
+
+    return (
+        <Card size="sm" className="gap-0">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+                <CardTitle>All tools</CardTitle>
+                <InputGroup className="w-[220px]">
+                    <InputGroupAddon align="inline-start">
+                        <InputGroupText>
+                            <IconSearch />
+                        </InputGroupText>
+                    </InputGroupAddon>
+                    <InputGroupInput
+                        type="search"
+                        placeholder="Search tools"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        data-attr="mcp-tool-quality-search"
+                    />
+                </InputGroup>
+            </CardHeader>
+            <div className="relative">
+                <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead expand>Tool</TableHead>
+                            {SORTABLE_COLUMNS.map((column) => (
+                                <SortableHead
+                                    key={column.key}
+                                    column={column}
+                                    sort={toolQualitySort}
+                                    loading={toolRowsPageLoading}
+                                    onSort={setToolQualitySort}
+                                />
+                            ))}
+                            <TableHead />
+                        </TableRow>
+                    </TableHeader>
+                    {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}
+                </Table>
+                <TableLoadingBar loading={toolRowsPageLoading && toolRows.length > 0} />
+            </div>
+            {toolRowsTotalCount > 0 && (
+                <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
+                    <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                        {firstRow}-{lastRow} of {pluralize(toolRowsTotalCount, 'tool')}
+                    </Text>
+                    {pageCount > 1 ? (
+                        <Pagination className="w-auto">
+                            <PaginationContent>
+                                <PaginationItem>
+                                    <PaginationPrevious
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === 0}
+                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex - 1)}
+                                        data-attr="mcp-tool-quality-page-previous"
+                                    />
+                                </PaginationItem>
+                                {pageRange.map((item, index) =>
+                                    item === 'ellipsis' ? (
+                                        <PaginationItem key={`ellipsis-${index}`}>
+                                            <PaginationEllipsis />
+                                        </PaginationItem>
+                                    ) : (
+                                        <PaginationItem key={item}>
+                                            <PaginationButton
+                                                isActive={item === toolQualityPageIndex}
+                                                disabled={toolRowsPageLoading}
+                                                aria-label={`Go to page ${item + 1}`}
+                                                onClick={() => setToolQualityPageIndex(item)}
+                                                data-attr="mcp-tool-quality-page"
+                                            >
+                                                {item + 1}
+                                            </PaginationButton>
+                                        </PaginationItem>
+                                    )
+                                )}
+                                <PaginationItem>
+                                    <PaginationNext
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === pageCount - 1}
+                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex + 1)}
+                                        data-attr="mcp-tool-quality-page-next"
+                                    />
+                                </PaginationItem>
+                            </PaginationContent>
+                        </Pagination>
+                    ) : null}
+                </CardFooter>
+            )}
+        </Card>
+    )
+}

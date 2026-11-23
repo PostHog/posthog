@@ -4077,8 +4077,10 @@ export enum MCPDashboardSection {
     Model = 'model',
     ProtocolVersion = 'protocolVersion',
     Tool = 'tool',
-    Harness = 'harness',
     ErrorType = 'errorType',
+    ToolShare = 'toolShare',
+    Harness = 'harness',
+    ErrorTypeShare = 'errorTypeShare',
     User = 'user',
     LabUsers = 'labUsers',
     NamedModelUsers = 'namedModelUsers',
@@ -4364,6 +4366,8 @@ export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQuer
     limit?: integer
     /** Number of matching tools to skip. */
     offset?: integer
+    /** Also return each row's volume chart buckets, which costs one more query. */
+    includeBuckets?: boolean
     /** Bucket granularity of each row's volume chart. Defaults to day. */
     interval?: IntervalType
 }

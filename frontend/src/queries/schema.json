@@ -36731,8 +36731,10 @@
                 "model",
                 "protocolVersion",
                 "tool",
-                "harness",
                 "errorType",
+                "toolShare",
+                "harness",
+                "errorTypeShare",
                 "user",
                 "labUsers",
                 "namedModelUsers",
@@ -39068,6 +39070,10 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeBuckets": {
+                    "description": "Also return each row's volume chart buckets, which costs one more query.",
                     "type": "boolean"
                 },
                 "interval": {

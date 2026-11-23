@@ -25,7 +25,14 @@ export interface LeaderboardFacets {
 
 export type FacetKey = Exclude<keyof LeaderboardFacets, 'failedFacets'>
 
-const FACET_KEYS: FacetKey[] = ['model', 'protocolVersion', 'tool', 'harness', 'errorType', 'user']
+const FACET_SECTIONS: Record<FacetKey, MCPDashboardSection> = {
+    model: MCPDashboardSection.Model,
+    protocolVersion: MCPDashboardSection.ProtocolVersion,
+    tool: MCPDashboardSection.ToolShare,
+    harness: MCPDashboardSection.Harness,
+    errorType: MCPDashboardSection.ErrorTypeShare,
+    user: MCPDashboardSection.User,
+}
 
 type Row = unknown[]
 
@@ -65,13 +72,15 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
         facets: [
             (s) => [s.sections, s.failedLoads],
             (sections: SectionResults, failedLoads: SectionFlags): LeaderboardFacets => ({
-                model: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.Model)),
-                protocolVersion: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.ProtocolVersion)),
-                tool: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.Tool)),
-                harness: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.Harness)),
-                errorType: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.ErrorType)),
-                user: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.User)),
-                failedFacets: FACET_KEYS.filter((key) => failedLoads[key as MCPDashboardSection]),
+                model: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.model)),
+                protocolVersion: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.protocolVersion)),
+                tool: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.tool)),
+                harness: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.harness)),
+                errorType: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.errorType)),
+                user: toBucketedRows(sectionRows<Row>(sections, FACET_SECTIONS.user)),
+                failedFacets: (Object.keys(FACET_SECTIONS) as FacetKey[]).filter(
+                    (key) => failedLoads[FACET_SECTIONS[key]]
+                ),
             }),
         ],
     }),

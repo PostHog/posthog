@@ -34146,6 +34146,10 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeBuckets: bool | None = Field(
+        default=None,
+        description=("Also return each row's volume chart buckets, which costs one more query."),
+    )
     interval: IntervalType | None = Field(
         default=None,
         description="Bucket granularity of each row's volume chart. Defaults to day.",

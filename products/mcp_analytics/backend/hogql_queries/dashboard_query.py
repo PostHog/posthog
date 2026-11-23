@@ -185,6 +185,20 @@ ORDER BY bucket
 LIMIT 10000
 """
 
+WINDOW_FACET_SQL = f"""
+SELECT
+    {{label}} AS label,
+    count() AS calls,
+    uniq(distinct_id) AS users,
+    countIf(toBool(properties.$mcp_is_error)) AS errors
+FROM events
+WHERE {TOOL_CALL_WHERE}
+    AND {{error_filter}}
+GROUP BY label
+ORDER BY calls DESC
+LIMIT 1000
+"""
+
 # Top users keep their label; the rest fold into "Other" to stay under the LIMIT.
 USERS_WITH_OWN_LABEL = 50
 USER_FACET_SQL = f"""
@@ -286,6 +300,13 @@ def _bucketed_facet(label_sql: str, error_filter_sql: str = "true") -> HogQLSect
     )
 
 
+def _window_facet(label_sql: str, error_filter_sql: str = "true") -> HogQLSection:
+    return HogQLSection(
+        WINDOW_FACET_SQL,
+        {"label": partial(parse_expr, label_sql), "error_filter": partial(parse_expr, error_filter_sql)},
+    )
+
+
 HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
     MCPDashboardSection.KPIS: HogQLSection(KPI_SQL, spans_comparison_window=True),
     MCPDashboardSection.PERIOD_TOTALS: HogQLSection(PERIOD_TOTALS_SQL, spans_comparison_window=True),
@@ -293,10 +314,12 @@ HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
     MCPDashboardSection.SESSION_ROWS: HogQLSection(SESSION_ROWS_SQL),
     MCPDashboardSection.MODEL: _bucketed_facet(MODEL_LABEL_SQL),
     MCPDashboardSection.PROTOCOL_VERSION: _bucketed_facet(PROTOCOL_VERSION_LABEL_SQL),
+    MCPDashboardSection.TOOL: _window_facet(TOOL_LABEL_SQL),
+    MCPDashboardSection.ERROR_TYPE: _window_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
     # Bucketed so each share card can switch to an over-time view; the bars sum the buckets.
-    MCPDashboardSection.TOOL: _bucketed_facet(TOOL_LABEL_SQL),
+    MCPDashboardSection.TOOL_SHARE: _bucketed_facet(TOOL_LABEL_SQL),
     MCPDashboardSection.HARNESS: _bucketed_facet(HARNESS_LABEL_SQL),
-    MCPDashboardSection.ERROR_TYPE: _bucketed_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
+    MCPDashboardSection.ERROR_TYPE_SHARE: _bucketed_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
     MCPDashboardSection.USER: HogQLSection(USER_FACET_SQL, {"label": partial(parse_expr, USER_LABEL_SQL)}),
     MCPDashboardSection.LAB_USERS: HogQLSection(LAB_USERS_SQL, {"lab": lab_expr}),
     MCPDashboardSection.NAMED_MODEL_USERS: HogQLSection(
@@ -457,8 +480,6 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
         # Keeps rows built on the lean database apart, so turning the flag off never serves them.
         if self._lean_database:
             payload["lean_database"] = True
-        # Tool and error type rows are now bucketed; keeps entries cached in the old shape from being served.
-        payload["facet_rows"] = "bucketed"
         return payload
 
     @cached_property

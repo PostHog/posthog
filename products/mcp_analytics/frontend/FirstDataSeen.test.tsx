@@ -88,6 +88,7 @@ describe('FirstDataSeen', () => {
     it('settles an arrival on a tab the scene renders as not found', async () => {
         jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         const logic = await arriveLive(() => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN]: true })
             sceneLogic.mount()
             sceneLogic.actions.setExportedScene({} as any, 'MCPAnalytics', 'mcpAnalyticsIntentClustering', {
                 params: {},

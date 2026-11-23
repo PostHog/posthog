@@ -101,6 +101,11 @@ def bucketed_facet(label: str, only_errors: str = "") -> str:
     return f"SELECT {BUCKET} AS bucket, {label} AS label, count() AS calls FROM events WHERE {WHERE} {only_errors} GROUP BY bucket, label ORDER BY bucket LIMIT 10000"
 
 
+def window_facet(label: str, only_errors: str = "") -> str:
+    return f"""SELECT {label} AS label, count() AS calls, uniq(distinct_id) AS users, countIf(toBool(properties.$mcp_is_error)) AS errors
+FROM events WHERE {WHERE} {only_errors} GROUP BY label ORDER BY calls DESC LIMIT 1000"""
+
+
 CURRENT_START = f"toDateTime('{COMPARISON.currentStartBucket}', '{TIMEZONE}')"
 
 # (section, browser SQL, whether the browser read the doubled KPI window)
@@ -140,9 +145,15 @@ GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500"""
         bucketed_facet(label_of("JSONExtractString(properties, '$mcp_protocol_version')")),
         False,
     ),
-    (MCPDashboardSection.TOOL, bucketed_facet(TOOL_LABEL), False),
+    (MCPDashboardSection.TOOL, window_facet(TOOL_LABEL), False),
     (
         MCPDashboardSection.ERROR_TYPE,
+        window_facet(label_of("toString(properties.$mcp_error_type)"), "AND toBool(properties.$mcp_is_error)"),
+        False,
+    ),
+    (MCPDashboardSection.TOOL_SHARE, bucketed_facet(TOOL_LABEL), False),
+    (
+        MCPDashboardSection.ERROR_TYPE_SHARE,
         bucketed_facet(label_of("toString(properties.$mcp_error_type)"), "AND toBool(properties.$mcp_is_error)"),
         False,
     ),

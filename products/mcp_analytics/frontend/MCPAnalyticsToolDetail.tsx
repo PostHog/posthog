@@ -1,4 +1,8 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Suspense } from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -8,14 +12,36 @@ import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { MCPAnalyticsToolDetailLogicProps, mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { mcpToolDetailSceneLogic } from './mcpToolDetailSceneLogic'
 import { MCPToolReport } from './MCPToolReport'
 
+const LegacyMCPAnalyticsToolDetail = lazyWithRetry(() =>
+    import('./legacy/MCPAnalyticsToolDetail').then((m) => ({ default: m.MCPAnalyticsToolDetail }))
+)
+
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
-    component: MCPAnalyticsToolDetail,
-    logic: mcpAnalyticsToolDetailLogic,
+    component: MCPAnalyticsToolDetailScene,
+    logic: mcpToolDetailSceneLogic,
     paramsToProps: ({ params: { toolName } }) => ({
         toolName: decodeURIComponent(toolName ?? ''),
     }),
+}
+
+function MCPAnalyticsToolDetailScene(): JSX.Element {
+    const { toolName } = useValues(mcpToolDetailSceneLogic)
+    const redesign = useFeatureFlag('MCP_ANALYTICS_REDESIGN')
+    if (!redesign) {
+        return (
+            <Suspense fallback={null}>
+                <LegacyMCPAnalyticsToolDetail toolName={toolName} />
+            </Suspense>
+        )
+    }
+    return (
+        <BindLogic logic={mcpAnalyticsToolDetailLogic} props={{ toolName }}>
+            <MCPAnalyticsToolDetail />
+        </BindLogic>
+    )
 }
 
 export function MCPAnalyticsToolDetail(): JSX.Element {

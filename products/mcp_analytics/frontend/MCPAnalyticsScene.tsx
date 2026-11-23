@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
+import { Suspense } from 'react'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -9,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,7 +23,7 @@ import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { FirstDataSeen } from './FirstDataSeen'
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
-import { pickSharedFilterParams } from './mcpAnalyticsFiltersLogic'
+import { mcpAnalyticsFiltersLogic, pickSharedFilterParams } from './mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
@@ -43,7 +45,19 @@ export const scene: SceneExport = {
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
+const LegacyMCPAnalyticsScene = lazyWithRetry(() =>
+    import('./legacy/MCPAnalyticsScene').then((m) => ({ default: m.MCPAnalyticsScene }))
+)
+
 export function MCPAnalyticsScene(): JSX.Element {
+    const redesign = useFeatureFlag('MCP_ANALYTICS_REDESIGN')
+    if (!redesign) {
+        return (
+            <Suspense fallback={null}>
+                <LegacyMCPAnalyticsScene />
+            </Suspense>
+        )
+    }
     return (
         <>
             <FirstDataSeen />
@@ -53,6 +67,8 @@ export function MCPAnalyticsScene(): JSX.Element {
 }
 
 function MCPAnalyticsSceneBody(): JSX.Element {
+    // The scene logic is shared with the legacy UI, so the redesign mounts its own filters logic.
+    useMountedLogic(mcpAnalyticsFiltersLogic)
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)

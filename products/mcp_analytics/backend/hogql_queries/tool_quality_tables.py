@@ -482,7 +482,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 total_count = 0
                 total_sessions = int(total_sessions_row[0] or 0)
                 previous_total_sessions = int(total_sessions_row[1] or 0)
-        page_buckets = self._page_buckets([str(row[0] or "") for row in rows])
+        page_buckets = self._page_buckets([str(row[0] or "") for row in rows]) if self.query.includeBuckets else {}
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),

@@ -495,7 +495,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
-                    [MCPDashboardSection.Tool]: [['2026-11-01', 'search_docs', 4]],
+                    [MCPDashboardSection.ToolShare]: [['2026-11-01', 'search_docs', 4]],
                 }
                 mockSections((section) => answers[section] ?? [])
                 const logic = await mountDashboard()
@@ -516,9 +516,9 @@ describe('mcpDashboardOverviewLogic', () => {
             [
                 { failing: MCPDashboardSection.Model, failedFacets: ['model'] },
                 { failing: MCPDashboardSection.ProtocolVersion, failedFacets: ['protocolVersion'] },
-                { failing: MCPDashboardSection.Tool, failedFacets: ['tool'] },
+                { failing: MCPDashboardSection.ToolShare, failedFacets: ['tool'] },
                 { failing: MCPDashboardSection.Harness, failedFacets: ['harness'] },
-                { failing: MCPDashboardSection.ErrorType, failedFacets: ['errorType'] },
+                { failing: MCPDashboardSection.ErrorTypeShare, failedFacets: ['errorType'] },
                 { failing: MCPDashboardSection.User, failedFacets: ['user'] },
             ].flatMap((row) => [
                 { ...row, batched: true },

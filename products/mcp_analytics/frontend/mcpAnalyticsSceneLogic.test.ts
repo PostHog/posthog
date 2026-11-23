@@ -6,8 +6,12 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
+import { mcpFacetsLogic } from './mcpFacetsLogic'
+import { mcpToolDetailSceneLogic } from './mcpToolDetailSceneLogic'
 
 jest.mock('lib/api')
 jest.mock('lib/utils/product-intents', () => ({ addProductIntent: jest.fn() }))
@@ -26,6 +30,20 @@ describe('mcpAnalyticsSceneLogic', () => {
     afterEach(() => {
         sceneLogic?.unmount()
         onboardingLogic?.unmount()
+    })
+
+    // Both UIs share these scene logics, so a data logic mounted here would run the redesign's queries with the flag off.
+    it.each([
+        ['the tabs scene', () => mcpAnalyticsSceneLogic()],
+        ['the tool scene', () => mcpToolDetailSceneLogic({ toolName: 'search_docs' })],
+    ])('%s mounts none of the redesign data logics', (_label, build) => {
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        const unmount = build().mount()
+
+        expect(mcpAnalyticsFiltersLogic.isMounted()).toBe(false)
+        expect(mcpFacetsLogic.isMounted()).toBe(false)
+        expect(mcpAnalyticsToolDetailLogic.findMounted({ toolName: 'search_docs' })).toBeNull()
+        unmount()
     })
 
     it('resolves a low-volume automatic landing after signals loaded before the scene mounted', async () => {

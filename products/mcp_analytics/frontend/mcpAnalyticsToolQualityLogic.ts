@@ -401,6 +401,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                             kind: NodeKind.MCPToolQualityRowsQuery,
                             dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
                             search: values.searchTerm,
+                            includeBuckets: true,
                             interval: values.interval,
                             sortColumn: values.toolQualitySort.column,
                             sortDirection: values.toolQualitySort.direction,

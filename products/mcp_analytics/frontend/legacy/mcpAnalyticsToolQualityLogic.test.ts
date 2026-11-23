@@ -1,0 +1,698 @@
+import { combineUrl, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { formatMsAsSeconds } from '../dashboard/formatters'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import {
+    type ChartViewChange,
+    DEFAULT_CHART_VIEWS,
+    type DailyToolStat,
+    buildDailyChartData,
+    maskIncompleteLatencyBox,
+    mcpAnalyticsToolQualityLogic,
+    mcpToolQualityUrlWithDates,
+} from './mcpAnalyticsToolQualityLogic'
+
+jest.mock('lib/api')
+jest.mock('~/queries/query', () => ({
+    hogqlQuery: jest.fn().mockResolvedValue({ results: [] }),
+}))
+
+const mockApi = api as jest.Mocked<typeof api>
+
+const emptyToolRowsResponse = { results: [], totalCount: 0 }
+
+function dailyStat(overrides: Partial<DailyToolStat> & { day: string }): DailyToolStat {
+    return { calls: 0, errors: 0, p50: 0, p95: 0, p99: 0, ...overrides }
+}
+
+describe('mcpAnalyticsToolQualityLogic', () => {
+    describe('buildDailyChartData', () => {
+        it('projects rows onto the bucket keys, zero/NaN-filling gaps', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
+                    dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.labels).toEqual(['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00'])
+            expect(data.calls).toEqual([100, 0, 50])
+            expect(data.errors).toEqual([10, 0, 0])
+            // Gap buckets get NaN (skipped by the chart), not a dip to zero.
+            expect(data.successRate[0]).toBeCloseTo(90)
+            expect(data.successRate[1]).toBeNaN()
+            expect(data.p99).toEqual([2100, NaN, 1500])
+            expect(data.errorRate[0]).toBeCloseTo(10)
+            expect(data.errorRate[1]).toBeNaN()
+            expect(data.errorRate[2]).toEqual(0)
+        })
+
+        it.each([
+            ['no errors', 10, 0, 0],
+            ['half the calls errored', 10, 5, 50],
+            ['the row has no calls', 0, 0, NaN],
+        ])('gives the error rate as a percentage of calls when %s', (_label, calls, errors, expected) => {
+            const data = buildDailyChartData([dailyStat({ day: '2026-06-05', calls, errors })], ['2026-06-05 00:00:00'])
+            expect(data.errorRate).toEqual([expected])
+        })
+
+        it('builds a latency box per bucket with whiskers clipped at p99', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({
+                        day: '2026-06-05',
+                        calls: 3,
+                        min: 10,
+                        p25: 50,
+                        p50: 100,
+                        mean: 120,
+                        p75: 200,
+                        p95: 900,
+                        p99: 2100,
+                        max: 60000,
+                    }),
+                    dailyStat({ day: '2026-06-06', calls: 1, p50: 100, p95: 100, p99: 100 }),
+                    dailyStat({ day: '2026-06-07', calls: 2, min: null, p25: null, mean: null, p75: null, max: null }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.latencyBoxes).toEqual([
+                {
+                    day: '2026-06-05 00:00:00',
+                    min: 10,
+                    p25: 50,
+                    median: 100,
+                    mean: 120,
+                    p75: 200,
+                    max: 60000,
+                    whiskerMax: 2100,
+                },
+                // A row cached before the spread fields existed has no box to draw.
+                null,
+                // Neither does a bucket whose calls all lack a duration.
+                null,
+            ])
+        })
+
+        it('returns empty series for empty bucket keys', () => {
+            expect(buildDailyChartData([], []).labels).toEqual([])
+        })
+
+        // Sub-day windows bucket by hour: rows keyed to an hour must line up with hourly keys, so the
+        // "12 hours collapses to a single point" bug can't come back.
+        it('lines up hourly rows with hourly bucket keys', () => {
+            const data = buildDailyChartData(
+                [dailyStat({ day: '2026-06-07 10:00:00', calls: 12, errors: 3, p50: 80, p95: 200, p99: 400 })],
+                ['2026-06-07 09:00:00', '2026-06-07 10:00:00', '2026-06-07 11:00:00']
+            )
+            expect(data.calls).toEqual([0, 12, 0])
+            expect(data.errors).toEqual([0, 3, 0])
+            expect(data.successRate[1]).toBeCloseTo(75)
+        })
+    })
+
+    describe('formatMsAsSeconds', () => {
+        it.each([
+            [0, '0'],
+            [50, '50ms'],
+            [500, '0.5s'],
+            [1000, '1s'],
+            [99, '99ms'],
+            [100, '0.1s'],
+            [1500, '1.5s'],
+            [2000, '2s'],
+            [NaN, '—'],
+            [Infinity, '—'],
+        ])('formats %s ms as %s', (input, expected) => {
+            expect(formatMsAsSeconds(input)).toBe(expected)
+        })
+    })
+
+    describe('maskIncompleteLatencyBox', () => {
+        const box = (day: string): ReturnType<typeof maskIncompleteLatencyBox>[number] => ({
+            day,
+            min: 10,
+            p25: 20,
+            median: 30,
+            mean: 35,
+            p75: 40,
+            max: 50,
+            whiskerMax: 45,
+        })
+
+        it.each([
+            { name: 'drops the last bucket when it is still in progress', incompleteTail: true, last: true },
+            { name: 'leaves every bucket alone when the tail is complete', incompleteTail: false, last: false },
+        ])('$name', ({ incompleteTail, last }) => {
+            const boxes = [box('2026-06-05'), box('2026-06-06')]
+            expect(maskIncompleteLatencyBox(boxes, incompleteTail)).toEqual([
+                box('2026-06-05'),
+                last ? null : box('2026-06-06'),
+            ])
+        })
+    })
+
+    describe('chart views', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            localStorage.clear()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        it.each<ChartViewChange>([
+            { chart: 'calls', view: 'percentage' },
+            { chart: 'successRate', view: 'zoom' },
+            { chart: 'latency', view: 'boxPlot' },
+        ])('switches the $chart chart to $view and reports it', async (change) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setChartView(change)
+            }).toMatchValues({
+                chartViews: { ...DEFAULT_CHART_VIEWS, [change.chart]: change.view },
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('mcp analytics tool quality chart view changed', change)
+        })
+    })
+
+    describe('incompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        // An open-ended relative window always ends in the bucket that is still collecting, and a
+        // window that closed in the past never does, so this holds whenever the suite runs.
+        it.each([
+            ['an open-ended window', '-7d', null, true],
+            ['a window that already closed', '2026-06-01', '2026-06-10', false],
+        ])('is %s: %s', async (_label, dateFrom, dateTo, expected) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(logic.values.incompleteTail).toBe(expected)
+        })
+    })
+
+    describe('date range and tool filters', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        it('reloads the tool rows, daily stats and category counts with the new date range when the date filter changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(3) // tool rows + daily stats + category counts
+            // The scope-share headline must track the same window as the rest of the tab.
+            expect(newCalls.map((call) => call.dateRange)).toEqual([
+                { date_from: '-30d', date_to: null },
+                { date_from: '-30d', date_to: null },
+                { date_from: '-30d', date_to: null },
+            ])
+        })
+
+        it('reloads daily stats scoped to the tool when one is selected, passing it as a typed param', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedTool("evil'); DROP TABLE events; --")
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only
+            // The tool rides as a typed toolName param (the runner binds it as a constant), never as raw SQL.
+            expect(newCalls[0].toolName).toBe("evil'); DROP TABLE events; --")
+            expect(newCalls[0].query).toBeUndefined()
+        })
+
+        // Tool-quality row item as returned by the runner.
+        const toolRowResult = (tool: string): Record<string, unknown> => ({
+            tool,
+            total_calls: 1,
+            errors: 0,
+            error_rate_pct: 0,
+            p50_duration_ms: 0,
+            p95_duration_ms: 0,
+            p99_duration_ms: 0,
+            users: 0,
+            sessions: 0,
+            first_seen: '',
+            last_seen: '',
+        })
+
+        it('clears the selected tool when the category scope changes', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+                    : { results: [] }
+            )
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedTool('tool_a')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.selectedTool).toBe('tool_a')
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedCategories(['some-category'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+        })
+
+        it('keeps the selected tool while searching, sorting, or changing pages', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_b')], totalCount: 100 }
+                    : { results: [] }
+            )
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedTool('tool_a')
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualityPageIndex(1)
+                logic.actions.setSearchTerm('tool_b')
+                logic.actions.setToolQualitySort('error_rate_pct', 'DESC')
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBe('tool_a')
+        })
+
+        it('keeps the current rows visible while another page loads', async () => {
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                const tool = query.offset === 0 ? 'page-one-tool' : 'page-two-tool'
+                return { ...emptyToolRowsResponse, results: [toolRowResult(tool)], totalCount: 100 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            logic.actions.setToolQualityPageIndex(1)
+
+            expect(logic.values.toolRowsPageLoading).toBe(true)
+            expect(logic.values.loadedToolQualityPageIndex).toBe(0)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadedToolQualityPageIndex).toBe(1)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
+        })
+
+        it.each([
+            ['the first load', false],
+            ['a reload with rows already on screen', true],
+        ])('reports a failed rows request on %s as an error, not as no rows', async (_name, firstLoadSucceeds) => {
+            let rowsFail = !firstLoadSucceeds
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                if (rowsFail) {
+                    throw new Error('Internal server error')
+                }
+                return { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (firstLoadSucceeds) {
+                rowsFail = true
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchTerm('tool')
+                }).toFinishAllListeners()
+            }
+
+            expect(logic.values.toolRowsLoadFailed).toBe(true)
+            expect(logic.values.toolRowsPage).toBeNull()
+
+            rowsFail = false
+            logic.actions.loadToolRowsPage()
+            expect(logic.values.toolRowsLoadFailed).toBe(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_a'])
+        })
+
+        it('ignores a failure from a rows request that a newer one replaced', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const pendingRows: { resolve: (response: unknown) => void; reject: (error: Error) => void }[] = []
+            mockApi.query.mockImplementation((query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? new Promise((resolve, reject) => pendingRows.push({ resolve, reject }))
+                    : Promise.resolve({ results: [] })
+            )
+            jest.useFakeTimers()
+            try {
+                logic.actions.setSearchTerm('old')
+                await jest.advanceTimersByTimeAsync(300)
+                logic.actions.setSearchTerm('new')
+                await jest.advanceTimersByTimeAsync(300)
+                expect(pendingRows).toHaveLength(2)
+
+                pendingRows[0].reject(new Error('Internal server error'))
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRowsPageLoading).toBe(true)
+
+                pendingRows[1].resolve({
+                    ...emptyToolRowsResponse,
+                    results: [toolRowResult('tool_new')],
+                    totalCount: 1,
+                })
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_new'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('sends search, global sort, and page offsets to the rows query', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 151 }
+                    : { results: [] }
+            )
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualityPageIndex(2)
+            }).toFinishAllListeners()
+            let rowsQuery = queryCallsSince(callsBefore).find(
+                (query) => query.kind === NodeKind.MCPToolQualityRowsQuery
+            )
+            expect(rowsQuery).toMatchObject({ limit: 50, offset: 100 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('needle')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(logic.values.toolQualityPageIndex).toBe(0)
+            expect(rowsQuery).toMatchObject({ search: 'needle', limit: 50, offset: 0 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualitySort('error_rate_pct', 'ASC')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
+        })
+
+        it.each([
+            [
+                'the dashboard link sorted by p95',
+                () =>
+                    mcpToolQualityUrlWithDates({ dateFrom: '-7d', dateTo: null }, null, {
+                        column: 'p95_duration_ms',
+                        direction: 'DESC',
+                    }),
+                { column: 'p95_duration_ms', direction: 'DESC' },
+            ],
+            [
+                'an ascending sort',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'users', sort_direction: 'ASC' }).url,
+                { column: 'users', direction: 'ASC' },
+            ],
+            [
+                'an unknown sort column',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'toString' }).url,
+                { column: 'total_calls', direction: 'DESC' },
+            ],
+        ])('opens the table on the sort from %s', async (_name, url, expected) => {
+            router.actions.push(url())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const rowsQueries = queryCallsSince(0).filter((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQueries.at(-1)).toMatchObject({ sortColumn: expected.column, sortDirection: expected.direction })
+        })
+
+        it('keeps a picked sort in the URL and drops it for the default sort', async () => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            logic.actions.setToolQualitySort('p95_duration_ms', 'ASC')
+            expect(router.values.searchParams).toMatchObject({ sort: 'p95_duration_ms', sort_direction: 'ASC' })
+
+            logic.actions.setToolQualitySort('total_calls', 'DESC')
+            expect(router.values.searchParams).not.toHaveProperty('sort')
+            expect(router.values.searchParams).not.toHaveProperty('sort_direction')
+        })
+
+        it('refetches the charts at the picked grouping, leaving the table alone', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPinnedInterval('hour')
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only — the table is a single-window aggregate
+            expect(newCalls[0].interval).toBe('hour')
+        })
+
+        // The two filters are independent: changing the window must not silently undo the grouping.
+        it('keeps the picked grouping when the date range changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setPinnedInterval('hour')
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-14d', null)
+            }).toFinishAllListeners()
+
+            // Two weeks would auto-group by day.
+            expect(logic.values.interval).toBe('hour')
+        })
+    })
+
+    describe('shared filter wiring', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['query_run'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it('spreads the shared property filters into every query and reloads on change', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(
+                true
+            )
+        })
+
+        it.each([
+            ['the test-account toggle', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+            [
+                "the team's test-account default",
+                () =>
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        test_account_filters_default_checked: true,
+                    }),
+            ],
+        ])('spreads filterTestAccounts into every query and reloads on %s', async (_label, change) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        it.each([
+            ['no URL params', {}, 4],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }, 4],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+                5,
+            ],
+        ])(
+            'does not reload for the shared filters when mounting with %s',
+            async (_label, searchParams, expectedRequests) => {
+                router.actions.push(urls.mcpAnalyticsToolQuality(), searchParams)
+
+                const logic = mcpAnalyticsToolQualityLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockApi.query).toHaveBeenCalledTimes(expectedRequests)
+            }
+        )
+
+        it.each([
+            [
+                'the test-account toggle',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filterTestAccounts: true, propertyFilters: [] },
+                { filter_test_accounts: true },
+            ],
+            [
+                'a property filter',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER]),
+                { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
+                { properties: [EVENT_FILTER] },
+            ],
+        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setSelectedTool('tool_a')).toFinishAllListeners()
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+            expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
+            expect(router.values.searchParams).toMatchObject(expectedParams)
+            expect(router.values.searchParams.tool).toBeUndefined()
+        })
+
+        it('reloads once when both shared filters hydrate from the URL', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER])
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads).toHaveLength(4)
+            expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+            expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(
+                true
+            )
+        })
+
+        it('refreshes every tool quality data source', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+
+            expect(queryCallsSince(callsBefore).map((call) => call.kind)).toEqual(
+                expect.arrayContaining([
+                    NodeKind.MCPToolQualityRowsQuery,
+                    NodeKind.MCPToolQualityDailyStatsQuery,
+                    NodeKind.MCPToolCategoryCountsQuery,
+                    NodeKind.MCPToolCategoriesQuery,
+                ])
+            )
+        })
+
+        it('discards a superseded available-categories response so a slow earlier request cannot overwrite it', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let resolveSlow: (value: unknown) => void = () => {}
+            const slow = new Promise((resolve) => {
+                resolveSlow = resolve
+            })
+            jest.spyOn(mockApi, 'query')
+                .mockImplementationOnce(() => slow as any)
+                .mockImplementationOnce(() => Promise.resolve({ results: [{ category: 'fresh' }] }))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAvailableCategories()
+                logic.actions.loadAvailableCategories()
+            }).toDispatchActions(['loadAvailableCategoriesSuccess'])
+
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+
+            resolveSlow({ results: [{ category: 'stale' }] })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+        })
+    })
+})

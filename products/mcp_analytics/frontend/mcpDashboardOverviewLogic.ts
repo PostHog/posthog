@@ -83,9 +83,9 @@ const DASHBOARD_SECTIONS: readonly MCPDashboardSection[] = [
     MCPDashboardSection.ToolRows,
     MCPDashboardSection.Model,
     MCPDashboardSection.ProtocolVersion,
-    MCPDashboardSection.Tool,
+    MCPDashboardSection.ToolShare,
     MCPDashboardSection.Harness,
-    MCPDashboardSection.ErrorType,
+    MCPDashboardSection.ErrorTypeShare,
     MCPDashboardSection.User,
 ]
 
