@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import type { ReactNode } from 'react'
@@ -130,7 +131,7 @@ function ImportRunResult({
     return (
         <div className="space-y-3">
             {run.status === 'completed' ? (
-                <LemonBanner type="success" icon={<IconCheckCircle className="LemonBanner__icon" />}>
+                <LemonBanner type="success" icon={<IconCheckCircle className="LemonBanner__icon hidden @md:!block" />}>
                     <span className="font-semibold">Import finished</span>
                 </LemonBanner>
             ) : (
@@ -176,6 +177,11 @@ const API_KEY_FORMATS: Record<string, { pattern: RegExp; length: number; hint: s
         length: 36,
         pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
         hint: "This doesn't look like a Postmark token, which has 36 characters in five groups, like 1b2c3d4e-0000-0000-0000-123456789abc. Check that you copied the whole token and nothing else.",
+    },
+    mailchimp: {
+        length: 36,
+        pattern: /^[0-9a-f]{32}-[a-z]{2,4}[0-9]{1,3}$/i,
+        hint: "This doesn't look like a Mailchimp API key, which has 32 letters and numbers, then a dash and your data center, such as -us21. Check that you copied the whole key and nothing else.",
     },
 }
 
@@ -246,16 +252,21 @@ function ImportStartButton({
     )
 }
 
+// The negative offsets cancel the window's padding, so the pinned bar meets the window's edges.
+const PINNED_BAR_CLASSES = 'sticky -bottom-4 -mx-4 -mb-4 border-t bg-surface-primary px-4 pt-3 pb-4'
+
 function ImportForm({
     provider,
     storedKeyField,
     beforeForm,
     apiKeyPlaceholder,
+    pinActions,
 }: {
     provider: ImportProviderOptionApi
     storedKeyField?: ReactNode
     beforeForm?: ReactNode
     apiKeyPlaceholder?: string
+    pinActions: boolean
 }): JSX.Element {
     const { importError, latestImportRun, showImportAgainForm } = useValues(providerImportLogic)
     const { setShowImportAgainForm } = useActions(providerImportLogic)
@@ -281,34 +292,36 @@ function ImportForm({
 
             {provider.not_imported && <div className="text-xs text-secondary">{provider.not_imported}</div>}
 
-            {storedKeyField ?? (
-                <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
-                    <LemonField name="api_key" label={provider.api_key_label}>
-                        <LemonInput
-                            placeholder={apiKeyPlaceholder ?? `Enter your ${keyNoun(provider)}`}
-                            type="password"
-                            data-attr={`${provider.key}-api-key`}
-                            autoComplete="off"
-                        />
-                    </LemonField>
-                    <ApiKeyFormatHint provider={provider} />
-                    <ApiKeyHelp provider={provider} />
-                </Form>
-            )}
-
-            {importError && (
-                <LemonBanner type="error" className="text-sm">
-                    {importError}
-                </LemonBanner>
-            )}
-
-            <div className="flex justify-end gap-2">
-                {showImportAgainForm && (
-                    <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
-                        Back to results
-                    </LemonButton>
+            <div className={clsx(pinActions ? ['space-y-3', PINNED_BAR_CLASSES] : 'space-y-4')}>
+                {storedKeyField ?? (
+                    <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
+                        <LemonField name="api_key" label={provider.api_key_label}>
+                            <LemonInput
+                                placeholder={apiKeyPlaceholder ?? `Enter your ${keyNoun(provider)}`}
+                                type="password"
+                                data-attr={`${provider.key}-api-key`}
+                                autoComplete="off"
+                            />
+                        </LemonField>
+                        <ApiKeyFormatHint provider={provider} />
+                        <ApiKeyHelp provider={provider} />
+                    </Form>
                 )}
-                <ImportStartButton provider={provider} hasStoredKey={!!storedKeyField} />
+
+                {importError && (
+                    <LemonBanner type="error" className="text-sm">
+                        {importError}
+                    </LemonBanner>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2">
+                    {showImportAgainForm && (
+                        <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
+                            Back to results
+                        </LemonButton>
+                    )}
+                    <ImportStartButton provider={provider} hasStoredKey={!!storedKeyField} />
+                </div>
             </div>
         </div>
     )
@@ -319,12 +332,15 @@ export function ProviderImportPanel({
     storedKeyField,
     beforeForm,
     apiKeyPlaceholder,
+    pinActions = false,
 }: {
     provider: ImportProviderOptionApi
     /** Shown instead of the key field when the provider already has a stored key. */
     storedKeyField?: ReactNode
     beforeForm?: ReactNode
     apiKeyPlaceholder?: string
+    /** Keeps the key field and Start button in view while the window scrolls. Only for a panel that fills the window. */
+    pinActions?: boolean
 }): JSX.Element {
     const { importRuns, importRunsLoading, latestImportRun, isImportRunActive, showImportAgainForm } =
         useValues(providerImportLogic)
@@ -363,7 +379,7 @@ export function ProviderImportPanel({
         return (
             <div className="space-y-4">
                 <ImportRunResult run={latestImportRun} provider={provider} />
-                <div className="flex justify-end">
+                <div className={clsx('flex justify-end', pinActions && PINNED_BAR_CLASSES)}>
                     <LemonButton
                         type="secondary"
                         onClick={() => setShowImportAgainForm(true)}
@@ -382,6 +398,7 @@ export function ProviderImportPanel({
             storedKeyField={storedKeyField}
             beforeForm={beforeForm}
             apiKeyPlaceholder={apiKeyPlaceholder}
+            pinActions={pinActions}
         />
     )
 }

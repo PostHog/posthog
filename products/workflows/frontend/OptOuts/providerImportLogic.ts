@@ -23,9 +23,10 @@ import type {
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { transactionalTemplatesLogic } from '../Transactional/transactionalTemplatesLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
-import { ImportEntryPoint, orderProvidersForEntryPoint } from './providerImportOrder'
+import { ImportEntryPoint, sortProvidersByName } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
+const MAX_RUN_DETAIL_RETRIES = 5
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
 
 export interface ImportFormValues {
@@ -33,6 +34,47 @@ export interface ImportFormValues {
 }
 
 const isActive = (run: ProviderImportRunApi): boolean => ACTIVE_IMPORT_RUN_STATUSES.includes(run.status)
+
+type RunDetailsCache = { runDetails?: Record<string, ProviderImportRunApi>; runDetailRetries?: number }
+
+const hasDetails = (run: ProviderImportRunApi, cache: RunDetailsCache): boolean =>
+    cache.runDetails?.[run.id]?.status === run.status
+
+// The list leaves out each step's items, so the window gets the latest run of each tool in full. A finished run no
+// longer changes, so it's fetched once.
+async function withLatestRunDetails(
+    teamId: string,
+    runs: ProviderImportRunApi[],
+    cache: RunDetailsCache
+): Promise<ProviderImportRunApi[]> {
+    cache.runDetails ??= {}
+    const details = cache.runDetails
+    const latestIds = new Set<string>()
+    const seenProviders = new Set<string>()
+    for (const run of runs) {
+        if (!seenProviders.has(run.provider)) {
+            seenProviders.add(run.provider)
+            latestIds.add(run.id)
+        }
+    }
+    return await Promise.all(
+        runs.map(async (run) => {
+            if (!latestIds.has(run.id)) {
+                return run
+            }
+            if (hasDetails(run, cache) && !isActive(run)) {
+                return details[run.id]
+            }
+            try {
+                const detail = await messagingProviderImportsRetrieve(teamId, run.id)
+                details[run.id] = detail
+                return detail
+            } catch {
+                return run
+            }
+        })
+    )
+}
 
 export const joinWithAnd = (items: string[]): string =>
     items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
@@ -223,13 +265,9 @@ export interface providerImportLogicMeta {
         ) => boolean
         selectedProvider: (
             importProviders: ImportProviderOptionApi[] | null,
-            chosenProviderKey: string | null,
-            showsAutomationImport: boolean
+            chosenProviderKey: string | null
         ) => ImportProviderOptionApi | null
-        orderedImportProviders: (
-            importProviders: ImportProviderOptionApi[] | null,
-            entryPoint: ImportEntryPoint
-        ) => ImportProviderOptionApi[]
+        orderedImportProviders: (importProviders: ImportProviderOptionApi[] | null) => ImportProviderOptionApi[]
         importButtonLabel: (importProviders: ImportProviderOptionApi[] | null) => string
         hasSeveralProviders: (importProviders: ImportProviderOptionApi[] | null) => boolean
         latestImportRunByProvider: (importRuns: ProviderImportRunApi[] | null) => Record<string, ProviderImportRunApi>
@@ -289,7 +327,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         setImportSetting: (key: string, value: string) => ({ key, value }),
         importedDataChanged: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         importRuns: [
             null as ProviderImportRunApi[] | null,
             {
@@ -308,7 +346,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
                             })
                         )
                     )
-                    const loaded = [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    const listed = [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    const loaded = await withLatestRunDetails(teamId, listed, cache)
                     // A run started while this request was in flight isn't in its response, so keep it and its polling.
                     const startedMeanwhile = (values.importRuns ?? []).filter(
                         (run) =>
@@ -424,7 +463,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         },
     })),
     selectors({
-        // Customer.io automations come in through their own file import, which is not one of the API's tools.
+        // Customer.io automations come in through their own import, which is not one of the API's tools.
         showsAutomationImport: [
             (s) => [s.importProviders, s.entryPoint],
             (importProviders: ImportProviderOptionApi[] | null, entryPoint: ImportEntryPoint): boolean =>
@@ -432,27 +471,24 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 !!importProviders?.some((provider) => provider.key === 'customerio'),
         ],
         selectedProvider: [
-            (s) => [s.importProviders, s.chosenProviderKey, s.showsAutomationImport],
+            (s) => [s.importProviders, s.chosenProviderKey],
             (
                 importProviders: ImportProviderOptionApi[] | null,
-                chosenProviderKey: string | null,
-                showsAutomationImport: boolean
+                chosenProviderKey: string | null
             ): ImportProviderOptionApi | null => {
                 if (!importProviders) {
                     return null
                 }
                 // With one thing to choose from, a picker would only add a click.
-                return importProviders.length === 1 && !showsAutomationImport
+                return importProviders.length === 1
                     ? importProviders[0]
                     : (importProviders.find((provider) => provider.key === chosenProviderKey) ?? null)
             },
         ],
         orderedImportProviders: [
-            (s) => [s.importProviders, s.entryPoint],
-            (
-                importProviders: ImportProviderOptionApi[] | null,
-                entryPoint: ImportEntryPoint
-            ): ImportProviderOptionApi[] => orderProvidersForEntryPoint(importProviders ?? [], entryPoint),
+            (s) => [s.importProviders],
+            (importProviders: ImportProviderOptionApi[] | null): ImportProviderOptionApi[] =>
+                sortProvidersByName(importProviders ?? []),
         ],
         // Until the tools load, the generic label avoids a flash of one tool's name for teams with several.
         importButtonLabel: [
@@ -557,6 +593,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         openImportModal: ({ entryPoint }) => {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('workflows import window opened', { entry_point: entryPoint })
+            cache.runDetailRetries = 0
             actions.loadImportRuns()
             actions.loadImportProviders()
         },
@@ -618,7 +655,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 }
             }
             actions.setTrackedImportRunIds(activeIds)
-            if (activeIds.length > 0) {
+            // A finished run whose details failed to load would otherwise show no items, so retry a few times.
+            const missingDetails = Object.values(values.latestImportRunByProvider).some(
+                (run) => !isActive(run) && !hasDetails(run, cache)
+            )
+            cache.runDetailRetries = missingDetails ? (cache.runDetailRetries ?? 0) + 1 : 0
+            if (cache.runDetailRetries === MAX_RUN_DETAIL_RETRIES + 1) {
+                lemonToast.error("Couldn't load the import results. Open the import again to retry.")
+            }
+            if (activeIds.length > 0 || (missingDetails && cache.runDetailRetries <= MAX_RUN_DETAIL_RETRIES)) {
                 cache.disposables.add(() => {
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)

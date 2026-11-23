@@ -18,10 +18,10 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(CAST(e.person_properties.`$bool_prop`, 'Nullable(String)'), 'x'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.`$bool_prop`, 'Nullable(String)'), 'x'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2)))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -61,10 +61,10 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(CAST(e.person_properties.`$bool_prop`, 'Nullable(String)'), 'x'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.`$bool_prop`, 'Nullable(String)'), 'x'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2)))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -253,7 +253,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0))
+           WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -301,7 +301,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
+           WHERE and(equals(e.team_id, 99999), equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows'), equals(e.properties.`$os`, 'Mac'), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -349,7 +349,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
+           WHERE and(equals(e.team_id, 99999), equals(e.properties.`$os`, 'Mac'), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -397,7 +397,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
+           WHERE and(equals(e.team_id, 99999), equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows'), equals(e.properties.`$os`, 'Mac'), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -445,7 +445,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(nullIf(toString(e.properties.`$current_url`), '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')), equals(e.properties.`$os`, 'Mac'))
+           WHERE and(equals(e.team_id, 99999), equals(e.properties.`$os`, 'Mac'), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'), or(equals(e.properties.`$browser`, 'Firefox'), equals(e.properties.`$os`, 'Windows')))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -576,10 +576,10 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), and(in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('p1', 'p2', 'p3')), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                  FROM cohortpeople
-                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('p1', 'p2', 'p3')), equals(e.event, '$pageview'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
@@ -1206,7 +1206,7 @@
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0)))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1262,7 +1262,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               CROSS JOIN
@@ -1333,7 +1333,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
@@ -1404,7 +1404,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               CROSS JOIN
@@ -1475,7 +1475,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
+                 WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.filter_prop, 'Nullable(String)'), 'filter_val'), 0), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
@@ -1672,7 +1672,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1705,7 +1705,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.properties.name, 'Nullable(String)'), '1'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.properties.name, 'Nullable(String)'), '1'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1738,7 +1738,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.name, 'Nullable(String)'), 'person1'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3031,7 +3031,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(leftUTF8(toString(CAST(e.person_properties.email, 'Nullable(String)')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(equals(e.person_properties.`$os`, 'android'), equals(e.person_properties.`$browser`, 'chrome')), and(ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0), ifNull(ilike(toString(CAST(e.person_properties.email, 'Nullable(String)')), '%@posthog.com%'), 0)))
+           WHERE and(equals(e.team_id, 99999), equals(e.person_properties.`$os`, 'android'), equals(e.person_properties.`$browser`, 'chrome'), ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(ilike(toString(CAST(e.person_properties.email, 'Nullable(String)')), '%@posthog.com%'), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -3119,7 +3119,7 @@
        (SELECT count(DISTINCT e.distinct_id) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.`$some_prop`, 'Nullable(String)'), 'some_val'), 0))
+        WHERE and(equals(e.team_id, 99999), ifNull(equals(CAST(e.person_properties.`$some_prop`, 'Nullable(String)'), 'some_val'), 0), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -5334,7 +5334,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('person-1', 'person-2'))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
+              WHERE and(equals(e.team_id, 99999), in(CAST(e.person_properties.name, 'Nullable(String)'), tuple('person-1', 'person-2')), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp

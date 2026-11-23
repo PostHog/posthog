@@ -444,11 +444,17 @@ def _fanout_source_response(
         job_id=job_id,
         db_incremental_field_last_value=None,
         parent_endpoint_extra={"data_selector": "data"},
-        child_endpoint_extra={"data_selector": "data"},
-        # The parent takes no page-size param, so the child's `limit` rides in `child_params`.
+        # Set the paginator explicitly. A path that ends in `{param}`, like the memberships
+        # `?organization_id={organization_id}`, otherwise reads as a single-object endpoint and
+        # gets a single-page paginator.
+        child_endpoint_extra={"data_selector": "data", "paginator": WorkOSPaginator()},
+        # The waitlists parent takes no page-size param, so each fan-out sets `limit` in its own
+        # `parent_params` and `child_params`.
         page_size_param=None,
         resume_hook=save_checkpoint,
         initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        # Organizations can span many pages, so a resume starts at the saved parent page.
+        resume_parent_pagination=True,
     )
 
     return SourceResponse(

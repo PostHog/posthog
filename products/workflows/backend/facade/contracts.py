@@ -229,6 +229,15 @@ class AccountAudienceCustomPropertyFilter:
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
 
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+]
+
 
 @frozen
 class AccountAudienceFilters:
@@ -427,6 +436,16 @@ class EmailSendingSuspensionChange:
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
     notification_failed: bool = False
+
+
+@frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    delivery_rate: float
+    bounce_rate: float
+    complaint_rate: float
 
 
 @frozen
