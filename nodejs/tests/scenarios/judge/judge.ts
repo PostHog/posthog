@@ -9,16 +9,17 @@ import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import type { TruthSource } from './truth'
 
-export type IntakeAnswer =
+export type IntakeAnswer = (
     | { accepted: true }
     | { accepted: false; transportError: string }
     | { accepted: false; status: number; outcome?: string }
+) & { retries?: number }
 
 export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional'
     teamId: number
     offeredAt: number
     step?: number

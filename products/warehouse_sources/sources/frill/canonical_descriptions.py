@@ -98,6 +98,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "attachments": "Files and images attached to this idea.",
         },
     },
+    "integration_links": {
+        "description": "A link between an idea and a record in an external tool, such as the Zendesk ticket or Intercom conversation that prompted it. One row per external record.",
+        "docs_url": "https://developers.frill.co/api/reference/integration-links",
+        "columns": {
+            "idx": "A unique identifier for the integration link.",
+            "idea_idx": "A unique identifier for the idea this link belongs to.",
+            "type": "The integration this link points at, such as zendesk or intercom.",
+            "link_ref": "The identifier of the linked record in the external system (for Zendesk, the ticket ID).",
+            "meta": "Additional detail supplied by the integration when the link was created. The shape varies by integration.",
+            "created_at": "The date and time the link was created (UTC).",
+            "updated_at": "The date and time the link was last updated (UTC).",
+        },
+    },
     "statuses": {
         "description": "A workflow status ideas move through on the roadmap (e.g. Planned, In Progress, Shipped).",
         "docs_url": "https://developers.frill.co/api/reference/statuses",

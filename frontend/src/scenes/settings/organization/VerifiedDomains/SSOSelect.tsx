@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SSOProvider } from '~/types'
@@ -26,12 +27,13 @@ export function SSOSelect({
     disabledReason,
 }: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight) {
         return null
     }
 
-    const options = ssoSelectOptions(preflight, samlAvailable, oidcAvailable)
+    const options = ssoSelectOptions(preflight, samlAvailable, oidcAvailable, value, featureFlags)
 
     return (
         <LemonSelect

@@ -7,6 +7,7 @@ from urllib.parse import quote, urlsplit
 from requests import PreparedRequest, Response
 
 from products.warehouse_sources.sources.sdk import (
+    CLOUDFLARE_TRANSIENT_STATUSES,
     APIKeyAuth,
     BearerTokenAuth,
     ClientConfig,
@@ -27,6 +28,9 @@ from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.settings import DAY_MS, DEFAULT_BASE_URL, ENDPOINTS, PAGE_SIZE
 
 REQUEST_TIMEOUT = (10, 30)
+# 5xx responses that usually recover, including Cloudflare 52x/530 from a tunnel in front of a self-hosted server.
+TRANSIENT_SERVER_STATUSES = (500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES)
+LOGIN_ATTEMPTS = 3
 # A server-supplied date range outside this span is implausible. Rejecting it bounds the number of event windows.
 MIN_TIMESTAMP_MS = 631_152_000_000  # 1990-01-01
 MAX_FUTURE_MS = 366 * DAY_MS
@@ -118,11 +122,18 @@ class UmamiClient:
         return response
 
     def _login(self) -> None:
-        response = self.session.post(
-            f"{self.base_url}/auth/login",
-            json={"username": self.username, "password": self.password},
-            timeout=REQUEST_TIMEOUT,
-        )
+        # The transport retries only GET, HEAD and OPTIONS. The login only exchanges credentials, so retry it here.
+        for attempt in range(LOGIN_ATTEMPTS):
+            response = self.session.post(
+                f"{self.base_url}/auth/login",
+                json={"username": self.username, "password": self.password},
+                timeout=REQUEST_TIMEOUT,
+            )
+            if response.status_code not in TRANSIENT_SERVER_STATUSES or attempt == LOGIN_ATTEMPTS - 1:
+                break
+            response.close()
+            if interruptible_wait(2**attempt):
+                break
         response.raise_for_status()
         body = response.json()
         if body.get("requiresTwoFactor"):

@@ -445,12 +445,15 @@ class TestChdbEngineChoiceByFormat:
     def _table(
         self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
     ) -> DataWarehouseTable:
+        team = Team(id=1)
         return DataWarehouseTable(
             name="t",
             format=table_format,
-            team=Team(id=1),
+            team=team,
             url_pattern=url_pattern,
-            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret", team=team)
+            if has_credential
+            else None,
         )
 
     @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])

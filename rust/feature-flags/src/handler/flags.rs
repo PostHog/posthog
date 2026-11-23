@@ -703,7 +703,11 @@ mod tests {
         let result = detect_evaluation_runtime_from_request(&headers, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
 
-        for sdk in ["posthog-godot/1.0.0", "posthog-unreal/1.0.0"] {
+        for sdk in [
+            "posthog-godot/1.0.0",
+            "posthog-unreal/1.0.0",
+            "posthog-electron/0.1.0",
+        ] {
             headers.insert("user-agent", sdk.parse().unwrap());
             let result = detect_evaluation_runtime_from_request(&headers, None);
             assert_eq!(result, Some(EvaluationRuntime::Client));
