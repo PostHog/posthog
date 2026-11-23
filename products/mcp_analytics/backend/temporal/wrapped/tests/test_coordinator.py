@@ -14,6 +14,13 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+
 from products.mcp_analytics.backend.temporal.wrapped.activities import WrappedDiscoveryInputs, WrappedTeamInputs
 from products.mcp_analytics.backend.temporal.wrapped.coordinator import (
     MCPWrappedCoordinatorWorkflow,
@@ -23,6 +30,7 @@ from products.mcp_analytics.backend.temporal.wrapped.coordinator import (
 FAILING_TEAM_ID = 3
 _discovered_years: list[int] = []
 _generated_team_ids: list[int] = []
+_error_to_raise: list[type[Exception]] = []
 
 
 @activity.defn(name="discover_wrapped_team_ids_activity")
@@ -39,7 +47,13 @@ async def stub_generate(inputs: WrappedTeamInputs) -> str:
     return "ready" if inputs.team_id % 2 else "ineligible"
 
 
-async def _run(inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
+@activity.defn(name="generate_wrapped_activity")
+async def stub_generate_raising(inputs: WrappedTeamInputs) -> str:
+    _generated_team_ids.append(inputs.team_id)
+    raise _error_to_raise[0]()
+
+
+async def _run(inputs: WrappedCoordinatorInputs, generate: Any = stub_generate) -> dict[str, Any]:
     _discovered_years.clear()
     _generated_team_ids.clear()
     task_queue = str(uuid.uuid4())
@@ -48,7 +62,7 @@ async def _run(inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
             env.client,
             task_queue=task_queue,
             workflows=[MCPWrappedCoordinatorWorkflow],
-            activities=[stub_discovery, stub_generate],
+            activities=[stub_discovery, generate],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -81,6 +95,23 @@ async def test_invalid_limits_fail_before_any_work(_name: str, inputs: WrappedCo
 
     assert _discovered_years == []
     assert _generated_team_ids == []
+
+
+@parameterized.expand(
+    [
+        ("query_timeout", ClickHouseQueryTimeOut, 1),
+        ("estimated_too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong, 1),
+        ("query_memory_limit", ClickHouseQueryMemoryLimitExceeded, 1),
+        ("cluster_memory_pressure", ClickHouseClusterMemoryLimitExceeded, 3),
+    ]
+)
+async def test_only_transient_clickhouse_errors_are_retried(_name: str, error: type[Exception], attempts: int) -> None:
+    _error_to_raise[:] = [error]
+
+    result = await _run(WrappedCoordinatorInputs(year=2026, team_ids=[2]), generate=stub_generate_raising)
+
+    assert _generated_team_ids == [2] * attempts
+    assert result["failed_team_ids"] == [2]
 
 
 async def test_chosen_projects_skip_discovery() -> None:
