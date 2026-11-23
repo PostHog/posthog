@@ -18,11 +18,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 )
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.feature_flags.backend.reserved_variant_keys import (
-    non_string_variants,
-    reserved_variant_key,
-    reserved_variant_key_message,
-)
+from products.feature_flags.backend.reserved_variant_keys import reserved_variant_key, reserved_variant_key_message
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -52,11 +48,7 @@ class FeatureFlagVisitor(
         cls, payload: ResourcePayload, vertex: ResourceTransferVertex, new_team: Team
     ) -> ResourcePayload:
         # A copy creates a new flag in the destination project, so no variant key is held there yet.
-        filters = payload.get("filters")
-        # FeatureFlag.save() refuses these with Django's ValidationError. The transfer view returns a 500 for that error.
-        if unkeyed := non_string_variants(filters):
-            raise ValueError(f"{unkeyed[0][0]} must be a string.")
-        reserved_key = reserved_variant_key(filters)
+        reserved_key = reserved_variant_key(payload.get("filters"))
         if reserved_key is not None:
             raise ValueError(reserved_variant_key_message(reserved_key))
         return super().adjust_duplicate_payload(payload, vertex, new_team)
