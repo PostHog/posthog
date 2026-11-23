@@ -16245,17 +16245,18 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_get", "external_data_source:read", "GET", True),
-            ("read_patch", "external_data_source:read", "PATCH", False),
-            ("write_patch", "external_data_source:write", "PATCH", True),
+            ("read_get", "destinations", "external_data_source:read", "GET", True),
+            ("read_patch", "destinations", "external_data_source:read", "PATCH", False),
+            ("write_patch", "destinations", "external_data_source:write", "PATCH", True),
+            # The destinations override must still fall through to the access control mixin's scopes.
+            ("access_controls_read", "access_controls", "access_control:read", "GET", True),
+            ("access_controls_source_read", "access_controls", "external_data_source:read", "GET", False),
         ]
     )
-    def test_destinations_reads_with_read_scope(
-        self, _name: str, scope: str, method: str, should_have_access: bool
-    ) -> None:
+    def test_action_scopes(self, _name: str, action: str, scope: str, method: str, should_have_access: bool) -> None:
         source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
         self.client.force_authenticate(None)
-        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/destinations/"
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/{action}/"
         headers = {"authorization": f"Bearer {self._make_api_key([scope])}"}
 
         if method == "GET":

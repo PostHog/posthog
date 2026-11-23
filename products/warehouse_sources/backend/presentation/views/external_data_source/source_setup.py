@@ -57,7 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
-    request_manual_run,
+    request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -2528,8 +2528,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
-        for schema in schemas:
-            request_manual_run(schema.id, self.team_id)
+        request_manual_runs([schema.id for schema in schemas], self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 

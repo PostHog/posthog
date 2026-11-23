@@ -70,7 +70,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
-    request_manual_run,
+    request_manual_runs,
     resolve_destinations,
     resolve_sync_type,
     self_managed_table_ref,
@@ -3364,7 +3364,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
-        request_manual_run(instance.id, instance.team_id)
+        request_manual_runs([instance.id], instance.team_id)
         try:
             _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:

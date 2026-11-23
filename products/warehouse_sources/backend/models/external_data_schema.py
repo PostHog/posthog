@@ -2045,25 +2045,24 @@ def update_sync_type_config_keys(
         return config
 
 
-def request_manual_run(schema_id: str | uuid.UUID, team_id: int) -> None:
-    """Let the next run of a failing schema go ahead instead of standing down.
+def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
+    """Let the next run of each failing schema go ahead instead of standing down.
 
     A run of a schema that keeps failing stands down until its gap has passed. Someone asking for a sync has
     usually just changed what made it fail, and a run that stands down creates no job, so their sync would
     show as Running with nothing behind it.
     """
-    in_a_streak = ExternalDataSchema.objects.filter(
-        id=schema_id, team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
-    ).exists()
-    if not in_a_streak:
-        return
+    failing_ids = ExternalDataSchema.objects.filter(
+        id__in=list(schema_ids), team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
+    ).values_list("id", flat=True)
 
     def _mark(config: dict[str, Any]) -> None:
         streak = config.get(FAILURE_STREAK_KEY)
         if isinstance(streak, dict):
             streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
 
-    update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
+    for schema_id in failing_ids:
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
 
 
 def persist_schema_metadata(
