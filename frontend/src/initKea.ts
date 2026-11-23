@@ -242,7 +242,7 @@ const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 /*
 Actions whose owning logic shows the server message of a validation 400, in a toast or inline. The
 400 is a response to user input, such as a malformed CSV, so it is not reported as an exception.
-Every other failure on these actions still toasts and reports.
+Every other failure on these actions goes through the generic handling below.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
