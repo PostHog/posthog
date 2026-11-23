@@ -9,8 +9,9 @@ import math
 import ipaddress
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from enum import StrEnum
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 from posthog.hogql import ast
 from posthog.hogql.parser import CacheOrigin, parse_program, parse_string_template
@@ -19,9 +20,9 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ParserMode
 from posthog.security.oob_domains import matched_oob_domain
-from posthog.security.url_validation import canonicalize_host, internal_host_name
+from posthog.security.url_validation import canonicalize_host, has_authority_bypass_chars, internal_host_name
 
-from products.cdp.backend.abuse.classifier import MAX_STATE_CHARS, HogFunctionContent
+from products.cdp.backend.abuse.classifier import MAX_STATE_CHARS, HogFunctionContent, SetAsideReason
 from products.ml_inference.backend.facade.contracts import JsonValue
 
 from common.hogvm.python.stl import STL
@@ -150,6 +151,24 @@ _JS_DECIMAL = re.compile(r"[+-]?(?:\d++(?:\.\d*+)?|\.\d++)(?:e[+-]?\d++)?", re.I
 _JS_PREFIXED_INTEGER = re.compile(r"0x[0-9a-f]++|0o[0-7]++|0b[01]++", re.IGNORECASE)
 _JS_INFINITY = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
 
+# The APIs that post a message to a chat channel, as a host and the path prefix the message endpoints share.
+_CHAT_MESSAGE_APIS = (
+    ("slack.com", "/api/"),
+    ("hooks.slack.com", "/"),
+    ("discord.com", "/api/webhooks/"),
+    ("api.telegram.org", "/"),
+    ("chat.googleapis.com", "/"),
+)
+_TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
+_INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
+# These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
+_AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
+# A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
+_PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
+# A URL part that could name a host on its own, such as a redirect target in the query string.
+_URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
+_BRACKETED_ADDRESS = re.compile(r"\[([^\]]*)\]")
+
 
 def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     url_inputs = _template_url_inputs(content)
@@ -183,6 +202,124 @@ def has_outbound_call(content: HogFunctionContent) -> bool:
     return _calls_out(_parse_code, content.hog) or any(
         _calls_out(_parse_template, template) for template in _hog_templates(content)
     )
+
+
+def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> dict[str, SetAsideReason]:
+    """The questions whose model score alone cannot alert, because the code shows the risk cannot happen. The score
+    is still reported."""
+    requests = _requests_of(content)
+    if requests is None:
+        return {}
+    rules = frozenset(rule_hits)
+    set_aside: dict[str, SetAsideReason] = {}
+    if not requests.calls_out:
+        set_aside["internal_network"] = SetAsideReason.NO_OUTBOUND_CALL
+    elif (
+        requests.only_literal_fetches
+        and all(_is_literal_public_url(url) for url in requests.literal_urls)
+        and not rules & _INTERNAL_HOST_RULES
+    ):
+        set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
+    if requests.calls_out and requests.only_literal_fetches and all(map(_is_chat_message_api, requests.literal_urls)):
+        set_aside["malformed_payload"] = SetAsideReason.CHAT_MESSAGES_ONLY
+    if not requests.fans_out and not rules & _AMPLIFICATION_RULES:
+        set_aside["resource_exhaustion"] = SetAsideReason.NO_REQUEST_FAN_OUT
+    return set_aside
+
+
+@frozen
+class _Requests:
+    calls_out: bool
+    # Every call that can send a request is a `fetch` of a literal URL.
+    only_literal_fetches: bool
+    literal_urls: tuple[str, ...]
+    # A call that can send a request runs in a loop, a callback, a function called from either, or a recursive one.
+    fans_out: bool
+
+
+def _requests_of(content: HogFunctionContent) -> _Requests | None:
+    """How the code and its Hog templates can send requests, or None when that cannot be read from the code."""
+    if (content.template_id or "").startswith(_NON_HOG_TEMPLATE_PREFIXES):
+        return None
+    programs = [(_parse_code, content.hog), *((_parse_template, template) for template in _hog_templates(content))]
+    shapes = []
+    for parse, hog in programs:
+        visitor = _HogCodeVisitor()
+        try:
+            visitor.visit(parse(hog))
+        except Exception:
+            return None
+        shapes.append(visitor.requests())
+    return _Requests(
+        calls_out=any(shape.calls_out for shape in shapes),
+        only_literal_fetches=all(shape.only_literal_fetches for shape in shapes),
+        literal_urls=tuple(url for shape in shapes for url in shape.literal_urls),
+        fans_out=any(shape.fans_out for shape in shapes),
+    )
+
+
+def _is_chat_message_api(url: str) -> bool:
+    parts = _plain_url_parts(url)
+    if parts is None or parts.scheme != "https" or parts.port not in (None, 443):
+        return False
+    host = canonicalize_host(parts.hostname or "")
+    if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
+        return True
+    return any(host == api_host and parts.path.startswith(path) for api_host, path in _CHAT_MESSAGE_APIS)
+
+
+def _is_literal_public_url(url: str) -> bool:
+    """Whether a URL names a public DNS name, and no address, internal name or internal TLD anywhere in it, such as a
+    redirect target in the query string."""
+    parts = _plain_url_parts(url)
+    if parts is None or parts.scheme not in ("http", "https"):
+        return False
+    host = canonicalize_host(parts.hostname or "")
+    if _PUBLIC_DNS_NAME.fullmatch(host) is None or _is_internal(host):
+        return False
+    return not any(_names_an_address(layer) for layer in _decoded_layers(url))
+
+
+def _plain_url_parts(url: str) -> SplitResult | None:
+    """The parts of a URL that every parser reads the same way: no userinfo, whitespace, control character or
+    backslash, and a valid port."""
+    if has_authority_bypass_chars(url) or any(char.isspace() or not char.isprintable() for char in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        parts.port  # noqa: B018 -- raises for a port that is out of range or not a number
+    except ValueError:
+        return None
+    if parts.username is not None or parts.password is not None or not parts.hostname:
+        return None
+    return parts._replace(scheme=parts.scheme.lower())
+
+
+def _names_an_address(text: str) -> bool:
+    if any(_is_ip(address) for address in _BRACKETED_ADDRESS.findall(text)):
+        return True
+    for part in _URL_PART_SEPARATOR.split(text):
+        part = part.strip("[]")
+        if _is_ip(part):
+            return True
+        for name in filter(None, part.split(":")):
+            if internal_host_name(name) is not None or _is_address_shorthand(name):
+                return True
+    return False
+
+
+def _is_address_shorthand(name: str) -> bool:
+    """`1.2.3.4`, `127.1` or `0x7f000001`. A bare decimal such as an ID in a path is left out."""
+    looks_like_an_address = "." in name or name.lower().startswith("0x")
+    return looks_like_an_address and _runtime_ipv4(canonicalize_host(name)) is not None
+
+
+def _is_ip(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _calls_out(parse: Callable[[str], ast.AST], hog: str) -> bool:
@@ -240,6 +377,85 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
             yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
+@dataclass
+class _Frame:
+    """The body being walked: the code itself, a function, or a lambda. A lambda that `let` does not name can be
+    called from anywhere, such as a callback that runs for every element."""
+
+    name: str | None
+    anonymous: bool = False
+    loops: int = 0
+
+    @property
+    def repeats(self) -> bool:
+        return self.anonymous or self.loops > 0
+
+
+@frozen
+class _LocalCall:
+    caller: str | None
+    repeats: bool
+    callee: str
+
+
+@dataclass
+class _CallGraph:
+    """Which declared functions can send a request, and which of them run again and again."""
+
+    declared: set[str] = field(default_factory=set)
+    # Parameters, loop and catch variables, other `let` values and every assigned name, which can hold any value.
+    rebound: set[str] = field(default_factory=set)
+    sends: set[str] = field(default_factory=set)
+    calls: list[_LocalCall] = field(default_factory=list)
+    used_as_values: set[str] = field(default_factory=set)
+
+    def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool) -> _Requests:
+        """A call to a function declared with `fun`, or with `let` as a lambda literal, and never rebound runs that
+        body, which this walk checked. A call to any other local can run anything."""
+        static = self.declared - self.rebound
+        sends = set(self.sends)
+        edges: dict[str, set[str]] = {}
+        repeated = self.used_as_values & static
+        for call in self.calls:
+            if call.callee not in static:
+                other_call = True
+                fans_out |= call.repeats
+                if call.caller is not None:
+                    sends.add(call.caller)
+                continue
+            if call.repeats:
+                repeated.add(call.callee)
+            if call.caller is not None:
+                edges.setdefault(call.caller, set()).add(call.callee)
+        sends = _callers_of(sends, edges)
+        recursive = {name for name in sends if name in _reachable(name, edges)}
+        return _Requests(
+            calls_out=other_call or bool(literal_urls),
+            only_literal_fetches=not other_call,
+            literal_urls=tuple(literal_urls),
+            fans_out=fans_out or bool(repeated & sends) or bool(recursive),
+        )
+
+
+def _callers_of(names: set[str], edges: dict[str, set[str]]) -> set[str]:
+    """`names` and every function that reaches one of them through calls."""
+    reached = set(names)
+    while grown := {caller for caller, callees in edges.items() if caller not in reached and callees & reached}:
+        reached |= grown
+    return reached
+
+
+def _reachable(name: str, edges: dict[str, set[str]]) -> set[str]:
+    reached: set[str] = set()
+    pending = list(edges.get(name, ()))
+    while pending:
+        callee = pending.pop()
+        if callee not in reached:
+            reached.add(callee)
+            pending.extend(edges.get(callee, ()))
+    return reached
+
+
 class _HogCodeVisitor(TraversingVisitor):
     """Tracks the names in scope in source order, as the bytecode compiler does, because a call to a declared name
     runs the local and never reaches the standard library or the async function registry."""
@@ -249,6 +465,27 @@ class _HogCodeVisitor(TraversingVisitor):
         self.matched: set[Rule] = set()
         self.calls_out = False
         self._scopes: list[set[str]] = [set()]
+        self._frames: list[_Frame] = [_Frame(name=None)]
+        self._literal_urls: list[str] = []
+        self._other_call = False
+        self._fans_out = False
+        self._graph = _CallGraph()
+
+    def requests(self) -> _Requests:
+        return self._graph.requests(self._literal_urls, self._other_call, self._fans_out)
+
+    def _sends(self, literal_url: str | None = None) -> None:
+        """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
+        self.calls_out = True
+        if literal_url is None:
+            self._other_call = True
+        else:
+            self._literal_urls.append(literal_url)
+        frame = self._frames[-1]
+        if frame.repeats:
+            self._fans_out = True
+        elif frame.name is not None:
+            self._graph.sends.add(frame.name)
 
     def _is_local(self, name: str) -> bool:
         return any(name in scope for scope in self._scopes)
@@ -261,44 +498,83 @@ class _HogCodeVisitor(TraversingVisitor):
         finally:
             self._scopes.pop()
 
+    @contextmanager
+    def _frame(self, name: str | None) -> Iterator[None]:
+        self._frames.append(_Frame(name=name, anonymous=name is None))
+        try:
+            yield
+        finally:
+            self._frames.pop()
+
+    @contextmanager
+    def _loop(self) -> Iterator[None]:
+        self._frames[-1].loops += 1
+        try:
+            yield
+        finally:
+            self._frames[-1].loops -= 1
+
     def visit_block(self, node: ast.Block) -> None:
         with self._scope():
             super().visit_block(node)
 
     def visit_function(self, node: ast.Function) -> None:
         self._scopes[-1].add(node.name)
-        with self._scope(node.params):
+        self._graph.declared.add(node.name)
+        self._graph.rebound.update(node.params)
+        with self._scope(node.params), self._frame(node.name):
             super().visit_function(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
-        with self._scope(node.args):
+        self._visit_lambda(node, name=None)
+
+    def _visit_lambda(self, node: ast.Lambda, name: str | None) -> None:
+        self._graph.rebound.update(node.args)
+        with self._scope(node.args), self._frame(name):
             super().visit_lambda(node)
+
+    def visit_while_statement(self, node: ast.WhileStatement) -> None:
+        with self._loop():
+            super().visit_while_statement(node)
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
         self.visit(node.expr)
-        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
+        names = [node.valueVar, *([node.keyVar] if node.keyVar else [])]
+        self._graph.rebound.update(names)
+        with self._scope(names), self._loop():
             self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
-        with self._scope():
+        with self._scope(), self._loop():
             super().visit_for_statement(node)
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
         for name, _error_type, handler in node.catches:
+            self._graph.rebound.update([name] if name else [])
             with self._scope([name] if name else []):
                 self.visit(handler)
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
-        super().visit_variable_declaration(node)
+        if isinstance(node.expr, ast.Lambda):
+            self._graph.declared.add(node.name)
+            self._visit_lambda(node.expr, name=node.name)
+        else:
+            self._graph.rebound.add(node.name)
+            super().visit_variable_declaration(node)
         self._scopes[-1].add(node.name)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        super().visit_variable_assignment(node)
+        if (name := _base_name(node.left)) is not None:
+            self._graph.rebound.add(name)
 
     # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
     # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         super().visit_expr_call(node)
-        self.calls_out = True
+        self._sends()
 
     # The compiler runs every placeholder of an inline query, even in `SAMPLE`, and a function has no use for Hog SQL.
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
@@ -306,28 +582,33 @@ class _HogCodeVisitor(TraversingVisitor):
         self.visit(node.sample)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.calls_out = True
+        self._sends()
         super().visit_select_query(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        self.calls_out = True
+        self._sends()
         super().visit_select_set_query(node)
 
     # A tag calls the local of its name, including compiler temporaries such as `__expr__`, so any tag counts.
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         super().visit_hogqlx_tag(node)
-        self.calls_out = True
+        self._sends()
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
         if self._is_local(node.name):
             self.calls_out = True
+            frame = self._frames[-1]
+            self._graph.calls.append(_LocalCall(caller=frame.name, repeats=frame.repeats, callee=node.name))
             return
-        self.calls_out |= (
-            node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS
-        )
+        if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
+            self._sends(url)
+        elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
+            self._sends()
         if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
-            self.calls_out = True
+            # The builtin calls the value once per element.
+            self._sends()
+            self._fans_out = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
@@ -342,10 +623,21 @@ class _HogCodeVisitor(TraversingVisitor):
             return
         name = str(node.chain[0])
         if self._is_local(name):
+            self._graph.used_as_values.add(name)
             return
-        self.calls_out |= name in OUTBOUND_FUNCTIONS
+        if name in OUTBOUND_FUNCTIONS:
+            # Passed on as a value, so it can be called any number of times.
+            self._sends()
+            self._fans_out = True
         if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
+
+
+def _literal_string(args: list[ast.Expr]) -> str | None:
+    match args:
+        case [ast.Constant(value=str(value))]:
+            return value
+    return None
 
 
 def _hog_range_size(args: list[ast.Expr]) -> float:

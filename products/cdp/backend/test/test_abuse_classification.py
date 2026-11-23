@@ -19,8 +19,11 @@ from products.cdp.backend.test.abuse_support import (
 )
 
 LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
-SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
+SSRF_SCORES = {**SCORES, "internal_network": 0.6, "runtime_escape": 0.1, "normal_integration": 0.6}
 NO_CALL_HOG = "print(event.properties.$ip)"
+ONE_REQUEST = {"resource_exhaustion": "no_request_fan_out"}
+NO_REQUEST = {"internal_network": "no_outbound_call", **ONE_REQUEST}
+ONE_PUBLIC_REQUEST = {"internal_network": "literal_public_urls", **ONE_REQUEST}
 
 
 class TestAbuseClassification(AbuseClassificationTestCase):
@@ -43,7 +46,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("low_control_keeps_a_moderate_model_alert", LOW_CONTROL_SCORES, None, RULE_FREE_HOG, [], True, False),
             (
                 "high_control_still_alerts_and_blocks_at_the_block_threshold",
-                {**SCORES, "resource_exhaustion": 0.9},
+                {**SCORES, "runtime_escape": 0.9},
                 None,
                 RULE_FREE_HOG,
                 [],
@@ -94,6 +97,8 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["request_catcher"],
                 True,
                 False,
+                True,
+                ONE_PUBLIC_REQUEST,
             ),
             (
                 "rule_alerts_when_high_control_skips_the_model_alert",
@@ -103,9 +108,21 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["request_catcher"],
                 True,
                 False,
+                True,
+                ONE_PUBLIC_REQUEST,
             ),
             ("ssrf_score_alerts_with_an_outbound_call", SSRF_SCORES, None, RULE_FREE_HOG, [], True, False),
-            ("ssrf_score_is_ignored_without_an_outbound_call", SSRF_SCORES, None, NO_CALL_HOG, [], False, False, False),
+            (
+                "ssrf_score_is_ignored_without_an_outbound_call",
+                SSRF_SCORES,
+                None,
+                NO_CALL_HOG,
+                [],
+                False,
+                False,
+                False,
+                NO_REQUEST,
+            ),
             (
                 "ssrf_score_at_the_block_threshold_is_ignored_without_an_outbound_call",
                 {**SSRF_SCORES, "internal_network": 0.95},
@@ -115,6 +132,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
                 False,
                 False,
+                NO_REQUEST,
             ),
             (
                 "other_risk_alerts_without_an_outbound_call",
@@ -125,6 +143,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 False,
                 False,
+                NO_REQUEST,
             ),
             (
                 "rule_alerts_without_an_outbound_call",
@@ -135,6 +154,49 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 False,
                 False,
+                NO_REQUEST,
+            ),
+            (
+                "malformed_score_is_ignored_for_a_chat_message_post",
+                {**LOW_CONTROL_SCORES, "malformed_payload": 0.85, "runtime_escape": 0.1},
+                None,
+                "fetch('https://slack.com/api/chat.postMessage', {'method': 'POST', 'body': {'text': inputs.text}})",
+                [],
+                False,
+                False,
+                True,
+                {"malformed_payload": "chat_messages_only", **ONE_PUBLIC_REQUEST},
+            ),
+            (
+                "ssrf_score_is_ignored_for_a_literal_public_url",
+                SSRF_SCORES,
+                None,
+                "fetch('https://staging.example.com/internal/callback', {'body': event})",
+                [],
+                False,
+                False,
+                True,
+                ONE_PUBLIC_REQUEST,
+            ),
+            (
+                "resource_score_is_ignored_without_request_fan_out",
+                {**LOW_CONTROL_SCORES, "resource_exhaustion": 0.95, "runtime_escape": 0.1},
+                None,
+                RULE_FREE_HOG,
+                [],
+                False,
+                False,
+            ),
+            (
+                "resource_score_alerts_and_blocks_with_a_request_per_item",
+                {**LOW_CONTROL_SCORES, "resource_exhaustion": 0.95, "runtime_escape": 0.1},
+                None,
+                "for (let item in event.properties.items) {\n  fetch(inputs.url, {'body': item})\n}",
+                [],
+                True,
+                True,
+                True,
+                {},
             ),
         ]
     )
@@ -148,6 +210,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         would_alert: bool,
         would_block: bool,
         outbound_call: bool = True,
+        set_aside_scores: dict[str, str] | None = None,
     ) -> None:
         self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
@@ -173,6 +236,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "risk_score": max(scores[question] for question in MALICIOUS_QUESTIONS),
             "rule_hits": rule_hits,
             "outbound_call": outbound_call,
+            "set_aside_scores": ONE_REQUEST if set_aside_scores is None else set_aside_scores,
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,

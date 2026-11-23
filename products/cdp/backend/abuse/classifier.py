@@ -7,7 +7,7 @@ import re
 import json
 import time
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from enum import StrEnum
 
 from pydantic import ValidationError
@@ -74,8 +74,20 @@ QUESTIONS: dict[str, DecisionQuestion] = {
 }
 CONTROL_QUESTION = "normal_integration"
 MALICIOUS_QUESTIONS = tuple(question for question in QUESTIONS if question != CONTROL_QUESTION)
-# Code that sends no request cannot reach an internal address, however its wording reads to the model.
-OUTBOUND_QUESTIONS = frozenset({"internal_network"})
+
+
+class SetAsideReason(StrEnum):
+    """Why a question's score does not count toward an alert. The code shows the risk cannot happen, however its
+    wording reads to the model."""
+
+    # Code that sends no request cannot reach an internal address.
+    NO_OUTBOUND_CALL = "no_outbound_call"
+    # Every request goes to a literal URL on a public host, which the internal host rules already judge exactly.
+    LITERAL_PUBLIC_URLS = "literal_public_urls"
+    # Text posted to a chat channel cannot break the system that receives it.
+    CHAT_MESSAGES_ONLY = "chat_messages_only"
+    # The runtime caps the time and memory of an invocation, so only requests sent again and again exhaust anything.
+    NO_REQUEST_FAN_OUT = "no_request_fan_out"
 
 
 class FailureReason(StrEnum):
@@ -268,7 +280,7 @@ def classify(
     *,
     team_id: int,
     thresholds: Thresholds,
-    outbound_call: bool,
+    set_aside: Collection[str],
 ) -> AbuseVerdict:
     # The facade pulls the LLM SDKs through the gateway client, which must stay out of Django startup.
     from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
@@ -304,7 +316,7 @@ def classify(
     scores = _scores(result.answers)
     risk_score = max(scores[question] for question in MALICIOUS_QUESTIONS)
     acted_on_risk = max(
-        scores[question] for question in MALICIOUS_QUESTIONS if outbound_call or question not in OUTBOUND_QUESTIONS
+        (scores[question] for question in MALICIOUS_QUESTIONS if question not in set_aside), default=0.0
     )
     return AbuseVerdict(
         scores=scores,
