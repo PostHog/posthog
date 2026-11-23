@@ -101,10 +101,10 @@ STAMPHOG_PR_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 
 # PR actions worth a (re)review. Anything else (closed, assigned, edited, ...) is dropped.
-# `labeled` passes this filter but only ever queues a run for repos in LABEL review mode, when the
-# added label is the repo's own trigger label, and under a per-PR cooldown (_review_mode_skip_reason).
-# In ALL mode it stays ignored: every label add fires a new delivery id, so toggling any label would
-# re-run the sandbox + LLM review without a code change.
+# `labeled` passes this filter but only counts when the added label is the repo's own trigger label
+# (_review_mode_skip_reason). In LABEL mode it queues a run under a per-PR cooldown. In ALL mode it
+# reviews the head again only on new evidence, like a manual request, because every label add fires
+# a new delivery id and would otherwise re-run the sandbox + LLM review without a code change.
 RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
 
 # Actions that (may) move the PR head. When one of these is skipped by the LABEL-mode gate, a prior
@@ -378,18 +378,22 @@ def _review_mode_skip_reason(
 ) -> str | None:
     """Why the repo's review mode drops this event, or None to proceed.
 
-    ALL mode reviews every relevant action but ignores `labeled` (any label add would re-run the
-    review with no code change). LABEL mode requires the trigger label to be present on the PR for
-    every action, and for `labeled` specifically also requires that the trigger label is what was just
-    added — plus a per-PR cooldown so label toggling can't spam runs.
+    ALL mode reviews every relevant action. It ignores `labeled` unless the trigger label was just
+    added, and that add goes through the manual request's evidence gate (`_review_label_request_in_all_mode`)
+    instead of the unconditional path. It has no cooldown, because the evidence gate and the per-head
+    cap already bound how often it re-runs a head. LABEL mode requires the trigger label to be present
+    on the PR for every action, and for `labeled` specifically also requires that the trigger label is
+    what was just added — plus a per-PR cooldown so label toggling can't spam runs.
     """
+    added_label = (payload.get("label") or {}).get("name") or ""
     if repo_config.review_mode != ReviewMode.LABEL:
-        return "labeled_ignored_in_all_mode" if action == "labeled" else None
+        if action == "labeled" and added_label != repo_config.trigger_label:
+            return "labeled_ignored_in_all_mode"
+        return None
 
     if not _pr_has_trigger_label(repo_config, pr):
         return "label_absent"
     if action == "labeled":
-        added_label = (payload.get("label") or {}).get("name") or ""
         if added_label != repo_config.trigger_label:
             return "other_label_added"
         if cache.get(_label_cooldown_key(repo_config, pr["number"])) is not None:
@@ -1442,6 +1446,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 _mark_pr_event_processed(delivery_id)
             return
 
+    # ALL mode already reviews every push, so the trigger label can only ask for another review of the
+    # same head. It goes through the manual request's evidence gate, not the unconditional path below.
+    if action == "labeled" and repo_config.review_mode == ReviewMode.ALL and not carved_out:
+        try:
+            _review_label_request_in_all_mode(repo_config, pr, delivery_id)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_label_request_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
+        return
+
     # Bind the transaction and its on_commit hook to the model's routed DB. A bare atomic() opens on
     # the default connection, so when the product DB is configured the select_for_update in
     # _supersede_prior_runs and this create would run outside any transaction, and on_commit would fire
@@ -1671,6 +1687,7 @@ def _queue_review_at_head(
     output: dict[str, Any],
     revisit_wait: bool = False,
     evidence: str | None = None,
+    delivery_id: str = "",
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1687,6 +1704,9 @@ def _queue_review_at_head(
     ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
     this head is a delivered refusal, the head is reviewed again only for evidence that no finished
     review of this head saw, and at most ``_EVIDENCE_RERUNS_PER_HEAD`` times.
+
+    ``delivery_id`` is the webhook delivery that asked, if any. The new run carries it, so a retry of
+    that delivery resumes the run instead of reading it as a request that a run already covers.
 
     The request's stamped trigger decides how a silent run counts. A silent run covers only another
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
@@ -1745,7 +1765,7 @@ def _queue_review_at_head(
             team_id=team_id,
             pull_request=pr_obj,
             head_sha=head_sha,
-            delivery_id=None,
+            delivery_id=delivery_id or None,
             status=ReviewRunStatus.QUEUED,
             output=output,
         )
@@ -1952,6 +1972,121 @@ def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any])
         discussion=client.get_pr_discussion(repo, pr["number"]),
         review_threads=client.get_pr_review_threads(repo, pr["number"]),
     )
+
+
+def _label_request_notice(repo_config: StamphogRepoConfig, run: ReviewRun, *, evidence_read_failed: bool) -> str:
+    """The comment that says why a trigger label added in ALL mode started no review, and what to do next."""
+    removed = f"The `{repo_config.trigger_label}` label has been removed."
+    push = "Push a new commit to get a fresh review."
+    if run.status not in TERMINAL_STATUSES:
+        return (
+            "**No new review started.** stamphog is already reviewing this commit, and its review appears "
+            f"on this pull request when it finishes. {removed}"
+        )
+    if run.verdict == ReviewVerdict.APPROVED:
+        return f"**No new review started.** stamphog already approved this commit. {removed}"
+    if run.status != ReviewRunStatus.COMPLETED or run.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return (
+            "**No new review started.** stamphog already reviewed this commit, and a label does not repeat "
+            f"that review. {removed} {push}"
+        )
+    if evidence_read_failed:
+        return (
+            "**No new review started.** stamphog could not read the comments and reviews on this pull request "
+            f"from GitHub, so it could not check what changed since its last review. {removed} "
+            "Add it again in a few minutes."
+        )
+    runs_at_head = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha)
+    )
+    if not _may_rerun_on_evidence(runs_at_head, run):
+        return (
+            f"**No new review started.** stamphog reviews the same commit again at most "
+            f"{_EVIDENCE_RERUNS_PER_HEAD} times, and this commit reached that limit. {removed} {push}"
+        )
+    return (
+        "**No new review started.** stamphog found no new comments, reviews, resolved threads or description "
+        f"edits since its last review of this commit. {removed} To request another review, answer its findings, "
+        "edit the description or resolve review threads, then add the label again."
+    )
+
+
+def _reject_label_request(repo_config: StamphogRepoConfig, pr: dict[str, Any], notice: str) -> None:
+    """Take the trigger label back off a PR whose label add started no review, and say why.
+
+    The removal lets the next add fire a `labeled` event again. The status comment is edited in place,
+    so repeated adds can't stack comments. This is best effort, like the cooldown notice: a GitHub
+    failure is logged and not retried.
+    """
+    pr_number = pr["number"]
+    try:
+        client = StamphogGitHubClient(repo_config.installation_id)
+        client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
+        client.upsert_sticky_comment(
+            repo_config.repository, pr_number, neutralize_active_markdown(scrub_credentials(notice))
+        )
+    except Exception:
+        logger.warning(
+            "stamphog_pr_event_label_request_notice_failed",
+            repo=repo_config.repository,
+            pr_number=pr_number,
+            exc_info=True,
+        )
+
+
+def _review_label_request_in_all_mode(repo_config: StamphogRepoConfig, pr: dict[str, Any], delivery_id: str) -> None:
+    """Review the PR's head because its trigger label was just added in ALL mode, if anything new asks for it.
+
+    This shares the manual request's path: a head with no covering run gets one, and a delivered refusal
+    is reviewed again only on new evidence. A failed evidence read re-runs nothing. Every other case
+    starts no run, so the label comes off again and a comment says why. The label does not move the
+    head, so no approval needs a retraction here: a standing approval covers exactly this head. Errors
+    from the run creation propagate, so the caller retries the delivery.
+    """
+    evidence_read_failed = False
+    try:
+        evidence = _evidence_after_refusal(repo_config, pr)
+    except (StamphogGitHubError, GitHubEgressBudgetExhausted, *_GITHUB_ERRORS):
+        logger.warning(
+            "stamphog_pr_event_label_evidence_failed",
+            repo=repo_config.repository,
+            pr_number=pr["number"],
+            exc_info=True,
+        )
+        evidence = None
+        evidence_read_failed = True
+    queued = _queue_review_at_head(
+        repo_config,
+        pr,
+        pr["head"]["sha"],
+        # Stamped as LABEL in either mode: the reviewer is told as fact that a label requested it.
+        output={"review_trigger": ReviewTrigger.LABEL.value},
+        evidence=evidence,
+        delivery_id=delivery_id,
+    )
+    if queued.run is None:
+        logger.info("stamphog_pr_event_stale_payload_locked", repo=repo_config.repository, pr_number=pr["number"])
+        return
+    if queued.created:
+        logger.info(
+            "stamphog_pr_event_queued",
+            repo=repo_config.repository,
+            pr_number=pr["number"],
+            action="labeled",
+            review_run_id=str(queued.run.id),
+            evidence_rerun=EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
+        )
+        return
+    logger.info(
+        "stamphog_pr_event_label_request_covered",
+        repo=repo_config.repository,
+        pr_number=pr["number"],
+        existing_status=queued.run.status,
+    )
+    notice = _label_request_notice(repo_config, queued.run, evidence_read_failed=evidence_read_failed)
+    _reject_label_request(repo_config, pr, notice)
 
 
 def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
