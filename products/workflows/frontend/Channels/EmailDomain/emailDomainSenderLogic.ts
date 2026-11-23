@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -29,6 +30,38 @@ export interface EmailSenderConfig {
 }
 
 const DEFAULT_MAIL_FROM_SUBDOMAIN = 'feedback'
+
+const TEST_EMAIL_RESULT_EVENT = 'email domain test email result'
+
+const TEST_EMAIL_FAILURE_REASONS: [RegExp, string][] = [
+    [/^Failed to send email via SES: SES did not answer before the send deadline/, 'provider_timeout'],
+    [/^Failed to send email via SES: .*not verified/is, 'provider_identity_not_verified'],
+    [/^Failed to send email via SES: .*sending paused/is, 'provider_sending_paused'],
+    [/^Failed to send email via SES: /, 'provider_rejected'],
+    [/^The selected email integration domain is not verified/, 'domain_not_verified'],
+    [/^The selected email integration is not configured correctly/, 'sender_misconfigured'],
+    [/^Skipping send: the recipient has no email address/, 'missing_recipient'],
+    [/^Skipping send: .* on the suppression list/s, 'suppressed_recipient'],
+    [
+        /^Skipping send: (email sending is suspended|our email provider paused sending) for this project/,
+        'sending_suspended',
+    ],
+]
+
+const classifyTestEmailFailure = (reason: string | undefined): string =>
+    TEST_EMAIL_FAILURE_REASONS.find(([pattern]) => reason && pattern.test(reason))?.[1] ?? 'other'
+
+const captureTestEmailResult = (testSendResult: HogflowTestResult): void => {
+    const emailSendResult = testSendResult.emailSendResult
+    if (!emailSendResult) {
+        posthog.capture(TEST_EMAIL_RESULT_EVENT, { status: 'failed', reason: 'no_send_result' })
+        return
+    }
+    posthog.capture(TEST_EMAIL_RESULT_EVENT, {
+        status: emailSendResult.status,
+        reason: emailSendResult.status === 'accepted' ? null : classifyTestEmailFailure(emailSendResult.reason),
+    })
+}
 
 const configOf = (sender: IntegrationConfigApi | null): EmailSenderConfig | null =>
     (sender?.config as EmailSenderConfig | undefined) ?? null
@@ -215,6 +248,7 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                             buildTestEmailInvocation({ integrationId, teamId: currentTeamId, domain, recipient })
                         )
                     } catch {
+                        posthog.capture(TEST_EMAIL_RESULT_EVENT, { status: 'failed', reason: 'request_failed' })
                         lemonToast.error('Could not send the test email. Try again in a moment.')
                         return null
                     }
@@ -328,9 +362,13 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
         },
         senderSaved: () => {
             actions.loadIntegrations()
+            posthog.capture('email sender name saved')
             lemonToast.success('Sender name saved')
         },
         sendTestEmailSuccess: ({ testSendResult }) => {
+            if (testSendResult) {
+                captureTestEmailResult(testSendResult)
+            }
             if (testSendResult?.status === 'success' && testSendResult.emailSendResult?.status === 'accepted') {
                 lemonToast.success(`The email provider accepted your test email to ${values.user?.email}.`)
             } else if (testSendResult?.emailSendResult?.status === 'skipped') {

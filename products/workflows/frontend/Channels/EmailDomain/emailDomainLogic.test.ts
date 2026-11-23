@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import posthog from 'posthog-js'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -135,40 +137,105 @@ describe('emailDomainLogic', () => {
         expect(error).not.toHaveBeenCalled()
         error.mockRestore()
     })
-    it.each<[HogflowTestResult['emailSendResult'], boolean]>([
-        [{ status: 'accepted' }, true],
-        [{ status: 'skipped', reason: 'The recipient has no reachable mail servers.' }, false],
-        [{ status: 'failed', reason: 'The provider refused the message.' }, false],
-        [undefined, false],
-    ])('requires provider acceptance before confirming a test send: %j', async (emailSendResult, sent) => {
-        const warning = jest.spyOn(lemonToast, 'warning')
-        const error = jest.spyOn(lemonToast, 'error')
+    it.each<[HogflowTestResult['emailSendResult'], boolean, string | null]>([
+        [{ status: 'accepted' }, true, null],
+        [
+            {
+                status: 'skipped',
+                reason: 'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.',
+            },
+            false,
+            'missing_recipient',
+        ],
+        [{ status: 'skipped', reason: 'The recipient has no reachable mail servers.' }, false, 'other'],
+        [{ status: 'failed', reason: 'The provider refused the message.' }, false, 'other'],
+        [
+            { status: 'failed', reason: 'The selected email integration domain is not verified' },
+            false,
+            'domain_not_verified',
+        ],
+        [
+            {
+                status: 'failed',
+                reason: 'Failed to send email via SES: Email address is not verified. The following identities failed the check in region US-EAST-1: hello@mail.acme.com',
+            },
+            false,
+            'provider_identity_not_verified',
+        ],
+        [
+            { status: 'failed', reason: 'Failed to send email via SES: Sending paused for this account.' },
+            false,
+            'provider_sending_paused',
+        ],
+        [
+            {
+                status: 'failed',
+                reason: 'Failed to send email via SES: SES did not answer before the send deadline. It may have sent the email, so it is not sent again.',
+            },
+            false,
+            'provider_timeout',
+        ],
+        [{ status: 'failed', reason: 'Failed to send email via SES: Illegal address' }, false, 'provider_rejected'],
+        [undefined, false, 'no_send_result'],
+    ])(
+        'requires provider acceptance before confirming a test send, and records the classified outcome: %j',
+        async (emailSendResult, sent, reason) => {
+            const warning = jest.spyOn(lemonToast, 'warning')
+            const error = jest.spyOn(lemonToast, 'error')
+            const capture = jest.spyOn(posthog, 'capture')
+            const mocks = backend.mocks()
+            useMocks({
+                ...mocks,
+                post: {
+                    ...mocks.post,
+                    '/api/environments/:team_id/hog_flows/:id/invocations/': () => ({
+                        status: 'success',
+                        nextActionId: 'exit_node',
+                        emailSendResult,
+                    }),
+                },
+            })
+            await mountAndLoad()
+            const sender = emailDomainSenderLogic({ id: '42' })
+            sender.actions.sendTestEmail()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(sender.values.testEmailSent).toBe(sent)
+            expect(capture).toHaveBeenCalledWith('email domain test email result', {
+                status: emailSendResult?.status ?? 'failed',
+                reason,
+            })
+            if (emailSendResult?.status === 'skipped') {
+                expect(warning).toHaveBeenCalledWith(emailSendResult.reason)
+            } else if (!sent) {
+                expect(error).toHaveBeenCalledWith(
+                    emailSendResult?.reason ??
+                        'Could not confirm the test email was sent. Check the recipient and try again.'
+                )
+            }
+            warning.mockRestore()
+            error.mockRestore()
+            capture.mockRestore()
+        }
+    )
+
+    it('records a failed test send when the request itself fails', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         const mocks = backend.mocks()
         useMocks({
             ...mocks,
             post: {
                 ...mocks.post,
-                '/api/environments/:team_id/hog_flows/:id/invocations/': () => ({
-                    status: 'success',
-                    nextActionId: 'exit_node',
-                    emailSendResult,
-                }),
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [500, { detail: 'Server error' }],
             },
         })
         await mountAndLoad()
         const sender = emailDomainSenderLogic({ id: '42' })
         sender.actions.sendTestEmail()
         await jest.advanceTimersByTimeAsync(0)
-        expect(sender.values.testEmailSent).toBe(sent)
-        if (emailSendResult?.status === 'skipped') {
-            expect(warning).toHaveBeenCalledWith('The recipient has no reachable mail servers.')
-        } else if (!sent) {
-            expect(error).toHaveBeenCalledWith(
-                emailSendResult?.reason ??
-                    'Could not confirm the test email was sent. Check the recipient and try again.'
-            )
-        }
-        warning.mockRestore()
-        error.mockRestore()
+        expect(capture).toHaveBeenCalledWith('email domain test email result', {
+            status: 'failed',
+            reason: 'request_failed',
+        })
+        capture.mockRestore()
     })
 })
