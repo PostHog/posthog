@@ -29,7 +29,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import MARKDOWN_DEFINITION_KIND
@@ -183,14 +183,15 @@ NO_SAVED_FILTERS = SavedFilters(cohorts={}, test_account_tables=frozenset())
 class ReadSources:
     """The saved definitions that calls read by reference: metrics by name, insights by short id.
 
-    ``joins`` maps the field name of each warehouse join to the tables that the join reads, and
-    ``joins_changed_at`` holds the last change or delete of any join."""
+    ``field_tables`` maps the name of each warehouse join and saved expression field to the tables that the
+    field reads, or to None when the scan cannot tell. ``fields_changed_at`` holds the last change or delete of
+    any of those fields."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
     saved_filters: SavedFilters = NO_SAVED_FILTERS
-    joins: Mapping[str, frozenset[str]] | None = None
-    joins_changed_at: datetime | None = None
+    field_tables: Mapping[str, frozenset[str] | None] | None = None
+    fields_changed_at: datetime | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
@@ -198,20 +199,25 @@ class ReadSources:
             metric_definitions=_unchanged(self.metric_definitions, at),
             insight_queries=_unchanged(self.insight_queries, at),
             saved_filters=self.saved_filters.as_of(at),
-            joins=self.joins,
-            joins_changed_at=self.joins_changed_at,
+            field_tables=self.field_tables,
+            fields_changed_at=self.fields_changed_at,
         )
 
-    def joined_tables(self, bodies: Iterable[object]) -> frozenset[str]:
-        """A field that names a join reads the joined table, so a join field anywhere in a call counts.
+    def field_reads(self, bodies: Iterable[object]) -> frozenset[str] | None:
+        """A join or saved expression field reads tables that the query does not name, so its name counts.
 
-        The match is by name only, so a field with the same name as a join can add a table that the call
-        did not read. That hides a topic that a reader could see, and never shows one that it must not."""
-        if not self.joins:
+        The match is by name only, so a field with the same name can add a table that the call did not read.
+        That hides a topic that a reader could see, and never shows one that it must not."""
+        if not self.field_tables:
             return frozenset()
         text = "\n".join(body if isinstance(body, str) else json.dumps(body, default=str) for body in bodies if body)
-        fields = set(_IDENTIFIER.findall(text)) & self.joins.keys()
-        return frozenset(table for field in fields for table in self.joins[field])
+        found: set[str] = set()
+        for field in set(_IDENTIFIER.findall(text)) & self.field_tables.keys():
+            tables = self.field_tables[field]
+            if tables is None:
+                return None
+            found |= tables
+        return frozenset(found)
 
 
 def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, SavedDefinition]:
@@ -427,12 +433,13 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     """The tables that one call read, or None when the scan cannot tell."""
     if call.cut:
         return None
-    # A join that changed or went away after the call can have read a table that no join names now.
-    if _changed_after(sources.joins_changed_at, call.at):
+    # A join or expression that changed or went away after the call can have read a table that no field names now.
+    if _changed_after(sources.fields_changed_at, call.at):
         return None
     current = sources.as_of(call.at)
     found = _direct_tables(call, current)
-    return None if found is None else found | current.joined_tables(_call_bodies(call, current))
+    fields = None if found is None else current.field_reads(_call_bodies(call, current))
+    return None if found is None or fields is None else found | fields
 
 
 def session_tables(
@@ -649,15 +656,55 @@ def _load_saved_filters(team: Team, bodies: Sequence[object], since: datetime) -
     )
 
 
-def _load_joins(team: Team) -> dict[str, frozenset[str]]:
-    # A soft-deleted join can still have run before the scan, and an extra table only hides more.
+def saved_field_tables(
+    joins: Mapping[str, Collection[str]], expressions: Mapping[str, Collection[tuple[str, str]]]
+) -> dict[str, frozenset[str] | None]:
+    """The tables that each join and saved expression field reads, or None when the scan cannot tell.
+
+    HogQL expands an expression in place, so an expression reads the tables of its own body, and of the join and
+    expression fields that the body uses. An expression that does not parse, or a cycle of expressions, counts as
+    unknown."""
+    resolved: dict[str, frozenset[str] | None] = {}
+
+    def reads(field: str, path: tuple[str, ...]) -> frozenset[str] | None:
+        if field in resolved:
+            return resolved[field]
+        if field in path:
+            return None
+        found = set(joins.get(field, ()))
+        for table_name, expression in expressions.get(field, ()):
+            named = sql_tables(f"SELECT {expression} FROM {table_name}")
+            if named is None:
+                return None
+            found |= named
+            # The field's own name in its body is a part of a field chain, such as `plan` in `stripe.plan`.
+            for other in set(_IDENTIFIER.findall(expression)) & (joins.keys() | expressions.keys()) - {field}:
+                nested = reads(other, (*path, field))
+                if nested is None:
+                    return None
+                found |= nested
+        result = frozenset(found)
+        resolved[field] = result
+        return result
+
+    return {field: reads(field, ()) for field in joins.keys() | expressions.keys()}
+
+
+def _load_saved_fields(team: Team) -> dict[str, frozenset[str] | None]:
+    # A soft-deleted join or expression can still have run before the scan, and an extra table only hides more.
     joins: dict[str, set[str]] = defaultdict(set)
     for field_name, joining_table in DataWarehouseJoin.objects.filter(team_id=team.id).values_list(
         "field_name", "joining_table_name"
     ):
         if field_name and joining_table:
             joins[field_name].add(joining_table)
-    return {field_name: frozenset(tables) for field_name, tables in joins.items()}
+    expressions: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for table_name, field_name, expression in DataWarehouseExpression.objects.for_team(team.id).values_list(
+        "table_name", "field_name", "expression"
+    ):
+        if field_name:
+            expressions[field_name].add((table_name, expression))
+    return saved_field_tables(joins, expressions)
 
 
 def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) -> ReadSources:
@@ -696,13 +743,16 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         *(saved.body for saved in definitions.values()),
         *(saved.body for saved in queries.values()),
     ]
-    joins_changed = _last_changes(team, "DataWarehouseJoin", since)
+    field_changes = [
+        *_last_changes(team, "DataWarehouseJoin", since).values(),
+        *_last_changes(team, "DataWarehouseExpression", since).values(),
+    ]
     return ReadSources(
         metric_definitions=definitions,
         insight_queries=queries,
         saved_filters=_load_saved_filters(team, bodies, since),
-        joins=_load_joins(team),
-        joins_changed_at=max(joins_changed.values(), default=None),
+        field_tables=_load_saved_fields(team),
+        fields_changed_at=max(field_changes, default=None),
     )
 
 

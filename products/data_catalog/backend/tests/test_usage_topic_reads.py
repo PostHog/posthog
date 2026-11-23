@@ -24,11 +24,12 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     cohort_reads,
     fetch_cohorts,
     load_read_sources,
+    saved_field_tables,
     session_tables,
     topic_tables,
     trace_session_tables,
 )
-from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
 _CALL_AT = datetime(2026, 10, 10, tzinfo=UTC)
@@ -65,7 +66,11 @@ _SOURCES = ReadSources(
     },
     insight_queries={"abc123": _saved(_HOGQL_INSIGHT), "edited": _saved(_trends(_EVENTS_NODE), _EDITED)},
     saved_filters=SavedFilters(cohorts={7: True, 8: False}, test_account_tables=frozenset()),
-    joins={"stripe": frozenset({"stripe_customers"})},
+    field_tables={
+        "stripe": frozenset({"stripe_customers"}),
+        "billing_total": frozenset({"events", "billing"}),
+        "broken_total": None,
+    },
 )
 
 
@@ -123,6 +128,8 @@ class TestSessionTables(SimpleTestCase):
                 [_sql("SELECT person.stripe.email FROM events")],
                 {"events", "stripe_customers"},
             ),
+            ("sql_using_a_saved_expression", [_sql("SELECT billing_total FROM events")], {"events", "billing"}),
+            ("sql_using_an_untraceable_saved_expression", [_sql("SELECT broken_total FROM events")], None),
             ("sql_in_a_cohort", [_sql("SELECT count() FROM events WHERE person_id IN COHORT 7")], None),
             ("sql_matching_an_action", [_sql("SELECT count() FROM events WHERE matchesAction('Signed up')")], None),
             (
@@ -264,7 +271,7 @@ class TestSessionTables(SimpleTestCase):
                 ),
                 {**_trends(_EVENTS_NODE), "filterTestAccounts": True},
             ),
-            ("a_join", dataclasses.replace(_SOURCES, joins_changed_at=_EDITED), _trends(_EVENTS_NODE)),
+            ("a_join_or_expression", dataclasses.replace(_SOURCES, fields_changed_at=_EDITED), _trends(_EVENTS_NODE)),
         ]
     )
     def test_a_saved_filter_that_changed_after_the_call_makes_the_call_unknown(
@@ -406,6 +413,31 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
         }
 
 
+class TestSavedFieldTables(SimpleTestCase):
+    def test_an_expression_reads_its_body_and_the_fields_it_uses(self) -> None:
+        joins = {"stripe": {"stripe_customers"}}
+        expressions = {
+            "billing_total": {("events", "(SELECT sum(amount) FROM billing)")},
+            "billing_double": {("events", "billing_total * 2")},
+            "plan": {("events", "stripe.plan")},
+            "broken": {("events", "sum(")},
+            "ping": {("events", "pong + 1")},
+            "pong": {("events", "ping + 1")},
+        }
+
+        tables = saved_field_tables(joins, expressions)
+
+        assert tables == {
+            "stripe": frozenset({"stripe_customers"}),
+            "billing_total": frozenset({"events", "billing"}),
+            "billing_double": frozenset({"events", "billing"}),
+            "plan": frozenset({"events", "stripe_customers"}),
+            "broken": None,
+            "ping": None,
+            "pong": None,
+        }
+
+
 class TestLoadReadSources(BaseTest):
     def _log(self, scope: str, item_id: str, at: datetime, field: str = "") -> None:
         changes = [{"type": scope, "action": "changed", "field": field}] if field else []
@@ -438,6 +470,19 @@ class TestLoadReadSources(BaseTest):
         sources = load_read_sources(self.team, calls, start)
 
         assert [call_tables(call, sources) for call in calls] == [None, None, frozenset()]
+
+    def test_a_call_through_a_saved_expression_reads_its_tables(self) -> None:
+        DataWarehouseExpression.objects.for_team(self.team.id).create(
+            team=self.team,
+            table_name="events",
+            field_name="billing_total",
+            expression="(SELECT sum(amount) FROM billing)",
+        )
+        call = _sql("SELECT billing_total FROM events")
+
+        sources = load_read_sources(self.team, [call], _CALL_AT - timedelta(days=1))
+
+        assert call_tables(call, sources) == frozenset({"events", "billing"})
 
 
 class TestFetchCohorts(NonAtomicBaseTest):
