@@ -1,0 +1,4 @@
+name: dev
+traffic:
+    capture_webhook:
+        ratePerSecond: 1

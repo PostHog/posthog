@@ -8617,6 +8617,13 @@ export interface ErrorTrackingIssueTagFilterApi {
     key: string
 }
 
+export interface ErrorTrackingIssueTagsFilterApi {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[] | null
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[] | null
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8679,8 +8686,9 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
+    /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+    issueTags?: ErrorTrackingIssueTagsFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */

@@ -32,7 +32,7 @@ import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exe
 import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
-import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { compileSearchPattern, isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -122,7 +122,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
 function namesMatchingSearch(names: string[], term: string): string[] {
     if (isRegexPattern(term)) {
         try {
-            const regex = new RegExp(term, 'i')
+            const regex = compileSearchPattern(term)
             return names.filter((name) => regex.test(name))
         } catch {
             return []
@@ -668,15 +668,15 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'entity-search': (allTools) => {
         const base =
             'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
-        const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
+        const hasCatalog = allTools.some((t) => t.name === 'metric-list')
         return hasCatalog
-            ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
+            ? `${base} For governed business metrics, call "metric-list" instead of searching \`system.insights\`.`
             : base
     },
     'vision-scanners-suggest-tags': () =>
         'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
-    'llma-tagger-create': () =>
-        'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. Each option is { key, label }: the key is lowercase snake_case or kebab-case (for example "billing-issue"), and the label keeps the tag name. For an LLM tagger, set evaluation_type="llm_judge" with model_configuration (provider and model), and put the tagger prompt plus any tag descriptions in evaluation_config.prompt. For a Hog tagger, set evaluation_type="hog" with Hog source in evaluation_config.source that returns option keys. Run "info llma-evaluation-create" for the full schema.',
+    'llma-tagger-list': () =>
+        'Tool "llma-tagger-list" was removed because taggers are deprecated. Every tagger was switched off or converted into a categorical evaluation. Use "llma-evaluation-list" to list evaluations. Tags that taggers already wrote stay queryable as `$ai_tag` events through "execute-sql".',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -2060,8 +2060,11 @@ export function createExecTool(
                             matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
                             matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, query)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        } catch (error) {
+                            throw new ExecCommandError(
+                                `Invalid regex pattern: "${query}": ${(error as Error).message}`,
+                                'invalid_regex'
+                            )
                         }
                         // A guessed name such as `project-update` matches nothing as a regex,
                         // but its words usually name the tool the agent wants.

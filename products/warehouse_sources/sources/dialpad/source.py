@@ -72,7 +72,7 @@ class DialpadSource(ResumableSource[DialpadSourceConfig, DialpadResumeConfig]):
         if schema_name is not None and schema_name not in DIALPAD_ENDPOINTS:
             return False, f"Dialpad has no table named {schema_name}."
 
-        path = DIALPAD_ENDPOINTS[schema_name].path if schema_name is not None else _KEY_PROBE_PATH
+        path = DIALPAD_ENDPOINTS[schema_name].readable_path if schema_name is not None else _KEY_PROBE_PATH
         status = get_status(config.api_key, path)
         if status is None:
             return False, "Couldn't reach Dialpad. Try again in a few minutes."
@@ -95,7 +95,7 @@ class DialpadSource(ResumableSource[DialpadSourceConfig, DialpadResumeConfig]):
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:
             endpoint_config = DIALPAD_ENDPOINTS.get(endpoint)
-            status = get_status(config.api_key, endpoint_config.path) if endpoint_config else None
+            status = get_status(config.api_key, endpoint_config.readable_path) if endpoint_config else None
             # A throttle, a server error or a network failure is not a missing permission.
             permissions[endpoint] = self._access_message(endpoint) if status in (401, 403) else None
         return permissions

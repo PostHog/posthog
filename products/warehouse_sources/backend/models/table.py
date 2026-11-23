@@ -27,7 +27,13 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    FieldOrTable,
+    StructDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
@@ -187,6 +193,13 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
+
+
+class _S3Credentials(TypedDict):
+    access_key: str | None
+    access_secret: str | None
+    credential_required: bool
+
 
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
@@ -389,12 +402,15 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-    return STR_TO_HOGQL_MAPPING.get(
-        str(column_definition.get("hogql", "UnknownDatabaseField")),
-        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-    )(name=column_name, nullable=is_nullable)
+        field = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+    else:
+        field = STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
+    if isinstance(field, DecimalDatabaseField):
+        field.scale = clickhouse_decimal_scale(clickhouse_type)
+    return field
 
 
 def hogql_fields_and_structure_for_columns(
@@ -589,6 +605,24 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.credential_id is not None:
             return None
         return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
+    @property
+    def team_credential(self) -> DataWarehouseCredential | None:
+        """The table's credential, or None when the row points at a credential of another team.
+
+        The foreign key alone does not hold the two teams equal."""
+        credential = self.credential
+        if credential is None or credential.team_id != self.team_id:
+            return None
+        return credential
+
+    def _s3_credentials(self) -> _S3Credentials:
+        credential = self.team_credential
+        return _S3Credentials(
+            access_key=credential.access_key if credential else None,
+            access_secret=credential.access_secret if credential else None,
+            credential_required=self.credential_id is not None,
+        )
 
     def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
         """Make a self-managed table one that `source` syncs. Returns the fields this changed.
@@ -812,9 +846,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=read_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,
             compression=compression,
@@ -844,9 +876,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=describe_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -920,9 +950,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
-                credential_required=self.credential_id is not None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -975,9 +1003,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
             compression=compression,
@@ -1016,9 +1042,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             context=placeholder_context,
             # The real size, so a table too large for one node is counted across the cluster
             # instead of on the node chdb already could not finish on.
@@ -1074,9 +1098,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
-                credential_required=self.credential_id is not None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -1387,9 +1409,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
@@ -1449,9 +1469,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
-            credential_required=self.credential_id is not None,
+            **self._s3_credentials(),
             context=ctx,
             table_size_mib=0,
         )

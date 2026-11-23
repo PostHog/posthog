@@ -2604,6 +2604,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": "Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",
@@ -9662,17 +9673,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -10097,17 +10097,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
@@ -19562,6 +19551,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": "Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",
@@ -26620,17 +26620,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -27055,17 +27044,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,

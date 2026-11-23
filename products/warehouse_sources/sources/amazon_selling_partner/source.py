@@ -179,11 +179,14 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
                 "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long. "
                 "Vendor accounts sync purchase orders from the last 6 months, which need the Inventory and Order "
                 "Tracking role. They also sync daily sales, inventory, net pure product margin, forecasts and hourly "
-                "sales reports, which need the Brand Analytics role and your marketplace IDs."
+                "sales reports, which need the Brand Analytics role and your marketplace IDs. "
+                "Both account types sync daily order metrics, invoices and Subscribe and Save offers per marketplace. "
+                "Order metrics and offers need the Inventory and Order Tracking role, and vendor accounts must list "
+                "their marketplace IDs for these tables."
             ),
             iconPath="/static/services/amazon_selling_partner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-selling-partner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

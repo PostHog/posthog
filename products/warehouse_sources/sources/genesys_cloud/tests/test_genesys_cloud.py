@@ -279,6 +279,30 @@ class TestListingEndpoints:
         assert result.saved_states == ([GenesysCloudResumeConfig(cursor="after-1")] if resume is None else [])
         assert result.final_state is None
 
+    @pytest.mark.parametrize(
+        "resume,expected_deactivated",
+        [
+            (None, ["false", "true"]),
+            (GenesysCloudResumeConfig(page_number=2), ["true"]),
+        ],
+    )
+    def test_unpaged_reads_each_param_set(self, resume, expected_deactivated):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            deactivated = request.param("deactivated")
+            return ScriptedResponse(json={"entities": [{"id": f"presence-{deactivated}"}], "total": 1})
+
+        result = _driver().run("presence_definitions", respond, resume_state=resume)
+
+        assert result.raised is None
+        assert result.params("deactivated")[1:] == expected_deactivated
+        assert result.params("localeCode")[1:] == ["ALL"] * len(expected_deactivated)
+        assert result.params("pageNumber")[1:] == [None] * len(expected_deactivated)
+        assert [row["id"] for row in result.rows] == [f"presence-{value}" for value in expected_deactivated]
+        assert result.saved_states == ([GenesysCloudResumeConfig(page_number=2)] if resume is None else [])
+        assert result.final_state is None
+
     def test_scan_drops_an_expired_resumed_cursor(self):
         result = _driver().run(
             "external_organizations",
@@ -449,6 +473,12 @@ class TestValidateCredentials:
                 False,
                 "The OAuth client's role is missing the `analytics:userDetail:view` permission, which the user_status_history table needs.",
             ),
+            (
+                "presence_definitions",
+                403,
+                False,
+                "The OAuth client's role is missing the `presence:presenceDefinition:view` permission, which the presence_definitions table needs.",
+            ),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -471,6 +501,7 @@ class TestValidateCredentials:
                 "queues": "/api/v2/routing/queues",
                 "external_organizations": "/api/v2/externalcontacts/scan/organizations",
                 "user_status_history": "/api/v2/analytics/users/details/query",
+                "presence_definitions": "/api/v2/presence/definitions",
             }[endpoint]
         )
 

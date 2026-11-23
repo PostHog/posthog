@@ -21,7 +21,6 @@ from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
 from .summarization import AIObservabilitySummarizationViewSet
-from .taggers import TaggerViewSet
 from .text_repr import AIObservabilityTextReprViewSet
 from .trace_reviews import TraceReviewViewSet
 from .translate import AIObservabilityTranslateViewSet
@@ -56,7 +55,6 @@ __all__ = [
     "OfflineScorerViewSet",
     "PersonalSpendInternalViewSet",
     "PersonalSpendViewSet",
-    "TaggerViewSet",
     "TraceReviewViewSet",
     "ParserRecipeViewSet",
 ]

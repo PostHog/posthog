@@ -1,0 +1,335 @@
+{
+    "lists": [
+        {
+            "id": "a1b2c3d4e5",
+            "name": "Weekly newsletter",
+            "permission_reminder": "You signed up on example.com.",
+            "contact": {
+                "company": "Example Co & Sons",
+                "address1": "1 Example Street",
+                "address2": "",
+                "city": "Springfield",
+                "state": "CA",
+                "zip": "90000",
+                "country": "US"
+            },
+            "stats": {
+                "member_count": 3,
+                "unsubscribe_count": 2,
+                "cleaned_count": 2
+            },
+            "members": [
+                {
+                    "email_address": "ada@example.com",
+                    "status": "subscribed",
+                    "last_changed": "2026-01-02T03:04:05+00:00",
+                    "interests": {
+                        "int1": true,
+                        "int2": false,
+                        "int9": false
+                    }
+                },
+                {
+                    "email_address": "Grace.Hopper@example.com",
+                    "status": "subscribed",
+                    "last_changed": "2026-01-02T03:04:05+00:00",
+                    "interests": {
+                        "int1": false,
+                        "int2": false,
+                        "int9": true
+                    }
+                },
+                {
+                    "email_address": "linus@example.com",
+                    "status": "subscribed",
+                    "last_changed": "2026-01-02T03:04:05+00:00",
+                    "interests": {
+                        "int1": true
+                    }
+                },
+                {
+                    "email_address": "Left.Person@example.com",
+                    "status": "unsubscribed",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {
+                        "int1": true,
+                        "int2": true,
+                        "int9": false
+                    }
+                },
+                {
+                    "email_address": "jürgen.müller@example.com",
+                    "status": "unsubscribed",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "pending@example.com",
+                    "status": "pending",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "receipt-only@example.com",
+                    "status": "transactional",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "archived@example.com",
+                    "status": "archived",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "Bounced@Example.com",
+                    "status": "cleaned",
+                    "last_changed": "2026-03-04T05:06:07+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "not-an-address",
+                    "status": "cleaned",
+                    "last_changed": "2026-03-04T05:06:07+00:00",
+                    "interests": {}
+                }
+            ],
+            "interest_categories": [
+                {
+                    "id": "cat1",
+                    "title": "Topics",
+                    "type": "checkboxes",
+                    "interests": [
+                        {
+                            "id": "int1",
+                            "name": "Product updates"
+                        },
+                        {
+                            "id": "int2",
+                            "name": "Event invitations 🎉"
+                        }
+                    ]
+                },
+                {
+                    "id": "cat2",
+                    "title": "Internal",
+                    "type": "hidden",
+                    "interests": [
+                        {
+                            "id": "int9",
+                            "name": "VIP"
+                        }
+                    ]
+                }
+            ],
+            "abuse_reports": [
+                {
+                    "email_address": "angry@example.com",
+                    "date": "2026-04-05T06:07:08+00:00"
+                },
+                {
+                    "email_address": "Bounced@Example.com",
+                    "date": "2026-04-05T06:07:08+00:00"
+                }
+            ]
+        },
+        {
+            "id": "f6e5d4c3b2",
+            "name": "Novedades del producto ñ",
+            "permission_reminder": "",
+            "contact": {
+                "company": "Example Co",
+                "address1": "",
+                "city": "",
+                "country": "ES"
+            },
+            "stats": {
+                "member_count": 1,
+                "unsubscribe_count": 1,
+                "cleaned_count": 0
+            },
+            "members": [
+                {
+                    "email_address": "ada@example.com",
+                    "status": "subscribed",
+                    "last_changed": "2026-01-02T03:04:05+00:00",
+                    "interests": {}
+                },
+                {
+                    "email_address": "Left.Person@example.com",
+                    "status": "unsubscribed",
+                    "last_changed": "2026-02-03T04:05:06+00:00",
+                    "interests": {}
+                }
+            ],
+            "interest_categories": [],
+            "abuse_reports": []
+        },
+        {
+            "id": "0000empty0",
+            "name": "Old audience",
+            "permission_reminder": "",
+            "contact": {},
+            "stats": {
+                "member_count": 0,
+                "unsubscribe_count": 0,
+                "cleaned_count": 0
+            },
+            "members": [],
+            "interest_categories": [],
+            "abuse_reports": []
+        }
+    ],
+    "templates": [
+        {
+            "id": 101,
+            "type": "user",
+            "name": "Welcome email",
+            "drag_and_drop": false,
+            "html": "<html><body><p>Hi *|FNAME|*,</p>*|IF:COMPANY|*<p>Thanks for joining from *|COMPANY|*.</p>*|ELSE:|*<p>Thanks for joining.</p>*|END:IF|*<a href=\"*|ARCHIVE|*\">View in browser</a><p>*|LIST:COMPANY|* · *|HTML:LIST_ADDRESS_HTML|*</p><p>&copy; *|CURRENT_YEAR|* <a href=\"*|UNSUB|*\">Unsubscribe</a> or <a href=\"*|UPDATE_PROFILE|*\">update your preferences</a></p></body></html>"
+        },
+        {
+            "id": 102,
+            "type": "user",
+            "name": "New builder template",
+            "drag_and_drop": true,
+            "html": null
+        },
+        {
+            "id": 103,
+            "type": "user",
+            "name": "Plan reminder with a city condition",
+            "drag_and_drop": false,
+            "html": "<p style=\"color: *|COLOR|*\">Hello *|FNAME|*</p>*|IF:CITY=S&atilde;o Paulo|*<p>Ol&aacute;!</p>*|END:IF|*<p>{{ not liquid }} and {% raw %}</p>"
+        },
+        {
+            "id": 104,
+            "type": "user",
+            "name": "Plain reminder",
+            "drag_and_drop": false,
+            "html": "<p>*|IF:MC_PREVIEW_TEXT|*<span>*|MC_PREVIEW_TEXT|*</span>*|END:IF|*Your login is *|EMAIL|*.</p>"
+        }
+    ],
+    "campaigns": [
+        {
+            "id": "camp001",
+            "type": "regular",
+            "status": "save",
+            "create_time": "2026-10-01T09:00:00+00:00",
+            "send_time": "",
+            "recipients": {
+                "list_id": "a1b2c3d4e5"
+            },
+            "settings": {
+                "title": "November newsletter (draft)",
+                "subject_line": "*|FNAME|*, here's what's new",
+                "preview_text": "Five things we shipped",
+                "from_name": "Example Co",
+                "reply_to": "news@example.com"
+            },
+            "content": {
+                "html": "<html><head><title>*|MC:SUBJECT|*</title></head><body><!--*|IF:MC_PREVIEW_TEXT|*--><span>*|MC_PREVIEW_TEXT|*</span><!--*|END:IF|*--><p>Hi *|FNAME|*</p><p>*|LIST:DESCRIPTION|*</p><p>*|LIST:ADDRESS|*</p><a href=\"*|UNSUB|*\">Unsubscribe</a></body></html>",
+                "plain_text": "Hi *|FNAME|*\n\nUnsubscribe: *|UNSUB|*"
+            }
+        },
+        {
+            "id": "camp002",
+            "type": "plaintext",
+            "status": "schedule",
+            "create_time": "2026-10-02T09:00:00+00:00",
+            "send_time": "",
+            "recipients": {
+                "list_id": "f6e5d4c3b2"
+            },
+            "settings": {
+                "title": "Aviso",
+                "subject_line": "Aviso importante",
+                "preview_text": "",
+                "from_name": "",
+                "reply_to": "hola@example.com"
+            },
+            "content": {
+                "html": "",
+                "plain_text": "Hola *|FNAME|*\n<b>no html here</b>\nBaja: *|UNSUB|*"
+            }
+        },
+        {
+            "id": "camp003",
+            "type": "regular",
+            "status": "sent",
+            "create_time": "2026-10-20T09:00:00+00:00",
+            "send_time": "2026-11-01T10:00:00+00:00",
+            "recipients": {
+                "list_id": "a1b2c3d4e5"
+            },
+            "settings": {
+                "title": "October newsletter",
+                "subject_line": "October at Example Co",
+                "preview_text": "*|FNAME|*, our October news",
+                "from_name": "Example Co",
+                "reply_to": "news@example.com"
+            },
+            "content": {
+                "html": "<!--*|IF:MC_PREVIEW_TEXT|*--><span>*|MC_PREVIEW_TEXT|*</span><!--*|END:IF|*-->*|IF:FNAME|*<p>October *|FNAME|*</p>*|END:IF|*",
+                "plain_text": ""
+            }
+        },
+        {
+            "id": "camp004",
+            "type": "regular",
+            "status": "sent",
+            "create_time": "2020-01-01T09:00:00+00:00",
+            "send_time": "2020-01-02T10:00:00+00:00",
+            "recipients": {
+                "list_id": "a1b2c3d4e5"
+            },
+            "settings": {
+                "title": "Launch announcement",
+                "subject_line": "We launched",
+                "preview_text": "",
+                "from_name": "Example Co",
+                "reply_to": "news@example.com"
+            },
+            "content": {
+                "html": "<p>We launched</p>",
+                "plain_text": ""
+            }
+        },
+        {
+            "id": "camp005",
+            "type": "variate",
+            "status": "save",
+            "create_time": "2026-10-03T09:00:00+00:00",
+            "send_time": "",
+            "recipients": {
+                "list_id": "a1b2c3d4e5"
+            },
+            "settings": {
+                "title": "Subject line test",
+                "subject_line": "",
+                "preview_text": "",
+                "from_name": "Example Co",
+                "reply_to": "news@example.com"
+            },
+            "variate_settings": {
+                "subject_lines": ["Short *|FNAME|*", "A longer subject line"]
+            },
+            "content": {
+                "html": "",
+                "plain_text": "",
+                "variate_contents": [
+                    {
+                        "content_label": "Short subject",
+                        "html": "<p>Short *|FNAME|*</p>",
+                        "plain_text": ""
+                    },
+                    {
+                        "content_label": "Long subject",
+                        "html": "<p>Long *|FNAME|*</p>",
+                        "plain_text": ""
+                    }
+                ]
+            }
+        }
+    ]
+}
