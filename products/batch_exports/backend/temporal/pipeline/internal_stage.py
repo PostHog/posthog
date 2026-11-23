@@ -701,11 +701,7 @@ async def _get_query(
         if native_source:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            field_expressions = RECENT_EVENTS_FIELD_EXPRESSIONS if reads_recent_events else {}
-            query_fields = ",".join(
-                f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}"
-                for field in fields
-            )
+            query_fields = _select_list(fields, reads_recent_events=reads_recent_events)
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(
@@ -726,6 +722,13 @@ async def _get_query(
 
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters, reads_recent_events
+
+
+def _select_list(fields: list[BatchExportField], *, reads_recent_events: bool) -> str:
+    field_expressions = RECENT_EVENTS_FIELD_EXPRESSIONS if reads_recent_events else {}
+    return ",".join(
+        f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
+    )
 
 
 def get_base_s3_staging_folder(
