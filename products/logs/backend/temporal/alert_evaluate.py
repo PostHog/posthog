@@ -224,7 +224,7 @@ def release_logs_batch_slot_activity(held: LogsBatchSlot) -> None:
 async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
     """Emits the Self-driving signals for alerts the platform owns. Never raises."""
     # In the body, like the import above, because the workflow's sandbox refuses Django models.
-    from products.logs.backend.temporal.activities import emit_notified_alert_signals  # noqa: PLC0415
+    from products.logs.backend.alert_signal_emitter import emit_notified_alert_signals  # noqa: PLC0415
 
     notified = await database_sync_to_async_pool(notified_alerts_for_platform)(inputs.team_id, inputs.signals)
     return await emit_notified_alert_signals(notified)

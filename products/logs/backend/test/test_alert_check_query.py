@@ -34,8 +34,8 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
 )
+from products.logs.backend.alert_source_cycle import MAX_ALERT_COHORT_SIZE
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
 
 def _seed_log_rows(

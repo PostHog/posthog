@@ -264,9 +264,8 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
-The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute against `LogsAlertConfiguration`,
-so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
-State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
+`LogsAlertConfiguration` and `LogsAlertEvent` keep the history the retired `logs-alert-check` workflow wrote before the platform owned every logs alert.
+State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
 The lifecycle decision comes from `products/alerts_platform/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,

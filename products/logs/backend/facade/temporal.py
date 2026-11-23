@@ -14,12 +14,6 @@ from products.logs.backend.temporal.alert_evaluate import (
     SOURCE_EVALUATION_ACTIVITIES,
     SOURCE_EVALUATION_WORKFLOWS,
 )
-from products.logs.backend.temporal.metrics import (
-    LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
-    LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
-)
 from products.logs.backend.temporal.retention_entitlements import (
     ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
@@ -54,10 +48,6 @@ __all__ = [
     "LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS",
     "VolumeTickInput",
     "disable_logs_volume_tick_schedule",
-    "LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS",
-    "LOGS_ALERTING_COUNT_HISTOGRAM_METRICS",
-    "LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS",
-    "LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS",
 ]
 
 TEMPORAL = TemporalRegistration(
@@ -86,8 +76,6 @@ TEMPORAL = TemporalRegistration(
     ),
     schedules=(disable_logs_volume_tick_schedule,),
     histograms=(
-        *HistogramSpec.for_metrics(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS),
-        *HistogramSpec.for_metrics(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS),
         *HistogramSpec.for_metrics(
             LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS, LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS
         ),
