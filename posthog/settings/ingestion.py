@@ -193,7 +193,9 @@ AI_RESEARCH_V4_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_V4_DYNAMODB_ENDPOINT",
 
 # Also the shortest retention a row can have: the `ai_events` view raises anything lower to this.
 AI_EVENTS_DEFAULT_RETENTION_DAYS = 30
-_AI_EVENTS_MAX_RETENTION_DAYS = 365
+# `ai_events` partitions by the month a row expires in, so events that arrive together spread over one partition
+# per distinct retention. A few tiers keep the partitions each insert touches few, however many teams are listed.
+_AI_EVENTS_RETENTION_DAYS_TIERS = (AI_EVENTS_DEFAULT_RETENTION_DAYS, 90, 180, 365)
 
 
 def parse_ai_events_retention_days_by_team(raw: str) -> dict[int, int]:
@@ -204,15 +206,14 @@ def parse_ai_events_retention_days_by_team(raw: str) -> dict[int, int]:
         match = re.fullmatch(r" *([0-9]+):([0-9]+) *", entry)
         if (
             match is None
-            or not AI_EVENTS_DEFAULT_RETENTION_DAYS <= int(match[2]) <= _AI_EVENTS_MAX_RETENTION_DAYS
+            or int(match[2]) not in _AI_EVENTS_RETENTION_DAYS_TIERS
             or int(match[1]) in retention_days_by_team
         ):
             # The ingestion parser skips the same entries, so both sides agree on what a malformed value means.
             logger.error(
                 "AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry, skipping it",
                 entry=entry,
-                expected=f"team_id:days, days from {AI_EVENTS_DEFAULT_RETENTION_DAYS} to "
-                f"{_AI_EVENTS_MAX_RETENTION_DAYS}, each team once",
+                expected=f"team_id:days, days one of {_AI_EVENTS_RETENTION_DAYS_TIERS}, each team once",
             )
             continue
         retention_days_by_team[int(match[1])] = int(match[2])

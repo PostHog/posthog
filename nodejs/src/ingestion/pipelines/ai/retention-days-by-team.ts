@@ -1,7 +1,8 @@
 import { logger } from '~/common/utils/logger'
 
-const MIN_RETENTION_DAYS = 30
-const MAX_RETENTION_DAYS = 365
+// ai_events partitions by the month a row expires in, so events that arrive together spread over one partition
+// per distinct retention. A few tiers keep the partitions each insert touches few, however many teams are listed.
+const RETENTION_DAYS_TIERS = [30, 90, 180, 365]
 
 export function parseAiEventsRetentionDaysByTeam(raw: string): ReadonlyMap<number, number> {
     const retentionDaysByTeam = new Map<number, number>()
@@ -12,11 +13,11 @@ export function parseAiEventsRetentionDaysByTeam(raw: string): ReadonlyMap<numbe
         const match = /^ *([0-9]+):([0-9]+) *$/.exec(entry)
         const teamId = Number(match?.[1])
         const days = Number(match?.[2])
-        if (!match || days < MIN_RETENTION_DAYS || days > MAX_RETENTION_DAYS || retentionDaysByTeam.has(teamId)) {
+        if (!match || !RETENTION_DAYS_TIERS.includes(days) || retentionDaysByTeam.has(teamId)) {
             // The Django settings parser skips the same entries, so both sides agree on what a malformed value means.
             logger.error('AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry, skipping it', {
                 entry,
-                expected: `team_id:days, days from ${MIN_RETENTION_DAYS} to ${MAX_RETENTION_DAYS}, each team once`,
+                expected: `team_id:days, days one of ${RETENTION_DAYS_TIERS.join(', ')}, each team once`,
             })
             continue
         }

@@ -25,6 +25,7 @@ def test_parses_retention_days_by_team(raw, expected):
     [
         "1:29,2:90",
         "1:366,2:90",
+        "1:120,2:90",
         "1:abc,2:90",
         "x:90,2:90",
         "1,2:90",
