@@ -1591,6 +1591,13 @@ class TestWorkflowProposals(APIBaseTest):
             ("long_window", {**CONVERSION_GOAL, "window": "31d"}, {}, {}, "longer than 30 days"),
             ("relative_window", CONVERSION_GOAL, {"window": "-7d"}, {}, "ending at or before"),
             (
+                "window_that_splits_an_hour",
+                CONVERSION_GOAL,
+                {"window": "2026-11-13T09:30:00Z/2026-11-14T09:00:00Z"},
+                {},
+                "on UTC hours",
+            ),
+            (
                 "window_before_the_metric_existed",
                 CONVERSION_GOAL,
                 {"window": "2026-11-10T00:00:00Z/2026-11-14T00:00:00Z"},

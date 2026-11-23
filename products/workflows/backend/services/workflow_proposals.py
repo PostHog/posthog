@@ -470,9 +470,14 @@ def conversion_evidence_error(
     settled = runs_settled_before(base, now)
     if settled <= CONVERSION_BY_START_RECORDED_SINCE:
         return "No measured run has finished its conversion window yet, so aim at another metric for now."
-    if bounds is None or bounds.start < CONVERSION_BY_START_RECORDED_SINCE or bounds.end > settled:
+    if (
+        bounds is None
+        or bounds.start < CONVERSION_BY_START_RECORDED_SINCE
+        or bounds.end > settled
+        or any(_start_of_hour(edge) != edge for edge in (bounds.start, bounds.end))
+    ):
         return (
-            "Conversion needs a `window` in UTC as `start/end`, starting at or after "
+            "Conversion needs a `window` as `start/end` on UTC hours, starting at or after "
             f"{CONVERSION_BY_START_RECORDED_SINCE:%Y-%m-%dT%H:%M:%SZ} and ending at or before {settled:%Y-%m-%dT%H:%M:%SZ}, "
             "when the latest runs finished their conversion window."
         )
