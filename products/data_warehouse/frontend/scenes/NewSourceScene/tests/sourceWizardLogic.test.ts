@@ -1697,11 +1697,6 @@ describe('sourceWizardLogic', () => {
         const supabaseSource = buildSourceConfig({ name: 'Supabase' })
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: true })
-        })
-
         const apiSchema = (
             table: string,
             overrides: Partial<ExternalDataSourceSyncSchema> = {}
@@ -2171,26 +2166,17 @@ describe('sourceWizardLogic', () => {
 
         it.each([
             {
-                name: 'without the feature flag',
-                flag: false,
-                schema: {},
-                before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
-            },
-            {
                 name: 'for a direct-query source, which syncs nothing',
-                flag: true,
                 schema: {},
                 before: (logic: ReturnType<typeof sourceWizardLogic.build>) =>
                     logic.actions.updateSource({ access_method: 'direct' }),
             },
             {
                 name: 'for a table the credentials cannot read',
-                flag: true,
                 schema: { permission_error: 'Missing read access' },
                 before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
             },
-        ])('asks for no recommendations $name', async ({ flag, schema, before }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: flag })
+        ])('asks for no recommendations $name', async ({ schema, before }) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.orders', {
                     incremental_fields: [

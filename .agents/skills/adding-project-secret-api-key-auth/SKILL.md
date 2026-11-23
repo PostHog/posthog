@@ -9,9 +9,9 @@ description: 'How to gate a PostHog API endpoint with project secret API key (PS
 
 A `ProjectSecretAPIKey` is a project-scoped, user-less service credential (`posthog/models/project_secret_api_key.py`). It behaves like a personal API key but survives users leaving the project, carries its own scopes, and authenticates as a synthetic user — not a real `User` row.
 
-- Token format: `phs_...` (Bearer header only — no body fallback, unlike the legacy token).
+- Token format: `phs_...` (Bearer header only — no body fallback).
 - Scopes are **project-wide within their resource type** and deliberately ignore object-level access controls (per-resource RBAC).
-- Do not confuse with `TeamSecretTokenAuthentication` — that validates the legacy per-team `Team.secret_api_token` (also `phs_`-prefixed) and is only for feature-flag local evaluation and similar pre-PSAK surfaces. It is pegged for migrating to PSAK at some point.
+- The legacy per-team `Team.secret_api_token` (also `phs_`-prefixed) is retired (#66179): backfilled PSAK mirror rows authenticate those token strings now, and no verifier reads the column.
 
 Keys are managed at `POST /api/environments/:id/project_secret_api_keys` (label + scopes; plaintext value returned once; `roll` action to rotate; max 50 per project; wildcard `*` scope not allowed).
 

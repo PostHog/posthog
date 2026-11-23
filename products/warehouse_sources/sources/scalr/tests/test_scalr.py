@@ -201,28 +201,67 @@ def test_unsupported_incremental_field_fails(config: ScalrSourceConfig, endpoint
     assert result.requests == []
 
 
-def test_plans_come_from_included_runs_on_every_page(config: ScalrSourceConfig) -> None:
-    def runs_page(run_id: str, plan_id: str, next_page: int | None) -> ScriptedResponse:
+@pytest.mark.parametrize(
+    ("endpoint", "include", "resource_type", "many"),
+    [
+        ("plans", "plan", "plans", False),
+        ("cost_estimates", "cost-estimate", "cost-estimates", False),
+        ("policy_checks", "policy-checks", "policy-checks", True),
+    ],
+)
+def test_run_phases_come_from_included_runs_on_every_page(
+    config: ScalrSourceConfig, endpoint: str, include: str, resource_type: str, many: bool
+) -> None:
+    def ref(identifier: str) -> dict[str, str]:
+        return {"id": identifier, "type": resource_type}
+
+    def run(run_id: str, phase_ids: list[str]) -> dict[str, Any]:
+        linked: Any = [ref(i) for i in phase_ids] if many else (ref(phase_ids[0]) if phase_ids else None)
+        return {"id": run_id, "type": "runs", "attributes": {}, "relationships": {include: {"data": linked}}}
+
+    def runs_page(runs: list[dict[str, Any]], phase_ids: list[str], next_page: int | None) -> ScriptedResponse:
         return response(
             {
-                "data": [{"id": run_id, "type": "runs", "attributes": {}}],
+                "data": runs,
                 "included": [
-                    {"id": plan_id, "type": "plans", "attributes": {"resource-additions": 2, "status": "finished"}},
+                    *({"id": i, "type": resource_type, "attributes": {"status": "finished"}} for i in phase_ids),
                     {"id": "ws-1", "type": "workspaces", "attributes": {}},
                 ],
                 "meta": {"pagination": {"next-page": next_page}},
             }
         )
 
+    second_run_phases = ["phase-2", "phase-3"] if many else ["phase-2"]
     result = SourceDriver(ScalrSource(), config).run(
-        "plans",
-        [runs_page("run-1", "plan-1", 2), runs_page("run-2", "plan-2", 3), response({"data": [], "meta": {}})],
+        endpoint,
+        [
+            runs_page([run("run-1", ["phase-1"]), run("run-0", [])], ["phase-1"], 2),
+            runs_page([run("run-2", second_run_phases)], second_run_phases, 3),
+            response({"data": [], "meta": {}}),
+        ],
     )
 
     assert result.raised is None
-    assert [(row["id"], row["resource_additions"]) for row in result.rows] == [("plan-1", 2), ("plan-2", 2)]
+    assert [(row["id"], row["run_id"], row["status"]) for row in result.rows] == [
+        ("phase-1", "run-1", "finished"),
+        *((phase, "run-2", "finished") for phase in second_run_phases),
+    ]
     assert [request.path for request in result.requests] == ["/api/iacp/v3/runs"] * 3
-    assert all(request.param("include") == "plan" for request in result.requests)
+    assert all(request.param("include") == include for request in result.requests)
+
+
+def test_tags_walk_every_page_sorted_by_name_without_account_filter(config: ScalrSourceConfig) -> None:
+    result = SourceDriver(ScalrSource(), config).run(
+        "tags", [page("tags", "tag-1", 2), page("tags", "tag-2", 3), page("tags", None, None)]
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["tag-1", "tag-2"]
+    assert [request.path for request in result.requests] == ["/api/iacp/v3/tags"] * 3
+    assert [request.param("page[number]") for request in result.requests] == ["1", "2", "3"]
+    for request in result.requests:
+        assert request.query["sort"] == ("name",)
+        assert "filter[account]" not in request.query
 
 
 def test_state_versions_fan_out_over_workspaces_without_state_secrets(config: ScalrSourceConfig) -> None:

@@ -48,7 +48,7 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
         <HighlightPicksStateFrame
             size={size}
             image={HedgehogNoir}
-            title="Nothing to watch yet"
+            title="No highlights to watch yet"
             body={
                 sweepStale ? (
                     <>

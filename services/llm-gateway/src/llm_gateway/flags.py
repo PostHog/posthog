@@ -6,11 +6,9 @@ import structlog
 from cachetools import TTLCache
 from posthoganalytics import Posthog
 
-from llm_gateway.config import get_settings
+from llm_gateway.config import POSTHOG_SYNC_SEND_MAX_RETRIES, get_settings
 
 logger = structlog.get_logger(__name__)
-
-GLM_MODAL_FLAG = "tasks-glm-modal-inference"
 
 _flag_cache: TTLCache[tuple[str, str], bool] = TTLCache(maxsize=10_000, ttl=60)
 # Global per-flag backoff so an evaluation outage doesn't stack one blocking roundtrip per new user.
@@ -28,6 +26,7 @@ def _get_client() -> Posthog | None:
             settings.posthog_project_token,
             host=settings.posthog_host,
             sync_mode=True,
+            max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
             enable_local_evaluation=False,
             feature_flags_request_timeout_seconds=2,
         )

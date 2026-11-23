@@ -41,6 +41,15 @@ def _versions_page(rows: list[dict[str, Any]], cursor: str | None) -> ScriptedRe
     return ScriptedResponse(json={"results": rows, "paging": {"more": cursor is not None, "cursor": cursor}})
 
 
+def _runs_page(rows: list[dict[str, Any]], cursor: str | None) -> ScriptedResponse:
+    """Build a journey or automation runs response: `runs`, with a top-level `next_cursor` that is
+    absent on the last page."""
+    body: dict[str, Any] = {"runs": rows}
+    if cursor is not None:
+        body["next_cursor"] = cursor
+    return ScriptedResponse(json=body)
+
+
 def _preferences_page(schedules: list[dict[str, Any]] | None) -> ScriptedResponse:
     """Build a `/preferences/sections` response with `schedules` nested where Courier puts them.
 
@@ -82,6 +91,9 @@ class TestGetResource:
             ("Journeys",),
             ("Automations",),
             ("PreferenceChanges",),
+            ("JourneyRuns",),
+            ("AutomationRuns",),
+            ("Broadcasts",),
         ]
     )
     def test_full_refresh_sends_no_timestamp_filter(self, endpoint: str) -> None:
@@ -160,6 +172,21 @@ class TestCourierSourceTransport:
         assert result.params("cursor") == [None, "cursor-1"]
         assert [row["id"] for row in result.rows] == ["r1", "r2"]
 
+    @parameterized.expand([("JourneyRuns", "/journeys/runs"), ("AutomationRuns", "/automations/runs")])
+    def test_run_listings_page_on_next_cursor(self, endpoint: str, path: str) -> None:
+        responses = [
+            _runs_page([{"run_id": "r1", "created_at": "2026-08-10T23:40:17.015Z"}], cursor="1785960234636,r1"),
+            _runs_page([{"run_id": "r2", "created_at": "2026-08-10T22:15:04.881Z"}], cursor=None),
+        ]
+        result = _drive(endpoint, responses)
+
+        assert result.paths == [path, path]
+        assert result.params("cursor") == [None, "1785960234636,r1"]
+        # Courier clamps a larger page size to 50.
+        assert result.params("limit") == ["50", "50"]
+        assert [row["run_id"] for row in result.rows] == ["r1", "r2"]
+        assert result.rows[0]["created_at"] == datetime(2026, 8, 10, 23, 40, 17, 15000, tzinfo=UTC)
+
     def test_unpaginated_endpoint_sends_no_params(self) -> None:
         # The preference sections listing documents no params at all, so the page size every
         # other endpoint gets must not be sent to it.
@@ -187,6 +214,15 @@ class TestCourierSourceTransport:
             # value, not stringify `None` into the literal "since=None".
             ("messages_first_sync", "Messages", "enqueued_after", None, "1970-01-01T00:00:00Z"),
             ("preference_changes_first_sync", "PreferenceChanges", "since", None, "1970-01-01T00:00:00Z"),
+            # The run listings return 400 for any form but an ISO 8601 date or a `Z` timestamp.
+            ("journey_runs", "JourneyRuns", "start_date", datetime(2026, 5, 1, 12, 30), "2026-05-01T12:30:00.000Z"),
+            (
+                "automation_runs_first_sync",
+                "AutomationRuns",
+                "start_date",
+                None,
+                "1970-01-01T00:00:00.000Z",
+            ),
         ]
     )
     def test_incremental_run_sends_watermark_as_iso8601(
@@ -339,6 +375,33 @@ class TestCourierFanout:
             ("tenant-b", "u2"),
         ]
         assert result.params("limit") == ["100", "100", "100"]
+
+    def test_tenant_templates_carry_their_tenant_id(self) -> None:
+        # A tenant template reuses the id of the workspace template it overrides, so without the
+        # projected tenant id the primary key collides across tenants.
+        result = _drive(
+            "TenantTemplates",
+            [
+                _page("Tenants", [{"id": "tenant-a"}, {"id": "tenant-b"}], cursor=None),
+                _page("TenantTemplates", [{"id": "nt_1", "created_at": "2026-01-15T10:30:00Z"}], cursor="c-1"),
+                _page("TenantTemplates", [{"id": "nt_2", "created_at": "2026-01-16T10:30:00Z"}], cursor=None),
+                _page("TenantTemplates", [{"id": "nt_1", "created_at": "2026-01-17T10:30:00Z"}], cursor=None),
+            ],
+        )
+
+        assert result.paths == [
+            "/tenants",
+            "/tenants/tenant-a/templates",
+            "/tenants/tenant-a/templates",
+            "/tenants/tenant-b/templates",
+        ]
+        assert result.params("cursor") == [None, None, "c-1", None]
+        assert [(row["tenant_id"], row["id"]) for row in result.rows] == [
+            ("tenant-a", "nt_1"),
+            ("tenant-a", "nt_2"),
+            ("tenant-b", "nt_1"),
+        ]
+        assert result.rows[0]["created_at"] == datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
 
     def test_journey_versions_carry_their_journey_id(self) -> None:
         result = _drive(

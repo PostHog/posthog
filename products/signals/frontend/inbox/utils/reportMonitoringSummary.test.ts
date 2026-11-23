@@ -41,7 +41,13 @@ function summary(
     leadCheck: MonitoringLeadCheckApi | null = lead(),
     startedAt: string = STARTED_AT
 ): ReportMonitoringSummaryApi {
-    return { state: 'not_on_track', started_at: startedAt, ends_at: '2026-11-13T18:00:00Z', lead_check: leadCheck }
+    return {
+        state: 'not_on_track',
+        started_at: startedAt,
+        ends_at: '2026-11-13T18:00:00Z',
+        lead_check: leadCheck,
+        checks: [],
+    }
 }
 
 const DAILY_BUCKETS = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09']

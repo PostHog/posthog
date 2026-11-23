@@ -76,6 +76,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
     credentials_service,
     source_helpers,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.async_job import (
+    AsyncJobFailedError,
+    AsyncJobTimeoutError,
+    JobStatus,
+    poll_until_done,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     UNVERSIONED_API_VERSION,
@@ -410,6 +416,8 @@ __all__ = [
     "AZURE_EXAMPLE_URL",
     "AnsiIdentifierQuoter",
     "ApiKeyAuthConfig",
+    "AsyncJobFailedError",
+    "AsyncJobTimeoutError",
     "AuthConfig",
     "AuthConfigBase",
     "AzureBlobConfig",
@@ -484,6 +492,7 @@ __all__ = [
     "JSONResponseCursorPaginator",
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
+    "JobStatus",
     "KEYWORDS",
     "LegacyOAuthGrant",
     "LegacyOAuthGrantUnusable",
@@ -654,6 +663,7 @@ __all__ = [
     "parse_retry_after",
     "parse_s3_url",
     "pinned_connect_host",
+    "poll_until_done",
     "probe_status_message",
     "raise_for_retryable_status",
     "raise_for_status_redacted",

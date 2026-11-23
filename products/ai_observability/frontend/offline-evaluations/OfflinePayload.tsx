@@ -15,6 +15,9 @@ export function OfflinePayload({
     >
 }): JSX.Element {
     if (!payload.available || payload.data === null) {
+        if (payload.deleted_at) {
+            return <p className="text-muted">This payload was deleted.</p>
+        }
         return (
             <p className="text-muted">
                 {payload.payload_state === 'expired'

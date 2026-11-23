@@ -1065,7 +1065,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : failureReason,
+                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
@@ -1453,6 +1453,7 @@ export class EmailService {
                     const recipient = await this.recipientsManager.get({
                         teamId: invocation.teamId,
                         identifier: email,
+                        anyCase: true,
                     })
                     return recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
                 })

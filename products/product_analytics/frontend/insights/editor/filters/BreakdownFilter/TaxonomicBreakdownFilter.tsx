@@ -4,9 +4,9 @@ import { ReactElement } from 'react'
 import { IconGear, IconPencil } from '@posthog/icons'
 import { Separator } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { urls } from 'scenes/urls'
 

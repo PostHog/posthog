@@ -3,6 +3,7 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -17,6 +18,7 @@ import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { MarketingIntegrationAdvancedSettings } from './MarketingIntegrationAdvancedSettings'
+import { QuillMarketingAnalyticsSettings } from './QuillMarketingAnalyticsSettings'
 
 export function MarketingAnalyticsSettings({
     hideTitle = false,
@@ -25,6 +27,12 @@ export function MarketingAnalyticsSettings({
     hideTitle?: boolean
     hideBaseCurrency?: boolean
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillMarketingAnalyticsSettings hideBaseCurrency={hideBaseCurrency} />
+    }
+
     return (
         <SceneContent>
             {!hideTitle && (

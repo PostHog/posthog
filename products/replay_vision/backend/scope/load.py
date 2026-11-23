@@ -23,6 +23,10 @@ from products.replay_vision.backend.scope.registry import SCOPES, SETTINGS
 # experiment.
 EXPERIMENT_ID_SNAPSHOT_STORES = ("scope", "experiment_targeting", "scanner_config")
 
+# Settings the mirror could not record, because they reached the settings model after the
+# `scope` column shipped. A blob the mirror wrote before then carries neither.
+_MIRROR_PREDATED_SETTINGS = ("balance", "start_on_launch")
+
 
 def snapshot_experiment_id(snapshot: dict[str, Any] | None) -> int | None:
     """The experiment a frozen `scanner_snapshot` names, from whichever store holds it.
@@ -50,7 +54,7 @@ def stored_scope(source: ScopeSource, *, legacy_only: bool = False) -> dict[str,
     """
     scope = source.scope
     if not legacy_only and isinstance(scope, dict) and scope.get("kind"):
-        return scope
+        return _with_settings_the_mirror_predates(source, scope)
 
     # Neither older store records a kind, because both only ever meant "experiment".
     from products.replay_vision.backend.models.replay_scanner import (  # noqa: PLC0415
@@ -76,6 +80,37 @@ def stored_scope(source: ScopeSource, *, legacy_only: bool = False) -> dict[str,
             "variants": variants,
         }
     return None
+
+
+def _with_settings_the_mirror_predates(source: ScopeSource, scope: dict[str, Any]) -> dict[str, Any]:
+    """Fill the keys a mirrored scope was written without, from the store it was mirrored from.
+
+    The mirror has written `scope` on every save since the column shipped, but `balance` and
+    `start_on_launch` reached the settings model later, so a blob written before then carries
+    neither. Reading it as it stands gives both their defaults, and a scanner whose config turned
+    balancing off would silently start sampling evenly on its next sweep.
+
+    Only a blob this row's own mirror owns is filled, and only for a key the mirror could not have
+    written. A scope somebody set by hand means what it says, including a `balance` deliberately
+    left at its default.
+
+    Drops out with the mirror: once every row carries a scope of its own, the blob is the whole
+    truth and nothing derives over it.
+    """
+    missing = [key for key in _MIRROR_PREDATED_SETTINGS if key not in scope]
+    if not missing:
+        return scope
+    derived = derive_scope(source)
+    if derived is None:
+        return scope
+    # Compare with the predated keys taken off both sides: a derivation made today carries them,
+    # and a blob the mirror wrote before they existed cannot, so the two only ever agree once
+    # they are set aside. What is left is the shape the mirror would have written back then.
+    without_predated = {k: v for k, v in derived.items() if k not in _MIRROR_PREDATED_SETTINGS}
+    if without_predated != {k: v for k, v in scope.items() if k not in _MIRROR_PREDATED_SETTINGS}:
+        # Not this row's own mirror: a scope set by hand, or one whose source store has moved on.
+        return scope
+    return {**scope, **{key: derived[key] for key in missing if key in derived}}
 
 
 def scope_for(source: ScopeSource, *, legacy_only: bool = False) -> ExperimentScope | None:

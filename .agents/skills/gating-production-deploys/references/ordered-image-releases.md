@@ -51,6 +51,61 @@ The Charts migration helper owns consumer binding for new-service onboarding and
 
 Temporal worker release repositories use descriptive provisioned paths under `posthog-temporal-workers/`, such as `posthog-temporal-workers/data-warehouse-metadata`; `posthog-temporal-workers/batch-exports-sync` is the reserved sibling example. Preserve domain words and omit redundant `temporal-worker-` prefixes. Other workload classes choose their own namespace; the publisher does not infer workload identity from that prefix. Preserve bare tags, full revision/digest identity and source annotations. Changing repositories changes workload image strings and causes a rollout even at an equal digest.
 
+## Channel filters and the shared worker base
+
+A channel filter lists the code its worker runs. A change that no row matches is not lost. The publisher compares every file changed since the channel's last publication, so the next build that matches the filter qualifies the channel. A qualified channel publishes an image that also carries the earlier change when the source image identity check, the copy and its readback succeed. Review each row with two questions: does the worker run this code, and is the wait for a change the filter does not list acceptable? Do not review a filter for completeness.
+
+Every channel filter starts with the `sharedWorkerBase` alias and continues with the worker's own rows. A new worker's filter has the same shape:
+
+```yaml
+filters:
+  sharedWorkerBase: &sharedWorkerBase
+    - Dockerfile
+    - 'posthog/settings/**'
+  newWorker:
+    - *sharedWorkerBase
+    - 'products/new_worker/backend/**'
+```
+
+`sharedWorkerBase` holds what every Temporal worker process runs or reads, whatever its task queue:
+
+- the image build inputs and the entry point: `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock`, the workspace members that `uv sync` reads (`tools/hogli/pyproject.toml`; the `owners-yaml` manifest and the files its wheel build reads, `owners_yaml/**`, `LICENSE` and `README.md`; and `packages/personhog-proto/**`), `manage.py` and `bin/temporal-django-worker`;
+- the settings and database wiring the process loads;
+- `start_temporal_worker` and what it executes for every queue, including the `ready()` hooks, the system checks and the feature flag definition poll;
+- the values the start reads for every queue: the product `facade/temporal.py` declarations and the metric, interceptor and internal log modules they name;
+- the models and the clients every worker builds or uses: Kafka, Redis, storage, ClickHouse and the person client with its protobuf package;
+- the Django and ClickHouse migration directories and the two commands the deploy's migration checks run, `migrate.py` and `migrate_clickhouse.py`. Do not narrow these rows. A worker that is not republished keeps an image whose check, migrations and their imports all come from one commit, so its check behaves as before, while a new or changed migration matches these rows and qualifies every channel whose filter uses the base. What the migrations and commands import is ordinary code under the rule above, even where the base already lists it.
+
+Code that only some workers run goes in those workers' own rows. A row lives in the base or in a filter's own rows, never in both. An own row does not repeat a base row or name a file that a base wildcard already matches. An own wildcard may also match base rows: keep it, because removing it narrows the filter. The base has no `!` rows: an exclude vetoes a path in every filter that uses the alias, wherever the row sits. `dataWarehouse` does not use the base, because the legacy data warehouse worker's deploy trigger reads it and no channel binds it.
+
+Find a worker's own rows from its task queue:
+
+1. List the workflows and activities registered for the queue: its `QueueBinding` entries in the products' `facade/temporal.py` declarations, and its entry in `_task_queue_specs` in `posthog/management/commands/start_temporal_worker.py`.
+2. Add the modules those workflows and activities call.
+3. Add the production modules that the worker's tests exercise, not the test files themselves.
+
+Stop at code the base lists and at code the worker does not run. The base lists what every worker runs at start. It does not list every module a worker loads.
+
+The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers the 20,643 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches. Unmatched commits after the last matching commit have no wait and are left out, 20 of them for the base alone. The table measures the time to the next matching commit, not the time to a publication.
+
+| Filter                              | Commits that match | Median wait | 90th percentile | 99th percentile | Longest wait |
+| ----------------------------------- | -----------------: | ----------: | --------------: | --------------: | -----------: |
+| `sharedWorkerBase` alone            |              12.5% |      21 min |           1.9 h |          17.1 h |       37.9 h |
+| `dataWarehouseMetadata`             |              32.5% |       9 min |           1.2 h |          10.2 h |       25.5 h |
+| `experimentsRecalculationActivity`  |              17.9% |      14 min |           1.5 h |          11.4 h |       37.9 h |
+| `wizardWorker`                      |              18.4% |      13 min |           1.4 h |          13.2 h |       37.9 h |
+| `genericWorker`                     |              19.9% |      12 min |           1.4 h |          12.0 h |       33.1 h |
+| `alertsPlatformSharedOrchestration` |              17.3% |      15 min |           1.5 h |          13.1 h |       32.8 h |
+| `alertsPlatformEvaluation`          |              40.5% |       6 min |          52 min |           6.3 h |       21.0 h |
+| `alertsPlatformDelivery`            |              25.4% |       9 min |           1.1 h |           7.8 h |       27.3 h |
+| `webAnalyticsWorker`                |              12.6% |      21 min |           1.9 h |          17.1 h |       37.9 h |
+| `signupEnrichmentWorker`            |              15.4% |      16 min |           1.7 h |          15.7 h |       37.9 h |
+| `healthCheckWorker`                 |              35.4% |       8 min |           1.0 h |           6.9 h |       21.0 h |
+
+When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force qualifies a newer build that the publication job evaluates when no row matches. The publisher's frontier, image identity and newer-revision checks still apply, as for any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
+
+A changed filter changes its policy fingerprint, the hash of the filter's effective rows in order after the alias is flattened. A changed fingerprint satisfies the filter gate for a newer build that the publisher evaluates against a frontier from before the change, even when no changed file matches. A change to `sharedWorkerBase` does this for every filter that uses the alias. Before that gate, the publisher lists the channel's repository and takes its greatest ordered tag as the frontier, reads the frontier back, checks its image identity and that its revision's ordered alias is the frontier tag, and compares the revisions. An empty or unreadable frontier, or a failed check, blocks the channel before any fingerprint comparison; a build older than the frontier is skipped; an equal revision returns the frontier readback without comparing policy: `present` when the frontier holds the build's digest, `blocked` otherwise. The publication job runs only when the run is not cancelled, the build job succeeded, the repository owner is `PostHog`, `CD_DEPLOY_ENABLED` is `true`, `ORDERED_IMAGE_ALIAS_PAUSED` is not `true` and the ref is the default branch, and it continues on error. Confirm publication from the channel results of that run (`shared-image-releases/results.json`), not from a green build. When that file is missing, the publish step failed or did not run; treat every channel as not confirmed. Never edit the `bootstrapPolicyDigest` of a seeded channel: the publisher blocks a channel whose `bootstrapPolicyDigest` differs from the value in its history. A new channel still needs its one reviewed seed (see [Bootstrap and activation](#bootstrap-and-activation)).
+
 ## Interval and fingerprint APIs
 
 The internal `.github/actions/shared-image-releases/src/shared-image.ts` entry point exports `intervalFiles`, `Filter` and the policy/binding APIs. Call `intervalFiles(base, revision, git)` with the asynchronous Git runner owned by `SourceHistory`; it applies measured command deadlines, output bounds and `GIT_NO_LAZY_FETCH=1`. The adapter and publisher share `assertFirstParent` and checkout validation. Reuse paths-filter's dependency-free Git diff parser; importing its process helpers also imports their action dependencies. Keep Git asynchronous so history comparisons cannot stall registry timers or output draining. The interval adapter validates the executing checkout and complete history, bounds first-parent membership to the interval, includes merge deltas, treats renames as add/delete and maps Git typechanges to modified. Missing history, invalid frontiers and exhausted bounds fail explicitly. Match the returned files with `Filter.match`; legacy dispatch still compares endpoints. Newline filenames remain intact, although the pinned engine does not match them with `worker/**`.
@@ -71,7 +126,7 @@ Invoke `container-images-cd.yml` through `workflow_dispatch` on the default bran
 
 ## Bootstrap and activation
 
-Ordinary publication refuses an empty ordered frontier. Review one seed revision and exact digest, then supply `shared-image-bootstrap` as a JSON object with `channel`, `revision` and `digest`. Bootstrap and force cannot be combined, and a seed newer than the executing revision is refused. A bootstrap or force `workflow_dispatch` reruns the full CD workflow for the current master HEAD, including its Charts and worker deploy dispatches. This is expected and idempotent for an already-deployed HEAD. Exact readback writes a bootstrap receipt with origin registry and repository, current policy revision and fingerprint, seed revision, ordinal, tag, digest and outcome. It omits owner and replicas and proves origin publication only, not EU availability.
+Ordinary publication refuses an empty ordered frontier. Review one seed revision and exact digest, then supply `shared-image-bootstrap` as a JSON object with `channel`, `revision` and `digest`. Bootstrap and force cannot be combined, and a seed newer than the executing revision is refused. A bootstrap or force `workflow_dispatch` runs the CD workflow for the current master HEAD under its manual-dispatch conditions, including its Charts and worker deploy dispatches, and skips the push-only image boot check. This is expected and idempotent for an already-deployed HEAD. Exact readback writes a bootstrap receipt with origin registry and repository, current policy revision and fingerprint, seed revision, ordinal, tag, digest and outcome. It omits owner and replicas and proves origin publication only, not EU availability.
 
 Retry the same seed after newer aliases arrive. The seed must still exist at its expected digest; a missing seed in a repository with an ordered release or a conflicting digest fails. Untagged manifests and non-ordered tags alone do not block a verified seed copy. When the seed predates the channel policy, carry `bootstrapPolicyDigest` in the channel and verify it equals the reviewed current fingerprint before seeding. Preserve that adoption fingerprint across later policy changes.
 

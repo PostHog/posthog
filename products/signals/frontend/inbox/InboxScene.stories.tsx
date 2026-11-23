@@ -195,6 +195,36 @@ export const ReportsNarrow: Story = {
     },
 }
 
+const TAGGED_REPORT_TAGS = ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact']
+const taggedReports = allReports.map((report, index) =>
+    index === 0 ? { ...report, tags: TAGGED_REPORT_TAGS } : report
+)
+
+export const ReportsTagFilter: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_TAG_FILTER]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/tag_options/': () => [
+                    200,
+                    { tags: [...TAGGED_REPORT_TAGS, 'docs-gap', 'onboarding'] },
+                ],
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: taggedReports, count: taggedReports.length, next: null, previous: null },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Tags: any'))
+        await waitFor(() => expect(within(document.body).getByText('docs-gap')).toBeVisible())
+    },
+}
+
 export const WithValueSummary: Story = {
     parameters: {
         featureFlags: {

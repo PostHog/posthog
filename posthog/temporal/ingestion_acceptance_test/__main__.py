@@ -22,6 +22,8 @@ if __name__ == "__main__":
         host=config.api_host,
         debug=True,
         sync_mode=True,
+        # One attempt, so a capture failure fails the run and a retry does not hide it.
+        max_retries=0,
     )
 
     tests = discover_tests()

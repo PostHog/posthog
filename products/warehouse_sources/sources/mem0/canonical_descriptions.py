@@ -102,4 +102,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the project was last updated.",
         },
     },
+    "organization_members": {
+        "description": "A member of a Mem0 organization and the role they hold in it.",
+        "docs_url": "https://docs.mem0.ai/api-reference/organization/get-org-members",
+        "columns": {
+            "org_id": "Identifier of the organization the member belongs to.",
+            "user_id": "Unique identifier of the member.",
+            "role": "Role of the member in the organization.",
+        },
+    },
 }

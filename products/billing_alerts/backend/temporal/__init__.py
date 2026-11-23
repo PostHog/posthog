@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.billing_alerts.backend.temporal.activities import (
     discover_due_billing_alerts_activity,
@@ -13,6 +13,9 @@ from products.billing_alerts.backend.temporal.workflows import (
     ScheduleDueBillingAlertChecksWorkflow,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     ScheduleDueBillingAlertChecksWorkflow,
     CheckBillingAlertBatchWorkflow,
@@ -25,7 +28,7 @@ __all__ = [
     "WORKFLOWS",
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
 ]
