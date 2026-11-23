@@ -26,6 +26,7 @@ from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.rules import compile_filter_bytecode
 from products.error_tracking.backend.models import ErrorTrackingIssueTagRule
 from products.error_tracking.backend.temporal.tag_rule_sweep.activities import (
+    INVALID_RULE_ERROR_TYPE,
     QUERY_LIMIT_ERROR_TYPE,
     sweep_team_tag_rules_activity,
 )
@@ -73,6 +74,24 @@ class TestSweepTeamTagRulesActivity(BaseTest):
             sweep_team_tag_rules_activity(self.inputs)
 
         assert (failure.value.type, failure.value.non_retryable) == (QUERY_LIMIT_ERROR_TYPE, True)
+
+    def test_a_rule_that_does_not_resolve_in_the_query_stops_the_retries(self) -> None:
+        filters = {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "$virt_unknown", "type": "event", "value": "x"}]}],
+        }
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
+            team=self.team,
+            label="Unknown",
+            filters=filters,
+            bytecode=compile_filter_bytecode(self.team.id, filters),
+            order_key=2,
+        )
+
+        with pytest.raises(ApplicationError) as failure:
+            sweep_team_tag_rules_activity(self.inputs)
+
+        assert (failure.value.type, failure.value.non_retryable) == (INVALID_RULE_ERROR_TYPE, True)
 
     def test_a_full_cluster_is_retried(self) -> None:
         with patch(QUERY, side_effect=ClickHouseClusterMemoryLimitExceeded()):

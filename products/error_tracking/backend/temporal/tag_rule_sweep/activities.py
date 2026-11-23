@@ -22,11 +22,12 @@ from products.error_tracking.backend.temporal.tag_rule_sweep.types import (
 logger = structlog.get_logger(__name__)
 
 QUERY_LIMIT_ERROR_TYPE = "ErrorTrackingTagRuleSweepQueryLimit"
+INVALID_RULE_ERROR_TYPE = "ErrorTrackingTagRuleSweepInvalidRule"
 
 ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS = Counter(
     "error_tracking_tag_rule_sweep_teams_total",
-    "Teams that the daily tag rule sweep finished, skipped, or stopped at a query limit, by outcome. The workflow's "
-    "teams_failed counter also counts the teams stopped at a query limit",
+    "Teams that the daily tag rule sweep finished, skipped, or stopped at a query limit or an invalid rule, by "
+    "outcome. The workflow's teams_failed counter also counts the stopped teams",
     labelnames=("outcome",),
 )
 ERROR_TRACKING_TAG_RULE_SWEEP_RULES = Counter(
@@ -70,8 +71,18 @@ def sweep_team_tag_rules_activity(inputs: SweepTeamTagRulesInputs) -> SweepTeamT
             on_progress=activity.heartbeat,
         )
     except Exception as error:
+        category = classify_query_error(error)
+        if category == QueryErrorCategory.USER_ERROR:
+            ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS.labels(outcome="invalid_rule").inc()
+            # A rule's filters can compile when the rule is saved and still fail to resolve in the query. A retry reads
+            # the same rules, so it fails the same way.
+            raise ApplicationError(
+                f"A tag rule of team {inputs.team_id} does not resolve in the query: {type(error).__name__}",
+                type=INVALID_RULE_ERROR_TYPE,
+                non_retryable=True,
+            ) from error
         # A capacity error, such as a full cluster, is not a limit of this query, so Temporal retries it.
-        if classify_query_error(error) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+        if category != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
             raise
         ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS.labels(outcome="query_limit").inc()
         # A retry reads the same events with the same rules, so it costs as much and stops at the same limit.
