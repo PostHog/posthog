@@ -273,6 +273,7 @@ def test_uses_trino_arbitrary_value_aggregate_for_any_variants() -> None:
     ("query", "feature_code"),
     [
         ("SELECT event FROM events", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM persons", "TRINO_TABLE_LOCATOR_MISSING"),
         ("SELECT id FROM orders", "TRINO_TABLE_LOCATOR_MISSING"),
         ("SELECT id FROM system.support_tickets", "TRINO_APP_DATABASE_TABLE_UNSUPPORTED"),
         ("SELECT distinct_id FROM person_distinct_ids", "TRINO_CLICKHOUSE_ONLY_TABLE_UNSUPPORTED"),

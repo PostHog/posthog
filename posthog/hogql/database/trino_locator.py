@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 TrinoTableLocator = tuple[str, str, str]
 
 TRINO_EXPORTED_POSTHOG_TABLES = frozenset({"events", "persons", "groups", "raw_groups"})
+_EXPORTED_POSTHOG_TABLE_SCANS = TRINO_EXPORTED_POSTHOG_TABLES | {"raw_persons"}
 
 
 def resolve_trino_table_locator(table: Table, context: HogQLContext) -> TrinoTableLocator | None:
@@ -30,7 +31,7 @@ def resolve_trino_table_locator(table: Table, context: HogQLContext) -> TrinoTab
 def missing_trino_locator_error_code(table: Table) -> str:
     if isinstance(table, PostgresTable):
         return "TRINO_APP_DATABASE_TABLE_UNSUPPORTED"
-    if not isinstance(table, FunctionCallTable) and _logical_name(table) not in TRINO_EXPORTED_POSTHOG_TABLES:
+    if not isinstance(table, FunctionCallTable) and _logical_name(table) not in _EXPORTED_POSTHOG_TABLE_SCANS:
         return "TRINO_CLICKHOUSE_ONLY_TABLE_UNSUPPORTED"
     return "TRINO_TABLE_LOCATOR_MISSING"
 
