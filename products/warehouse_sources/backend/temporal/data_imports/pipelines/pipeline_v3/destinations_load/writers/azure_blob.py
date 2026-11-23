@@ -251,7 +251,7 @@ class AzureBlobDestinationWriter:
         if first is None:
             # No record batches at all. An empty blob is not a readable parquet file, so write
             # nothing rather than something a reader would choke on.
-            return BatchWriteOutcome(rows_written=0)
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         stats = _WriteStats()
         compression = None if self._compression == "none" else self._compression

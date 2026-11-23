@@ -151,6 +151,26 @@ class TestPagination:
         assert result.response is not None
         assert result.response.sort_mode == "asc"
 
+    @pytest.mark.parametrize(
+        ("endpoint", "resource"),
+        [
+            ("employment_contracts", "EmploymentContract"),
+            ("leave_accruals", "LeaveAccrual"),
+            ("teams", "Team"),
+            ("training_modules", "TrainingModule"),
+            ("training_records", "TrainingRecord"),
+        ],
+    )
+    def test_table_queries_its_resource(self, endpoint: str, resource: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"Id": 7, "Created": "2024-03-01T09:00:00+10:00", "Modified": "2024-03-02T10:00:00+10:00"}])],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/api/v1/resource/{resource}/QUERY"]
+        assert [row["Id"] for row in result.rows] == [7]
+
     def test_first_incremental_sync_sends_no_filter_but_sorts_by_modified(self) -> None:
         result = _driver().run(
             "employees",

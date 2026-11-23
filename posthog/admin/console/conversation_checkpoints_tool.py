@@ -10,7 +10,6 @@ from django.http import HttpRequest, HttpResponse
 import structlog
 
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.utils import pluralize
 
@@ -142,7 +141,7 @@ def compact(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Non
 class ConversationCheckpointsTool(ConsoleTool):
     key = TOOL_KEY
     title = "AI conversation checkpoints"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "AI"
     description = "Compacts the stored checkpoints of PostHog AI conversations."
 

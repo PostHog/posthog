@@ -5,15 +5,19 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 
 # Adyen splits its read APIs across several hosts with independent versions, so each endpoint
 # names the API it belongs to rather than sharing one base URL.
-AdyenApi = Literal["transfers", "configuration", "management", "reports", "legal_entity"]
+AdyenApi = Literal["transfers", "configuration", "management", "reports", "legal_entity", "capital"]
 
 # `cursor` — Transfers API `_links.next` with an opaque `cursor` query param.
 # `offset` — Configuration API `offset`/`limit`.
 # `page` — Management API `pageNumber`/`pageSize`.
 # `fanout_offset` — offset pagination per parent id resolved from another endpoint.
 # `fanout_object` — one single-object GET per parent id resolved from another endpoint.
+# `fanout_list` — one unpaginated list GET per parent id, with the id sent as a query param.
+# `payout_executions` — balance accounts, then their payout schedules, then each schedule's executions.
 # `report_batch` — no pagination: walk sequential report batch numbers, one CSV file each.
-AdyenPagination = Literal["cursor", "offset", "page", "fanout_offset", "fanout_object", "report_batch"]
+AdyenPagination = Literal[
+    "cursor", "offset", "page", "fanout_offset", "fanout_object", "fanout_list", "payout_executions", "report_batch"
+]
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,8 @@ class AdyenEndpointConfig:
     # read from each parent row.
     parent: str | None = None
     parent_field: str = "id"
+    # For `fanout_list`: the query param that carries the parent id.
+    parent_query_param: str | None = None
     sync_by_default: bool = True
     description: str = ""
 
@@ -85,6 +91,34 @@ ADYEN_ENDPOINTS: dict[str, AdyenEndpointConfig] = {
         sync_by_default=False,
         description="Legal entities behind your account holders, with their business identity and verification status.",
     ),
+    "PayoutScheduleExecutions": AdyenEndpointConfig(
+        name="PayoutScheduleExecutions",
+        api="configuration",
+        path="/balanceAccounts/{parent_id}/payoutSchedules/{schedule_id}/executions",
+        primary_key=("balanceAccountId", "payoutScheduleId", "id"),
+        pagination="payout_executions",
+        data_key="payoutScheduleExecutions",
+        parent="BalanceAccounts",
+        requires_balance_platform=True,
+        # Three levels of requests per balance account, and most platforms don't use managed
+        # payout schedules, so the table is opt-in.
+        sync_by_default=False,
+        description="Attempts to pay out funds under the managed payout schedules of each balance account, with their result.",
+    ),
+    "Grants": AdyenEndpointConfig(
+        name="Grants",
+        api="capital",
+        path="/grants",
+        primary_key=("id",),
+        pagination="fanout_list",
+        data_key="grants",
+        parent="AccountHolders",
+        parent_query_param="counterpartyAccountHolderId",
+        requires_balance_platform=True,
+        # Needs a Capital API role that most credentials lack, so the table is opt-in.
+        sync_by_default=False,
+        description="Capital grants your account holders received, with their balances and status.",
+    ),
     "Companies": AdyenEndpointConfig(
         name="Companies",
         api="management",
@@ -111,6 +145,17 @@ ADYEN_ENDPOINTS: dict[str, AdyenEndpointConfig] = {
         pagination="page",
         data_key="data",
         description="Physical store locations across the merchant accounts your API credential can access.",
+    ),
+    "Terminals": AdyenEndpointConfig(
+        name="Terminals",
+        api="management",
+        path="/terminals",
+        primary_key=("id",),
+        pagination="page",
+        data_key="data",
+        # Needs the Terminal actions read role, which only point-of-sale integrations have.
+        sync_by_default=False,
+        description="Payment terminals your API credential can access, with their assignment and connectivity.",
     ),
     "SettlementDetailReports": AdyenEndpointConfig(
         name="SettlementDetailReports",

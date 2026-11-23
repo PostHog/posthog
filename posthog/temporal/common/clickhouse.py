@@ -1138,6 +1138,7 @@ async def get_client(
     *,
     team_id: typing.Optional[int] = None,
     clickhouse_url: str | None = None,
+    cluster: str | None = None,
     workload: Workload = Workload.OFFLINE,
     **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
@@ -1147,6 +1148,8 @@ async def get_client(
 
     DEFAULT workload resolves to OFFLINE for this client. An explicit clickhouse_url
     overrides the endpoint, but logs and metrics keep their workload's database and cluster.
+    A clickhouse_url on another cluster needs that cluster's name in `cluster`, because the client
+    looks up and kills its queries across the nodes of the named cluster.
     All workloads authenticate with the same deployment's CLICKHOUSE_USER credentials.
 
     Usage:
@@ -1188,6 +1191,7 @@ async def get_client(
     if workload == Workload.DEFAULT:
         workload = Workload.OFFLINE
 
+    explicit_cluster = cluster
     cluster = settings.CLICKHOUSE_CLUSTER
     database = settings.CLICKHOUSE_DATABASE
     if workload == Workload.LOGS:
@@ -1213,6 +1217,8 @@ async def get_client(
 
     if clickhouse_url is not None:
         url = clickhouse_url
+    if explicit_cluster is not None:
+        cluster = explicit_cluster
 
     async with ClickHouseClient(
         url=url,

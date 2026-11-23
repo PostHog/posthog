@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'

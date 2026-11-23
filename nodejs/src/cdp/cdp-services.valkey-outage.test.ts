@@ -1,0 +1,344 @@
+import { execFile } from 'child_process'
+import Redis from 'ioredis'
+import { AddressInfo, Server, Socket, connect, createServer } from 'net'
+import path from 'path'
+import { register } from 'prom-client'
+
+import { defaultConfig } from '~/common/config/config'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { UUIDT } from '~/common/utils/utils'
+
+import { createCdpValkeyShadowPools } from './cdp-services'
+
+const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
+const PORT_NOTHING_LISTENS_ON = 1
+const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
+
+const NODEJS_ROOT = path.resolve(__dirname, '../..')
+
+const yieldToIo = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+const shadowConfig = {
+    CDP_VALKEY_HOST: '127.0.0.1',
+    CDP_VALKEY_PORT: defaultConfig.CDP_VALKEY_PORT,
+    CDP_VALKEY_PASSWORD: '',
+    CDP_VALKEY_READER_HOST: '',
+    CDP_VALKEY_READER_PORT: defaultConfig.CDP_VALKEY_PORT,
+    CDP_VALKEY_TLS: false,
+    REDIS_POOL_MIN_SIZE: 1,
+    REDIS_POOL_MAX_SIZE: 4,
+}
+
+const shadowCallsAgainstAnUnreachableValkey = `
+import { createCdpValkeyShadowPools } from './src/cdp/cdp-services'
+
+const { writer } = createCdpValkeyShadowPools(
+    ${JSON.stringify({ ...shadowConfig, CDP_VALKEY_PORT: PORT_NOTHING_LISTENS_ON })},
+    'test-unreachable-valkey'
+)
+
+const callUntilTheOutageEnds = async () => {
+    const outcomes = new Set()
+    const outageEndsAt = Date.now() + ${LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS}
+    while (Date.now() < outageEndsAt) {
+        outcomes.add(await writer.useClient({ name: 'probe' }, (client) => client.ping()).then(() => 'answered', () => 'failed'))
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    process.exit([...outcomes].join(',') === 'failed' ? 0 : 1)
+}
+
+void callUntilTheOutageEnds()
+`
+
+type ChildProcessOutcome = { code: number | null; signal: NodeJS.Signals | null }
+
+const runInChildProcess = (script: string): Promise<ChildProcessOutcome> =>
+    new Promise((resolve) => {
+        execFile(
+            process.execPath,
+            ['--import', 'tsx', '--input-type=module', '--eval', script],
+            {
+                cwd: NODEJS_ROOT,
+                env: { ...process.env, NODE_OPTIONS: '' },
+                timeout: 30_000,
+                maxBuffer: 16 * 1024 * 1024,
+            },
+            (error) =>
+                resolve({
+                    code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
+                    signal: error?.signal ?? null,
+                })
+        )
+    })
+
+describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
+    const openedClients = new Set<Redis.Redis>()
+
+    beforeEach(() => {
+        const connectClient = Redis.prototype.connect
+        jest.spyOn(Redis.prototype, 'connect').mockImplementation(function (this: Redis.Redis) {
+            openedClients.add(this)
+            return connectClient.call(this)
+        })
+    })
+
+    afterEach(() => {
+        openedClients.forEach((client) => client.disconnect())
+        openedClients.clear()
+        jest.restoreAllMocks()
+    })
+
+    const unreachable = (): RedisV2 =>
+        createCdpValkeyShadowPools(
+            { ...shadowConfig, CDP_VALKEY_PORT: PORT_NOTHING_LISTENS_ON },
+            'test-unreachable-valkey'
+        ).writer
+
+    it('keeps the process up while every shadow call fails', async () => {
+        expect(await runInChildProcess(shadowCallsAgainstAnUnreachableValkey)).toEqual({ code: 0, signal: null })
+    }, 60_000)
+
+    const callsFailedOpen = async (name: string): Promise<number> => {
+        const metric = await register.getSingleMetric('cdp_valkey_shadow_calls_failed_open_total')?.get()
+        return metric?.values.find((value) => value.labels.name === name)?.value ?? 0
+    }
+
+    it('gives a caller that fails open no result instead of an error, and counts it', async () => {
+        const writer = unreachable()
+
+        await expect(
+            writer.useClient({ name: 'fail-open-probe', failOpen: true }, (client) => client.ping())
+        ).resolves.toBeNull()
+        await expect(
+            writer.usePipeline({ name: 'fail-open-pipeline', failOpen: true }, (pipeline) => pipeline.ping())
+        ).resolves.toBeNull()
+        expect(await callsFailedOpen('fail-open-probe')).toBe(1)
+        expect(await callsFailedOpen('fail-open-pipeline')).toBe(1)
+    }, 30_000)
+
+    describe('with Valkey behind a proxy that the test controls', () => {
+        type ProxiedConnection = { client: Socket; upstream: Socket; forwarding: boolean; held: Buffer[] }
+        let connections: ProxiedConnection[]
+        let answerNewConnections: boolean
+        let waitingForHeldData: (() => void)[]
+        let proxy: Server
+        let port: number
+        let writer: RedisV2
+
+        beforeEach(async () => {
+            connections = []
+            answerNewConnections = true
+            waitingForHeldData = []
+            proxy = createServer((client) => {
+                const upstream = connect(defaultConfig.CDP_VALKEY_PORT, '127.0.0.1')
+                const connection: ProxiedConnection = { client, upstream, forwarding: answerNewConnections, held: [] }
+                connections.push(connection)
+                client.on('data', (data: Buffer) => {
+                    if (connection.forwarding) {
+                        upstream.write(data)
+                        return
+                    }
+                    connection.held.push(data)
+                    waitingForHeldData.splice(0).forEach((resolve) => resolve())
+                })
+                upstream.pipe(client)
+                client.on('error', () => {})
+                upstream.on('error', () => {})
+            })
+            await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+            port = (proxy.address() as AddressInfo).port
+            writer = createCdpValkeyShadowPools(
+                { ...shadowConfig, ...ONE_SHARED_CONNECTION, CDP_VALKEY_PORT: port },
+                'test-valkey-behind-proxy'
+            ).writer
+            expect(await writer.useClient({ name: 'warm' }, (client) => client.ping())).toEqual('PONG')
+        })
+
+        afterEach(() => {
+            proxy.close()
+            connections.forEach(({ client, upstream }) => [client, upstream].forEach((socket) => socket.destroy()))
+        })
+
+        const dropConnections = async (): Promise<void> => {
+            const closed = new Promise<void>((resolve) => proxy.close(() => resolve()))
+            connections.forEach(({ client, upstream }) => [client, upstream].forEach((socket) => socket.destroy()))
+            await closed
+        }
+
+        const stopAnsweringOpenConnections = (): void => {
+            connections.forEach((connection) => (connection.forwarding = false))
+        }
+
+        const holdNewConnections = (): void => {
+            answerNewConnections = false
+        }
+
+        const answerEverything = (): void => {
+            answerNewConnections = true
+            connections.forEach((connection) => {
+                connection.forwarding = true
+                connection.held.splice(0).forEach((data) => connection.upstream.write(data))
+            })
+        }
+
+        const answerOnly = (connection: ProxiedConnection): void => {
+            connection.forwarding = true
+            connection.held.splice(0).forEach((data) => connection.upstream.write(data))
+        }
+
+        const aConnectionHoldsData = (): Promise<void> => new Promise((resolve) => waitingForHeldData.push(resolve))
+
+        const reopenProxy = (): Promise<void> =>
+            new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
+
+        const restoreValkey = async (): Promise<void> => {
+            await reopenProxy()
+            const giveUpAt = Date.now() + 10_000
+            let pong: unknown = null
+            while (pong !== 'PONG') {
+                if (Date.now() > giveUpAt) {
+                    throw new Error('the shadow pool did not reconnect to Valkey')
+                }
+                await yieldToIo()
+                pong = await writer.useClient({ name: 'recover' }, (client) => client.ping()).catch(() => null)
+            }
+        }
+
+        const readBack = async (key: string): Promise<string | null> => {
+            const value = await writer.useClient({ name: 'read' }, (client) => client.get(key))
+            await writer.useClient({ name: 'cleanup' }, (client) => client.del(key))
+            return value
+        }
+
+        const connectionOf = (client: RedisClient): ProxiedConnection | undefined => {
+            const localPort = (client as unknown as { stream: Socket }).stream.localPort
+            return connections.find((connection) => connection.client.remotePort === localPort)
+        }
+
+        const reconnectHoldingTheReadinessCheck = async (pool: RedisV2): Promise<ProxiedConnection> => {
+            let lend: (client: RedisClient) => void = () => {}
+            const borrowed = new Promise<RedisClient>((resolve) => (lend = resolve))
+            const clientSawTheDrop = pool.useClient({ name: 'watch-drop' }, (client) => {
+                lend(client)
+                return new Promise((resolve) => client.once('close', resolve))
+            })
+            const client = await borrowed
+            await dropConnections()
+            await clientSawTheDrop
+            holdNewConnections()
+            await reopenProxy()
+            let connection = connectionOf(client)
+            while (!connection?.held.length) {
+                await aConnectionHoldsData()
+                connection = connectionOf(client)
+            }
+            return connection
+        }
+
+        const dropConnectionsAndWaitForTheClientToNotice = async (): Promise<void> => {
+            const clientSawTheDrop = writer.useClient(
+                { name: 'watch-drop' },
+                (client) => new Promise((resolve) => client.once('close', resolve))
+            )
+            await dropConnections()
+            await clientSawTheDrop
+        }
+
+        it('answers a command issued while the connection is briefly down', async () => {
+            await dropConnectionsAndWaitForTheClientToNotice()
+
+            const answer = writer.useClient({ name: 'during-reconnect' }, (client) => client.ping())
+            await reopenProxy()
+
+            expect(await answer).toEqual('PONG')
+        }, 30_000)
+
+        it('does not send a write that timed out during the outage after the restore', async () => {
+            const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
+            await dropConnectionsAndWaitForTheClientToNotice()
+
+            await expect(
+                writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'queued during the outage'))
+            ).rejects.toThrow()
+            await restoreValkey()
+
+            expect(await readBack(key)).toBeNull()
+        }, 30_000)
+
+        it('does not resend a write that was in flight when the connection dropped', async () => {
+            const key = `test-valkey-outage-resend/${new UUIDT().toString()}`
+            stopAnsweringOpenConnections()
+            const writeReachedTheConnection = aConnectionHoldsData()
+
+            const write = writer.useClient({ name: 'in-flight-write' }, (client) =>
+                client.set(key, 'in flight at the drop')
+            )
+            await writeReachedTheConnection
+            await dropConnections()
+            await expect(write).rejects.toThrow()
+            await restoreValkey()
+
+            expect(await readBack(key)).toBeNull()
+        }, 30_000)
+
+        it('keeps a reconnecting client that a call borrows during its readiness check', async () => {
+            const reconnectedConnection = await reconnectHoldingTheReadinessCheck(writer)
+
+            const answer = writer.useClient({ name: 'during-readiness-check' }, (client) => client.ping())
+            answerOnly(reconnectedConnection)
+
+            expect(await answer).toEqual('PONG')
+        }, 30_000)
+
+        it('replaces a client without an offline queue that a call borrows during its readiness check', async () => {
+            const poolWithoutAnOfflineQueue = createRedisV2PoolFromConfig({
+                connection: {
+                    url: '127.0.0.1',
+                    options: { port, commandTimeout: 1000, enableOfflineQueue: false },
+                    name: 'test-without-offline-queue',
+                    exitOnRepeatedErrors: false,
+                },
+                poolMinSize: 1,
+                poolMaxSize: 1,
+                acquireTimeoutMillis: 1000,
+                discardStalledClients: true,
+            })
+            expect(await poolWithoutAnOfflineQueue.useClient({ name: 'warm' }, (client) => client.ping())).toEqual(
+                'PONG'
+            )
+            await reconnectHoldingTheReadinessCheck(poolWithoutAnOfflineQueue)
+
+            const answer = poolWithoutAnOfflineQueue.useClient({ name: 'during-readiness-check' }, (client) =>
+                client.ping()
+            )
+            answerEverything()
+
+            expect(await answer).toEqual('PONG')
+        }, 30_000)
+
+        it('counts fail-open calls whose command times out', async () => {
+            stopAnsweringOpenConnections()
+            expect(
+                await writer.useClient({ name: 'fail-open-command-timeout', failOpen: true }, (client) => client.ping())
+            ).toBeNull()
+            expect(await writer.useClient({ name: 'replacement' }, (client) => client.ping())).toEqual('PONG')
+
+            stopAnsweringOpenConnections()
+            const pipelineResults = await writer.usePipeline(
+                { name: 'fail-open-pipeline-command-timeout', failOpen: true },
+                (pipeline) => pipeline.ping()
+            )
+
+            expect(pipelineResults?.[0]?.[0]).toBeInstanceOf(Error)
+            expect(await callsFailedOpen('fail-open-command-timeout')).toBe(1)
+            expect(await callsFailedOpen('fail-open-pipeline-command-timeout')).toBe(1)
+        }, 30_000)
+
+        it('answers through a new connection after a command stalls', async () => {
+            stopAnsweringOpenConnections()
+            await expect(writer.useClient({ name: 'stalled' }, (client) => client.ping())).rejects.toThrow()
+
+            expect(await writer.useClient({ name: 'after-stall' }, (client) => client.ping())).toEqual('PONG')
+        }, 30_000)
+    })
+})

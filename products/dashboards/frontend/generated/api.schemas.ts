@@ -2510,6 +2510,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -8615,6 +8617,13 @@ export interface ErrorTrackingIssueTagFilterApi {
     key: string
 }
 
+export interface ErrorTrackingIssueTagsFilterApi {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[] | null
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[] | null
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8677,8 +8686,9 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
+    /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+    issueTags?: ErrorTrackingIssueTagsFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -9694,6 +9704,7 @@ export interface ChartSettingsApi {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
+    movingAverageIntervals?: number | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -9702,6 +9713,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showAnnotations?: boolean | null
     showLegend?: boolean | null
+    showMovingAverage?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null
