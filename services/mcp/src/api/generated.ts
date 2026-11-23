@@ -27238,6 +27238,22 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface PendingReviewCounts {
+      /** Proposed metrics you can see that wait for approval. */
+      metrics: number;
+      /** Proposed joins that wait to be accepted or rejected. */
+      relationships: number;
+      /** Proposed certifications that wait for review. */
+      certifications: number;
+    }
+
+    export interface CatalogAttention {
+      /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+      pending_review: PendingReviewCounts | null;
+      /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+      failing_models: number;
+    }
+
     export interface CatalogUser {
       /** ID of the user. */
       id: number;
@@ -62082,6 +62098,8 @@ export namespace Schemas {
       /** CPA figures in the account currency. */
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
+      /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+      detectedChange?: 'negative_keyword' | null;
       identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -100881,15 +100899,6 @@ export namespace Schemas {
       timestamp: string;
     }
 
-    export interface PendingReviewCounts {
-      /** Proposed metrics you can see that wait for approval. */
-      metrics: number;
-      /** Proposed joins that wait to be accepted or rejected. */
-      relationships: number;
-      /** Proposed certifications that wait for review. */
-      certifications: number;
-    }
-
     export interface PeopleImport {
       /** The static cohort that fills with the imported people. */
       cohort_id: number;
@@ -115867,7 +115876,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly effective_precheck_query: string | null;
-      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
       readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
       /**
          * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
