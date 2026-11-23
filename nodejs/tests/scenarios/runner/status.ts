@@ -318,7 +318,7 @@ function unrampedStatusOf({
         ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
     ]
     const failures = [
-        ...(convergence.converged || convergence.unread !== undefined
+        ...(convergence.converged || (convergence.unread !== undefined && convergence.unfinishedJobs === null)
             ? []
             : [
                   `not converged: ${convergence.unfinishedJobs ?? 'an unread number of'} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,

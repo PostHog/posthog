@@ -28,7 +28,8 @@ describe('judge', () => {
     let probeTakesMs: number
     let resident: ResidentBacklog | undefined
     let truthFails: string | undefined
-    let truthFailsAfterProbe: string | undefined
+    let polls: number
+    let probeAnswers: number
     let judge: Judge
     let caDir: string
 
@@ -55,8 +56,10 @@ describe('judge', () => {
             probe: {
                 unfinishedJobs: () => {
                     clockMs += probeTakesMs
-                    truthFails ??= truthFailsAfterProbe
-                    return Promise.resolve(unfinishedJobs)
+                    polls += 1
+                    return polls > probeAnswers
+                        ? Promise.reject(new Error('The operation was aborted due to timeout'))
+                        : Promise.resolve(unfinishedJobs)
                 },
             },
             fetchRetries: 3,
@@ -83,7 +86,8 @@ describe('judge', () => {
         probeTakesMs = 10
         resident = undefined
         truthFails = undefined
-        truthFailsAfterProbe = undefined
+        polls = 0
+        probeAnswers = Infinity
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -718,32 +722,38 @@ describe('judge', () => {
         }
     )
 
-    it.each([
-        ['from its first read', 0, 'truthFails' as const, [UNIT]],
-        ['after a poll that still counted unfinished jobs', 5, 'truthFailsAfterProbe' as const, []],
-    ])(
-        'ends at its deadline with the truth it read and the read that failed, rather than throwing, when reads fail %s',
-        async (_story, jobs, failing, unrecorded) => {
-            unfinishedJobs = jobs
-            judge.record(offered())
-            await deliver(UNIT)
-            if (failing === 'truthFails') {
-                truthFails = 'The operation was aborted due to timeout'
-            } else {
-                truthFailsAfterProbe = 'The operation was aborted due to timeout'
-            }
+    it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        truthFails = 'The operation was aborted due to timeout'
 
-            const convergence = await judge.converge(50, NEVER_ABORTED)
+        const convergence = await judge.converge(50, NEVER_ABORTED)
 
-            expect(convergence).toEqual({
-                converged: false,
-                unfinishedJobs: null,
-                unrecorded,
-                tookMs: expect.any(Number),
-                unread: 'The operation was aborted due to timeout',
-            })
-        }
-    )
+        expect(convergence).toEqual({
+            converged: false,
+            unfinishedJobs: null,
+            unrecorded: [UNIT],
+            tookMs: expect.any(Number),
+            unread: 'The operation was aborted due to timeout',
+        })
+    })
+
+    it('reports the unfinished jobs as unknown when its last poll fails after an earlier poll counted some', async () => {
+        unfinishedJobs = 5
+        probeAnswers = 1
+        judge.record(offered())
+        await deliver(UNIT)
+
+        const convergence = await judge.converge(50, NEVER_ABORTED)
+
+        expect(convergence).toEqual({
+            converged: false,
+            unfinishedJobs: null,
+            unrecorded: [],
+            tookMs: expect.any(Number),
+            unread: 'The operation was aborted due to timeout',
+        })
+    })
 
     it('judges on the truth it already read when its last read fails, and names the failed read', async () => {
         judge.record(offered())
