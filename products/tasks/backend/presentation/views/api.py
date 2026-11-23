@@ -118,6 +118,7 @@ from products.tasks.backend.facade.metrics import (
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.model_override import (
+    ModelOverride,
     ModelOverrideAttribution,
     classify_model_override,
     may_request_model_override,
@@ -1335,36 +1336,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = cast(User, request.user)
         message = request.validated_data["message"]
         runtime_adapter = request.validated_data.get("runtime_adapter")
-        choices = tuple(
+        catalogue = tuple(
             choice
             for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
             if runtime_adapter in (None, choice.runtime_adapter)
-            and get_model_access_error(choice.model, distinct_id=user.distinct_id) is None
         )
-        override = None
-        # The flag check is a network call, so the free word check goes first.
-        if may_request_model_override(message, choices) and prompt_model_switch_enabled(self.team, user):
+        override = ModelOverride(model=None, reasoning_effort=None)
+        # The flag and model access checks are network calls, so the free word check goes first.
+        if may_request_model_override(message, catalogue) and prompt_model_switch_enabled(self.team, user):
             from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
-            override = classify_model_override(
-                message,
-                choices,
-                ModelOverrideAttribution(
-                    ai_product="posthog_ai",
-                    properties={"posthog_ai_feature": "model_override"},
-                    distinct_id=str(user.distinct_id),
-                    privacy_mode=is_privacy_mode_enabled(self.team),
-                ),
+            choices = tuple(
+                choice
+                for choice in catalogue
+                if get_model_access_error(choice.model, distinct_id=user.distinct_id) is None
             )
-        effort = override.reasoning_effort if override else None
-        return Response(
-            TaskModelOverrideResponseSerializer(
-                {
-                    "model": override.model if override else None,
-                    "reasoning_effort": effort if effort in REASONING_EFFORTS else None,
-                }
-            ).data
-        )
+            attribution = ModelOverrideAttribution(
+                ai_product="posthog_ai",
+                properties={"posthog_ai_feature": "model_override"},
+                distinct_id=str(user.distinct_id),
+                privacy_mode=is_privacy_mode_enabled(self.team),
+            )
+            override = classify_model_override(message, choices, attribution) or override
+        effort = override.reasoning_effort
+        return Response({"model": override.model, "reasoning_effort": effort if effort in REASONING_EFFORTS else None})
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])

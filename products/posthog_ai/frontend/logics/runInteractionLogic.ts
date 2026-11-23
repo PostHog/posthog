@@ -60,7 +60,7 @@ import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
 import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
-import { type PromptModelSwitchSurface, requestPromptModelSwitch } from '../utils/promptModelSwitch'
+import { applyPromptModelSwitch } from '../utils/promptModelSwitch'
 import type { ReplySuggestions } from '../utils/replySuggestions'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { chatContextLogic, chatSendItems } from './chatContextLogic'
@@ -1305,32 +1305,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             actions.setSending(false)
         }
 
+        // A message that names a model or an effort switches the picker before the send reads it, so the
+        // existing sync (`set_config_option`, or the new run's request) carries the switch to the agent.
         // Checked before the await, so a send without the switch still starts in the same tick.
         const promptModelSwitchEnabled = (content: string): boolean =>
             !!values.featureFlags[FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH] &&
             values.currentProjectId != null &&
             !isClearCommand(content)
-
-        // A message that names a model or an effort switches the picker before the send reads it, so the
-        // existing sync (`set_config_option`, or the new run's request) carries the switch to the agent.
-        const applyPromptModelSwitch = async (
-            content: string,
-            surface: PromptModelSwitchSurface,
-            runtimeAdapter: string | null = null
-        ): Promise<void> => {
-            const requested = await requestPromptModelSwitch(
-                String(values.currentProjectId),
-                content,
-                surface,
-                runtimeAdapter
-            )
-            if (requested?.model) {
-                actions.setModel(requested.model)
-            }
-            if (requested?.reasoningEffort) {
-                actions.setEffort(requested.reasoningEffort)
-            }
-        }
 
         const noteTerminalDraft = (): void => {
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
@@ -1554,7 +1535,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 try {
                     if (promptModelSwitchEnabled(content)) {
                         // A live run cannot change its runtime, so the switch stays on the run's runtime.
-                        await applyPromptModelSwitch(content, 'follow_up', props.currentRuntimeAdapter ?? null)
+                        await applyPromptModelSwitch(
+                            String(projectId),
+                            content,
+                            'follow_up',
+                            actions,
+                            props.currentRuntimeAdapter ?? null
+                        )
                         if (!isCurrent()) {
                             return
                         }
@@ -1770,7 +1757,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 actions.claimApplyBackTargets(streamKey)
                 try {
                     if (promptModelSwitchEnabled(content)) {
-                        await applyPromptModelSwitch(content, 'new_run')
+                        await applyPromptModelSwitch(projectId, content, 'new_run', actions)
                         if (!isCurrent()) {
                             return
                         }
