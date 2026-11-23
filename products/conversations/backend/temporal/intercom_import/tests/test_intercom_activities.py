@@ -253,32 +253,65 @@ class TestIntercomImportBatchActivity(BaseTest):
         [
             (
                 "relayed_from_own_address",
+                EmailChannelKind.SUPPORT,
                 "info@example.com",
+                None,
                 ("intercom:contact-real", "real@example.org", "Real Sender"),
                 ["third@example.org"],
             ),
             (
+                "relayed_from_customer_communication_address",
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "info@example.com",
+                None,
+                ("intercom:contact-real", "real@example.org", "Real Sender"),
+                ["third@example.org"],
+            ),
+            (
+                "relayed_sender_wrote_a_reply",
+                EmailChannelKind.SUPPORT,
+                "info@example.com",
+                "contact-third",
+                ("intercom:contact-third", "Third@example.org", "Third"),
+                ["real@example.org"],
+            ),
+            (
                 "customer_with_other_contacts",
+                EmailChannelKind.SUPPORT,
                 "jane@example.com",
+                "contact-third",
                 ("intercom:contact-1", "jane@example.com", "Jane Customer"),
                 ["real@example.org", "third@example.org"],
             ),
         ]
     )
     def test_multiple_contacts_choose_requester_and_copy_the_rest(
-        self, _name: str, author_email: str, expected_requester: tuple[str, str, str], expected_cc: list[str]
+        self,
+        _name: str,
+        own_address_kind: EmailChannelKind,
+        author_email: str,
+        reply_author_id: str | None,
+        expected_requester: tuple[str, str, str],
+        expected_cc: list[str],
     ) -> None:
         EmailChannel.objects.create(
             team=self.team,
-            kind=EmailChannelKind.SUPPORT,
+            kind=own_address_kind,
+            owner=self.user if own_address_kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
             inbound_token="intercom-own-address-token",
             from_email="info@example.com",
             from_name="Support",
             domain="example.com",
         )
+        parts: list[dict[str, Any]] = []
+        if reply_author_id:
+            reply = _part("p1", author_type="user")
+            reply["author"]["id"] = reply_author_id
+            parts.append(reply)
         conversation = _conversation(
             "321",
             source_author={"type": "user", "id": "contact-1", "name": "Jane Customer", "email": author_email},
+            parts=parts,
             contacts=[
                 {"type": "contact", "id": "contact-1"},
                 {"type": "contact", "id": "contact-real"},
@@ -299,6 +332,25 @@ class TestIntercomImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="321")
         assert (ticket.distinct_id, ticket.email_from, ticket.anonymous_traits["name"]) == expected_requester
         assert ticket.cc_participants == expected_cc
+
+    def test_relayed_conversation_without_outside_contact_has_no_customer_email(self) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.SUPPORT,
+            inbound_token="intercom-own-address-token",
+            from_email="info@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+        relayed = {"type": "user", "id": "contact-1", "name": "Website form", "email": "Info@example.com"}
+
+        self._run_batch(
+            [_conversation("322", source_author=relayed, contacts=[{"type": "contact", "id": "contact-1"}])]
+        )
+
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="322")
+        assert (ticket.distinct_id, ticket.email_from, ticket.cc_participants) == ("intercom:contact-1", None, [])
+        assert "email" not in ticket.anonymous_traits
 
     def test_default_email_channel_attached_and_backfilled_on_rerun(self) -> None:
         self._run_batch([_conversation("401")])

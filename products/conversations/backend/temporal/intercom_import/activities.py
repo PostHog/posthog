@@ -274,12 +274,17 @@ def _is_valid_email(value: str) -> bool:
     return True
 
 
-def _pick_participants(contacts: list[_Contact], own_addresses: frozenset[str]) -> _Participants:
+def _pick_participants(
+    contacts: list[_Contact], own_addresses: frozenset[str], reply_author_ids: frozenset[str]
+) -> _Participants:
     """Choose who the ticket belongs to and who else is copied on replies.
 
     Mail that a form or a mailing list relays arrives from one of the team's own addresses, and
     Intercom attaches the real sender as another contact. The first contact is therefore the
-    requester unless its address is the team's own and another contact has an outside address.
+    requester unless its address is the team's own. Then the requester is an outside contact,
+    preferably one who wrote a reply, because Intercom does not promise an order for the other
+    contacts. With no outside contact, the ticket has no customer email, so that replies do not
+    go to the team's own inbox.
     """
 
     def is_outside(contact: _Contact) -> bool:
@@ -291,7 +296,11 @@ def _pick_participants(contacts: list[_Contact], own_addresses: frozenset[str]) 
         return _Participants(requester=_Contact(name="", email="", contact_id=""), cc=[])
     requester = contacts[0]
     if requester.email.lower() in own_addresses:
-        requester = next((contact for contact in contacts if is_outside(contact)), requester)
+        outside = [contact for contact in contacts if is_outside(contact)]
+        replied = [contact for contact in outside if contact.contact_id in reply_author_ids]
+        requester = next(
+            iter(replied or outside), _Contact(name=requester.name, email="", contact_id=requester.contact_id)
+        )
     cc = dict.fromkeys(
         contact.email.lower()
         for contact in contacts
@@ -444,7 +453,13 @@ def _build_ticket(
     staged: list[dict[str, Any]],
 ) -> BuiltTicket:
     conversation_id = str(conversation["id"])
-    participants = _pick_participants(_conversation_contacts(client, conversation), own_addresses)
+    parts = (conversation.get("conversation_parts") or {}).get("conversation_parts") or []
+    reply_author_ids = frozenset(
+        _clean(author.get("id"))
+        for author in (part.get("author") or {} for part in parts)
+        if author.get("type") in CUSTOMER_AUTHOR_TYPES
+    )
+    participants = _pick_participants(_conversation_contacts(client, conversation), own_addresses, reply_author_ids)
     requester = participants.requester
     requester_email = requester.email if "@" in requester.email else ""
     # Intercom leads type their own email unverified, so the email must never become the widget
@@ -540,8 +555,12 @@ def _import_conversation_batch_sync(input: ImportBatchInput) -> ImportBatchOutpu
     job = IntercomImportJob.objects.for_team(input.team_id).get(id=input.job_id)
     team = Team.objects.get(id=input.team_id)
     client = IntercomImportClient(_credentials_from_job(job))
-    email_channels, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
-    own_addresses = frozenset(address for address in email_channels if address)
+    _, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
+    own_addresses = frozenset(
+        address.strip().lower()
+        for address in EmailChannel.objects.filter(team_id=team.id).values_list("from_email", flat=True)
+        if address and address.strip()
+    )
 
     partition = _partition_new_conversations(input.team_id, input.conversation_ids)
     skipped = partition.skipped
