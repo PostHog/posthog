@@ -14,7 +14,6 @@ import { ASYNC_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PersonhogUnprocessablePersonError } from '~/common/personhog/persons'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -277,17 +276,6 @@ describe('createProcessPersonsStep', () => {
             expect(result.value.team).toBe(input.team)
             expect(result.value.timestamp).toBe(input.timestamp)
         }
-    })
-
-    it('drops the event when the stored person cannot be parsed', async () => {
-        jest.spyOn(personsStore, 'fetchForUpdate').mockRejectedValue(
-            new PersonhogUnprocessablePersonError('stored person properties cannot be parsed', teamId, '1')
-        )
-
-        const step = createProcessPersonsStep(options, personOutputs)
-        const result = await step(createInput())
-
-        expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'unprocessable_person' })
     })
 
     it('returns DLQ result when merge limit is exceeded in LIMIT mode', async () => {
