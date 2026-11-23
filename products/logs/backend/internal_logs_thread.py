@@ -58,7 +58,6 @@ def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
     """Hands the entries of allowed teams to this process's producer. Does not wait for the network."""
     global _pid, _producer, _loop
     with _lock:
-        # A forked worker must not reuse the producer of its parent, because the parent's loop thread does not exist in it.
         if _producer is None or _pid != os.getpid():
             _producer = InternalLogsProducer(InternalLogsProducerConfig.from_settings(), _api_token)
             _loop = None

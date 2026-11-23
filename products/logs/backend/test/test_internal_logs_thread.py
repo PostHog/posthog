@@ -34,13 +34,11 @@ def _stop_loop_thread(threads: set[threading.Thread]) -> None:
 
 @pytest.fixture(autouse=True)
 def started_threads(monkeypatch: pytest.MonkeyPatch, settings: Any) -> Iterator[Callable[[], set[threading.Thread]]]:
-    # Another test in the same process can leave its own loop thread alive.
     before = _loop_threads()
     settings.LOGS_INTERNAL_PRODUCER_URL = URL
     settings.LOGS_INTERNAL_INGESTION_SIGNING_KEYS = "k1"
     settings.LOGS_INTERNAL_PRODUCER_TEAMS = "1"
     monkeypatch.setattr(internal_logs_thread, "_read_api_token", lambda team_id: "phc_test_token")
-    # Each send that starts a loop adds an exit handler for it. The handler must do nothing at the end of the test run.
     monkeypatch.setattr(internal_logs_thread, "_drain", lambda *args: None)
     for name in ("_pid", "_producer", "_loop"):
         monkeypatch.setattr(internal_logs_thread, name, None)
@@ -119,7 +117,6 @@ def test_send_in_a_forked_child_starts_its_own_loop(
     _send(message="parent")
     assert arrived.wait(WAIT_SECONDS)
     arrived.clear()
-    # A fork copies the module state but not the loop thread.
     _stop_loop_thread(started_threads())
     monkeypatch.setattr(os, "getpid", lambda: -1)
 
