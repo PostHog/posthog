@@ -439,7 +439,7 @@ def test_reviewer_selection_trial_never_runs_as_an_unlabeled_scout_pick(organiza
             "products.signals.backend.auto_start.database_sync_to_async",
             side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
         ),
-        patch("products.signals.backend.auto_start.team_research_reviewer_selection_enabled", return_value=in_trial),
+        patch("products.signals.backend.auto_start.team_may_be_in_research_reviewer_selection", return_value=in_trial),
         patch.object(tasks_facade, "create_and_run_task", side_effect=create_task) as create,
     ):
         outcome = async_to_sync(maybe_autostart_implementation_task)(

@@ -64,7 +64,7 @@ from products.signals.backend.quota import (
 )
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
-from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
+from products.signals.backend.report_content_gates import team_may_be_in_research_reviewer_selection
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -1279,8 +1279,8 @@ def _resolve_autostart_assignee(
     too: it names someone near the affected file or team, not someone tied to the behavior, so it
     routes the report without becoming the runner.
 
-    With *exclude_scout_picks* (teams in the reviewer-selection trial), every entry a scout run
-    wrote (``source_skill`` set) is excluded. The trial lets a scout route on weaker evidence, and
+    With *exclude_scout_picks* (teams that may be in the reviewer-selection trial, which includes a
+    team whose flag read failed), every entry a scout run wrote (``source_skill`` set) is excluded. The trial lets a scout route on weaker evidence, and
     the label above is scout-written, so a pick that omits it must not select the runner either.
 
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
@@ -1641,7 +1641,7 @@ async def maybe_autostart_implementation_task(
             else set()
         )
         exclude_scout_picks = any(entry.get("source_skill") for entry in reviewers_content) and (
-            await database_sync_to_async(team_research_reviewer_selection_enabled, thread_sensitive=False)(team_id)
+            await database_sync_to_async(team_may_be_in_research_reviewer_selection, thread_sensitive=False)(team_id)
         )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id,
