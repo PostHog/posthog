@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconPullRequest } from '@posthog/icons'
+import { IconCopy, IconGitLab, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
@@ -17,6 +17,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { type ReportTaskEntry, TERMINAL_RUN_STATUSES } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
+import { isGitlabProject } from '../../logics/selfDrivingGitlabLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
 import { IMPLEMENTATION_AGENTS } from './implementationAgents'
@@ -54,6 +55,7 @@ export function ImplementButton({
         repositoryIntegrationId,
         selectedRepository,
         githubIntegrations,
+        gitlabProjects,
     } = useValues(reportGithubAccessLogic({ report, surface }))
     const { retryAccess, setConnectionOpen, setSelectedRepository, setSelectedIntegrationId } = useActions(
         reportGithubAccessLogic({ report, surface })
@@ -82,6 +84,7 @@ export function ImplementButton({
         (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
         implementationDisabledReason
     const repositoryMissing = repositoryRequired && !selectedRepository
+    const gitlabProjectSelected = isGitlabProject(selectedRepository, gitlabProjects)
 
     const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
         captureInboxReportAction({
@@ -218,12 +221,13 @@ export function ImplementButton({
                                         {repositoryIntegrationId !== null ? (
                                             <GitHubRepositoryPicker
                                                 integrationId={repositoryIntegrationId}
-                                                value={selectedRepository}
+                                                value={gitlabProjectSelected ? '' : selectedRepository}
                                                 valueKey="full_name"
                                                 onChange={setSelectedRepository}
-                                                selectOnlyOption
+                                                // Auto-selecting the only GitHub repository would overwrite a picked GitLab project.
+                                                selectOnlyOption={gitlabProjects.length === 0}
                                             />
-                                        ) : (
+                                        ) : gitlabProjects.length === 0 ? (
                                             <LemonButton
                                                 type="secondary"
                                                 onClick={() => {
@@ -234,6 +238,22 @@ export function ImplementButton({
                                             >
                                                 Connect GitHub
                                             </LemonButton>
+                                        ) : null}
+                                        {gitlabProjects.length > 0 && (
+                                            <LemonSelect
+                                                value={gitlabProjectSelected ? selectedRepository : null}
+                                                options={gitlabProjects.map((project) => ({
+                                                    value: project,
+                                                    label: project,
+                                                    icon: <IconGitLab />,
+                                                }))}
+                                                onChange={(project) => project && setSelectedRepository(project)}
+                                                placeholder="Select a GitLab project"
+                                                disabledReason={isCreatingPr ? 'Starting implementation' : undefined}
+                                                aria-label="GitLab project"
+                                                data-attr="inbox-report-select-gitlab-project"
+                                                fullWidth
+                                            />
                                         )}
                                     </div>
                                 )}

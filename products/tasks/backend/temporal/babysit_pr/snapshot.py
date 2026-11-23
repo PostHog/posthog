@@ -31,6 +31,8 @@ def _without_dispatcher_text(body: str | None) -> str:
 class FailingCheck:
     key: str
     details_url: str | None = None
+    # Only GitLab checks carry one, because the agent has no `gh` to read GitLab job logs with.
+    log_excerpt: str = ""
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,9 @@ class PRSnapshot:
             head_ref=raw.get("head_ref") or "",
             merge_queue_push_would_eject=raw.get("merge_queue_push_would_eject") is True,
             failing_checks=[
-                FailingCheck(key=check["key"], details_url=check.get("details_url"))
+                FailingCheck(
+                    key=check["key"], details_url=check.get("details_url"), log_excerpt=check.get("log_excerpt") or ""
+                )
                 for check in raw.get("failing_checks") or []
             ],
             unresolved_threads=[

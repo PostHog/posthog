@@ -54,14 +54,20 @@ export function PrBadge({
     prUrl,
     state,
     ciStatus,
+    provider = 'github',
 }: {
     prNumber: string
     prUrl?: string | null
     state: PrBadgeState
     /** CI rollup of the pull request, when it is known. Only an open pull request shows one. */
     ciStatus?: PullRequestCiStatusEnumApi | null
+    /** A GitLab merge request reads as `!7` and links out to GitLab. */
+    provider?: 'github' | 'gitlab'
 }): JSX.Element {
     const { label, className, hoverClassName } = PR_BADGE_STATE[state]
+    const reference = `${provider === 'gitlab' ? '!' : '#'}${prNumber}`
+    const noun = provider === 'gitlab' ? 'merge request' : 'pull request'
+    const host = provider === 'gitlab' ? 'GitLab' : 'GitHub'
     // Each state carries its own shape, so the pill still reads when its colour does not.
     const StateIcon =
         state === 'merged'
@@ -82,23 +88,27 @@ export function PrBadge({
             )}
         >
             <StateIcon className="size-3" />
-            <span className="font-mono tabular-nums">#{prNumber}</span>
+            <span className="font-mono tabular-nums">{reference}</span>
             <PrCiGlyph status={glyphStatus} />
         </span>
     )
 
     if (!prUrl) {
-        return <Tooltip title={`Pull request #${prNumber} (${description})`}>{badge}</Tooltip>
+        return (
+            <Tooltip title={`${provider === 'gitlab' ? 'Merge' : 'Pull'} request ${reference} (${description})`}>
+                {badge}
+            </Tooltip>
+        )
     }
 
     return (
-        <Tooltip title={`Open pull request #${prNumber} (${description}) on GitHub`}>
+        <Tooltip title={`Open ${noun} ${reference} (${description}) on ${host}`}>
             <Link
                 to={prUrl}
                 target="_blank"
                 disableClientSideRouting
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Open pull request #${prNumber} (${description}) on GitHub`}
+                aria-label={`Open ${noun} ${reference} (${description}) on ${host}`}
                 className="no-underline"
             >
                 {badge}

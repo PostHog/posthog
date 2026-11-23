@@ -47,6 +47,8 @@ from products.signals.backend.assignment_flags import (
     assignment_side_effects_enabled,
     assignment_writer_enabled,
 )
+from products.signals.backend.gitlab_merge_requests import MergeRequestRef, parse_merge_request_url
+from products.signals.backend.gitlab_reviewers import ranked_reviewer_users, request_merge_request_reviewer
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -981,6 +983,9 @@ def deliver_pull_request_assignment(*, team_id: int, report_id: str, pr_url: str
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return FirstAssignment.skipped("report_missing")
 
+    if (merge_request := parse_merge_request_url(pr_url)) is not None:
+        return _deliver_merge_request_reviewer(team_id=team_id, report_id=report_id, ref=merge_request)
+
     shared_assignment = assignment_writer_enabled(team_id) and team_research_reviewer_selection_enabled(team_id)
     if shared_assignment and not assignment_side_effects_enabled(team_id):
         return FirstAssignment.skipped("delivery_disabled")
@@ -1107,6 +1112,19 @@ def deliver_pull_request_assignment(*, team_id: int, report_id: str, pr_url: str
         standing=standing.refreshed(),
     )
     return first
+
+
+def _deliver_merge_request_reviewer(*, team_id: int, report_id: str, ref: MergeRequestRef) -> FirstAssignment:
+    """The GitLab delivery: one review request to the highest-ranked suggested reviewer GitLab knows."""
+    standing = StandingExclusions.load(team_id=team_id, report_id=report_id)
+    candidates = ranked_reviewer_users(team_id, _latest_reviewer_rows(report_id))
+    allowed = set(standing.allowed_user_uuids([str(user.uuid) for user in candidates]))
+    reviewer_id = request_merge_request_reviewer(
+        team_id=team_id, ref=ref, candidates=[user for user in candidates if str(user.uuid) in allowed]
+    )
+    if reviewer_id is None:
+        return FirstAssignment.skipped("no_gitlab_reviewer")
+    return FirstAssignment(status="assigned", assigned=(str(reviewer_id),))
 
 
 def _assign_one_dri(

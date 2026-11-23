@@ -7,6 +7,11 @@ handle the typed outcomes.
 """
 
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
+from products.tasks.backend.gitlab_repository_access import (
+    gitlab_project_for_repository,
+    gitlab_repository_error,
+    team_gitlab_project_paths,
+)
 from products.tasks.backend.logic.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
@@ -39,10 +44,13 @@ __all__ = [
     "RepoSelectionUsageLimitError",
     "get_github_token",
     "filter_repository_candidates_for_sources",
+    "gitlab_project_for_repository",
+    "gitlab_repository_error",
     "list_team_connected_repositories",
     "repository_accessible_via_integration",
     "resolve_team_github_integration",
     "resolve_team_github_integration_id",
     "select_repository",
+    "team_gitlab_project_paths",
     "team_repository_names",
 ]

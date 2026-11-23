@@ -1171,6 +1171,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pending.snapshot.pr_url,
                 pending.attention,
                 extra_instructions=self.context.ci_prompt,
+                provider="gitlab" if self.context.has_gitlab_credentials else "github",
             )
         self._last_active_time = workflow.now()
         await self._send_followup_to_sandbox(ci_message, [], user_originated=False)

@@ -961,6 +961,37 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("flag_enabled,expected", [(True, "acme/group/app"), (False, None)])
+async def test_select_repository_activity_selects_a_gitlab_project_for_a_team_without_github(
+    monkeypatch, ateam, flag_enabled, expected
+):
+    user = await sync_to_async(User.objects.create)(email=f"gitlab-{random.randint(1, 99999)}@example.com")
+    await sync_to_async(OrganizationMembership.objects.create)(user=user, organization_id=ateam.organization_id)
+    await Integration.objects.acreate(
+        team=ateam,
+        kind="gitlab",
+        integration_id="gitlab-1",
+        config={"hostname": "https://gitlab.com", "path_with_namespace": "Acme/Group/App", "project_id": 1},
+        sensitive_config={"access_token": "glpat-example"},
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=flag_enabled),
+    ):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
+        )
+
+    assert result.repository == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize("repository", ["posthog/posthog", None])
 @pytest.mark.parametrize(
     "sandbox_error_type,error_message,expected_transient",
@@ -1129,6 +1160,77 @@ async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam,
     assert json.loads(selection.content)["repository"] == repository
     if not repository:
         assert json.loads(selection.content)["research_context"]["mode"] == "data_only"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "flag_enabled,github_repository,github_optional,expect_gitlab",
+    [
+        (True, None, True, True),
+        (True, None, False, True),
+        (False, None, False, False),
+        # The installation reaches the same path, so research keeps reading it through GitHub.
+        (True, "acme/group/app", True, False),
+    ],
+)
+async def test_research_clones_a_gitlab_project_without_github_credentials(
+    monkeypatch, ateam, flag_enabled, github_repository, github_optional, expect_gitlab
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS
+    )
+    if github_repository:
+        await Integration.objects.acreate(
+            team=ateam,
+            kind="github",
+            integration_id="gh-1",
+            config={"installation_id": "gh-1"},
+            repository_cache=[{"id": 1, "name": "app", "full_name": github_repository}],
+            repository_cache_updated_at=datetime.now(UTC),
+        )
+    gitlab = await Integration.objects.acreate(
+        team=ateam,
+        kind="gitlab",
+        integration_id="gitlab-1",
+        config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/group/app", "project_id": 1},
+        sensitive_config={"access_token": "glpat-example"},
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", lambda team_id: 7
+    )
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 8)
+    contexts = []
+
+    async def research(signals, context, **kwargs):
+        contexts.append(context)
+        return _build_research_output()
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
+        patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=flag_enabled),
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                github_optional=github_optional,
+                repo_selection=RepoSelectionResult(
+                    repository="acme/group/app",
+                    reason="test",
+                    research_context=ReportResearchContext(mode="code", repository_status="available")
+                    if github_optional
+                    else None,
+                ),
+            )
+        )
+
+    [context] = contexts
+    assert (context.repository_integration_id, context.github_read_access, context.user_id) == (
+        (gitlab.id, False, 7) if expect_gitlab else (None, github_optional, 7 if github_optional else 8)
+    )
 
 
 @pytest.mark.asyncio

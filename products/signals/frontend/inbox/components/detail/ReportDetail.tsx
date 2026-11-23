@@ -34,7 +34,12 @@ import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
-import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
+import {
+    displayConventionalCommitTitle,
+    parseMergeRequestUrl,
+    parsePrUrlParts,
+    safeHttpUrl,
+} from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { ReportTagChips } from '../badges/ReportTagChips'
@@ -706,27 +711,32 @@ function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
-/** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */
+interface LinkedPullRequest {
+    provider: 'github' | 'gitlab'
+    url: string
+    /** `owner/repo#123` for a GitHub pull request, `group/project!7` for a GitLab merge request. */
+    reference: string
+}
+
+/** The "Open in GitHub" or "Open in GitLab" button, shared by the page header and the summary's pull request note. */
 function OpenPullRequestButton({
     report,
-    prUrl,
-    prRef,
+    pullRequest,
 }: {
     report: SignalReport
-    prUrl: string
-    prRef: NonNullable<ReturnType<typeof parsePrUrlParts>>
+    pullRequest: LinkedPullRequest
 }): JSX.Element {
     return (
         <LemonButton
             type="primary"
             size="small"
             sideIcon={<IconExternal />}
-            to={prFilesUrl(prUrl)}
+            to={pullRequest.url}
             targetBlank
-            tooltip={`${prRef.repoSlug}#${prRef.number}`}
+            tooltip={pullRequest.reference}
             onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })}
         >
-            Open in GitHub
+            {pullRequest.provider === 'gitlab' ? 'Open in GitLab' : 'Open in GitHub'}
         </LemonButton>
     )
 }
@@ -735,6 +745,8 @@ function OpenPullRequestButton({
  * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
  * report. Runs keep their own `AgentRunDetail`.
+ *
+ * A GitLab merge request gets only the link out: files, CI checks and comments read from GitHub.
  */
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -742,7 +754,18 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
+    const mergeRequest = prUrl && !prRef ? parseMergeRequestUrl(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+    const linkedPullRequest: LinkedPullRequest | null =
+        prRef && prUrl
+            ? { provider: 'github', url: prFilesUrl(prUrl), reference: `${prRef.repoSlug}#${prRef.number}` }
+            : mergeRequest
+              ? {
+                    provider: 'gitlab',
+                    url: mergeRequest.url,
+                    reference: `${mergeRequest.repository}!${mergeRequest.number}`,
+                }
+              : null
     // A tracker-issue failure has to show even on a report whose run never reached a pull request:
     // that is exactly the case an audit has to find.
     const hasTrackerNote = !!(report.tracker_issue_url || report.tracker_issue_error)
@@ -753,6 +776,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
     const linkedPr = report.pull_requests?.find((pr) => pr.url === prUrl)
     const canDiff =
+        !mergeRequest &&
         !!(commit?.repository && commit?.branch) &&
         (!linkedPr ||
             (linkedPr.attached_by?.task_id != null &&
@@ -790,18 +814,22 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 ) : undefined
             }
             primaryAction={
-                prRef && prUrl ? <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} /> : undefined
+                linkedPullRequest ? (
+                    <OpenPullRequestButton report={report} pullRequest={linkedPullRequest} />
+                ) : undefined
             }
             pullRequestNote={
-                prRef && prUrl ? (
+                linkedPullRequest ? (
                     <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
                         <span className="text-sm text-secondary">
-                            Linked pull request:{' '}
-                            <span className="font-mono">
-                                {prRef.repoSlug}#{prRef.number}
-                            </span>
+                            <span>
+                                {linkedPullRequest.provider === 'gitlab'
+                                    ? 'Linked merge request:'
+                                    : 'Linked pull request:'}
+                            </span>{' '}
+                            <span className="font-mono">{linkedPullRequest.reference}</span>
                         </span>
-                        <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                        <OpenPullRequestButton report={report} pullRequest={linkedPullRequest} />
                         <TrackerIssueNote report={report} />
                     </div>
                 ) : hasTrackerNote ? (

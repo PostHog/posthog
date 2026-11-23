@@ -14,7 +14,7 @@ import { inboxSetupLogic } from './logics/inboxSetupLogic'
 import { getMobileInboxReturn } from './utils/mobileInboxReturn'
 
 export function InboxActivateScene(): JSX.Element {
-    const { view, error, withoutGithub, hasGithubIntegration } = useValues(inboxAgentActivationLogic)
+    const { view, error, withoutGithub, hasGithubIntegration, hasCodeConnection } = useValues(inboxAgentActivationLogic)
     const { retry, connectGithub } = useActions(inboxAgentActivationLogic)
     const { activateQuickSetup } = useActions(inboxSetupLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -53,10 +53,12 @@ export function InboxActivateScene(): JSX.Element {
                     ) : view === 'confirm' ? (
                         <>
                             <h1 className="m-0 text-xl font-semibold">Activate Self-driving</h1>
-                            {hasGithubIntegration ? (
+                            {hasCodeConnection ? (
                                 <>
                                     <p className="m-0 text-sm text-secondary">
-                                        GitHub is connected. Activate Self-driving to finish setup.
+                                        {hasGithubIntegration
+                                            ? 'GitHub is connected. Activate Self-driving to finish setup.'
+                                            : 'GitLab is connected. Activate Self-driving to finish setup.'}
                                     </p>
                                     <LemonButton
                                         type="primary"

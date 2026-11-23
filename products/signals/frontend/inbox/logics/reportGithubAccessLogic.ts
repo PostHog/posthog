@@ -10,6 +10,7 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { SignalReport } from '../types'
 import { GithubAccessProbes } from './GithubAccessProbes'
 import { inboxSetupLogic } from './inboxSetupLogic'
+import { isGitlabProject, selfDrivingGitlabLogic } from './selfDrivingGitlabLogic'
 
 export interface ReportGithubAccessLogicProps {
     report: SignalReport | null
@@ -25,6 +26,7 @@ export interface reportGithubAccessLogicValues {
     githubIntegrations: IntegrationType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
+    gitlabProjects: string[] // selfDrivingGitlabLogic
     access: 'available' | 'unavailable' | null
     accessFailed: boolean
     accessLoading: boolean
@@ -32,6 +34,7 @@ export interface reportGithubAccessLogicValues {
     disabledReason: string | null
     failed: boolean
     githubMissing: boolean
+    gitlabAccess: boolean
     loading: boolean
     pilot: boolean
     repairNeeded: boolean
@@ -123,10 +126,12 @@ export interface reportGithubAccessLogicMeta {
             integrations: IntegrationType[] | null,
             loading: boolean
         ) => boolean
+        gitlabAccess: (gitlabProjects: string[], selectedRepository: string, report: SignalReport | null) => boolean
         githubMissing: (
             pilot: boolean,
             integrations: IntegrationType[] | null,
-            githubIntegrations: IntegrationType[]
+            githubIntegrations: IntegrationType[],
+            gitlabAccess: boolean
         ) => boolean
         repairNeeded: (
             pilot: boolean,
@@ -162,6 +167,8 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
             ['integrations', 'integrationsLoading', 'githubIntegrations', 'currentProjectId'],
             inboxSetupLogic,
             ['isGithubOptionalSetup', 'savedState', 'savedStateLoading'],
+            selfDrivingGitlabLogic,
+            ['gitlabProjects'],
         ],
         actions: [
             integrationsLogic,
@@ -217,6 +224,9 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
                         values.currentProjectId === null
                     ) {
                         return null
+                    }
+                    if (values.gitlabAccess) {
+                        return 'available'
                     }
                     const repository = (values.selectedRepository || props.report.repo_slug)?.toLowerCase()
                     const unavailable = Symbol('unavailable')
@@ -288,12 +298,27 @@ export const reportGithubAccessLogic = kea<reportGithubAccessLogicType>([
             (pilot: boolean, failed: boolean, integrations: IntegrationType[] | null, loading: boolean): boolean =>
                 pilot && (failed || (integrations === null && !loading)),
         ],
+        // The report implements in a connected gitlab.com project, or has no repository yet and the
+        // person can pick one. Tasks in a GitLab project push with that GitLab connection, not GitHub.
+        gitlabAccess: [
+            (s, p) => [s.gitlabProjects, s.selectedRepository, p.report],
+            (gitlabProjects: string[], selectedRepository: string, report: SignalReport | null): boolean => {
+                const repository = selectedRepository || report?.repo_slug
+                return gitlabProjects.length > 0 && (!repository || isGitlabProject(repository, gitlabProjects))
+            },
+        ],
         // Outside the pilot, this checks only that a usable installation exists. Report tasks push with
         // the project's own GitHub integration, so without one the backend cannot open a pull request.
         githubMissing: [
-            (s) => [s.pilot, s.integrations, s.githubIntegrations],
-            (pilot: boolean, integrations: IntegrationType[] | null, githubIntegrations: IntegrationType[]): boolean =>
+            (s) => [s.pilot, s.integrations, s.githubIntegrations, s.gitlabAccess],
+            (
+                pilot: boolean,
+                integrations: IntegrationType[] | null,
+                githubIntegrations: IntegrationType[],
+                gitlabAccess: boolean
+            ): boolean =>
                 !pilot &&
+                !gitlabAccess &&
                 integrations !== null &&
                 !githubIntegrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],

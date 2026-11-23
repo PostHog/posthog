@@ -84,6 +84,7 @@ from products.signals.backend.report_urls import ReportLinkSource, build_report_
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
+from products.signals.backend.self_driving_gitlab import self_driving_gitlab_project
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -801,6 +802,7 @@ def _create_implementation_task_if_absent(
     requested_after_run_count: int | None = None,
     runner_source: str = "requested",
     expected_reviewers: ReviewerState | None = None,
+    repository_integration_id: int | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
@@ -816,6 +818,8 @@ def _create_implementation_task_if_absent(
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
 
+    ``repository_integration_id`` names the GitLab connection when ``repository`` is a GitLab project.
+
     ``supersede`` passes the "already implemented" gate when a research pass decides the fix materially changed.
     An explicit research rerun can also pass that gate after a new completed pass, for example when the selected repository changes. Both paths stamp
     `implemented_at_run_count` with the pass that produced it under the same lock, so a racing
@@ -830,7 +834,10 @@ def _create_implementation_task_if_absent(
     # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
     # Read at creation, so a settings change applies to the next task and never to a running one.
-    access_repositories = implementation_access_repositories(team_id, repository)
+    # The configured repositories are GitHub ones, and a GitLab run never gets GitHub credentials.
+    access_repositories = (
+        implementation_access_repositories(team_id, repository) if repository_integration_id is None else []
+    )
     description = (
         description
         + _head_branch_instruction(head_branch)
@@ -984,6 +991,7 @@ def _create_implementation_task_if_absent(
             github_access_repositories=access_repositories,
             service_tier=agent_runtime.service_tier,
             extra_run_state={"custom_image_id": custom_image_id} if custom_image_id is not None else None,
+            repository_integration_id=repository_integration_id,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
@@ -1079,6 +1087,11 @@ def start_requested_implementation(
 
     if not monitoring_repository_allowed(request.team_id, request.report_id, repo_selection.repository):
         raise RequestedImplementationUnavailable("The selected repository does not satisfy source privacy requirements")
+    gitlab_project = self_driving_gitlab_project(request.team_id, repo_selection.repository)
+    if gitlab_project is not None and (
+        gitlab_error := tasks_facade.gitlab_repository_error(gitlab_project, repo_selection.repository)
+    ):
+        raise RequestedImplementationUnavailable(gitlab_error)
 
     linked_tasks = {
         entry.task_id
@@ -1138,6 +1151,7 @@ def start_requested_implementation(
             steering=steering,
             free_trial_enabled=self_driving_free_trial_enabled(team, admitted_report_id=request.report_id),
             requested_after_run_count=request.after_run_count,
+            repository_integration_id=gitlab_project.id if gitlab_project is not None else None,
             ch_user=ch_user,
         )
         if not created:
@@ -1551,7 +1565,12 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
-    if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id):
+    gitlab_project = await database_sync_to_async(self_driving_gitlab_project, thread_sensitive=False)(
+        team_id, repository
+    )
+    if gitlab_project is not None:
+        repository_reachable = True
+    elif await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id):
         repository_reachable = await database_sync_to_async(
             ResearchAccessPolicy.repository_available, thread_sensitive=False
         )(team_id, repository, priority=EgressPriority.BATCH)
@@ -1624,7 +1643,8 @@ async def maybe_autostart_implementation_task(
             await database_sync_to_async(confirmed_research_reviewer_uuids, thread_sensitive=False)(
                 team_id, report_id, repository, reviewers_content
             )
-            if any(entry.get("is_research_selected") for entry in reviewers_content)
+            # Confirmation reads the repository's GitHub commit history, which a GitLab project has none of.
+            if gitlab_project is None and any(entry.get("is_research_selected") for entry in reviewers_content)
             else set()
         )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
@@ -1699,6 +1719,13 @@ async def maybe_autostart_implementation_task(
     if stack_base_branch:
         base_branch = stack_base_branch
 
+    if gitlab_project is not None:
+        gitlab_error = await database_sync_to_async(tasks_facade.gitlab_repository_error, thread_sensitive=False)(
+            gitlab_project, repository
+        )
+        if gitlab_error is not None:
+            return AutostartOutcome(status="blocked", reason=gitlab_error)
+
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id, ch_user=ch_user
     )
@@ -1737,6 +1764,7 @@ async def maybe_autostart_implementation_task(
             supersede=supersede,
             dispatch=dispatch,
             runner_source=runner_source,
+            repository_integration_id=gitlab_project.id if gitlab_project is not None else None,
             ch_user=ch_user,
         )
     except ReportChangedDuringAutostart:

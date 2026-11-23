@@ -20,7 +20,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
+from products.signals.backend.gitlab_merge_request_sync import refresh_unfinished_merge_requests
+from products.signals.backend.implementation_pr import (
+    ImplementationPr,
+    implementation_pr_report_filter,
+    primary_pull_request,
+)
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -887,6 +892,58 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
                 "pull_request__url", flat=True
             )
         ) == set(pr_urls)
+
+    @patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=True)
+    def test_merging_a_gitlab_merge_request_resolves_its_report(self, _flag: MagicMock) -> None:
+        gitlab = apps.get_model("posthog", "Integration").objects.create(
+            team=self.team,
+            kind="gitlab",
+            integration_id="gitlab-1",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "Acme/Platform/web", "project_id": 42},
+            sensitive_config={"access_token": "glpat-example"},
+        )
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="acme/platform/web",
+            repository_integration_id=gitlab.id,
+        )
+        report = self._create_report()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        mr_url = "https://gitlab.com/Acme/Platform/web/-/merge_requests/7"
+        with (
+            patch("products.signals.backend.tasks.link_report_tracker_issues.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            TaskRun.objects.create(
+                team=self.team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": mr_url}
+            )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(
+            implementation_pr_report_filter(team_id=self.team.id, active_only=True), id=report.id
+        ).exists()
+
+        merged_at = timezone.now() - timedelta(minutes=5)
+        with (
+            patch(
+                "posthog.models.integration.gitlab.GitLabIntegration.get_merge_request_details",
+                return_value={"state": "merged", "draft": False, "web_url": mr_url, "merged_at": merged_at.isoformat()},
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            assert refresh_unfinished_merge_requests() == 1
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(
+            repository="gitlab.com/acme/platform/web", number=7
+        )
+        assert (pr.state, pr.merged_at) == (SignalReportPullRequest.State.MERGED, merged_at)
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_connected_pull_request_details_are_fetched(self, mock_first_for_repository):

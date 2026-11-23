@@ -69,6 +69,7 @@ import { reportListLogic, sectionListLogicProps } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import type { SignalScoutConfig } from './scoutFleetLogic'
 import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
+import { selfDrivingGitlabLogic } from './selfDrivingGitlabLogic'
 import { selfDrivingTrialLogic } from './selfDrivingTrialLogic'
 
 // pinned: browser storage key - a rename drops the marker mid-redirect, so the return shows the button instead.
@@ -127,6 +128,7 @@ export interface inboxSetupLogicValues {
     isRefreshing: boolean // scoutSuggestionsLogic
     suggestionSetLoading: boolean // scoutSuggestionsLogic
     suggestions: ScoutSuggestionItemApi[] // scoutSuggestionsLogic
+    gitlabProjects: string[] // selfDrivingGitlabLogic
     productDataEvents: Set<string> | null // signalSourcesLogic
     productDataEventsLoading: boolean // signalSourcesLogic
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>> // signalSourcesLogic
@@ -145,6 +147,7 @@ export interface inboxSetupLogicValues {
     error: string | null
     failedOperation: 'activation' | 'other' | 'scouts' | 'sources' | null
     firstReportProgress: FirstReportProgressState | null
+    hasCodeConnection: boolean
     hasGithubIntegration: boolean
     inProgress: boolean
     isFinalStep: boolean
@@ -372,6 +375,7 @@ export interface inboxSetupLogicMeta {
         firstReportProgress: (savedState: InboxOnboardingStateApi | null) => FirstReportProgressState | null
         sourceCount: (draft: InboxOnboardingDraftApi) => number
         hasGithubIntegration: (githubIntegrations: IntegrationType[]) => boolean
+        hasCodeConnection: (hasGithubIntegration: boolean, gitlabProjects: string[]) => boolean
         isFinalStep: (draft: InboxOnboardingDraftApi) => boolean
         defaultScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -387,7 +391,7 @@ export interface inboxSetupLogicMeta {
         activationDisabledReason: (
             ready: boolean,
             draft: InboxOnboardingDraftApi,
-            hasGithubIntegration: boolean,
+            hasCodeConnection: boolean,
             sourceCount: number
         ) => string | undefined
     }
@@ -431,6 +435,8 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             ['scoutConfigs', 'scoutConfigsLoading', 'scoutFleetSynced'],
             scoutSuggestionsLogic,
             ['suggestions', 'suggestionSetLoading', 'isRefreshing'],
+            selfDrivingGitlabLogic,
+            ['gitlabProjects'],
         ],
         actions: [
             signalSourcesLogic,
@@ -715,6 +721,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             (integrations: IntegrationType[]): boolean =>
                 integrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],
+        // A connected gitlab.com project gives Self-driving code access without GitHub.
+        hasCodeConnection: [
+            (s) => [s.hasGithubIntegration, s.gitlabProjects],
+            (hasGithubIntegration: boolean, gitlabProjects: string[]): boolean =>
+                hasGithubIntegration || gitlabProjects.length > 0,
+        ],
         isFinalStep: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): boolean => draft.step === 'github'],
         defaultScouts: [
             (s) => [s.scoutConfigs, s.sources, s.currentTeam, s.productStatusBySource],
@@ -737,7 +749,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 inboxSetupScoutChoices(suggestions.length ? suggestions : defaults, draft.suggestions),
         ],
         activationDisabledReason: [
-            (s) => [s.ready, s.draft, s.hasGithubIntegration, s.sourceCount],
+            (s) => [s.ready, s.draft, s.hasCodeConnection, s.sourceCount],
             (
                 ready: boolean,
                 draft: InboxOnboardingDraftApi,
@@ -762,7 +774,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             if (!activationSource || values.error || values.saving || values.completed) {
                 return
             }
-            if (values.quickSetupReady && (values.hasGithubIntegration || values.isGithubOptionalSetup)) {
+            if (values.quickSetupReady && (values.hasCodeConnection || values.isGithubOptionalSetup)) {
                 actions.activateQuickSetup(activationSource)
                 return
             }
@@ -1134,7 +1146,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 if (values.saving || values.completed) {
                     return
                 }
-                if (!values.quickSetupReady || (!values.hasGithubIntegration && !values.isGithubOptionalSetup)) {
+                if (!values.quickSetupReady || (!values.hasCodeConnection && !values.isGithubOptionalSetup)) {
                     actions.setPendingQuickActivation(activationSource)
                     // Restart every prerequisite load: one that already failed would never re-enter the continuation.
                     actions.startSetup()

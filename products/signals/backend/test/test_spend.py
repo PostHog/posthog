@@ -802,6 +802,21 @@ class TestSignalSpend(BaseTest):
         assert spend.finalized_at is not None
         assert spend.billing_exempt
 
+    @parameterized.expand([("github", None), ("gitlab", 7)])
+    def test_gitlab_runs_are_recorded_but_not_charged(self, _name: str, repository_integration_id: int | None) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=str(uuid4()))
+        run = self._run(report=report)
+        Task.objects.filter(id=run.task_id).update(repository_integration_id=repository_integration_id)
+        self._set_task_cost(run, 10_001)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.spend == Decimal("5.0001")
+        assert spend.billing_exempt is (repository_integration_id is not None)
+
     @parameterized.expand([(False,), (True,)])
     @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example", SANDBOX_AI_GATEWAY_MINT_KEY="test-key")
     def test_completion_settles_pending_task_usage_inline(self, is_scout: bool) -> None:

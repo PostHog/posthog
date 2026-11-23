@@ -174,6 +174,11 @@ class CustomPromptSandboxContext:
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
     github_token_scope: Literal["read", "push"] | None = None
+    repository_integration_id: int | None = None
+    """The team's GitLab connection when ``repository`` is a GitLab project. The sandbox then clones
+    with that connection's token, and the task resolves no GitHub credential. Leave
+    ``github_read_access`` off with it, because the read-only GitHub token is minted for the same
+    repository names and a GitHub repository can share the project's path."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -395,6 +400,7 @@ async def _create_task_and_trigger(
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
         github_token_scope=context.github_token_scope,
+        repository_integration_id=context.repository_integration_id,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,

@@ -32,6 +32,7 @@ import {
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
+    selectedOpenPullRequestUrl,
 } from './inboxTaskKickoffLogic'
 import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
@@ -911,6 +912,37 @@ describe('inboxTaskKickoffLogic', () => {
             })
             await selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).asyncActions.loadTrial()
             expect(logic.values.freeTrialDisabledReason).toBe(expected)
+        })
+    })
+
+    describe('selectedOpenPullRequestUrl', () => {
+        it.each([
+            ['a GitHub PR', 'https://github.com/org/repo/pull/1/files', 'open', 'https://github.com/org/repo/pull/1'],
+            [
+                'a GitLab merge request',
+                'https://gitlab.com/acme/platform/web/-/merge_requests/7/diffs',
+                'draft',
+                'https://gitlab.com/acme/platform/web/-/merge_requests/7',
+            ],
+            ['a merged GitLab merge request', 'https://gitlab.com/acme/web/-/merge_requests/7', 'merged', null],
+            ['a merge request path on another host', 'https://example.com/acme/web/-/merge_requests/7', 'open', null],
+        ] as const)('pins %s', (_, url, state, expected) => {
+            const report = makeReport({
+                pull_requests: [
+                    {
+                        id: 'pr-1',
+                        url,
+                        state,
+                        merged: state === 'merged',
+                        review_decision: null,
+                        merged_at: null,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    },
+                ],
+            })
+            expect(selectedOpenPullRequestUrl(report, url)).toBe(expected)
         })
     })
 
