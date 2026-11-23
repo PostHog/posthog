@@ -327,8 +327,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             target_type = target.get("type")
             if target_type not in ("email", "slack"):
                 raise serializers.ValidationError(f"Invalid delivery target type: {target_type}")
-            if target_type == "email" and not target.get("value"):
-                raise serializers.ValidationError("Email delivery target must include a 'value' field.")
+            if target_type == "email":
+                email_value = target.get("value")
+                if not isinstance(email_value, str) or not any(address.strip() for address in email_value.split(",")):
+                    raise serializers.ValidationError("Email delivery target must include at least one email address.")
             if target_type == "slack":
                 integration_id = target.get("integration_id")
                 channel = target.get("channel")
