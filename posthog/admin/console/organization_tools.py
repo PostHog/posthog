@@ -148,7 +148,7 @@ def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpRespon
             run_id, organization_ids, deactivated=deactivated, reason=reason, triggered_by=triggered_by
         ):
             messages.error(request, JOB_NOT_STARTED)
-            return HttpResponseRedirect(TOOL_URL)
+            return HttpResponse(status=502)
         messages.success(
             request,
             f"Deactivated {pluralize(len(deactivated), 'organization')}. Their background work stops in a background "

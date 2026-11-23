@@ -278,8 +278,10 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         confirm = {"confirm_token": self._confirm_token(preview), "form_nonce": nonce}
 
         with patch.object(stop_organizations_background_work, "delay", side_effect=ConnectionError("Broker down")):
-            first = self.client.post(TOOL_URL, confirm, follow=True)
+            first = self.client.post(TOOL_URL, confirm)
+        assert first.status_code == 502
         assert "could not start" in first.content.decode()
+        assert str(self.organization.id) in first.content.decode()
         assert running_work(self.team) != {}
 
         with temporal_boundary(RecordingTemporal()):
