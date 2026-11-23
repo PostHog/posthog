@@ -5822,6 +5822,7 @@ dependencies = [
  "quick_cache",
  "rand 0.8.8",
  "regex",
+ "regex-syntax",
  "ring 0.17.14",
  "serde",
  "serde_json",

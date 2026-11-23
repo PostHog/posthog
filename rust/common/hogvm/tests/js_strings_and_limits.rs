@@ -203,3 +203,47 @@ fn membership_stops_on_a_list_that_holds_one_array_many_times() {
         "{error:?}"
     );
 }
+
+// let a := []; 3000 times: a := arrayPushBack(a, null); return length(a)
+const KEEP_EVERY_COPY_OF_A_NULL_ARRAY: &str = r#"["_H", 1, 43, 0, 33, 0, 33, 3000, 36, 1, 15, 40, 17, 36, 0, 31, 2, "arrayPushBack", 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -24, 35, 36, 0, 2, "length", 1, 38, 35]"#;
+
+#[test]
+fn nulls_in_an_array_count_toward_the_heap_limit() {
+    let context = context(KEEP_EVERY_COPY_OF_A_NULL_ARRAY, json!({})).with_max_steps(1_000_000);
+    let error = sync_execute(&context, false).unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
+    );
+}
+
+// return [inputs.s =~ inputs.p]
+const MATCH_INPUT_PATTERN: &str =
+    r#"["_H", 1, 32, "p", 32, "inputs", 1, 2, 32, "s", 32, "inputs", 1, 2, 23, 43, 1, 38]"#;
+
+#[test]
+fn a_bounded_regex_cache_refuses_the_repetitions_that_re2_refuses() {
+    let run = |pattern: &str, bounded: bool| {
+        let mut context = context(
+            MATCH_INPUT_PATTERN,
+            json!({"inputs": {"s": "aaa", "p": pattern}}),
+        );
+        if bounded {
+            context = context.with_regex_cache(std::sync::Arc::new(hogvm::RegexCache::bounded(
+                8,
+                128 * 1024,
+            )));
+        }
+        sync_execute(&context, false).map_err(|failure| failure.error)
+    };
+    for pattern in ["a{1001}", "a{2,1001}", "(a{40}){40}"] {
+        assert!(
+            matches!(run(pattern, true), Err(hogvm::VmError::InvalidRegex(..))),
+            "{pattern}"
+        );
+        assert!(run(pattern, false).is_ok(), "{pattern}");
+    }
+    for pattern in ["a{3}", "a{1000}|a+", "(a{25}){40}|a"] {
+        assert_eq!(run(pattern, true).unwrap(), json!([true]), "{pattern}");
+    }
+}

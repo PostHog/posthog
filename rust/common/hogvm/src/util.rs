@@ -27,6 +27,35 @@ static REGEX_CACHE: Lazy<RegexCache> = Lazy::new(|| RegexCache {
 // Real rule patterns are far shorter than this.
 const MAX_CACHEABLE_PATTERN_LEN: usize = 1024;
 
+/// RE2, which the Node VM uses, refuses a pattern whose nested counted repetitions multiply to more than this.
+const RE2_MAX_REPEAT: u32 = 1000;
+
+fn repeats_more_than_re2_allows(pattern: &str) -> bool {
+    use regex_syntax::ast::{parse::Parser, Ast, RepetitionKind, RepetitionRange};
+
+    fn over(ast: &Ast, budget: u32) -> bool {
+        match ast {
+            Ast::Repetition(repetition) => {
+                let count = match &repetition.op.kind {
+                    RepetitionKind::Range(RepetitionRange::Exactly(n))
+                    | RepetitionKind::Range(RepetitionRange::AtLeast(n)) => *n,
+                    RepetitionKind::Range(RepetitionRange::Bounded(_, m)) => *m,
+                    _ => 1,
+                };
+                let budget = budget / count.max(1);
+                budget == 0 || over(&repetition.ast, budget)
+            }
+            Ast::Group(group) => over(&group.ast, budget),
+            Ast::Alternation(alternation) => alternation.asts.iter().any(|ast| over(ast, budget)),
+            Ast::Concat(concat) => concat.asts.iter().any(|ast| over(ast, budget)),
+            _ => false,
+        }
+    }
+    Parser::new()
+        .parse(pattern)
+        .is_ok_and(|ast| over(&ast, RE2_MAX_REPEAT))
+}
+
 pub struct RegexCache {
     cache: Cache<(String, bool), Arc<Regex>>,
     compiled_limit: Option<usize>,
@@ -55,8 +84,9 @@ impl RegexCache {
         let compile = |limit: Option<usize>| {
             let mut builder = RegexBuilder::new(pattern);
             builder.case_insensitive(case_insensitive);
+            // Only the compiled size has a limit. A small limit on the search cache moves a pattern to the slow engine.
             if let Some(limit) = limit {
-                builder.size_limit(limit).dfa_size_limit(limit);
+                builder.size_limit(limit);
             }
             builder.build().map(Arc::new)
         };
@@ -66,6 +96,12 @@ impl RegexCache {
             return compile(None).map_err(invalid);
         }
         let key = (pattern.to_owned(), case_insensitive);
+        if self.compiled_limit.is_some() && repeats_more_than_re2_allows(pattern) {
+            return Err(VmError::InvalidRegex(
+                pattern.to_string(),
+                "bad repetition operator".to_string(),
+            ));
+        }
         let Some(limit) = self.compiled_limit else {
             // `get_or_insert_with` computes at most once per key under concurrent first access, and a failed compile isn't cached.
             return self

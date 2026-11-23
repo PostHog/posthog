@@ -367,6 +367,9 @@ impl HogValue {
     }
 }
 
+/// Every value takes a slot where it is held, so none is free. The Node VM also charges 8 for a null, a boolean and a container.
+const MIN_VALUE_BYTES: usize = 8;
+
 impl HogLiteral {
     pub fn type_name(&self) -> &str {
         match self {
@@ -390,12 +393,14 @@ impl HogLiteral {
         match self {
             // A shared string is one allocation that every copy points at, so a copy costs a pointer.
             HogLiteral::String(HogStr::Shared(_)) => std::mem::size_of::<Arc<str>>(),
-            HogLiteral::String(HogStr::Owned(s)) => s.len(),
-            HogLiteral::Number(_) => std::mem::size_of::<f64>(),
-            HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
-            HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.iter().map(|v| v.size()).sum(),
-            HogLiteral::Object(o) => o.iter().map(|(k, v)| k.len() + v.size()).sum(),
-            HogLiteral::Null => std::mem::size_of::<()>(),
+            HogLiteral::String(HogStr::Owned(s)) => s.len().max(MIN_VALUE_BYTES),
+            HogLiteral::Number(_) | HogLiteral::Boolean(_) | HogLiteral::Null => MIN_VALUE_BYTES,
+            HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
+                MIN_VALUE_BYTES + a.iter().map(|v| v.size()).sum::<usize>()
+            }
+            HogLiteral::Object(o) => {
+                MIN_VALUE_BYTES + o.iter().map(|(k, v)| k.len() + v.size()).sum::<usize>()
+            }
             HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),
             HogLiteral::Closure(c) => {
                 std::mem::size_of::<Closure>()

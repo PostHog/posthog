@@ -1376,7 +1376,8 @@ impl<'a> HogVM<'a> {
     }
 
     pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
-        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
+        // The conversion below has no cycle check, so it would copy a cycle once per level before it fails.
+        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
         self.hog_to_json_impl(value, 0)
     }
 
@@ -1426,6 +1427,8 @@ impl<'a> HogVM<'a> {
         for cell in &self.open_upvalues {
             registry.intern(cell);
         }
+        // The walks below follow a value with no cycle or depth check, and the snapshot writes it again for each reference to it.
+        assert_all_fit(&self.heap, &self.stack, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
         for value in &self.stack {
             collect_cells(value, &self.heap, &mut registry)?;
         }
@@ -1447,11 +1450,8 @@ impl<'a> HogVM<'a> {
             })
             .collect();
 
-        // The snapshot writes a value again for each reference to it, and follows it with no cycle or depth check.
         let closed: Vec<HogValue> = cell_data.iter().filter_map(|c| c.2.clone()).collect();
-        for values in [self.stack.as_slice(), closed.as_slice()] {
-            assert_all_fit(&self.heap, values, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
-        }
+        assert_all_fit(&self.heap, &closed, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
 
         let header_len = self.context.program_header_len();
         let mut stack = Vec::with_capacity(self.stack.len());

@@ -303,3 +303,22 @@ fn a_snapshot_refuses_a_state_that_repeats_one_string_past_the_heap_limit() {
         failure.error
     );
 }
+
+#[test]
+fn a_snapshot_refuses_a_value_that_holds_itself() {
+    // let a := {}; a.self := a; asyncFetch(1); return 1
+    let bytecode = r#"["_H", 1, 42, 0, 36, 0, 32, "self", 36, 0, 46, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35]"#;
+    let program = Program::new(serde_json::from_str(bytecode).unwrap()).unwrap();
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1);
+    let failure = match execute_resumable(&context) {
+        Err(failure) => failure,
+        Ok(_) => panic!("the state was accepted"),
+    };
+    assert!(
+        matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}
