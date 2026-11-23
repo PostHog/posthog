@@ -330,3 +330,17 @@ fn a_long_key_counts_toward_the_heap_limit_in_each_object_that_copies_it() {
         "{error:?}"
     );
 }
+
+// let o := {}; o['<K>'] := 'v'; let n := {}; n['<K>'] := 'w'; let h := range(1000); for i in 1..=1000: h[i] := o; return n in h
+const ONE_LONG_KEYED_OBJECT_MANY_TIMES: &str = r#"["_H", 1, 42, 0, 36, 0, 32, "ZZK", 32, "v", 46, 42, 0, 36, 1, 32, "ZZK", 32, "w", 46, 33, 1000, 2, "range", 1, 33, 1, 33, 1000, 36, 3, 16, 40, 16, 36, 2, 36, 3, 36, 0, 46, 33, 1, 36, 3, 6, 37, 3, 39, -23, 35, 36, 2, 36, 1, 21, 38, 35, 35, 35]"#;
+
+#[test]
+fn membership_counts_the_keys_that_an_object_compare_reads() {
+    let bytecode = ONE_LONG_KEYED_OBJECT_MANY_TIMES.replace("ZZK", &"k".repeat(128 * 1024));
+    let context = context(&bytecode, json!({})).with_max_steps(1_000_000);
+    let error = sync_execute(&context, false).unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
+    );
+}

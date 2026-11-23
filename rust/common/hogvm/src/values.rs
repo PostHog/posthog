@@ -406,7 +406,8 @@ impl HogLiteral {
             }
             (HogLiteral::Object(a), HogLiteral::Object(b)) if a.len() == b.len() => {
                 a.iter().fold(0, |work, (key, value)| {
-                    work.saturating_add(b.get(key).map_or(PAIR, |other| pair(value, other)))
+                    work.saturating_add(key.len())
+                        .saturating_add(b.get(key).map_or(PAIR, |other| pair(value, other)))
                 })
             }
             _ => 0,
