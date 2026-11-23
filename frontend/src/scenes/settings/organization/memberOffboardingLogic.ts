@@ -27,7 +27,7 @@ type TransferOwner = Pick<UserBasicType, 'uuid' | 'first_name' | 'last_name' | '
 export interface memberOffboardingLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     user: UserType | null // userLogic
-    getSelectionLabel: (selectedKeys: readonly string[]) => string
+    getSelectionLabel: (selectedKeys: ReadonlyArray<string>) => string
     keep: string[]
     loadError: string | null
     member: OrganizationMemberType | null
@@ -174,7 +174,7 @@ export interface memberOffboardingLogicMeta {
         subscriptions: (resources: MemberOffboardingResourceApi[] | null) => MemberOffboardingResourceApi[]
         getSelectionLabel: (
             resources: MemberOffboardingResourceApi[] | null
-        ) => (selectedKeys: readonly string[]) => string
+        ) => (selectedKeys: ReadonlyArray<string>) => string
     }
 }
 

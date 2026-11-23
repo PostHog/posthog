@@ -14,6 +14,8 @@ class YotpoEndpoint:
     primary_keys: tuple[str, ...] | None = None
     partition_key: str | None = None
     page_size_param: str | None = None
+    # V3 Core lists page with an opaque `page_info` cursor instead of page numbers.
+    cursor_pagination: bool = False
     email_date_range: bool = False
     params: dict[str, str] = field(default_factory=dict)
     token_query_param: str | None = None
@@ -57,5 +59,38 @@ ENDPOINTS: dict[str, YotpoEndpoint] = {
         description="Email addresses excluded from Yotpo review request emails.",
         primary_keys=("user_email", "email_type_id"),
         page_size_param="count",
+    ),
+    "orders": YotpoEndpoint(
+        path="core/v3/stores/{app_key}/orders",
+        data_selector="orders",
+        description="Store orders with totals, payment status, customer, line items and fulfillments.",
+        primary_keys=("yotpo_id",),
+        partition_key="created_at",
+        page_size_param="limit",
+        cursor_pagination=True,
+    ),
+    "products": YotpoEndpoint(
+        path="core/v3/stores/{app_key}/products",
+        data_selector="products",
+        description="The store's product catalog, as synced to Yotpo.",
+        primary_keys=("yotpo_id",),
+        partition_key="created_at",
+        page_size_param="limit",
+        cursor_pagination=True,
+    ),
+    "customers": YotpoEndpoint(
+        path="core/v3/stores/{app_key}/customers",
+        data_selector="customers",
+        description="Store customers with their reviews and loyalty summaries.",
+        # Customers created by email only have no external ID, and the API returns no Yotpo ID.
+        primary_keys=None,
+        page_size_param="limit",
+        cursor_pagination=True,
+    ),
+    "customer_segments": YotpoEndpoint(
+        path="core/v3/stores/{app_key}/profile_groups",
+        data_selector="profileGroups",
+        description="Customer segments and imported lists, with their rules and data sources.",
+        primary_keys=("id",),
     ),
 }

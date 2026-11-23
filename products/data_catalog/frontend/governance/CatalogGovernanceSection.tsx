@@ -25,16 +25,17 @@ import { GovernanceTopicsTable } from './GovernanceTopicsTable'
 
 const SKELETON_ROWS = 4
 
-function RecomputeButton(): JSX.Element {
+function RecomputeButton({ size, dataAttr }: { size?: 'sm'; dataAttr: string }): JSX.Element {
     const { recomputeDisabledReason, recomputedLoading } = useValues(usageLogic)
     const { recompute } = useActions(usageLogic)
     return (
         <Button
             variant="outline"
+            size={size}
             onClick={recompute}
             loading={recomputedLoading}
             disabledReason={recomputeDisabledReason}
-            data-attr="data-catalog-governance-recompute"
+            data-attr={dataAttr}
         >
             Run a new scan
         </Button>
@@ -63,7 +64,7 @@ function NoScanYet(): JSX.Element {
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
-                    <RecomputeButton />
+                    <RecomputeButton dataAttr="data-catalog-governance-recompute" />
                 </EmptyContent>
             </Empty>
         </div>
@@ -140,7 +141,10 @@ function GovernanceContent(): JSX.Element {
                 </Item>
             )}
             <div className="flex flex-col gap-2">
-                <ScanWindow scan={latest} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <ScanWindow scan={latest} />
+                    <RecomputeButton size="sm" dataAttr="data-catalog-governance-rescan" />
+                </div>
                 <div className="@container">
                     <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-2">
                         <GovernanceTopicsTable />

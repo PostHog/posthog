@@ -28,6 +28,8 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+LISTINGS_NOT_ENABLED_MESSAGE = "Listings need the WordPress Plugin + Integrated Websites premium on your OwnerRez account. Turn on the premium, or deselect the Listings table."
+
 
 @SourceRegistry.register
 class OwnerrezSource(ResumableSource[OwnerrezSourceConfig, OwnerRezResumeConfig]):
@@ -87,7 +89,18 @@ Create a personal access token under **Settings → Advanced Tools → Developer
         return {
             "401 Client Error: Unauthorized": "Your OwnerRez credentials are invalid. Check your account email and personal access token, then reconnect.",
             "403 Client Error: Forbidden": "Your OwnerRez account does not have permission to access this data. Check your account settings, then reconnect.",
+            "402 Client Error: Payment Required for url: https://api.ownerrez.com/v2/listings": LISTINGS_NOT_ENABLED_MESSAGE,
         }
+
+    def get_endpoint_permissions(
+        self, config: OwnerrezSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+        if "Listings" in endpoints:
+            _, status_code = validate_ownerrez_credentials(config.email, config.api_key, path="/v2/listings")
+            if status_code == 402:
+                permissions["Listings"] = LISTINGS_NOT_ENABLED_MESSAGE
+        return permissions
 
     def get_schemas(
         self,

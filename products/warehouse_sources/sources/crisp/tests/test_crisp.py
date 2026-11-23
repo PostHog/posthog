@@ -28,6 +28,9 @@ def page(rows: list[dict[str, Any]]) -> ScriptedResponse:
         ("people", "people/profiles", "people_id", {"per_page": ("50",)}),
         ("visitors", "visitors/list", "session_id", {}),
         ("helpdesk_locales", "helpdesk/locales", "locale_id", {}),
+        ("teams", "teams/list", "team_id", {}),
+        ("inboxes", "inboxes/list", "inbox_id", {}),
+        ("campaign_templates", "campaigns/templates", "template_id", {}),
     ],
 )
 def test_path_pages_stop_at_short_or_empty_page_and_commit_before_next_request(
@@ -367,6 +370,36 @@ def test_messages_fail_when_timestamp_filter_does_not_advance(config: CrispSourc
             {"entity_id": "article-one", "title": "Example article", "url": "https://example.com/help"},
             "locale",
         ),
+        (
+            "conversation_events",
+            "conversations",
+            {"session_id": "session/one"},
+            "conversation/session%2Fone/events",
+            {"text": "Example event", "timestamp": 1000, "color": "blue", "data": {"plan": "example"}},
+            "session_id",
+        ),
+        (
+            "conversation_files",
+            "conversations",
+            {"session_id": "session/one"},
+            "conversation/session%2Fone/files",
+            {
+                "name": "example.pdf",
+                "type": "application/pdf",
+                "url": "https://example.com/files/example.pdf",
+                "fingerprint": 1001,
+                "timestamp": 1000,
+            },
+            "session_id",
+        ),
+        (
+            "helpdesk_feedbacks",
+            "helpdesk/locales",
+            {"locale_id": "locale-one", "locale": "fr"},
+            "helpdesk/feedback/list/fr/articles",
+            {"rating": "helpful", "comment": None, "article": {"article_id": "article-one"}, "created_at": 1000},
+            "locale",
+        ),
     ],
 )
 def test_child_path_pagination_keeps_parent_fields(
@@ -378,8 +411,10 @@ def test_child_path_pagination_keeps_parent_fields(
     child: dict[str, Any],
     parent_field: str,
 ) -> None:
+    # The locale list has no documented page size, so only an empty page ends it.
+    parent_needs_empty_page = parent_path == "helpdesk/locales"
     script = [page([parent]), page([child]), page([])]
-    if schema == "helpdesk_articles":
+    if parent_needs_empty_page:
         script.append(page([]))
     result = SourceDriver(CrispSource(), config).run(schema, script)
     assert result.raised is None
@@ -389,7 +424,7 @@ def test_child_path_pagination_keeps_parent_fields(
         f"{root}/{child_path}/1",
         f"{root}/{child_path}/2",
     ]
-    if schema == "helpdesk_articles":
+    if parent_needs_empty_page:
         paths.append(f"{root}/{parent_path}/2")
     assert result.paths == paths
     assert result.rows[0][parent_field] == parent[parent_field]

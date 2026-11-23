@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import type { FieldName } from 'kea-forms/lib'
 import { router, urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -99,10 +100,10 @@ export interface authLogicActions {
         values?: LoginForm
     } // loginLogic
     setLoginValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // loginLogic
     submitLogin: () => {

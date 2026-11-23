@@ -16,7 +16,8 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # - ``list_members``: ``nextPageToken`` paging per static list.
 # - ``program_members``: ``nextPageToken`` paging per program and per ``updatedAt`` window, because
 #   the endpoint needs a filter and only ``updatedAt`` reaches every member.
-MarketoTransport = Literal["rest_token", "asset_offset", "bulk", "list_members", "program_members"]
+# - ``asset_fan_out``: ``offset`` + ``maxReturn`` paging per parent asset (segments per segmentation).
+MarketoTransport = Literal["rest_token", "asset_offset", "bulk", "list_members", "program_members", "asset_fan_out"]
 
 # Marketo caps a bulk export's date filter at 31 days; stay under it.
 BULK_WINDOW_DAYS = 30
@@ -49,9 +50,9 @@ class MarketoEndpointConfig:
     path: str
     primary_key: list[str]
     # Set only where a real server-side timestamp filter exists (bulk exports filter on a
-    # mandatory createdAt range, program members on updatedAt). Asset and other /rest/v1 list
-    # endpoints stay full refresh: their updated-since filters are undocumented for some resources
-    # and the collections are small.
+    # mandatory createdAt range, program members and smart lists on updatedAt). Other asset and
+    # /rest/v1 list endpoints stay full refresh: their updated-since filters are undocumented for
+    # some resources and the collections are small.
     incremental_field: Optional[str] = None
     partition_key: Optional[str] = None
     # CSV columns to coerce back to integers — bulk downloads arrive as all-string CSV.
@@ -63,6 +64,10 @@ class MarketoEndpointConfig:
     # parent id on each child row.
     parent: Optional[str] = None
     parent_key: Optional[str] = None
+    paginated: bool = True
+    incremental_param: Optional[str] = None
+    # Asset timestamps ("2016-02-25T18:36:58Z+0000") do not parse as a cursor or a partition key.
+    datetime_columns: tuple[str, ...] = ()
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -157,6 +162,38 @@ MARKETO_ENDPOINTS: dict[str, MarketoEndpointConfig] = {
         transport="asset_offset",
         path="/rest/asset/v1/channels.json",
         primary_key=["id"],
+    ),
+    "email_templates": MarketoEndpointConfig(
+        name="email_templates",
+        transport="asset_offset",
+        path="/rest/asset/v1/emailTemplates.json",
+        primary_key=["id"],
+    ),
+    "smart_lists": MarketoEndpointConfig(
+        name="smart_lists",
+        transport="asset_offset",
+        path="/rest/asset/v1/smartLists.json",
+        primary_key=["id"],
+        incremental_field="updatedAt",
+        incremental_param="earliestUpdatedAt",
+        partition_key="createdAt",
+        datetime_columns=("createdAt", "updatedAt"),
+    ),
+    # Marketo allows at most 20 segmentations per instance, and the browse endpoint has no paging.
+    "segmentations": MarketoEndpointConfig(
+        name="segmentations",
+        transport="asset_offset",
+        path="/rest/asset/v1/segmentation.json",
+        primary_key=["id"],
+        paginated=False,
+    ),
+    "segments": MarketoEndpointConfig(
+        name="segments",
+        transport="asset_fan_out",
+        path="/rest/asset/v1/segmentation/{parent_id}/segments.json",
+        primary_key=["segmentationId", "id"],
+        parent="segmentations",
+        parent_key="segmentationId",
     ),
     "program_members": MarketoEndpointConfig(
         name="program_members",

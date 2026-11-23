@@ -10,8 +10,11 @@ import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/compone
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
+import { QuillDropRuleFilterSearchPopover } from './QuillDropRuleFilterSearchPopover'
 
 // Namespace prefix only — the real per-mount key is appended below so that two
 // editors mounted simultaneously (e.g. during fast scene navigation) don't share
@@ -63,6 +66,7 @@ function DropRuleFilterSearch({
     const [visible, setVisible] = useState<boolean>(false)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
+    const quillSurface = useQuillSurface()
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
@@ -106,6 +110,20 @@ function DropRuleFilterSearch({
     )
 
     const showDropdown = useCallback(() => setVisible(true), [])
+
+    if (quillSurface) {
+        return (
+            <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+                <QuillDropRuleFilterSearchPopover
+                    visible={visible}
+                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                    searchInputRef={searchInputRef}
+                    onShow={showDropdown}
+                    onClose={onClose}
+                />
+            </BindLogic>
+        )
+    }
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>

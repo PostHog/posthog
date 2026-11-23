@@ -2,8 +2,10 @@ import type { ZXCVBNResult } from 'zxcvbn'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { QuillPasswordStrength } from 'lib/components/QuillPasswordStrength'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 export type ValidatedPasswordResult = {
     score: number // 0 is no passsword - otherwise 1-5,
@@ -84,6 +86,11 @@ export default function PasswordStrength({
     validatedPassword: ValidatedPasswordResult
 }): JSX.Element {
     const { score, feedback } = validatedPassword
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return <QuillPasswordStrength score={score} feedback={feedback} />
+    }
 
     return (
         <Tooltip

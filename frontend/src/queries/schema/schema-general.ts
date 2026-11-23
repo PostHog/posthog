@@ -1646,6 +1646,8 @@ export interface ChartSettings {
     stackBars100?: boolean
     /** Color each X-axis category in single-series bar charts. */
     colorBarsByCategory?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
@@ -4761,7 +4763,7 @@ export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
 }
 
 export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
-    serverLogs: integer
+    serverLogs?: integer
 }
 
 export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
@@ -4770,6 +4772,8 @@ export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBas
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    preComputeStale?: boolean
+    preComputedAt?: string
 }
 export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 
@@ -10477,6 +10481,9 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = 'workflow_email_impact_turn_on_replay',
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = 'workflow_survey_trigger_create_survey',
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = 'workflow_warehouse_table_trigger_set_up_source',
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
