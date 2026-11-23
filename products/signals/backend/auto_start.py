@@ -64,6 +64,7 @@ from products.signals.backend.quota import (
 )
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -1255,6 +1256,7 @@ def _resolve_autostart_assignee(
     team_default_priority: Priority,
     live_owner_identities: ReviewerIdentitySet | None = None,
     confirmed_research_user_uuids: set[str] | None = None,
+    exclude_scout_picks: bool = False,
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
@@ -1277,6 +1279,10 @@ def _resolve_autostart_assignee(
     too: it names someone near the affected file or team, not someone tied to the behavior, so it
     routes the report without becoming the runner.
 
+    With *exclude_scout_picks* (teams in the reviewer-selection trial), every entry a scout run
+    wrote (``source_skill`` set) is excluded. The trial lets a scout route on weaker evidence, and
+    the label above is scout-written, so a pick that omits it must not select the runner either.
+
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
@@ -1293,6 +1299,7 @@ def _resolve_autostart_assignee(
         if not r.get("is_skill_owner")
         and not r.get("is_default_owner")
         and not (r.get("reason") or "").lstrip().lower().startswith(BEST_MATCH_REASON_PREFIX.lower())
+        and not (exclude_scout_picks and r.get("source_skill"))
         and (not r.get("is_research_selected") or r.get("user_uuid") in confirmed_uuids)
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
@@ -1633,6 +1640,9 @@ async def maybe_autostart_implementation_task(
             if any(entry.get("is_research_selected") for entry in reviewers_content)
             else set()
         )
+        exclude_scout_picks = any(entry.get("source_skill") for entry in reviewers_content) and (
+            await database_sync_to_async(team_research_reviewer_selection_enabled, thread_sensitive=False)(team_id)
+        )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id,
             priority.priority,
@@ -1640,6 +1650,7 @@ async def maybe_autostart_implementation_task(
             team_default_priority,
             live_owner_identities,
             confirmed_uuids,
+            exclude_scout_picks,
         )
         if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
             # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
