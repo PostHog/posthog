@@ -75,6 +75,8 @@ FINDINGS_TITLE = "new findings ("
 ADVISORY_TITLE = "advisory rows ("
 UNKNOWNS_TITLE = "unknowns ("
 GUARD_START = "Fix each finding"
+# The lines of a finding that say why it matters and how to fix it.
+ADVICE_STARTS = ("why: ", "fix (", "needs a person: ")
 # What the full view prints before its problems: the verdict, other `hoglint:` lines and the
 # count per rule.
 SKIPPED_TITLES = ("hoglint: ", "New findings by rule:", GUARD_START)
@@ -154,6 +156,9 @@ class Row:
 
     def is_full(self) -> bool:
         return any(line.lstrip().startswith("see: ") for line in self.lines)
+
+    def advice(self) -> list[str]:
+        return [line.strip() for line in self.lines if line.strip().startswith(ADVICE_STARTS)]
 
 
 @dataclass(frozen=False)
@@ -582,7 +587,11 @@ class ShadowReport:
         return [row for row in self.view.advisory_rows() if self.changed.covers(row)]
 
     def annotations(self) -> list[str]:
-        out = [annotation("warning", row, f"hoglint {row.rule}", row.message) for row in self.own_rows()]
+        # A blocking row carries hoglint's why and fixes, because the diff is where the author reads it.
+        out = [
+            annotation("warning", row, f"hoglint {row.rule}", "\n".join([row.message, *row.advice()]))
+            for row in self.own_rows()
+        ]
         for row in self.own_advisory_rows():
             message = f"{row.message}. Does not block. {advice(row)}"
             out.append(annotation("notice", row, f"hoglint {row.rule} (advisory)", message))

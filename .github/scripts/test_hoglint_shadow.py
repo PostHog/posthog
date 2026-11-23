@@ -283,7 +283,10 @@ class TestShadowReport:
     def test_a_finding_on_a_changed_line_warns_and_an_advisory_row_there_is_a_notice(self) -> None:
         shadow = report(fixture("compare.out"), fixture("compare.diff"))
         assert shadow.annotations() == [
-            f"::warning file={CONTRACTS},line=863,title=hoglint contracts-no-django::products.visual_review.backend.facade.contracts reaches django.db.models: products.visual_review.backend.facade.contracts -> django.db.models",
+            f"::warning file={CONTRACTS},line=863,title=hoglint contracts-no-django::products.visual_review.backend.facade.contracts reaches django.db.models: products.visual_review.backend.facade.contracts -> django.db.models"
+            "%0Awhy: A contracts module must import without Django. Other products and tools import contracts where Django is not set up."
+            "%0Afix (needs care): Break the chain at its first step. Move that import into the function that uses it, or under TYPE_CHECKING if only a type needs it."
+            "%0Afix (needs care): Move the code that needs Django out of the contracts module.",
             f"::notice file={PROBE},line=1,title=hoglint public-surface (advisory)::products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.event_definition.EventDefinition, which is not exported to it. Does not block. If the facade of products.event_definitions exports this object, import it from the facade. If not, continue: CI records the coupling for the owners of products.event_definitions.",
         ]
 
