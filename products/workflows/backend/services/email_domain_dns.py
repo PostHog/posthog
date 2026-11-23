@@ -31,11 +31,12 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
-_DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
+_DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_URI = re.compile(
     r"mailto:(?:[^\s,;!@?%.]|%[0-9a-f]{2})+(?:\.(?:[^\s,;!@?%.]|%[0-9a-f]{2})+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
-    r"(?:\?(?:[^\s,;!%]|%[0-9a-f]{2})*)?(?:!(?P<size>[0-9]{1,20})[kmgt]?)?",
+    r"(?:\?(?:[^\s,;!%=&]|%[0-9a-f]{2})+=(?:[^\s,;!%=&]|%[0-9a-f]{2})*"
+    r"(?:&(?:[^\s,;!%=&]|%[0-9a-f]{2})+=(?:[^\s,;!%=&]|%[0-9a-f]{2})*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
     re.IGNORECASE,
 )
 _DMARC_URI_TAGS = frozenset({"rua", "ruf"})
@@ -48,7 +49,7 @@ _DMARC_TAG_VALUES = {
         "aspf": r"[rs]",
         "pct": r"100|0?[0-9]?[0-9]",
         "fo": r"[01ds](?:\s*:\s*[01ds])*",
-        "rf": r"afrf|iodef",
+        "rf": r"afrf",
     }.items()
 }
 
@@ -234,12 +235,8 @@ def _policy_in_force(policy: str) -> str | None:
     if len(names) != len(set(names)):
         return None
     valid = {name: checked for name, value in tags if (checked := _valid_tag_value(name, value))}
-    if tags and tags[0][0] != "p":
-        valid.pop("p", None)
-    if "p" not in valid or ("sp" in names and "sp" not in valid):
-        if "rua" not in valid:
-            return None
-        valid = {name: value for name, value in valid.items() if name not in ("p", "sp")}
+    if not tags or tags[0][0] != "p" or "p" not in valid or ("sp" in names and "sp" not in valid):
+        return None
     return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in valid.items())])
 
 
@@ -254,7 +251,10 @@ def _valid_tag_value(name: str, value: str) -> str | None:
 
 def _is_report_uri(uri: str) -> bool:
     match = _DMARC_URI.fullmatch(uri)
-    return match is not None and int(match["size"] or 0) < 2**64
+    if match is None:
+        return False
+    size = (match["size"] or "").lstrip("0")
+    return len(size) <= 20 and int(size or 0) < 2**64
 
 
 def _is_spf(answer: str) -> bool:
