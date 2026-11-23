@@ -15,7 +15,8 @@ import {
     TODAY_RECENT_KEY,
     TodayRecent,
     StoredReleaseRecent,
-    addTodayRecent,
+    TodayViewedRecent,
+    addViewedRecent,
     isPeopleRecent,
     recentPane,
 } from './todayRecents'
@@ -34,10 +35,10 @@ function rowsByName<T extends TodayRecent>(recents: T[]): T[] {
 export interface todayRecentsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentRecent: TodayRecent | null
-    monitorRecentRows: TodayMonitorRecent[]
-    monitorRecents: TodayMonitorRecent[]
-    peopleRecentRows: TodayPeopleRecent[]
-    peopleRecents: TodayPeopleRecent[]
+    monitorRecentRows: TodayViewedRecent<TodayMonitorRecent>[]
+    monitorRecents: TodayViewedRecent<TodayMonitorRecent>[]
+    peopleRecentRows: TodayViewedRecent<TodayPeopleRecent>[]
+    peopleRecents: TodayViewedRecent<TodayPeopleRecent>[]
     releaseRecents: StoredReleaseRecent[]
 }
 
@@ -52,8 +53,12 @@ export interface todayRecentsLogicActions {
 export interface todayRecentsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentRecent: (featureFlags: FeatureFlagsSet, arg: TodayRecent | null) => TodayRecent | null
-        peopleRecentRows: (peopleRecents: TodayPeopleRecent[]) => TodayPeopleRecent[]
-        monitorRecentRows: (monitorRecents: TodayMonitorRecent[]) => TodayMonitorRecent[]
+        peopleRecentRows: (
+            peopleRecents: TodayViewedRecent<TodayPeopleRecent>[]
+        ) => TodayViewedRecent<TodayPeopleRecent>[]
+        monitorRecentRows: (
+            monitorRecents: TodayViewedRecent<TodayMonitorRecent>[]
+        ) => TodayViewedRecent<TodayMonitorRecent>[]
     }
 }
 
@@ -76,36 +81,32 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
     }),
     reducers({
         peopleRecents: [
-            [] as TodayPeopleRecent[],
+            [] as TodayViewedRecent<TodayPeopleRecent>[],
             // pinned: storage key of the saved People Recents, kept from the logic that held them before. Changing it
             // empties everyone's People Recents.
             { ...TODAY_USER_PERSIST_OPTIONS, storageKey: 'layout.today.todayPeopleRecentsLogic.recents' },
             {
-                addRecent: (state, { recent }) => (isPeopleRecent(recent) ? addTodayRecent(state, recent) : state),
+                addRecent: (state, { recent }) =>
+                    isPeopleRecent(recent) ? addViewedRecent(state, { ...recent, viewedAt: Date.now() }) : state,
             },
         ],
         // pinned: storage key for the saved Monitor Recents. Renaming it empties everyone's Monitor Recents.
         monitorRecents: [
-            [] as TodayMonitorRecent[],
+            [] as TodayViewedRecent<TodayMonitorRecent>[],
             TODAY_USER_PERSIST_OPTIONS,
             {
                 addRecent: (state, { recent }) =>
-                    recent.type !== 'release' && !isPeopleRecent(recent) ? addTodayRecent(state, recent) : state,
+                    recent.type !== 'release' && !isPeopleRecent(recent)
+                        ? addViewedRecent(state, { ...recent, viewedAt: Date.now() })
+                        : state,
             },
         ],
         releaseRecents: [
             [] as StoredReleaseRecent[],
             TODAY_USER_PERSIST_OPTIONS,
             {
-                addRecent: (state, { recent }) => {
-                    if (recent.type !== 'release') {
-                        return state
-                    }
-                    const updated = { ...recent, viewedAt: Date.now() }
-                    return state[0]?.href === recent.href && state[0].name === recent.name
-                        ? [updated, ...state.slice(1)]
-                        : addTodayRecent(state, updated)
-                },
+                addRecent: (state, { recent }) =>
+                    recent.type === 'release' ? addViewedRecent(state, { ...recent, viewedAt: Date.now() }) : state,
             },
         ],
     }),
@@ -139,8 +140,14 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
                     : null,
             { resultEqualityCheck: objectsEqual },
         ],
-        peopleRecentRows: [(s) => [s.peopleRecents], (recents: TodayPeopleRecent[]) => rowsByName(recents)],
-        monitorRecentRows: [(s) => [s.monitorRecents], (recents: TodayMonitorRecent[]) => rowsByName(recents)],
+        peopleRecentRows: [
+            (s) => [s.peopleRecents],
+            (recents: TodayViewedRecent<TodayPeopleRecent>[]) => rowsByName(recents),
+        ],
+        monitorRecentRows: [
+            (s) => [s.monitorRecents],
+            (recents: TodayViewedRecent<TodayMonitorRecent>[]) => rowsByName(recents),
+        ],
     }),
     subscriptions(({ actions }) => ({
         currentRecent: (recent: TodayRecent | null) => {

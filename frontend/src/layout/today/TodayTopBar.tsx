@@ -1,7 +1,10 @@
+import { ButtonGroup } from '@posthog/quill'
+
 import { TodayOrgMenu } from './TodayOrgMenu'
 import { TodayProjectMenu } from './TodayProjectMenu'
 import { TodayTopBarPanelTabs } from './TodayTopBarPanelTabs'
 import { TodayTopBarQuickStartButton } from './TodayTopBarQuickStartButton'
+import { TodayTopBarRecents } from './TodayTopBarRecents'
 import { TodayTopBarSearch } from './TodayTopBarSearch'
 
 /**
@@ -21,9 +24,10 @@ export function TodayTopBar(): JSX.Element {
                 <TodayProjectMenu />
                 <TodayTopBarQuickStartButton />
             </div>
-            <div className="mx-2 min-w-0">
+            <ButtonGroup className="mx-2 w-auto min-w-0">
+                <TodayTopBarRecents />
                 <TodayTopBarSearch />
-            </div>
+            </ButtonGroup>
             <div className="flex min-w-0 items-center justify-end">
                 <TodayTopBarPanelTabs />
             </div>

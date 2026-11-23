@@ -109,7 +109,9 @@ describe('todayRecentsLogic', () => {
             },
         })
 
-        expect(logic.values.peopleRecents).toEqual([recent('/cohorts/7', 'Cohort 7')])
+        expect(logic.values.peopleRecents).toEqual([
+            { ...recent('/cohorts/7', 'Cohort 7'), viewedAt: expect.any(Number) },
+        ])
     })
 
     it('records a loaded release in the Release pane when the area is enabled', () => {

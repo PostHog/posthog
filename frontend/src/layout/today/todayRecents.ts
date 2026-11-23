@@ -14,6 +14,9 @@ export interface StoredReleaseRecent extends TodayReleaseRecent {
 
 export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseRecent
 
+/** A recent as stored, with when it was last opened. Recents saved before the time was kept have none. */
+export type TodayViewedRecent<T extends TodayRecent> = T & { viewedAt?: number }
+
 export type TodayRecentPane = 'people' | 'monitor' | 'release'
 
 /**
@@ -39,6 +42,14 @@ export function addTodayRecent<T extends TodayRecent>(recents: T[], recent: T): 
         return recents
     }
     return [recent, ...recents.filter((item) => item.href !== recent.href)].slice(0, TODAY_RECENTS_LIMIT)
+}
+
+/** Like `addTodayRecent`, but reopening the first item still updates when it was last opened. */
+export function addViewedRecent<T extends TodayRecent & { viewedAt?: number }>(recents: T[], recent: T): T[] {
+    const [first] = recents
+    return first?.href === recent.href && first.name === recent.name
+        ? [recent, ...recents.slice(1)]
+        : addTodayRecent(recents, recent)
 }
 
 /** The id of a recent's row, for the active row and the row's own value. */
