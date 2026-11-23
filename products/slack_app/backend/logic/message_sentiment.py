@@ -54,9 +54,11 @@ _SENTIMENT_VALUES: frozenset[str] = frozenset(Sentiment)
 SENTIMENT_AI_PRODUCT = "slack_app_interview_recruitment"
 # The answer is already in the thread. A slow call only drops the reaction and the invitation.
 SENTIMENT_TIMEOUT_SECONDS = 5.0
-# A reaction or an invitation to a calm person costs trust, and a missed one costs little, so the bar is high.
-# Tuned in products/slack_app/evals/eval_message_sentiment.py.
-SENTIMENT_MIN_CONFIDENCE = 0.7
+# Only the unhappy states act, so only they need a bar. It applies to `not_happy` and `frustrated` together,
+# because the model splits an angry message between the two, and the sum must exceed it: unhappy has to be
+# likelier than not. Tuned in
+# products/slack_app/evals/eval_message_sentiment.py.
+SENTIMENT_UNHAPPY_MIN_PROBABILITY = 0.5
 SENTIMENT_QUESTION_ID = "sentiment"
 # The model needs the tone, not the whole message. This also keeps pasted logs out of the call.
 SENTIMENT_MESSAGE_MAX_CHARS = 500
@@ -67,15 +69,20 @@ SENTIMENT_INSTRUCTIONS = (
     "or annoyance with other people, is not a feeling about the assistant."
 )
 SENTIMENT_CRITERIA = {
-    Sentiment.HAPPY: "The person is pleased with the assistant: thanks, praise, relief, or excitement about an answer.",
+    Sentiment.HAPPY: "The person is sincerely pleased with an answer: thanks for it, praise, relief, or excitement. "
+    "A message that complains about the answer is never happy, even when it opens with a praise word.",
     Sentiment.NEUTRAL: "The person asks, instructs, or reports something with no feeling about the assistant. "
-    "A calm correction, an urgent request, or a problem in their own product is neutral.",
+    "A calm correction, an urgent request, or a problem in their own product is neutral. "
+    "A short thanks that only opens the next request, such as 'thanks. can you also...', is neutral.",
     Sentiment.CONFUSED: "The person does not understand an answer and asks what it means or why, "
     "without blaming the assistant.",
     Sentiment.NOT_HAPPY: "The person is mildly dissatisfied: the answer is wrong, incomplete, or hard to use, "
-    "and they say so, but they stay calm and keep working with the assistant.",
-    Sentiment.FRUSTRATED: "The person is angry or out of patience: insults, sarcasm, shouting, a repeated request "
-    "after earlier failures, a statement that the assistant is useless, or giving up on it.",
+    "or the PostHog app itself, not their own product, keeps failing them, and they say so, but they stay calm "
+    "and keep working with the assistant.",
+    Sentiment.FRUSTRATED: "The person is angry or out of patience: insults, shouting, a repeated request "
+    "after earlier failures, a statement that the assistant is useless, or giving up on it. "
+    "Sarcasm is frustrated even though it uses positive words: 'great', 'perfect' or 'love it' followed by a "
+    "complaint about the answer, such as 'perfect, the wrong project again'.",
 }
 
 
@@ -87,13 +94,21 @@ class SentimentVerdict:
 
     @property
     def sentiment(self) -> Sentiment:
-        """The model's pick when it is sure. An unsure pick counts as neutral, except when the unhappy
-        options together pass the bar: a split between ``not_happy`` and ``frustrated`` is still unhappy,
-        so it reads as the milder of the two."""
-        if self.choice in _SENTIMENT_VALUES and self.confidence >= SENTIMENT_MIN_CONFIDENCE:
+        """Unhappy when the two unhappy options together pass the bar, as whichever of them is likelier, and
+        a tie reads as the milder ``not_happy``. Otherwise the model's pick, which acts on nothing, unless that
+        pick is an unhappy option below the bar, which reads as neutral."""
+        not_happy = self._probability(Sentiment.NOT_HAPPY)
+        frustrated = self._probability(Sentiment.FRUSTRATED)
+        if not_happy + frustrated > SENTIMENT_UNHAPPY_MIN_PROBABILITY:
+            return Sentiment.FRUSTRATED if frustrated > not_happy else Sentiment.NOT_HAPPY
+        if self.choice in _SENTIMENT_VALUES and self.choice not in UNHAPPY_SENTIMENTS:
             return Sentiment(self.choice)
-        unhappy = sum(self.probabilities.get(option, 0.0) for option in UNHAPPY_SENTIMENTS)
-        return Sentiment.NOT_HAPPY if unhappy >= SENTIMENT_MIN_CONFIDENCE else Sentiment.NEUTRAL
+        return Sentiment.NEUTRAL
+
+    def _probability(self, option: Sentiment) -> float:
+        # An answer without the distribution still carries the pick's own confidence.
+        fallback = self.confidence if self.choice == option else 0.0
+        return self.probabilities.get(option, fallback)
 
     @property
     def is_unhappy(self) -> bool:

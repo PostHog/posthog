@@ -13,6 +13,7 @@ from products.slack_app.evals.scorers import (
     NoUnaskedOverride,
     NoUnaskedReaction,
     NoUnaskedWake,
+    SentimentDetected,
     UnhappyDetected,
 )
 
@@ -173,6 +174,19 @@ class TestMessageSentimentScorers:
     )
     def test_scores(self, _name, scorer, want, got, expected_score):
         assert scorer().eval(output={"sentiment": got}, expected=_sentiment(want)).score == expected_score
+
+    @parameterized.expand(
+        [
+            ("state_found", "confused", "confused", 1.0),
+            ("state_missed", "confused", "neutral", 0.0),
+            ("skips_cases_expecting_another_state", "happy", "confused", None),
+        ]
+    )
+    def test_sentiment_detected_scores_only_its_own_state(self, _name, want, got, expected_score):
+        assert (
+            SentimentDetected("confused").eval(output={"sentiment": got}, expected=_sentiment(want)).score
+            == expected_score
+        )
 
     @parameterized.expand([(NoUnaskedReaction,), (NoUnaskedGif,)])
     def test_a_classifier_error_is_a_failure_on_the_guard_scorers(self, scorer):

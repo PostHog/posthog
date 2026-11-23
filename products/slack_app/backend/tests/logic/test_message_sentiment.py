@@ -29,16 +29,30 @@ from products.slack_app.backend.logic.message_sentiment import (
 class TestSentimentVerdict(SimpleTestCase):
     @parameterized.expand(
         [
-            ("sure_pick", "confused", 0.8, {}, Sentiment.CONFUSED),
-            ("unsure_pick_reads_neutral", "frustrated", 0.5, {"frustrated": 0.5, "neutral": 0.5}, Sentiment.NEUTRAL),
+            ("calm_pick_needs_no_bar", "confused", 0.46, {"confused": 0.46, "neutral": 0.38}, Sentiment.CONFUSED),
             (
-                "unhappy_split_reads_not_happy",
+                "unhappy_split_reads_the_likelier_option",
                 "frustrated",
-                0.45,
-                {"frustrated": 0.45, "not_happy": 0.4, "neutral": 0.15},
+                0.46,
+                {"frustrated": 0.46, "not_happy": 0.23, "neutral": 0.31},
+                Sentiment.FRUSTRATED,
+            ),
+            (
+                "unhappy_tie_reads_not_happy",
+                "frustrated",
+                0.3,
+                {"frustrated": 0.3, "not_happy": 0.3, "neutral": 0.4},
                 Sentiment.NOT_HAPPY,
             ),
+            (
+                "unhappy_pick_below_the_bar_reads_neutral",
+                "frustrated",
+                0.35,
+                {"frustrated": 0.35, "neutral": 0.33, "happy": 0.32},
+                Sentiment.NEUTRAL,
+            ),
             ("unknown_choice_reads_neutral", "angry", 0.99, {"angry": 0.99}, Sentiment.NEUTRAL),
+            ("pick_without_distribution_uses_its_confidence", "frustrated", 0.93, {}, Sentiment.FRUSTRATED),
         ]
     )
     def test_sentiment(self, _name, choice, confidence, probabilities, expected):

@@ -30,6 +30,7 @@ from products.slack_app.evals.scorers import (
     MessageSentimentMatch,
     NoUnaskedGif,
     NoUnaskedReaction,
+    SentimentDetected,
     UnhappyDetected,
 )
 
@@ -149,11 +150,23 @@ async def eval_message_sentiment(ctx: EvalContext) -> None:
         experiment_name="slack-app-message-sentiment",
         offline_suite=offline_suite(
             "slack_app/eval_message_sentiment::eval_message_sentiment",
-            metrics=[MESSAGE_SENTIMENT_KEY, "unhappy_detected", "no_unasked_reaction", "no_unasked_gif"],
+            metrics=[
+                MESSAGE_SENTIMENT_KEY,
+                *(f"{sentiment}_detected" for sentiment in Sentiment),
+                "unhappy_detected",
+                "no_unasked_reaction",
+                "no_unasked_gif",
+            ],
             suite_kind=SUITE_KIND,
         ),
         cases=[*HAPPY_CASES, *NEUTRAL_CASES, *CONFUSED_CASES, *NOT_HAPPY_CASES, *FRUSTRATED_CASES],
-        scorers=[MessageSentimentMatch(), UnhappyDetected(), NoUnaskedReaction(), NoUnaskedGif()],
+        scorers=[
+            MessageSentimentMatch(),
+            *(SentimentDetected(str(sentiment)) for sentiment in Sentiment),
+            UnhappyDetected(),
+            NoUnaskedReaction(),
+            NoUnaskedGif(),
+        ],
         task=task,
         ctx=ctx,
     )

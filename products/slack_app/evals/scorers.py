@@ -504,6 +504,26 @@ class MessageSentimentMatch(Scorer):
         return _sentiment_score(self._name(), output, expected, lambda want: True, lambda want, got: got == want)
 
 
+class SentimentDetected(Scorer):
+    """Recall for one state: of the cases that expect it, the share that got it. ``message_sentiment``
+    averages over every case, so a weak state hides behind the strong ones there."""
+
+    def __init__(self, sentiment: str):
+        self.sentiment = sentiment
+
+    def _name(self) -> str:
+        return f"{self.sentiment}_detected"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(),
+            output,
+            expected,
+            lambda want: want == self.sentiment,
+            lambda want, got: got == self.sentiment,
+        )
+
+
 class UnhappyDetected(Scorer):
     """An unhappy person gets the reaction and the interview checks. ``not_happy`` read as ``frustrated``, or the
     other way, still passes here, because both get the same reaction."""
