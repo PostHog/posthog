@@ -17,7 +17,7 @@ import {
     monitorProductForPath,
 } from '~/layout/today/todayMonitor'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
-import { TodayRecent, recentRowKey } from '~/layout/today/todayRecents'
+import { TodayRecent, TodayViewedRecent, recentRowKey } from '~/layout/today/todayRecents'
 import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -47,7 +47,7 @@ export interface todayMonitorLogicValues {
     } // router
     shortcutData: FileSystemEntry[] // sidebarPinsLogic
     currentRecent: TodayRecent | null // todayRecentsLogic
-    monitorRecentRows: TodayMonitorRecent[] // todayRecentsLogic
+    monitorRecentRows: TodayViewedRecent<TodayMonitorRecent>[] // todayRecentsLogic
     activeRow: string | null
     collapsedSections: TodayMonitorSection[]
     isSearching: boolean
@@ -83,7 +83,7 @@ export interface todayMonitorLogicMeta {
             searchQuery: string
         ) => HrefPin<TodayMonitorRecentType>[]
         matchingRecentRows: (
-            monitorRecentRows: TodayMonitorRecent[],
+            monitorRecentRows: TodayViewedRecent<TodayMonitorRecent>[],
             pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
             searchQuery: string
         ) => TodayMonitorRecent[]
@@ -95,7 +95,7 @@ export interface todayMonitorLogicMeta {
             },
             currentRecent: TodayRecent | null,
             pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
-            monitorRecentRows: TodayMonitorRecent[]
+            monitorRecentRows: TodayViewedRecent<TodayMonitorRecent>[]
         ) => string | null
         isSearching: (searchQuery: string) => boolean
         isSectionOpen: (

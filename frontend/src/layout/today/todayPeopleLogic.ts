@@ -33,6 +33,7 @@ import {
     TodayPeopleStaticRowKey,
 } from './todayPeopleRows'
 import { TodayRecent, recentRowKey } from './todayRecents'
+import type { TodayViewedRecent } from './todayRecents'
 import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
@@ -173,8 +174,8 @@ export interface todayPeopleLogicValues {
     shortcutData: FileSystemEntry[] // sidebarPinsLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentRecent: TodayRecent | null // todayRecentsLogic
-    peopleRecentRows: TodayPeopleRecent[] // todayRecentsLogic
-    peopleRecents: TodayPeopleRecent[] // todayRecentsLogic
+    peopleRecentRows: TodayViewedRecent<TodayPeopleRecent>[] // todayRecentsLogic
+    peopleRecents: TodayViewedRecent<TodayPeopleRecent>[] // todayRecentsLogic
     accountsGroupTypeIndex: GroupTypeIndex | null
     activeRow: string | null
     collapsedSections: TodayPeopleSection[]
@@ -228,7 +229,7 @@ export interface todayPeopleLogicMeta {
         groupTabs: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => GroupTab[]
         rows: (
             featureFlags: FeatureFlagsSet,
@@ -242,7 +243,7 @@ export interface todayPeopleLogicMeta {
                 search: string
             },
             rows: TodayPeopleRow[],
-            peopleRecents: TodayPeopleRecent[],
+            peopleRecents: TodayViewedRecent<TodayPeopleRecent>[],
             currentRecent: TodayRecent | null
         ) => string | null
         matchingRows: (rows: TodayPeopleRow[], searchQuery: string) => TodayPeopleRow[]
@@ -251,7 +252,7 @@ export interface todayPeopleLogicMeta {
         pinnedRows: (shortcutData: FileSystemEntry[]) => TodayPeoplePin[]
         matchingPinnedRows: (pinnedRows: TodayPeoplePin[], searchQuery: string) => TodayPeoplePin[]
         matchingRecentRows: (
-            peopleRecentRows: TodayPeopleRecent[],
+            peopleRecentRows: TodayViewedRecent<TodayPeopleRecent>[],
             pinnedRows: TodayPeoplePin[],
             searchQuery: string
         ) => TodayPeopleRecent[]
