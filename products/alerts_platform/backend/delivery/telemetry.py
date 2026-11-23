@@ -65,8 +65,6 @@ def record_delivery(
             message = NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH]
             instance_id = str(uuid4())
             if temporalio.activity.in_activity():
-                # The Temporal logger writes the same `log_entries` row, and also sends it to the logs
-                # product for the teams the worker's internal logs producer covers.
                 send_log = get_produce_only_logger(__name__).bind(
                     team_id=team_id,
                     log_source=NATIVE_SEND_LOG_SOURCE,
