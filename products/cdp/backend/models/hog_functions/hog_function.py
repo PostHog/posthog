@@ -396,14 +396,17 @@ def reload_hog_functions_on_organization_active_change(sender, instance: Organiz
 
 
 def _reload_organization_hog_functions(organization_id: UUID) -> None:
-    by_team: dict[int, list[str]] = {}
+    # Every team gets a message, because the legacy plugin consumer refreshes its plugin configs on it too.
+    by_team: dict[int, list[str]] = {
+        team_id: [] for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+    }
     for team_id, hog_function_id in HogFunction.objects.filter(
         team__organization_id=organization_id,
         enabled=True,
         deleted=False,
         type__in=TYPES_THAT_RELOAD_PLUGIN_SERVER,
     ).values_list("team_id", "id"):
-        by_team.setdefault(team_id, []).append(str(hog_function_id))
+        by_team[team_id].append(str(hog_function_id))
     for team_id, hog_function_ids in by_team.items():
         try:
             reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)

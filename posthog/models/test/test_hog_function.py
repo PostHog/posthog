@@ -2,7 +2,7 @@ import json
 from typing import Any, cast
 
 from posthog.test.base import QueryMatchingTest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.test import TestCase
 
@@ -285,6 +285,7 @@ class TestHogFunction(TestCase):
     def test_flipping_the_organization_active_state_reloads_its_enabled_functions(self, mock_reload: Mock) -> None:
         enabled = HogFunction.objects.create(name="Enabled", team=self.team, type="destination", enabled=True)
         HogFunction.objects.create(name="Disabled", team=self.team, type="destination", enabled=False)
+        team_without_functions = Team.objects.create(organization=self.org, name="No functions")
 
         for change in ({"is_active": False}, {"name": "Renamed"}, {"is_active": True}):
             mock_reload.reset_mock()
@@ -294,7 +295,13 @@ class TestHogFunction(TestCase):
                 self.org.save()
 
             if "is_active" in change:
-                mock_reload.assert_called_once_with(team_id=self.team.id, hog_function_ids=[str(enabled.id)])
+                assert sorted(mock_reload.call_args_list, key=lambda call: call.kwargs["team_id"]) == sorted(
+                    [
+                        call(team_id=self.team.id, hog_function_ids=[str(enabled.id)]),
+                        call(team_id=team_without_functions.id, hog_function_ids=[]),
+                    ],
+                    key=lambda call: call.kwargs["team_id"],
+                )
             else:
                 mock_reload.assert_not_called()
 
