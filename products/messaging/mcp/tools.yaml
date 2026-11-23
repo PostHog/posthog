@@ -164,7 +164,8 @@ tools:
         title: List recent imports
         description: >
             List this project's most recent imports from other email tools, newest first. Use it to find a run that is
-            already active before you start another.
+            already active before you start another. Each step's `items` is empty here and `items_omitted` counts them;
+            use provider-imports-get for one run's items and notes.
     provider-imports-providers:
         operation: messaging_provider_imports_providers_list
         enabled: true
