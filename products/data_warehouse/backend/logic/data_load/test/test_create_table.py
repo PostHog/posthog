@@ -285,14 +285,14 @@ OWN_STAGED_FOLDER = "staged_model__query_1700000000_bbbbbbbb"
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "published_folder,expected_folder,expected_row_count",
+    "published_folder,expected_published,expected_folder,expected_row_count",
     [
-        ("staged_model__query_1800000000_aaaaaaaa", "staged_model__query_1800000000_aaaaaaaa", 10),
-        ("staged_model__query_1600000000_aaaaaaaa", OWN_STAGED_FOLDER, 20),
+        ("staged_model__query_1800000000_aaaaaaaa", False, "staged_model__query_1800000000_aaaaaaaa", 10),
+        ("staged_model__query_1600000000_aaaaaaaa", True, OWN_STAGED_FOLDER, 20),
     ],
 )
 async def test_a_publish_keeps_a_folder_staged_after_its_own(
-    team: Team, published_folder: str, expected_folder: str, expected_row_count: int
+    team: Team, published_folder: str, expected_published: bool, expected_folder: str, expected_row_count: int
 ) -> None:
     saved_query = await _materialized_table_with_size(team, "staged_model", published_folder)
     job = await _running_job(team, saved_query, "late-workflow")
@@ -305,9 +305,15 @@ async def test_a_publish_keeps_a_folder_staged_after_its_own(
             return_value=20.0,
         ),
     ):
-        await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, OWN_STAGED_FOLDER, row_count=20)
+        result = await create_table_from_saved_query(
+            str(job.id), str(saved_query.id), team.pk, OWN_STAGED_FOLDER, row_count=20
+        )
 
     table = saved_query.table
     assert table is not None
     await table.arefresh_from_db()
-    assert (table.queryable_folder, table.row_count) == (expected_folder, expected_row_count)
+    assert (result.published, table.queryable_folder, table.row_count) == (
+        expected_published,
+        expected_folder,
+        expected_row_count,
+    )

@@ -1,7 +1,6 @@
 import uuid
 import asyncio
 import functools
-import dataclasses
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
@@ -13,6 +12,7 @@ from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 from structlog.contextvars import bind_contextvars
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
@@ -49,9 +49,10 @@ def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
     return call_in_span
 
 
-@dataclasses.dataclass
+@frozen
 class CreateTableResult:
     table: DataWarehouseTable
+    published: bool
     storage_delta_mib: float | None
     total_storage_mib: float | None
 
@@ -196,7 +197,9 @@ async def create_table_from_saved_query(
             ),
         )
         if publish is None:
-            return CreateTableResult(table=table_created, storage_delta_mib=None, total_storage_mib=None)
+            return CreateTableResult(
+                table=table_created, published=False, storage_delta_mib=None, total_storage_mib=None
+            )
 
         if publish.columns_changed:
             await database_sync_to_async(modeling_api.schedule_downstream_view_column_refresh)(
@@ -205,6 +208,7 @@ async def create_table_from_saved_query(
 
         return CreateTableResult(
             table=table_created,
+            published=True,
             storage_delta_mib=await _record_storage_delta(
                 job, table_created.size_in_s3_mib, publish.replaced_size_in_s3_mib
             ),
