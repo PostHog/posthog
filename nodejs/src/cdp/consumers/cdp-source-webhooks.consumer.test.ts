@@ -4,12 +4,14 @@ import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock
 
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
+import { CdpIntakeConsumer } from '~/cdp/consumers/cdp-intake.consumer'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
@@ -21,7 +23,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import * as posthogUtils from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
-import { consumeIntake, createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -111,6 +113,20 @@ describe('isUnexpectedWebhookError', () => {
         expect(isUnexpectedWebhookError(error)).toBe(expected)
     })
 })
+
+/** Feeds every run the routes produced to the workflow webhook intake topic through the intake consumer. */
+async function consumeIntake(hub: Hub): Promise<void> {
+    const messages = mockProducerObserver.produceSpy.mock.calls
+        .filter(([message]) => message.topic === hub.CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC)
+        .map(([message], offset) => ({ ...message, partition: 0, offset, size: 0, timestamp: Date.now() }) as Message)
+    const consumer = new CdpIntakeConsumer(hub, createCdpConsumerDeps(hub), 'workflow-webhook')
+    await consumer['cyclotron'].connect()
+    try {
+        await consumer.processBatch(messages)
+    } finally {
+        await consumer['cyclotron'].disconnect()
+    }
+}
 
 describe('SourceWebhooksConsumer', () => {
     let hub: Hub
@@ -791,7 +807,7 @@ describe('SourceWebhooksConsumer', () => {
 
                     it('answers duplicate once the intake consumer has claimed the run', async () => {
                         const first = await postWithKey(hogFlow.id, 'escalation-6')
-                        await consumeIntake(hub, 'workflow-webhook')
+                        await consumeIntake(hub)
                         const second = await postWithKey(hogFlow.id, 'escalation-6')
 
                         expect(first.status).toEqual(201)
@@ -802,12 +818,12 @@ describe('SourceWebhooksConsumer', () => {
 
                     it('produces a retry whose claim lookup fails, and the consumer still starts one run', async () => {
                         const first = await postWithKey(hogFlow.id, 'escalation-7')
-                        await consumeIntake(hub, 'workflow-webhook')
+                        await consumeIntake(hub)
                         jest.spyOn(queue, 'findIdempotencyKeys').mockRejectedValueOnce(
                             new Error('canceling statement due to statement timeout')
                         )
                         const retry = await postWithKey(hogFlow.id, 'escalation-7')
-                        await consumeIntake(hub, 'workflow-webhook')
+                        await consumeIntake(hub)
 
                         expect([first.status, retry.status]).toEqual([201, 201])
                         expect(startedRuns()).toHaveLength(1)
@@ -818,7 +834,7 @@ describe('SourceWebhooksConsumer', () => {
                             postWithKey(hogFlow.id, 'escalation-8'),
                             postWithKey(hogFlow.id, 'escalation-8'),
                         ])
-                        await consumeIntake(hub, 'workflow-webhook')
+                        await consumeIntake(hub)
 
                         expect(responses.map((res) => res.status)).toEqual([201, 201])
                         expect(startedRuns()).toHaveLength(1)
@@ -831,7 +847,7 @@ describe('SourceWebhooksConsumer', () => {
                             billable_action_types: ['function'],
                         })
                         const first = await postWithKey(billableHogFlow.id, 'escalation-quota')
-                        await consumeIntake(hub, 'workflow-webhook')
+                        await consumeIntake(hub)
                         await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
                         const second = await postWithKey(billableHogFlow.id, 'escalation-quota')
 

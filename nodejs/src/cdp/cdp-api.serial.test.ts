@@ -3405,10 +3405,10 @@ describe('CDP API', () => {
 
                     const jobs = await jobsOfFlow()
                     expect(jobs).toHaveLength(1)
-                    // Both are produced before either is claimed, so the consumer deduplicates the second.
-                    expect(responses.map((res) => [res.status, res.body.invocation_id, res.body.replayed])).toEqual([
-                        [202, jobs[0], false],
-                        [202, jobs[0], false],
+                    // A request that looks up the key after the other's insert answers replayed, so either may.
+                    expect(responses.map((res) => [res.status, res.body.invocation_id])).toEqual([
+                        [202, jobs[0]],
+                        [202, jobs[0]],
                     ])
                 })
             })
