@@ -13,6 +13,8 @@ DEFAULT_PAGE_SIZE = 250
 # returns well within the timeout.
 PAYMENT_METHODS_PAGE_SIZE = 50
 
+METAFIELD_OWNER_RESOURCES = ("address", "store", "customer", "subscription", "order", "charge")
+
 
 @dataclass(frozen=False)
 class RechargeEndpointConfig:
@@ -46,6 +48,10 @@ class RechargeEndpointConfig:
     # Records requested per page. Capped at 250 by Recharge; lower it for
     # endpoints whose pages are too slow to generate within the read timeout.
     page_size: int = DEFAULT_PAGE_SIZE
+    # Fail when the response has no list under the endpoint key, rather than sync zero rows.
+    data_selector_required: bool = False
+    # Values of the required `owner_resource` param. The table reads one request series per value.
+    owner_resources: tuple[str, ...] = ()
 
 
 def _timestamp_field(name: str) -> IncrementalField:
@@ -162,6 +168,27 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         path="/bundle_selections",
         incremental_fields=[],
         supports_incremental=False,
+    ),
+    # `/customer_entitlements` has no timestamp filter and no `sort_by` (it returns id-desc), and
+    # does not return deleted entitlements. The docs show a bare array in the response example
+    # but cursor fields in the params, so a body without the `customer_entitlements` key fails
+    # the sync instead of syncing zero rows.
+    "customer_entitlements": RechargeEndpointConfig(
+        name="customer_entitlements",
+        path="/customer_entitlements",
+        incremental_fields=[],
+        supports_incremental=False,
+        supports_sort=False,
+        data_selector_required=True,
+    ),
+    # `/metafields` requires `owner_resource` and has no timestamp filter, so it reads each owner
+    # type in turn on a full refresh. Metafield ids are unique across owner types.
+    "metafields": RechargeEndpointConfig(
+        name="metafields",
+        path="/metafields",
+        incremental_fields=[],
+        supports_incremental=False,
+        owner_resources=METAFIELD_OWNER_RESOURCES,
     ),
 }
 

@@ -19,7 +19,9 @@ see inline comments where behavior is assumed rather than confirmed.
 """
 
 import dataclasses
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -27,6 +29,7 @@ from requests import Request, Response
 from products.warehouse_sources.sources.recharge.settings import RECHARGE_ENDPOINTS, RechargeEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -48,11 +51,14 @@ class RechargeResumeConfig:
     ``cursor`` is the Recharge-issued ``next_cursor``; it encodes the original
     request filters (sort + timestamp window), so resuming only needs to replay
     the cursor. ``endpoint`` scopes the cursor to a single endpoint so we never
-    replay a customers cursor against orders.
+    replay a customers cursor against orders. ``owner_resource`` names the
+    ``metafields`` owner type that the cursor belongs to; with no cursor, the
+    sync starts that owner type from its first page.
     """
 
     endpoint: str
-    cursor: str
+    cursor: Optional[str] = None
+    owner_resource: Optional[str] = None
 
 
 class RechargeCursorPaginator(BasePaginator):
@@ -161,6 +167,26 @@ def _build_initial_params(
     return params
 
 
+def _iter_owner_resources(
+    owner_resources: tuple[str, ...],
+    start_index: int,
+    start_state: Optional[dict[str, Any]],
+    build_resource: Callable[[str, Optional[dict[str, Any]]], Any],
+    save_owner_start: Callable[[str], None],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the pages of each owner type in turn, from ``start_index``.
+
+    Before the first page of the next owner type, stage a state that starts that
+    owner type from its first page, so a resume does not read the finished owner
+    types again.
+    """
+    for index in range(start_index, len(owner_resources)):
+        owner_resource = owner_resources[index]
+        if index > start_index:
+            save_owner_start(owner_resource)
+        yield from build_resource(owner_resource, start_state if index == start_index else None)
+
+
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe ``/token_information`` — the cheapest call that confirms the token.
 
@@ -197,67 +223,117 @@ def recharge_source(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": RECHARGE_BASE_URL,
-            "headers": _headers(),
-            # api_key auth injects the token into the `X-Recharge-Access-Token`
-            # header and redacts it from logs and raised error messages.
-            "auth": {
-                "type": "api_key",
-                "api_key": api_key,
-                "name": "X-Recharge-Access-Token",
-                "location": "header",
-            },
-        },
-        "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # Recharge wraps records under a key matching the resource
-                    # (e.g. `{"customers": [...], "next_cursor": "..."}`).
-                    "data_selector": endpoint,
-                    "paginator": RechargeCursorPaginator(limit=config.page_size),
-                },
-            }
-        ],
-    }
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume: Optional[RechargeResumeConfig] = None
     if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
+        loaded = resumable_source_manager.load_state()
         # Only replay a cursor issued for THIS endpoint — a customers cursor is
         # meaningless (and rejected) against orders.
-        if resume is not None and resume.endpoint == endpoint:
-            initial_paginator_state = {"cursor": resume.cursor}
+        if loaded is not None and loaded.endpoint == endpoint:
+            resume = loaded
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+    def save_checkpoint(state: Optional[dict[str, Any]], owner_resource: Optional[str] = None) -> None:
         # Persist only when a next cursor remains; save AFTER a page is yielded so
         # a crash re-yields the last page (merge dedupes) rather than skipping it.
         if state and state.get("cursor"):
-            resumable_source_manager.save_state(RechargeResumeConfig(endpoint=endpoint, cursor=state["cursor"]))
+            resumable_source_manager.save_state(
+                RechargeResumeConfig(endpoint=endpoint, cursor=state["cursor"], owner_resource=owner_resource)
+            )
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    def build_resource(
+        request_params: dict[str, Any],
+        initial_paginator_state: Optional[dict[str, Any]],
+        resume_hook: Callable[[Optional[dict[str, Any]]], None],
+    ) -> Resource:
+        rest_config: RESTAPIConfig = {
+            "client": {
+                "base_url": RECHARGE_BASE_URL,
+                "headers": _headers(),
+                # api_key auth injects the token into the `X-Recharge-Access-Token`
+                # header and redacts it from logs and raised error messages.
+                "auth": {
+                    "type": "api_key",
+                    "api_key": api_key,
+                    "name": "X-Recharge-Access-Token",
+                    "location": "header",
+                },
+            },
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": request_params,
+                        # Recharge wraps records under a key matching the resource
+                        # (e.g. `{"customers": [...], "next_cursor": "..."}`).
+                        "data_selector": endpoint,
+                        "data_selector_required": config.data_selector_required,
+                        "paginator": RechargeCursorPaginator(limit=config.page_size),
+                    },
+                }
+            ],
+        }
+        return rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=resume_hook,
+            initial_paginator_state=initial_paginator_state,
+        )
+
+    resume_state = {"cursor": resume.cursor} if resume is not None and resume.cursor else None
+
+    items: Callable[[], Iterable[Any]]
+    if config.owner_resources:
+        owners = config.owner_resources
+        if resume is not None and resume.owner_resource in owners:
+            start_index = owners.index(resume.owner_resource)
+        else:
+            # A cursor without a known owner type cannot be replayed safely.
+            start_index, resume_state = 0, None
+
+        def build_owner_resource(owner_resource: str, state: Optional[dict[str, Any]]) -> Resource:
+            return build_resource(
+                {**params, "owner_resource": owner_resource},
+                state,
+                lambda page_state: save_checkpoint(page_state, owner_resource),
+            )
+
+        def save_owner_start(owner_resource: str) -> None:
+            resumable_source_manager.save_state(RechargeResumeConfig(endpoint=endpoint, owner_resource=owner_resource))
+
+        # Built only to carry the column hints; the walk builds one resource per owner type.
+        resource = build_owner_resource(owners[start_index], resume_state)
+        # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points.
+        owner_walk = Resource(
+            partial(_iter_owner_resources, owners, start_index, resume_state, build_owner_resource, save_owner_start),
+            name=endpoint,
+            hints=resource._hints,
+        )
+
+        def owner_walk_items() -> Iterable[Any]:
+            return owner_walk
+
+        items = owner_walk_items
+    else:
+        resource = build_resource(params, resume_state, save_checkpoint)
+
+        def resource_items() -> Iterable[Any]:
+            return resource
+
+        items = resource_items
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,
         # Without `sort_by` the rows come in the API's default order, not by the
-        # incremental field.
-        sort_mode="asc" if config.supports_sort else None,
+        # incremental field. An owner walk restarts the order for each owner type.
+        sort_mode="asc" if config.supports_sort and not config.owner_resources else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
