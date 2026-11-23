@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.test.fixtures import create_app_metric2
@@ -733,6 +734,38 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
 
         assert [(d.new_tier, d.reason) for d in decisions] == [(expected_tier, expected_reason)]
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+
+    def test_a_cooldown_ending_mid_sweep_does_not_demote_twice(self) -> None:
+        demoted_at = datetime(2026, 1, 10, 8, 0, 5, tzinfo=UTC)
+        demotion_hour = demoted_at.replace(second=0)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": 4,
+                "email_sending_tier_updated_at": demoted_at,
+                "email_sending_tier_demoted_at": demoted_at,
+            },
+        )
+        for day in range(-7, 7):
+            self._metric("email_sent", 200, demotion_hour + timedelta(days=day, hours=5))
+        self._metric("email_blocked", 2, demotion_hour)
+
+        with time_machine.travel(demoted_at + timedelta(days=7, seconds=-10), tick=False) as traveller:
+
+            def slow_fetch(**kwargs):
+                # The cooldown ends while the sweep reads metrics, after the window was cut.
+                result = fetch_app_metric_daily_totals_by_team(**kwargs)
+                traveller.shift(timedelta(seconds=11))
+                return result
+
+            with patch(
+                "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
+                side_effect=slow_fetch,
+            ):
+                decisions = recompute_email_sending_tiers(team_ids=[self.team.id])
+
+        assert [(d.new_tier, d.reason) for d in decisions] == [(4, "demotion_cooldown")]
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 4
 
 
 @override_settings(**TIER_SETTINGS)
