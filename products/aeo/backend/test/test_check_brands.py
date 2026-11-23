@@ -345,6 +345,37 @@ class TestResolveCheckBrands(BaseTest):
         assert AEOCheckBrand.objects.for_team(self.team.id).filter(brand=acme, mentioned=True).count() == 3
         assert not has_stale_brands(self.team.id)
 
+    @parameterized.expand([("a_newer_name", ["Coyote"]), ("back_to_the_old_names", [])])
+    def test_a_pass_that_outlived_its_lock_never_writes_over_a_newer_pass(self, _name: str, aliases: list[str]) -> None:
+        acme = self._brand("acme.com", "Acme Inc")
+        for text in ("Roadrunner one.", "Roadrunner two.", "Roadrunner three."):
+            self._check(answer_text=text)
+        enrich_check_brands(self.team.id)
+        acme.refresh_from_db()
+        acme.aliases = ["Roadrunner"]
+        acme.save()
+        write = check_brands.write_check_brands
+        newer_pass_ran: list[bool] = []
+
+        def a_newer_pass_runs_after_the_first_page(*args: Any, **kwargs: Any) -> int:
+            written = write(*args, **kwargs)
+            if not newer_pass_ran:
+                newer_pass_ran.append(True)
+                acme.refresh_from_db()
+                acme.aliases = aliases
+                acme.save()
+                resolve_stale_brands(self.team.id)
+            return written
+
+        with (
+            patch.object(check_brands, "RESOLVE_BATCH_SIZE", 1),
+            patch.object(check_brands, "write_check_brands", side_effect=a_newer_pass_runs_after_the_first_page),
+        ):
+            resolve_stale_brands(self.team.id)
+
+        assert not AEOCheckBrand.objects.for_team(self.team.id).filter(brand=acme).exists()
+        assert not has_stale_brands(self.team.id)
+
     def test_a_failed_check_is_resolved_without_rows(self) -> None:
         self._brand("acme.com", "Acme")
         self._check(check_failed=True, answer_text=None)

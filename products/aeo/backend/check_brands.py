@@ -466,8 +466,13 @@ def resolve_stale_brands(team_id: int) -> ResolveResult:
     for brand, identity in stale:
         resume = None
         if brand.mentions_resolving_key != identity.key:
+            # The brand counts as stale until a pass finishes: an edit back to the identity its rows had
+            # before still finds them partly rewritten for the one this pass resolves.
             brands.filter(id=brand.id).update(
-                mentions_resolving_key=identity.key, mentions_resolved_before=None, mentions_resolved_before_id=None
+                mentions_key=None,
+                mentions_resolving_key=identity.key,
+                mentions_resolved_before=None,
+                mentions_resolved_before_id=None,
             )
         elif brand.mentions_resolved_before and brand.mentions_resolved_before_id:
             resume = _ResumePoint(created_at=brand.mentions_resolved_before, id=brand.mentions_resolved_before_id)
@@ -481,12 +486,16 @@ def resolve_stale_brands(team_id: int) -> ResolveResult:
     # brands' rows are written.
     matcher = BrandMatcher(catalog_identities(team_id))
     for resume, identities in groups.items():
-        brand_ids = {identity.brand_id for identity in identities}
-        # A brand edited since the pass began no longer resolves this identity, so its place stays where it was.
+        # A brand that a newer pass took over or finished no longer resolves this pass's identity.
         resolving = reduce(
             operator.or_, (Q(id=identity.brand_id, mentions_resolving_key=identity.key) for identity in identities)
         )
         for page in _pages(resolved, after=resume):
+            # A pass that outlived its lock may run beside a newer one. Before each page it writes only the
+            # brands still resolving its identity, so it never overwrites rows a newer pass wrote.
+            brand_ids = set(brands.filter(resolving).values_list("id", flat=True))
+            if not brand_ids:
+                break
             written += write_check_brands(page, matcher, brand_ids=brand_ids)
             read += len(page)
             brands.filter(resolving).update(
