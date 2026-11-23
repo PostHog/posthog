@@ -9,13 +9,18 @@ import {
 } from '~/common/personhog/persons'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
-import { InternalPerson } from '~/types'
+import { PluginEvent } from '~/plugin-scaffold'
+import { InternalPerson, Team } from '~/types'
 
+import { PersonContext } from './person-context'
+import { PersonEventProcessor } from './person-event-processor'
+import { PersonMergeService } from './person-merge-service'
 import {
     PersonMergeCallFailedError,
     PersonMergeNotAppliedError,
     createDefaultSyncMergeMode,
 } from './person-merge-types'
+import { PersonPropertyService } from './person-property-service'
 import { EventOps, extractEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import {
@@ -27,6 +32,7 @@ import {
     personhogStoreFlushErrorCounter,
     personhogStoreMergeDrainCounter,
     personhogStorePrefetchAnswerCounter,
+    personhogStoreSamePersonMergeCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
@@ -65,8 +71,6 @@ describe('PersonhogPersonsStore', () => {
             properties: { plan: 'free' },
             created_at: DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             version: 1,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             is_user_id: null,
             is_identified: false,
             last_seen_at: null,
@@ -405,7 +409,7 @@ describe('PersonhogPersonsStore', () => {
         // resolved mapping.
         ;(store as any).cacheFetchedPerson(1, 'd1', null, 0, {
             grade: 'update',
-            generation: (store as any).generationOf(1),
+            read: (store as any).beginRead(),
         })
         const again = await bound.fetchForUpdate(1, 'd1')
         expect(again?.id).toBe('7')
@@ -434,10 +438,55 @@ describe('PersonhogPersonsStore', () => {
     })
 
     it.each([
+        ['is recorded when nothing purged its person', (): void => {}, '1:9'],
+        [
+            'is declined when a merge purged its person',
+            (): void => (store as any).purgeAfterMerge(1, ['elsewhere'], new Set(['1:9']), 'merge_verdict', true),
+            undefined,
+        ],
+    ])('a prefetch answer that outlives a failed leader read %s', async (_case, purge, edge) => {
+        let release: () => void = () => {}
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([
+            { teamId: 1, distinctId: 'd1', person: { ...person } },
+            { teamId: 1, distinctId: 'd2', person: { ...person, id: '9' } },
+        ] as never)
+        repository.fetchPersonById.mockImplementation(((_teamId: number, personId: string) =>
+            personId === '7'
+                ? Promise.reject(new Error('leader unavailable'))
+                : new Promise((resolve) => {
+                      release = () => resolve({ ...person, id: '9' })
+                  })) as never)
+        store.forBatch(0)
+
+        const prefetching = store.prefetchPersons([
+            { teamId: 1, distinctId: 'd1', batchId: 0 },
+            { teamId: 1, distinctId: 'd2', batchId: 0 },
+        ])
+        // Resolves while the second leader read is still pending.
+        await prefetching
+        purge()
+        release()
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(edgeOf('1:d2')).toBe(edge)
+    })
+
+    it('an answer that arrives after its read ended is served but not recorded', () => {
+        store.forBatch(0)
+        const read = (store as any).beginRead()
+        ;(store as any).endRead(read)
+
+        const served = (store as any).cacheFetchedPerson(1, 'd1', person, 0, { grade: 'update', read })
+
+        expect(served?.id).toBe('7')
+        expect(edgeOf('1:d1')).toBeUndefined()
+    })
+
+    it.each([
         ['an answer nothing raced as cached', (): void => {}, 'cached_found'],
         [
             'an answer a same-team merge overtook as stale',
-            (): void => (store as any).bumpGeneration(1),
+            (): void => (store as any).fencePurge(['1:d1'], []),
             'stale_generation',
         ],
         [
@@ -607,6 +656,85 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
         })
 
+        const rejectedWith = (code: Code, headers?: Record<string, string>) => (): Promise<never> =>
+            Promise.reject(new ConnectError('refused', code, new Headers(headers)))
+        const answeredWith =
+            (sources: Record<string, unknown>[], survives = true) =>
+            (): Promise<unknown> =>
+                Promise.resolve({
+                    survivor: survives ? survivor() : null,
+                    results: sources.map((source, i) => ({ sourceDistinctId: `anon-${i + 1}`, ...source })),
+                })
+
+        it.each([
+            ['a call that fails with no verdict', rejectedWith(Code.Unavailable), undefined],
+            [
+                'a call refused for a reused op id',
+                rejectedWith(Code.FailedPrecondition, { 'x-semantic-refusal': 'op_id_reused' }),
+                undefined,
+            ],
+            [
+                'a reused op id refusal whose status code a hop remapped',
+                rejectedWith(Code.InvalidArgument, { 'x-semantic-refusal': 'op_id_reused' }),
+                undefined,
+            ],
+            ['a verdict with an errored source', answeredWith([{ outcome: 'error' }]), undefined],
+            ['a verdict with an outcome this build cannot name', answeredWith([{ outcome: 'unknown' }]), undefined],
+            ['a merged verdict that names no source person', answeredWith([{ outcome: 'merged' }]), undefined],
+            [
+                'a merged verdict with no survivor',
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }], false),
+                undefined,
+            ],
+            [
+                'a verdict with one named merge and one errored source',
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }, { outcome: 'error' }]),
+                undefined,
+            ],
+            [
+                'a verdict with an unsettled conflict',
+                answeredWith([{ outcome: 'skipped_conflict', settled: false }]),
+                '1:9',
+            ],
+            ['a verdict that attaches a personless source', answeredWith([{ outcome: 'attached' }]), '1:9'],
+            [
+                'a verdict that names the merged person',
+                answeredWith([{ outcome: 'merged', sourcePersonId: '8' }]),
+                '1:9',
+            ],
+            [
+                'a call the service did not apply',
+                rejectedWith(Code.Unavailable, { 'x-not-applied': 'load_shed' }),
+                '1:9',
+            ],
+            ['a refused call', rejectedWith(Code.InvalidArgument), '1:9'],
+        ])(
+            '%s decides whether a read in flight for a person it does not name records',
+            async (_case, merge, expected) => {
+                // An out-of-band merge moved anon-1 from person 8 to person 9, which the store never names.
+                repository.mergePersons = jest.fn(merge) as never
+                let release: () => void = () => {}
+                repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
+                    keys[0].distinctId === 'bystander'
+                        ? new Promise((resolve) => {
+                              release = () =>
+                                  resolve([{ teamId: 1, distinctId: 'bystander', person: { ...person, id: '9' } }])
+                          })
+                        : Promise.resolve([
+                              { teamId: 1, distinctId: 'd1', person: { ...person, id: '7' } },
+                              { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '8' } },
+                          ])) as never)
+                const bound = store.forBatch(0)
+
+                const reading = bound.fetchForUpdate(1, 'bystander')
+                await bound.mergePersons(mergeRequest()).catch(() => undefined)
+                release()
+                await reading
+
+                expect(edgeOf('1:bystander')).toBe(expected)
+            }
+        )
+
         it('later fetches of the merged ids re-resolve and read the leader', async () => {
             const bound = store.forBatch(0)
             await bound.fetchForUpdate(1, 'd1')
@@ -764,13 +892,450 @@ describe('PersonhogPersonsStore', () => {
         })
     })
 
+    describe('mergePersons settles a merge of ids that already share one person', () => {
+        const leaderDocument = (id = '7'): InternalPerson => ({
+            ...person,
+            id,
+            properties: { plan: 'leader' },
+            version: 5,
+        })
+
+        const request = (sources: string[] = ['anon-1']) => ({
+            teamId: 1,
+            targetDistinctId: 'd1',
+            sources: sources.map((distinctId) => ({ distinctId, eventUuid: 'event-uuid' })),
+            eventOps: ops({ $set: { plan: 'pro' } }, '$identify'),
+            eventUuid: 'event-uuid',
+            allowIdentifiedSources: false,
+            mergeMode: createDefaultSyncMergeMode(),
+            createdAtMs: 3_600_000,
+        })
+
+        const identityResolves = (owners: Record<string, string>): void => {
+            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
+                Promise.resolve(
+                    keys.map(({ distinctId }) => ({
+                        teamId: 1,
+                        distinctId,
+                        person: distinctId in owners ? { ...person, id: owners[distinctId] } : null,
+                    }))
+                )) as never)
+        }
+
+        const actions = async (): Promise<Record<string, number>> =>
+            Object.fromEntries(
+                (await personhogStoreSamePersonMergeCounter.get()).values.map((entry) => [
+                    entry.labels.action,
+                    entry.value,
+                ])
+            )
+
+        // A creation purges the extra distinct id it names.
+        const purgeDistinctId = (
+            bound: ReturnType<PersonhogPersonsStore['forBatch']>,
+            distinctId: string
+        ): Promise<unknown> =>
+            bound.createPerson(
+                DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                {},
+                1,
+                null,
+                false,
+                'advisory-uuid',
+                { distinctId: 'new' },
+                [{ distinctId }]
+            )
+
+        const holdNextLeaderRead = (): { started: Promise<void>; answer: (document: InternalPerson) => void } => {
+            let markStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve
+            })
+            let resolveRead: (document: InternalPerson) => void = () => {}
+            repository.fetchPersonById.mockImplementationOnce((() => {
+                markStarted()
+                return new Promise<InternalPerson>((resolve) => {
+                    resolveRead = resolve
+                })
+            }) as never)
+            return { started, answer: (document) => resolveRead(document) }
+        }
+
+        beforeEach(() => {
+            personhogStoreSamePersonMergeCounter.reset()
+            store = new PersonhogPersonsStore(repository, { settleSamePersonMergesTeamAllowlist: '1' })
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: leaderDocument(),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+            })
+            repository.fetchPersonById.mockImplementation(((_teamId: number, personId: string) =>
+                Promise.resolve(leaderDocument(personId))) as never)
+        })
+
+        it.each([
+            ['a single source for a listed team', ['anon-1'], '1'],
+            ['every source of a fold when every team is allowed', ['anon-1', 'anon-2'], '*'],
+        ])('answers %s from the leader document without the identity call', async (_shape, sources, allowlist) => {
+            store = new PersonhogPersonsStore(repository, { settleSamePersonMergesTeamAllowlist: allowlist })
+            identityResolves({ d1: '7', 'anon-1': '7', 'anon-2': '7' })
+
+            const result = await store.forBatch(0).mergePersons(request(sources))
+
+            expect(repository.mergePersons).not.toHaveBeenCalled()
+            expect(result.survivor).toMatchObject({ id: '7', properties: { plan: 'leader' } })
+            expect(result.results).toEqual(
+                sources.map((sourceDistinctId) => ({ sourceDistinctId, outcome: 'noop_same_person', settled: true }))
+            )
+            expect(await actions()).toEqual({ settled: 1 })
+            expect(edgeOf('1:d1')).toBeUndefined()
+            expect(edgeOf('1:anon-1')).toBeUndefined()
+            expect(hasProjection('1:7')).toBe(false)
+        })
+
+        const samePerson = { d1: '7', 'anon-1': '7' }
+        const sentCases: { reason: string; allowlist: string; owners: Record<string, string>; sources: string[] }[] = [
+            { reason: 'the allowlist is empty', allowlist: '', owners: samePerson, sources: ['anon-1'] },
+            { reason: 'the team is not on the allowlist', allowlist: '2,3', owners: samePerson, sources: ['anon-1'] },
+            { reason: 'neither id resolves to a person', allowlist: '1', owners: {}, sources: ['anon-1'] },
+            { reason: 'the target resolves to nobody', allowlist: '1', owners: { 'anon-1': '7' }, sources: ['anon-1'] },
+            { reason: 'a source resolves to nobody', allowlist: '1', owners: { d1: '7' }, sources: ['anon-1'] },
+            {
+                reason: 'a source is on another person',
+                allowlist: '1',
+                owners: { d1: '7', 'anon-1': '9' },
+                sources: ['anon-1'],
+            },
+            {
+                reason: 'one source of a fold is on another person',
+                allowlist: '1',
+                owners: { d1: '7', 'anon-1': '7', 'anon-2': '9' },
+                sources: ['anon-1', 'anon-2'],
+            },
+        ]
+
+        it.each(sentCases)('sends identity the whole request when $reason', async ({ allowlist, owners, sources }) => {
+            store = new PersonhogPersonsStore(repository, { settleSamePersonMergesTeamAllowlist: allowlist })
+            identityResolves(owners)
+
+            await store.forBatch(0).mergePersons(request(sources))
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect((repository.mergePersons as jest.Mock).mock.calls[0][0].sources).toEqual(request(sources).sources)
+            expect(await actions()).toEqual({})
+        })
+
+        it('serves the projection with the ops its lane holds, without a leader read', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const bound = store.forBatch(0)
+            const cached = await bound.fetchForUpdate(1, 'd1')
+            await bound.applyEventOps(cached!, ops({ $set: { folded: 'yes' } }), 'd1')
+            repository.fetchPersonById.mockClear()
+
+            const result = await bound.mergePersons(request())
+
+            expect(result.survivor?.properties).toEqual({ plan: 'leader', folded: 'yes' })
+            expect(repository.fetchPersonById).not.toHaveBeenCalled()
+            expect(repository.mergePersons).not.toHaveBeenCalled()
+        })
+
+        it.each(['$identify', '$create_alias', '$merge_dangerously'])(
+            'a %s for ids on one person reaches the leader as one forced update with the identified flip',
+            async (eventName) => {
+                identityResolves({ d1: '7', 'anon-1': '7' })
+                const bound = store.forBatch(0)
+                const event = {
+                    event: eventName,
+                    uuid: 'event-uuid',
+                    distinct_id: 'd1',
+                    team_id: 1,
+                    properties: {
+                        $anon_distinct_id: 'anon-1',
+                        alias: 'anon-1',
+                        $set: { plan: 'pro' },
+                        $set_once: { first: 'x' },
+                        $unset: ['gone'],
+                    },
+                } as unknown as PluginEvent
+                const context = new PersonContext(
+                    event,
+                    { id: 1 } as Team,
+                    'd1',
+                    DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                    true,
+                    { queueMessages: jest.fn().mockResolvedValue(undefined) } as never,
+                    bound,
+                    0,
+                    createDefaultSyncMergeMode()
+                )
+                const processor = new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context)
+                )
+
+                await processor.processEvent()
+                await bound.flush()
+
+                expect(repository.mergePersons).not.toHaveBeenCalled()
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+                expect(repository.updatePersonProperties.mock.calls[0][0]).toMatchObject({
+                    personId: '7',
+                    eventName,
+                    setProperties: { plan: 'pro' },
+                    setOnceProperties: { first: 'x' },
+                    unsetProperties: ['gone'],
+                    isIdentified: true,
+                    forceUpdate: true,
+                })
+            }
+        )
+
+        it('the event update after a settle builds on the leader document, not on a checking read', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const bound = store.forBatch(0)
+            await bound.fetchForChecking(1, 'd1')
+
+            const result = await bound.mergePersons(request())
+            const [updated] = await bound.applyEventOps(result.survivor!, ops({ $set: { added: 'yes' } }), 'd1')
+
+            expect(updated.properties).toEqual({ plan: 'leader', added: 'yes' })
+        })
+
+        it.each([
+            ['has no document for the person', () => Promise.resolve(null)],
+            ['read fails', () => Promise.reject(new ConnectError('leader unavailable', Code.Unavailable))],
+        ])('sends the merge to identity when the leader %s', async (_reason, leaderRead) => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            repository.fetchPersonById.mockImplementation(leaderRead as never)
+
+            const result = await store.forBatch(0).mergePersons(request())
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(result.results[0]?.outcome).toBe('merged')
+            expect(await actions()).toEqual({ sent_survivor_unavailable: 1 })
+        })
+
+        it('a retry after a call with no verdict reaches identity although the ids now share one person', async () => {
+            identityResolves({ d1: '7', 'anon-1': '9' })
+            repository.mergePersons = jest
+                .fn()
+                .mockRejectedValueOnce(
+                    new ConnectError(
+                        'refused after the flip',
+                        Code.FailedPrecondition,
+                        new Headers({ 'x-semantic-refusal': 'release-unverified' })
+                    )
+                )
+                .mockResolvedValue({
+                    survivor: leaderDocument(),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+                })
+            const bound = store.forBatch(0)
+            await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
+            identityResolves({ d1: '7', 'anon-1': '7' })
+
+            const retried = await bound.mergePersons(request())
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(2)
+            expect(retried.results[0]?.outcome).toBe('merged')
+
+            await bound.mergePersons(request())
+            expect(repository.mergePersons).toHaveBeenCalledTimes(2)
+            expect(await actions()).toEqual({ sent_no_verdict_op: 1, settled: 1 })
+        })
+
+        it('a second delivery reaches identity while the first call is still there', async () => {
+            identityResolves({ d1: '7', 'anon-1': '9' })
+            const verdict = {
+                survivor: leaderDocument(),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+            }
+            let callStarted: () => void = () => {}
+            const atIdentity = new Promise<void>((resolve) => {
+                callStarted = resolve
+            })
+            let answer: () => void = () => {}
+            repository.mergePersons = jest
+                .fn()
+                .mockImplementationOnce(() => {
+                    callStarted()
+                    return new Promise((resolve) => {
+                        answer = () => resolve(verdict)
+                    })
+                })
+                .mockResolvedValue(verdict)
+            const bound = store.forBatch(0)
+            const first = bound.mergePersons(request())
+            await atIdentity
+            identityResolves({ d1: '7', 'anon-1': '7' })
+
+            await bound.mergePersons(request())
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(2)
+            expect(await actions()).toEqual({ sent_no_verdict_op: 1 })
+            answer()
+            await first
+        })
+
+        it('leaves an answer that is in flight for the team cacheable', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7', other: '8' })
+            let releaseRead: (document: InternalPerson) => void = () => {}
+            const otherRead = new Promise<InternalPerson>((resolve) => {
+                releaseRead = resolve
+            })
+            repository.fetchPersonById.mockImplementation(((_teamId: number, personId: string) =>
+                personId === '8' ? otherRead : Promise.resolve(leaderDocument(personId))) as never)
+            const bound = store.forBatch(0)
+            const fetching = bound.fetchForUpdate(1, 'other')
+
+            await bound.mergePersons(request())
+            releaseRead(leaderDocument('8'))
+            await fetching
+
+            repository.resolvePersonsByDistinctIds.mockClear()
+            repository.fetchPersonById.mockClear()
+            expect((await bound.fetchForUpdate(1, 'other'))?.id).toBe('8')
+            expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
+            expect(repository.fetchPersonById).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['names another person for a source', { d1: '7', 'anon-1': '9' }],
+            ['holds an absence for a source', { d1: '7' }],
+        ])('sends the merge to identity when the cache %s', async (_state, owners) => {
+            identityResolves(owners)
+            const bound = store.forBatch(0)
+            await bound.fetchForChecking(1, 'anon-1')
+            identityResolves({ d1: '7', 'anon-1': '7' })
+
+            await bound.mergePersons(request())
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
+        })
+
+        it('sends the merge to identity when a read records another person for a source during its leader read', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const bound = store.forBatch(0)
+            const merging = bound.mergePersons(request())
+            await leaderRead.started
+            identityResolves({ 'anon-1': '9' })
+            await bound.fetchForChecking(1, 'anon-1')
+            leaderRead.answer(leaderDocument())
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
+        })
+
+        it('sends the merge to identity when the edge to another person is released during its leader read', async () => {
+            identityResolves({ d1: '5' })
+            await store.forBatch(0).fetchForChecking(1, 'd1')
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const merging = store.forBatch(1).mergePersons(request())
+            await leaderRead.started
+            store.releaseBatch(0)
+            leaderRead.answer(leaderDocument())
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
+        })
+
+        it('sends the merge to identity when the survivor lane holds ops that no projection carries', async () => {
+            // The purge of the other merge drops person 7's projection and keeps its lane.
+            identityResolves({ d1: '7', other: '9' })
+            const bound = store.forBatch(0)
+            ;(repository.mergePersons as jest.Mock).mockImplementationOnce(async () => {
+                await bound.applyEventOps(leaderDocument(), ops({ $set: { lane: 'yes' } }), 'd1')
+                return {
+                    survivor: leaderDocument(),
+                    results: [{ sourceDistinctId: 'other', outcome: 'merged', sourcePersonId: '9' }],
+                }
+            })
+            await bound.mergePersons(request(['other']))
+            identityResolves({ d1: '7', 'anon-1': '7' })
+
+            await bound.mergePersons(request())
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(2)
+            expect(await actions()).toEqual({ sent_unwritten_lane: 1 })
+        })
+
+        it.each([
+            ['one of its ids sends the merge to identity', 'anon-1', 1, { sent_stale_generation: 1 }],
+            ['another id of the team leaves the merge settled', 'unrelated', 0, { settled: 1 }],
+        ])('a purge of %s when it ran during the leader read', async (_effect, purged, identityCalls, counted) => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const bound = store.forBatch(0)
+            const merging = bound.mergePersons(request())
+            await leaderRead.started
+            await purgeDistinctId(bound, purged)
+            leaderRead.answer(leaderDocument())
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(identityCalls)
+            expect(await actions()).toEqual(counted)
+        })
+
+        it('sends the merge to identity when a purge ran while its resolve was in flight', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const bound = store.forBatch(0)
+            // With a projection cached the settle makes no leader read, so the resolve is the only window.
+            const cached = await bound.fetchForUpdate(1, 'd1')
+            await bound.applyEventOps(cached!, ops({ $set: { folded: 'yes' } }), 'd1')
+            let resolveStarted: () => void = () => {}
+            const resolving = new Promise<void>((resolve) => {
+                resolveStarted = resolve
+            })
+            let releaseResolve: () => void = () => {}
+            repository.resolvePersonsByDistinctIds.mockImplementationOnce(((keys: { distinctId: string }[]) => {
+                resolveStarted()
+                return new Promise((resolve) => {
+                    releaseResolve = () =>
+                        resolve(
+                            keys.map(({ distinctId }) => ({ teamId: 1, distinctId, person: { ...person, id: '7' } }))
+                        )
+                })
+            }) as never)
+            const merging = bound.mergePersons(request())
+            await resolving
+            await purgeDistinctId(bound, 'anon-1')
+            releaseResolve()
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_generation: 1 })
+        })
+
+        it('keeps the projection an event installed while the leader read was in flight', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const bound = store.forBatch(0)
+            const merging = bound.mergePersons(request())
+            await leaderRead.started
+            const cached = await bound.fetchForUpdate(1, 'd1')
+            await bound.applyEventOps(cached!, ops({ $set: { folded: 'yes' } }), 'd1')
+            leaderRead.answer({ ...leaderDocument(), version: 6 })
+
+            const result = await merging
+
+            expect(result.survivor?.properties).toMatchObject({ folded: 'yes' })
+        })
+    })
+
     it('creation memoizes the primary id and leaves the extras to resolve', async () => {
         const bound = store.forBatch(0)
         const result = await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { initial: 'props' },
-            {},
-            {},
             1,
             null,
             false,
@@ -813,8 +1378,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 true,
@@ -847,8 +1410,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             {},
-            {},
-            {},
             1,
             null,
             true,
@@ -878,8 +1439,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             {},
-            {},
-            {},
             1,
             null,
             false,
@@ -895,6 +1454,40 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.properties).toEqual({ plan: 'fresh' })
         expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
+    })
+
+    it("a create that finds a person without properties writes the event's properties as an update", async () => {
+        person.properties = {}
+        repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
+        repository.fetchPersonById.mockResolvedValue(person as never)
+        const bound = store.forBatch(0)
+
+        const result = await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            { plan: 'pro', first: 'x' },
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        if (!result.success) {
+            throw new Error('create did not succeed')
+        }
+        expect(result.created).toBe(false)
+        await bound.applyEventOps(
+            result.person,
+            ops({ $set: { plan: 'pro' }, $set_once: { first: 'x' } }, '$pageview'),
+            'd1'
+        )
+        await bound.flush()
+
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        const sent = repository.updatePersonProperties.mock.calls[0][0]
+        expect(sent.personId).toEqual('7')
+        expect(sent.setProperties).toEqual({ plan: 'pro' })
+        expect(sent.setOnceProperties).toEqual({ first: 'x' })
     })
 
     it('a create answer declined by a purge still clears the absence it contradicts', async () => {
@@ -914,8 +1507,6 @@ describe('PersonhogPersonsStore', () => {
         const creating = bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { seed: 'value' },
-            {},
-            {},
             1,
             null,
             false,
@@ -923,7 +1514,7 @@ describe('PersonhogPersonsStore', () => {
             { distinctId: 'd1' },
             undefined
         )
-        ;(store as any).bumpGeneration(1)
+        ;(store as any).fencePurge(['1:d1'], [])
         release({ person, created: false })
         await creating
 
@@ -986,7 +1577,7 @@ describe('PersonhogPersonsStore', () => {
             const fetching = bound.fetchForUpdate(1, 'd1')
             await called
             // A purge and a newer read replace the edge while the leader read is out.
-            ;(store as any).bumpGeneration(1)
+            ;(store as any).fencePurge(['1:d1'], [])
             ;(store as any).setDistinctIdToPersonId('1:d1', newer)
             release(null)
             await fetching
@@ -1332,7 +1923,7 @@ describe('PersonhogPersonsStore', () => {
             )
 
             const applying = bound.applyEventOps(person, ops({ $set: { folded: 'yes' } }), 'd1')
-            ;(store as any).bumpGeneration(1)
+            ;(store as any).fencePurge(['1:d1'], [])
             release({ ...person, id: '9' })
             await applying
 
@@ -1554,8 +2145,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -1576,7 +2165,7 @@ describe('PersonhogPersonsStore', () => {
             // wire; the answer predates the purge, so serving it is fine but
             // recording it would refill exactly what the purge dropped.
             repository.resolvePersonsByDistinctIds.mockImplementation((() => {
-                ;(store as any).purgeAfterMerge(1, ['d1'], new Set<string>(), 'merge_verdict')
+                ;(store as any).purgeAfterMerge(1, ['d1'], new Set<string>(), 'merge_verdict', true)
                 return Promise.resolve([{ teamId: 1, distinctId: 'd1', person }])
             }) as never)
             repository.fetchPersonById.mockResolvedValue({ ...person } as never)
@@ -1616,8 +2205,6 @@ describe('PersonhogPersonsStore', () => {
 
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -1726,8 +2313,6 @@ describe('PersonhogPersonsStore', () => {
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -1754,23 +2339,55 @@ describe('PersonhogPersonsStore', () => {
             expect(projectionCount()).toBe(0)
         })
 
-        it("a merge on another team's persons does not discard this read", async () => {
+        it.each([
+            ["a merge on another team's persons", 2, ['elsewhere'], ['2:99', '2:98'], '1:7'],
+            ['a same-team merge of other ids and persons', 1, ['elsewhere'], ['1:99', '1:98'], '1:7'],
+            ['a same-team merge of the person this id resolves to', 1, ['alias'], ['1:7', '1:98'], undefined],
+            ['a same-team merge of a person keyed like this distinct id', 1, ['elsewhere'], ['1:d1'], '1:7'],
+        ])('%s settling mid-read decides whether the read records', async (_case, teamId, ids, persons, expected) => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockImplementation((() => {
-                // A merge for a different person, in a different team,
-                // settles while this read is in flight. The generation guard
-                // is per team, so this read still records.
-                ;(store as any).purgeAfterMerge(2, ['elsewhere'], new Set(['2:99', '2:98']), 'merge_verdict')
+                ;(store as any).purgeAfterMerge(teamId, ids, new Set(persons), 'merge_verdict', true)
                 return Promise.resolve([{ teamId: 1, distinctId: 'd1', person }]) as never
             }) as never)
             repository.fetchPersonById.mockResolvedValue(person as never)
 
             await bound.fetchForUpdate(1, 'd1')
 
-            // Discarding it would make the cache useless under merge load
-            // and leave any loop that re-reads unable to make progress,
-            // which is what a process-wide counter did.
-            expect(edgeOf('1:d1')).toBe('1:7')
+            expect(edgeOf('1:d1')).toBe(expected)
+            expect(
+                (store as any).purgedDistinctKeys.size +
+                    (store as any).purgedPersonKeys.size +
+                    (store as any).purgedTeams.size
+            ).toBe(0)
+        })
+
+        it('a read that ends drops the marks no open read predates and keeps the rest', async () => {
+            const bound = store.forBatch(0)
+            const release: Record<string, () => void> = {}
+            repository.resolvePersonsByDistinctIds.mockImplementation(
+                (([{ distinctId }]: { distinctId: string }[]) =>
+                    new Promise((resolve) => {
+                        release[distinctId] = () => resolve([{ teamId: 1, distinctId, person }])
+                    })) as never
+            )
+            repository.fetchPersonById.mockResolvedValue(person as never)
+            const purge = (distinctId: string): void =>
+                (store as any).purgeAfterMerge(1, [distinctId], new Set<string>(), 'merge_verdict', true)
+
+            const older = bound.fetchForUpdate(1, 'older')
+            await new Promise((resolve) => setImmediate(resolve))
+            purge('elsewhere')
+            const newer = bound.fetchForUpdate(1, 'newer')
+            await new Promise((resolve) => setImmediate(resolve))
+            purge('newer')
+            release.older()
+            await older
+
+            expect([...(store as any).purgedDistinctKeys.keys()]).toEqual(['1:newer'])
+            release.newer()
+            await newer
+            expect(edgeOf('1:newer')).toBeUndefined()
         })
 
         it('folds onto the person the cache names, not the caller’s stale copy', async () => {
@@ -2599,8 +3216,6 @@ describe('PersonhogPersonsStore', () => {
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -2885,7 +3500,14 @@ describe('PersonhogPersonsStore', () => {
             )
         })
 
-        it('a successful redirect repoints the lane\u2019s distinct id at the survivor', async () => {
+        it.each([
+            ['repoints the lane\u2019s distinct id at the survivor', (): void => {}, '1:12'],
+            [
+                'leaves the edge alone when a merge of the survivor lands during its resolve',
+                (): void => (store as any).purgeAfterMerge(1, [], new Set(['1:12']), 'merge_verdict', true),
+                '1:7',
+            ],
+        ])('a successful redirect %s', async (_case, duringResolve, expected) => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
             repository.fetchPersonById.mockResolvedValue({ ...person } as never)
@@ -2897,14 +3519,15 @@ describe('PersonhogPersonsStore', () => {
             repository.updatePersonProperties
                 .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
                 .mockResolvedValue({ person, updated: true } as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, id: '12' } },
-            ] as never)
+            repository.resolvePersonsByDistinctIds.mockImplementation((() => {
+                duringResolve()
+                return Promise.resolve([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '12' } }])
+            }) as never)
             await bound.flush()
 
             // Without the repoint, every later event folds onto the dead
             // person and pays the redirect path forever.
-            expect(edgeOf('1:d1')).toBe('1:12')
+            expect(edgeOf('1:d1')).toBe(expected)
         })
 
         it('a resolve still naming the vanished person fails the flush to redeliver', async () => {
@@ -2925,8 +3548,6 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -3293,8 +3914,6 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-            {},
-            {},
             {},
             1,
             null,

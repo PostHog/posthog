@@ -6,7 +6,7 @@ import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID, uuid4
 
@@ -30,6 +30,7 @@ from rest_framework.exceptions import (
     NotFound,
     ParseError,
     PermissionDenied,
+    Throttled,
     ValidationError,
 )
 from rest_framework.parsers import BaseParser
@@ -498,6 +499,9 @@ def _requests_signal_report_origin(data: dict) -> bool:
     return profile is not None and profile.origin_product == "signal_report"
 
 
+_REPORT_RUN_REFUSING_THROTTLE_ATTR = "report_task_run_refusing_throttle"
+
+
 class _SignalReportTaskThrottle(UserRateThrottle):
     """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
@@ -510,17 +514,58 @@ class _SignalReportTaskThrottle(UserRateThrottle):
         data = request.data
         if not isinstance(data, dict) or not _requests_signal_report_origin(data):
             return True
+        self.num_requests = self.limit_for(request, view)
         return super().allow_request(request, view)
 
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        return self.num_requests
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
+
+class _SignalReportTaskCreateThrottle(_SignalReportTaskThrottle):
+    """Shares its scopes and its limit with the signals report actions run throttle.
+
+    A run started from the inbox and one started from the API spend one per-user budget. The rate sets only
+    the window; the number comes from the `signal-report-task-limits` flag payload on each request.
+    """
+
+    window: str
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        if super().allow_request(request, view):
+            return True
+        # DRF checks every window before it refuses, so the view can name the one with the longest wait.
+        refusing = getattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, None)
+        if refusing is None or (self.wait() or 0) > (refusing.wait() or 0):
+            setattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, self)
+        return False
+
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            ReportTaskRunWindow,
+            resolve_report_task_run_limits,
+        )
+
+        team = getattr(view, "team", None)
+        user_uuid = getattr(request.user, "uuid", None)
+        limits = resolve_report_task_run_limits(
+            user_uuid=str(user_uuid) if user_uuid else None,
+            team_id=getattr(team, "id", None),
+            parent_team_id=getattr(team, "parent_team_id", None),
+            organization_id=str(team.organization_id) if team is not None else None,
+        )
+        return limits.for_window(ReportTaskRunWindow(self.window))
+
+
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_burst"
     rate = "20/hour"
+    window = "hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_day"
     rate = "50/day"
+    window = "day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
@@ -572,6 +617,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         elif action == "warm":
             throttles += [SignalReportTaskWarmBurstThrottle(), SignalReportTaskWarmSustainedThrottle()]
         return throttles
+
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        refusing = getattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, None)
+        if refusing is not None:
+            from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+                ReportTaskRunWindow,
+                report_task_run_refused,
+            )
+
+            detail = report_task_run_refused(ReportTaskRunWindow(refusing.window), refusing.num_requests)
+            raise Throttled(wait=wait, detail=detail)
+        super().throttled(request, wait)
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
@@ -2226,6 +2283,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "budget_guard",
                 "benjamin_version",
                 "agent_version",
+                "upstream_turn_retry",
             }:
                 return False
         return True
@@ -4600,13 +4658,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the generator, after SSE admission, off the event loop.
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
-        backlog_log_urls: list[str] = []
+        backlog_logs: list[tasks_facade.TaskRunLog] = []
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
+            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -4656,9 +4714,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     backlog_reserved = 0
                     try:
                         try:
-                            backlog_bytes = await asyncio.to_thread(
-                                tasks_facade.get_task_run_log_size, backlog_log_urls
-                            )
+                            backlog_bytes = await asyncio.to_thread(tasks_facade.get_task_run_log_size, backlog_logs)
                             observe_stream_backlog_bytes(origin_product, backlog_bytes)
                             backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
                             if backlog_oversized:
@@ -4687,7 +4743,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             else:
                                 backlog_reserved = backlog_bytes
                                 log_content = await asyncio.to_thread(
-                                    tasks_facade.read_task_run_log_content, backlog_log_urls
+                                    tasks_facade.read_task_run_log_content, backlog_logs
                                 )
                             backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
                             del log_content

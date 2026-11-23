@@ -24,6 +24,14 @@ Submission takes ownership before navigation and only enables warm activation wh
 When the warm response advertises `permission_mode_mutable`, permission-only changes retain the draft’s warm run. Submission targets that run by ID and the server must acknowledge the final mode before delivering the prompt; other selection changes still release the run. Older servers keep the strict matching behavior.
 A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
 
+The PostHog AI web composer starts warm-up when its input gets focus, including automatic focus when the composer opens, only when no repository is attached.
+Warm-up requires AI data processing approval.
+Warm-up waits for the saved task settings to load.
+Attaching a repository releases an unused warm run and stops composer warm-up, including after typing.
+An empty draft releases its unused warm run five seconds after the input loses focus.
+After that release, focus alone does not start warm-up again in the same composer.
+Typing still starts warm-up, and a successful submission lets focus start it again.
+
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.

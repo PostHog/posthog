@@ -888,3 +888,21 @@ class TestOwnPullRequestCarveOut:
         assert self._PR in prompt
         assert "the previous summary" in prompt
         assert "obsolete_pr_urls" in prompt
+
+
+class TestSourceIssueCarveOut:
+    _ISSUES = ["https://github.com/posthog/posthog/issues/7", "https://github.com/posthog/posthog-js/issues/8"]
+
+    @pytest.mark.parametrize("code_available", [True, False])
+    @pytest.mark.parametrize("issues", [_ISSUES, []])
+    def test_research_and_actionability_prompts_exempt_only_the_report_own_source_issues(self, code_available, issues):
+        # A person files an issue and assigns it to themselves to ask for the work. Read as competing
+        # work, the assignment makes the report already_addressed and hides Implement.
+        prompts = [
+            build_initial_research_prompt(_make_signal({}), 1, code_available=code_available, source_issue_urls=issues),
+            build_actionability_prompt(1, code_available=code_available, source_issue_urls=issues),
+        ]
+        for prompt in prompts:
+            assert all(url in prompt for url in issues)
+            assert ("never count as `already_addressed`" in prompt) is bool(issues)
+            assert ("github.com" in prompt) is bool(issues)

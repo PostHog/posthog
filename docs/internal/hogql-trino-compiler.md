@@ -271,6 +271,8 @@ When an eligible organization's ClickHouse DAG run starts, it starts one `manage
 The shadow run has a fixed workflow id per DAG and cadence tier: `execute-dag-trino-{dag_id}:{tier}`, or `execute-dag-trino-{dag_id}` for runs outside a tier schedule.
 If the previous shadow run with that id is still running, the new one is skipped, so a slow Trino never builds a backlog.
 Shadow runs record their outcomes in managed warehouse job rows and metrics only: they run no data quality checks and send no failure notifications.
+A failed shadow run carries an `error_code` label on `data_modeling_node_finished`: the Trino compiler code, the Trino error name, `HTTP_<status>`, `DEADLINE_EXCEEDED`, or `other`.
+The run failure rate understates broken views, because a view stops running after five consecutive failures. Count views by the latest managed warehouse job row of each saved query.
 Preemption is scoped to the run's engine, so the ClickHouse and Trino runs of a tier never cancel each other's jobs.
 A Trino run never cancels a running build, because cancelling a Trino build does not stop its SQL. It only reaps job rows whose workflow has ended.
 Each Trino build of a node has a fixed workflow id, so Temporal starts at most one build of that node at a time. A run that reaches a node another run is building skips it and its Trino dependents.
@@ -354,6 +356,8 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric `WHERE`, `PREWHERE`, `HAVING`, `QUALIFY`, and `ON` conditions, and numeric aggregate-filter conditions, are cast to BOOLEAN.
+A property read such as `properties.plan` also works when a subquery or the derived table of a join projects the JSON column, as in `SELECT properties.plan FROM (SELECT properties FROM events)`.
+A read on a value that the subquery already extracted, such as `p.key` over `properties.nested AS p`, stays refused, because Trino's scalar extract returns NULL for an object.
 A nested query that projects one name twice, such as `SELECT a.id, b.id` in a subquery, gives each later column an internal alias, because ClickHouse reads an outer `id` as the first column and Trino reports it as ambiguous. A name the query gives explicitly keeps its meaning in `WHERE`, `GROUP BY` and `ORDER BY` when a later column has the same name.
 A number added to or subtracted from a date or datetime prints as `date_add`, in days for a date and seconds for a datetime, with the number on either side of a sum and in the `plus` and `minus` forms, because Trino has no such operator.
 `sum`, `avg`, `sumIf`, and `avgIf` over text or property values cast the value to a number first, because Trino has no such aggregate over `varchar`.
@@ -398,6 +402,8 @@ Typed `JSONExtract` maps convert individual scalar values too, but retain keys
 and use the requested type's default for values that cannot be converted.
 `splitByChar`/`splitByString` support an optional maximum substring count with the
 ClickHouse default behavior of excluding the remaining suffix.
+`splitByString` with an empty separator returns one item per character, because Trino's `split` rejects an empty delimiter.
+ClickHouse returns one item per byte, so the results differ for text outside ASCII.
 
 `parseDateTimeBestEffort` supports ISO timestamps with explicit offsets, ordinary
 date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10 digit Unix-second strings. An optional timezone
@@ -440,6 +446,7 @@ Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
 array enumeration and predicates, supported hashes and domain extraction, UUID
 conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
+A column that gets such a cast keeps its name, so an outer query can still read it from the set operation.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
 String rewrites also cover byte-based `locate`, Unicode tokens, subsequences,

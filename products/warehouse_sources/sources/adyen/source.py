@@ -39,8 +39,11 @@ Create an API credential in your Adyen Customer Area under **Developers > API cr
 
 - **Transactions, transfers, account holders, balance accounts and payment instruments** need an Adyen for Platforms or Adyen Issuing integration. Add your balance platform ID too.
 - **Legal entities** also need the balance platform ID, plus a Legal Entity Management API role on the credential.
+- **Payout schedule executions** also need the balance platform ID, and list the payouts that your managed payout schedules tried to make.
+- **Grants** also need the balance platform ID, plus a Capital API role on the credential.
 - **Settlement detail reports** need a merchant account and the **Merchant Report Download** role. Adyen only creates these files once you turn on the settlement details report in your Customer Area.
 - **Companies, merchant accounts and stores** come from the Management API and need an account read role.
+- **Terminals** come from the Management API and need the Terminal actions read role.
 
 Pick the environment that matches where you created the API key — a test key won't work against live."""
 

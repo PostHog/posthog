@@ -36,7 +36,6 @@ import { visionScannersCreate } from 'products/replay_vision/frontend/generated/
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
 import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
-import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
@@ -142,16 +141,16 @@ export interface createExperimentLogicActions {
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
-            ensure_experience_continuity?: boolean | undefined
-            feature_flag_key?: string | undefined
-            rollout_percentage?: number | undefined
-            variants?: MultivariateFlagVariant[] | undefined
+            ensure_experience_continuity?: boolean
+            feature_flag_key?: string
+            rollout_percentage?: number
+            variants?: MultivariateFlagVariant[]
         }
     }
     setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => {
         sharedMetrics: {
-            primary: ExperimentMetricUnion[]
-            secondary: ExperimentMetricUnion[]
+            primary: ExperimentMetric[]
+            secondary: ExperimentMetric[]
         }
     }
     validateField: (field: 'name') => {

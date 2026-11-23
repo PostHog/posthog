@@ -23,7 +23,6 @@ from products.warehouse_sources.sources.fastly.fastly import (
     _bucket_timeline,
     _build_url,
     _ensure_service_id,
-    _flatten_json_api,
     _flatten_origin_inspector,
     _flatten_usage_metrics,
     _next_cursor,
@@ -505,38 +504,6 @@ class TestGetRowsPlainList:
         assert result.rows == expected
         if expected:
             assert result.items == [expected]
-
-
-class TestFlattenJsonApi:
-    @parameterized.expand(
-        [
-            (
-                "full_resource",
-                {
-                    "id": "SA1",
-                    "type": "service_authorization",
-                    "attributes": {"permission": "full", "created_at": "2026-09-01T00:00:00Z"},
-                    "relationships": {
-                        "service": {"data": {"id": "S1", "type": "service"}},
-                        "user": {"data": {"id": "U1", "type": "user"}},
-                    },
-                },
-                {
-                    "id": "SA1",
-                    "type": "service_authorization",
-                    "permission": "full",
-                    "created_at": "2026-09-01T00:00:00Z",
-                    "service_id": "S1",
-                    "user_id": "U1",
-                },
-            ),
-            ("no_attributes_or_relationships", {"id": "SA1"}, {"id": "SA1"}),
-            # A relationship can come back empty once the related object is deleted.
-            ("empty_relationship", {"id": "SA1", "relationships": {"user": {"data": None}}}, {"id": "SA1"}),
-        ]
-    )
-    def test_lifts_attributes_and_relationship_ids_into_the_row(self, _name: str, item: dict, expected: dict) -> None:
-        assert _flatten_json_api(item) == expected
 
 
 class TestGetRowsJsonApiList:

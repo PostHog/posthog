@@ -201,6 +201,8 @@ class ProductFeature(TypedDict):
 
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
+    # Whether a partner pays for the organization, as of the status's computed_at. Older billing omits it.
+    paid_by_partner: NotRequired[bool]
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]

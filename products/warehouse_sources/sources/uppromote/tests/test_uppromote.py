@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,7 +22,6 @@ from products.warehouse_sources.sources.uppromote.source import UpPromoteSource
 from products.warehouse_sources.sources.uppromote.uppromote import (
     UpPromoteResumeConfig,
     _build_resource,
-    _format_datetime,
     _make_webhook_table_transformer,
     _window_start,
     all_desired_webhook_events,
@@ -49,16 +48,6 @@ def _driver() -> SourceDriver:
 
 
 class TestDatetimeHelpers:
-    @parameterized.expand(
-        [
-            ("datetime_naive", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05Z"),
-            ("datetime_aware", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05Z"),
-            ("date", date(2026, 1, 2), "2026-01-02T00:00:00Z"),
-        ]
-    )
-    def test_format_datetime(self, _label: str, value: Any, expected: str) -> None:
-        assert _format_datetime(value) == expected
-
     @parameterized.expand(
         [
             # The window start re-reads one second before the watermark so an exclusive

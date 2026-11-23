@@ -104,8 +104,8 @@ class HitpaySource(ResumableSource[HitpaySourceConfig, HitpayResumeConfig]):
             label="HitPay",
             caption=(
                 "Connect your HitPay account using an API key to sync payment requests, charges, "
-                "subscription plans, customers, recurring billing, payouts, invoices, and balance "
-                "transactions. Find your key in the HitPay "
+                "subscription plans, customers, recurring billing, payouts, invoices, balance "
+                "transactions, products, and transfers. Find your key in the HitPay "
                 "dashboard under **Settings** > **Payment Gateway**."
             ),
             keywords=["payments", "paynow", "duitnow", "billing"],

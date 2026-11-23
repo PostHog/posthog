@@ -150,6 +150,25 @@ class TestBatchExportIncrementalMode(BaseTest):
             assert "primary_key" in serializer.errors
 
 
+class TestBatchExportDestinationKeyPrefix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("POST", "AwsS3", {"bucket_name": "exports", "region": "us-east-1", "prefix": "{day:2}"}),
+            ("PATCH", "S3Compatible", {"prefix": "{table[0]}"}),
+            ("PATCH", "AzureBlob", {"prefix": "{day:2}"}),
+            ("PATCH", "Redshift", {"copy_inputs": {"s3_key_prefix": "{day:2}"}}),
+        ]
+    )
+    def test_rejects_invalid_key_prefix(self, method: str, destination: str, config: dict[str, Any]) -> None:
+        serializer = BatchExportDestinationSerializer(
+            data={"type": destination, "config": config},
+            context={"request": SimpleNamespace(method=method)},
+            partial=method == "PATCH",
+        )
+        assert not serializer.is_valid()
+        assert "Invalid key prefix" in str(serializer.errors)
+
+
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
     def _make_integration(self, team: Team) -> Integration:
         return Integration.objects.create(team=team, kind="databricks", integration_id="server")

@@ -159,10 +159,14 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The logic toasts every failure itself, including network errors that have no HTTP status
+    setIssueSummariesEnabled:
+        'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -236,9 +240,9 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
 /*
-Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
-response to user input, such as a malformed CSV, so it is not reported as an exception.
-Every other failure on these actions still toasts and reports.
+Actions whose owning logic shows the server message of a validation 400, in a toast or inline. The
+400 is a response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions goes through the generic handling below.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
@@ -248,6 +252,9 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
     startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
+    // The evaluation preview shows why the server rejected the sampling, Hog code or judge setting
+    loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
+    testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
 }
 
 /*
@@ -258,11 +265,12 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
-to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
-the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+Loads whose owning logic renders these GitHub error codes inline, with a link to the GitHub integration settings.
+The connection can't reach the PR's repository (404), or its installation is suspended or uninstalled (403).
+Both are setup states, not defects. The backend raises the codes in products/signals/backend/views.py.
 */
-const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+const GITHUB_SETUP_ERROR_CODES = new Set(['github_repository_inaccessible', 'github_installation_unavailable'])
+const GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
@@ -275,8 +283,8 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 }
 
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
-    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
-        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    if (GITHUB_SETUP_ERROR_CODES.has(error?.code)) {
+        return isOwnedByLogic(GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
@@ -437,6 +445,7 @@ export function initKea({
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
                     shouldReportApiFailure(error) &&
+                    logic.props.captureQueryTelemetry !== false &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&

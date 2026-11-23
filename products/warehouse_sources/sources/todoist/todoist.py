@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTClient,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -79,10 +80,6 @@ def _may_have_comments(task: dict[str, Any]) -> bool:
 _PARENT_FILTERS: dict[str, Any] = {"comments": _may_have_comments}
 
 
-def _format_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _parse_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
@@ -122,7 +119,7 @@ def _list_source(
     # Only the lower bound is sent: a cursor must be reused with the exact params that issued it,
     # and an upper bound of "now" would differ between the attempt that saved it and the resume.
     if config.incremental_param and incremental_since is not None:
-        params[config.incremental_param] = _format_datetime(incremental_since)
+        params[config.incremental_param] = format_datetime(incremental_since)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -267,8 +264,8 @@ def _completed_task_pages(
 
     while window_since < run_end:
         window_until = resumed_until or min(window_since + COMPLETED_TASKS_WINDOW, run_end)
-        since_value = _format_datetime(window_since)
-        until_value = _format_datetime(window_until)
+        since_value = format_datetime(window_since)
+        until_value = format_datetime(window_until)
 
         def stage(
             state: Optional[dict[str, Any]],

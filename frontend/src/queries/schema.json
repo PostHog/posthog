@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },
@@ -3030,6 +3034,10 @@
                 "boxPlot": {
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+                },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                    "type": "boolean"
                 },
                 "goalLines": {
                     "description": "Horizontal goal lines drawn across the chart.",
@@ -16001,6 +16009,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -19775,6 +19786,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20660,6 +20677,10 @@
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series bar charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -20679,6 +20700,9 @@
                 },
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
+                },
+                "movingAverageIntervals": {
+                    "type": "number"
                 },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
@@ -20703,6 +20727,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
@@ -20732,6 +20759,12 @@
                 },
                 "valueLabelBackground": {
                     "type": "boolean"
+                },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
                 },
                 "valueLabelFontSize": {
                     "type": "number"
@@ -32417,6 +32450,10 @@
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showSummaryOnDashboards": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -33638,6 +33675,10 @@
                 },
                 "negatedPersonFiltersNotIn": {
                     "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
+                    "type": "boolean"
+                },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
                     "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
@@ -40525,6 +40566,17 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "detectedChange": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationDetectedChange"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one."
+                },
                 "identity": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
                 },
@@ -40544,6 +40596,10 @@
                 },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
+                },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
                 },
                 "reason": {
                     "type": "string"
@@ -40624,6 +40680,11 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationDetectedChange": {
+            "description": "`negative_keyword`: the search is now excluded by a negative keyword. `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords. `keyword_added`: the search is now a keyword in an active Search campaign.",
+            "enum": ["negative_keyword", "brand_negative", "keyword_added"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationIdentity": {
@@ -40887,7 +40948,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {
@@ -40908,6 +40969,10 @@
                 },
                 "customerTable": {
                     "description": "Google Ads customer table, used for the account currency.",
+                    "type": "string"
+                },
+                "keywordTable": {
+                    "description": "Google Ads keyword table, used to tell which searches are already keywords.",
                     "type": "string"
                 },
                 "performanceMaxSearchTermTable": {
@@ -44654,6 +44719,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44668,6 +44760,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -46629,6 +46724,9 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflow_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_table_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
@@ -49448,6 +49546,12 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -53596,6 +53700,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -58210,6 +58317,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58230,6 +58341,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58252,6 +58367,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },
@@ -62465,6 +62584,10 @@
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
                     "type": "boolean"
                 },
+                "includeEvents": {
+                    "description": "Include each span's OpenTelemetry events. The column is large, so only set this on small lists",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -65819,6 +65942,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -65987,7 +66116,6 @@
                     "$ref": "#/definitions/WebPageDirectoryValue"
                 }
             },
-            "required": ["serverLogs"],
             "type": "object"
         },
         "WebPageDirectorySortBy": {

@@ -171,12 +171,6 @@ class Person(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
-    # used to prevent race conditions with set and set_once
-    properties_last_updated_at = models.JSONField(default=dict, null=True, blank=True)
-
-    # used for evaluating if we need to override the value or not (value: set or set_once)
-    properties_last_operation = models.JSONField(null=True, blank=True)
-
     # DO_NOTHING: Team deletion handled manually via Person.objects.filter(team_id=...).delete()
     # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
     # db_constraint=False: No database FK constraint - Person may live in separate database from Team
