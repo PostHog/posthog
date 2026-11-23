@@ -4,6 +4,8 @@ import pytest
 from unittest.mock import patch
 
 import grpc
+from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
+from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import observer
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc.observer import (
@@ -102,6 +104,36 @@ def test_observer_swallows_metric_failures():
             exception=None,
             started_at_monotonic=0.0,
         )
+
+
+def test_metrics_recorded_on_activity_meter_after_a_call_outside_any_activity():
+    buffer = MetricBuffer(1000)
+    env = ActivityEnvironment()
+    env.metric_meter = Runtime(telemetry=TelemetryConfig(metrics=buffer)).metric_meter
+    call = {
+        "method": "/svc/M",
+        "host": "h",
+        "request": _FakeMessage(1),
+        "response": _FakeMessage(2),
+        "code": grpc.StatusCode.OK,
+        "exception": None,
+        "started_at_monotonic": 0.0,
+    }
+
+    with _ctx(), patch.object(observer, "maybe_capture"):
+        record_unary(**call)
+        env.run(record_unary, **call)
+
+    updates = {update.metric.name: update for update in buffer.retrieve_updates()}
+    labels = {"source_type": "google_ads", "method": "/svc/M", "status_class": "ok"}
+    requests = updates["data_import_grpc_requests_total"]
+    assert requests.value == 1
+    assert dict(requests.attributes).items() >= {**labels, "team_id": "99"}.items()
+    assert updates["data_import_grpc_response_bytes"].value == 2
+    for histogram in ("data_import_grpc_latency_ms", "data_import_grpc_response_bytes"):
+        attributes = dict(updates[histogram].attributes)
+        assert attributes.items() >= labels.items()
+        assert "team_id" not in attributes
 
 
 def test_observer_swallows_sampling_failures():

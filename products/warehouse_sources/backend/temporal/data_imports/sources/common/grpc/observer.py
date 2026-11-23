@@ -5,8 +5,8 @@ call — both successful and failed. The observer:
 
 - emits a structlog log line with the method, host, status, latency and sizes,
   plus all `JobContext` labels;
-- updates OTel counters/histograms labelled by `team_id`, `source_type`,
-  `method`, and `status_class`;
+- updates OTel counters/histograms labelled by `source_type`, `method`,
+  and `status_class` (the request counter also by `team_id`);
 - delegates to the sampling subsystem, which is a cheap no-op when capture is
   disabled in Redis.
 
@@ -162,9 +162,9 @@ def _emit_metrics(record: GrpcRequestRecord, *, ctx: JobContext | None) -> None:
     try:
         attrs = {"method": record.method, "status_class": record.status_class}
         get_grpc_requests_counter(ctx.team_id, ctx.source_type).add(1, attrs)
-        get_grpc_latency_histogram(ctx.team_id, ctx.source_type).record(record.latency_ms, attrs)
+        get_grpc_latency_histogram(ctx.source_type).record(record.latency_ms, attrs)
         if record.response_bytes:
-            get_grpc_response_bytes_histogram(ctx.team_id, ctx.source_type).record(record.response_bytes, attrs)
+            get_grpc_response_bytes_histogram(ctx.source_type).record(record.response_bytes, attrs)
     except Exception:
         _fallback_logger.debug("Failed to record gRPC metric", exc_info=True)
 
