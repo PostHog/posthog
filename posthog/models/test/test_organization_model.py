@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
+from posthog.test.base import BaseTest, NonAtomicBaseTest, count_organization_access_cache_round_trips
 from unittest import mock
 from unittest.mock import patch
 
@@ -252,117 +252,6 @@ class TestOrganization(BaseTest):
         self.organization.session_cookie_age = 7200
         self.organization.save()
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
-
-    def test_access_cache_reuses_organization_and_membership_details(self):
-        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
-            with self.assertNumQueries(1):
-                membership = get_cached_organization_membership(self.organization.id, self.user)
-            assert membership is not None
-            assert membership.organization == self.organization
-            assert membership.user == self.user
-
-            with self.assertNumQueries(1):
-                assert get_cached_organization_memberships(self.user)[0].organization == self.organization
-
-            with self.assertNumQueries(0):
-                assert get_cached_organization(self.organization.id) == self.organization
-                assert get_cached_organization_membership(self.organization.id, self.user) == membership
-                assert get_cached_organization_memberships(self.user)[0] == membership
-
-    @parameterized.expand(
-        [
-            ("memberships_one_organization_cold", 1, False, False, 4),
-            ("memberships_many_organizations_cold", 5, False, False, 4),
-            ("memberships_one_organization_warm", 1, True, False, 4),
-            ("memberships_many_organizations_warm", 5, True, False, 4),
-            ("membership_cold", 1, False, True, 1),
-            ("membership_warm", 1, True, True, 1),
-        ]
-    )
-    def test_access_cache_reads_in_constant_round_trips(self, _name, organization_count, warm, single, round_trips):
-        organizations = [self.organization]
-        for index in range(organization_count - 1):
-            organization = Organization.objects.create(name=f"Extra organization {index}")
-            OrganizationMembership.objects.create(organization=organization, user=self.user)
-            organizations.append(organization)
-
-        def lookup() -> list[OrganizationMembership]:
-            if not single:
-                return get_cached_organization_memberships(self.user)
-            membership = get_cached_organization_membership(self.organization.id, self.user)
-            return [] if membership is None else [membership]
-
-        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
-            if warm:
-                lookup()
-
-            with count_organization_access_cache_round_trips() as cache_round_trips:
-                memberships = lookup()
-
-            assert cache_round_trips() == round_trips
-            expected = {self.organization} if single else set(organizations)
-            assert {membership.organization for membership in memberships} == expected
-
-    def test_access_cache_invalidation_reaches_values_cached_by_another_django_release(self):
-        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
-            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
-                assert get_cached_organization_membership(self.organization.id, self.user) is not None
-
-            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django6.1"):
-                with self.assertNumQueries(1):
-                    membership = get_cached_organization_membership(self.organization.id, self.user)
-                assert membership is not None
-                membership.level = OrganizationMembership.Level.ADMIN
-                with self.captureOnCommitCallbacks(execute=True):
-                    membership.save()
-
-            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
-                cached = get_cached_organization_membership(self.organization.id, self.user)
-            assert cached is not None
-            assert cached.level == OrganizationMembership.Level.ADMIN
-
-    def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
-        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
-            membership = get_cached_organization_membership(self.organization.id, self.user)
-            assert membership is not None
-            get_cached_organization_memberships(self.user)
-
-            membership.level = OrganizationMembership.Level.ADMIN
-            with self.captureOnCommitCallbacks(execute=True):
-                membership.save()
-            updated_membership = get_cached_organization_membership(self.organization.id, self.user)
-            assert updated_membership is not None
-            assert updated_membership.level == OrganizationMembership.Level.ADMIN
-            assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
-
-            self.organization.name = "Updated organization"
-            self.organization.save()
-            updated_organization = get_cached_organization(self.organization.id)
-            assert updated_organization is not None
-            assert updated_organization.name == "Updated organization"
-
-            with self.captureOnCommitCallbacks(execute=True):
-                membership.delete()
-            assert get_cached_organization_membership(self.organization.id, self.user) is None
-            assert get_cached_organization_memberships(self.user) == []
-
-    def test_access_cache_is_invalidated_when_membership_is_created(self):
-        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
-            new_user = User.objects.create_user(
-                email="cache-membership@example.com", password="password", first_name="Cache"
-            )
-
-            # Cache both the missing individual membership and the user's empty membership list.
-            assert get_cached_organization_membership(self.organization.id, new_user) is None
-            assert get_cached_organization_memberships(new_user) == []
-
-            with self.captureOnCommitCallbacks(execute=True):
-                OrganizationMembership.objects.create(organization=self.organization, user=new_user)
-
-            membership = get_cached_organization_membership(self.organization.id, new_user)
-            assert membership is not None
-            assert membership.user_id == new_user.id
-            assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
 
     @parameterized.expand(
         [
@@ -800,3 +689,118 @@ class TestOrganizationMembership(BaseTest):
             },
             groups=mock.ANY,
         )
+
+
+class TestOrganizationAccessCache(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def test_access_cache_reuses_organization_and_membership_details(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with self.assertNumQueries(1):
+                membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            assert membership.organization == self.organization
+            assert membership.user == self.user
+
+            with self.assertNumQueries(1):
+                assert get_cached_organization_memberships(self.user)[0].organization == self.organization
+
+            with self.assertNumQueries(0):
+                assert get_cached_organization(self.organization.id) == self.organization
+                assert get_cached_organization_membership(self.organization.id, self.user) == membership
+                assert get_cached_organization_memberships(self.user)[0] == membership
+
+    @parameterized.expand(
+        [
+            ("memberships_one_organization_cold", 1, False, False, 4),
+            ("memberships_many_organizations_cold", 5, False, False, 4),
+            ("memberships_one_organization_warm", 1, True, False, 4),
+            ("memberships_many_organizations_warm", 5, True, False, 4),
+            ("membership_cold", 1, False, True, 1),
+            ("membership_warm", 1, True, True, 1),
+        ]
+    )
+    def test_access_cache_reads_in_constant_round_trips(self, _name, organization_count, warm, single, round_trips):
+        organizations = [self.organization]
+        for index in range(organization_count - 1):
+            organization = Organization.objects.create(name=f"Extra organization {index}")
+            OrganizationMembership.objects.create(organization=organization, user=self.user)
+            organizations.append(organization)
+
+        def lookup() -> list[OrganizationMembership]:
+            if not single:
+                return get_cached_organization_memberships(self.user)
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            return [] if membership is None else [membership]
+
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            if warm:
+                lookup()
+
+            with count_organization_access_cache_round_trips() as cache_round_trips:
+                memberships = lookup()
+
+            assert cache_round_trips() == round_trips
+            expected = {self.organization} if single else set(organizations)
+            assert {membership.organization for membership in memberships} == expected
+
+    def test_access_cache_invalidation_reaches_values_cached_by_another_django_release(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                assert get_cached_organization_membership(self.organization.id, self.user) is not None
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django6.1"):
+                with self.assertNumQueries(1):
+                    membership = get_cached_organization_membership(self.organization.id, self.user)
+                assert membership is not None
+                membership.level = OrganizationMembership.Level.ADMIN
+                membership.save()
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                cached = get_cached_organization_membership(self.organization.id, self.user)
+            assert cached is not None
+            assert cached.level == OrganizationMembership.Level.ADMIN
+
+    def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            get_cached_organization_memberships(self.user)
+
+            membership.level = OrganizationMembership.Level.ADMIN
+            membership.save()
+            updated_membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert updated_membership is not None
+            assert updated_membership.level == OrganizationMembership.Level.ADMIN
+            assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
+
+            self.organization.name = "Updated organization"
+            self.organization.save()
+            updated_organization = get_cached_organization(self.organization.id)
+            assert updated_organization is not None
+            assert updated_organization.name == "Updated organization"
+
+            membership.delete()
+            assert get_cached_organization_membership(self.organization.id, self.user) is None
+            assert get_cached_organization_memberships(self.user) == []
+
+    def test_access_cache_is_invalidated_when_membership_is_created(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            new_user = User.objects.create_user(
+                email="cache-membership@example.com", password="password", first_name="Cache"
+            )
+
+            # Cache both the missing individual membership and the user's empty membership list.
+            assert get_cached_organization_membership(self.organization.id, new_user) is None
+            assert get_cached_organization_memberships(new_user) == []
+
+            OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+
+            membership = get_cached_organization_membership(self.organization.id, new_user)
+            assert membership is not None
+            assert membership.user_id == new_user.id
+            assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]

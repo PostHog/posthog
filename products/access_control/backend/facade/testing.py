@@ -12,17 +12,26 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.models.role import Role, RoleMembership
 
 
-def create_role(*, organization_id: UUID, name: str) -> UUID:
-    return Role.objects.create(organization_id=organization_id, name=name).id
+def create_role(*, organization_id: UUID, name: str, organization_access_level: int | None = None) -> UUID:
+    return Role.objects.create(
+        organization_id=organization_id, name=name, organization_access_level=organization_access_level
+    ).id
 
 
-def add_role_member(*, role_id: UUID, user_id: int) -> UUID:
+def set_role_organization_access_level(*, organization_id: UUID, role_id: UUID, level: int | None) -> None:
+    Role.objects.filter(organization_id=organization_id, pk=role_id).update(organization_access_level=level)
+
+
+def add_role_member(*, role_id: UUID, user_id: int, organization_member_id: UUID | None = None) -> UUID:
     """Put one user in the role.
 
-    The row carries no organization member, which is the shape `valid_for_authorization`
-    always keeps. A test that needs the other shape names the membership.
+    Without `organization_member_id` the row carries no organization member, which is the shape
+    `valid_for_authorization` always keeps. A role's organization access grant applies only to a
+    row that names the membership.
     """
-    return RoleMembership.objects.create(role_id=role_id, user_id=user_id).id
+    return RoleMembership.objects.create(
+        role_id=role_id, user_id=user_id, organization_member_id=organization_member_id
+    ).id
 
 
 def create_access_control(

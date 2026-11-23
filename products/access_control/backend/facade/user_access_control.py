@@ -292,7 +292,7 @@ class ResolvedAccess:
       without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
     - "creator": rules never consulted — the user created the object
-    - "org_membership": the level comes from the user's OrganizationMembership.level (admin or
+    - "org_membership": the level comes from the user's OrganizationMembership.effective_level (admin or
       member) — the object is the organization itself, which has no access rules, or a project
       in an organization without the entitlement, where rules are never consulted
     """
@@ -496,9 +496,9 @@ class UserAccessControl:
     @classmethod
     def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
         memberships = list(
-            OrganizationMembership.objects.filter(
-                organization_id=team.organization_id, user_id__in=set(user_ids)
-            ).select_related("user", "organization")
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization_id=team.organization_id, user_id__in=set(user_ids))
+            .select_related("user", "organization")
         )
         if not memberships:
             return {}
