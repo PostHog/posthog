@@ -585,10 +585,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert (config.enabled, config.installation_id, config.connected_by_user_id) == (True, "42", self.user.id)
         expected_mode = ReviewMode.LABEL if existing_installation in (None, "") else ReviewMode.ALL
         assert config.review_mode == expected_mode
-        expected_calls = (
-            [call(team_id=self.team.id, config_id=str(config.id))] if expected_mode == ReviewMode.LABEL else []
-        )
-        assert queue_label.call_args_list == expected_calls
+        assert queue_label.call_args_list == [call(team_id=self.team.id, config_id=str(config.id))]
 
     @parameterized.expand(
         [

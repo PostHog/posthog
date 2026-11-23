@@ -8,6 +8,7 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 
 import re
 import math
+import hashlib
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -2016,14 +2017,21 @@ def _label_request_notice(repo_config: StamphogRepoConfig, run: ReviewRun, *, ev
 def _reject_label_request(repo_config: StamphogRepoConfig, pr: dict[str, Any], notice: str) -> None:
     """Take the trigger label back off a PR whose label add started no review, and say why.
 
-    The removal lets the next add fire a `labeled` event again. The status comment is edited in place,
-    so repeated adds can't stack comments. This is best effort, like the cooldown notice: a GitHub
-    failure is logged and not retried.
+    The removal lets the next add fire a `labeled` event again, so a failed removal raises and the
+    delivery retries: left on the PR, the label could never be added again. The status comment is
+    edited in place and is best effort, like the cooldown notice.
     """
     pr_number = pr["number"]
+    # BATCH, because nothing here gates an approval. A shed removal raises, so the delivery retries it later.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
+    client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
+    # upsert_sticky_comment reads then creates, so overlapping deliveries of one request could each post a comment.
+    notice_key = (
+        f"{_label_cooldown_key(repo_config, pr_number)}:request:{hashlib.sha256(notice.encode()).hexdigest()[:16]}"
+    )
+    if not cache.add(notice_key, True, timeout=60):
+        return
     try:
-        client = StamphogGitHubClient(repo_config.installation_id)
-        client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
         client.upsert_sticky_comment(
             repo_config.repository, pr_number, neutralize_active_markdown(scrub_credentials(notice))
         )
@@ -2045,6 +2053,10 @@ def _review_label_request_in_all_mode(repo_config: StamphogRepoConfig, pr: dict[
     head, so no approval needs a retraction here: a standing approval covers exactly this head. Errors
     from the run creation propagate, so the caller retries the delivery.
     """
+    # A label added after the PR closed asks nothing of stamphog, as a manual request on it is refused.
+    if (pr.get("state") or "") != "open":
+        logger.info("stamphog_pr_event_label_request_not_open", repo=repo_config.repository, pr_number=pr["number"])
+        return
     evidence_read_failed = False
     try:
         evidence = _evidence_after_refusal(repo_config, pr)

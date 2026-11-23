@@ -39,6 +39,7 @@ from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
     STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX,
     _parse_pr_url,
+    _reject_label_request,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
@@ -96,12 +97,14 @@ def _pr_payload(
     labels: list[str] | None = None,
     added_label: str | None = None,
     updated_at: str | None = None,
+    state: str = "open",
 ) -> dict[str, Any]:
     head: dict[str, Any] = {"sha": head_sha, "ref": head_branch}
     if head_repo is not None:
         head["repo"] = {"full_name": head_repo}
     pr: dict[str, Any] = {
         "number": pr_number,
+        "state": state,
         "base": {"sha": base_sha},
         "html_url": f"https://github.com/{repo}/pull/{pr_number}",
         "head": head,
@@ -480,6 +483,11 @@ def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, rep
     [
         (ReviewMode.ALL, {"action": "labeled", "labels": ["stamphog", "bug"], "added_label": "bug"}, False),
         (ReviewMode.ALL, {"action": "labeled", "labels": ["stamphog"], "added_label": "stamphog"}, True),
+        (
+            ReviewMode.ALL,
+            {"action": "labeled", "labels": ["stamphog"], "added_label": "stamphog", "state": "closed"},
+            False,
+        ),
         (ReviewMode.LABEL, {"action": "labeled", "labels": ["stamphog"], "added_label": "stamphog"}, True),
         (ReviewMode.LABEL, {"action": "labeled", "labels": ["stamphog", "bug"], "added_label": "bug"}, False),
         (ReviewMode.LABEL, {"action": "synchronize"}, False),
@@ -488,6 +496,7 @@ def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, rep
     ids=[
         "all_mode_ignores_other_label",
         "all_mode_trigger_label_on_unreviewed_head_queues",
+        "all_mode_trigger_label_on_closed_pr_skips",
         "label_mode_trigger_label_added_queues",
         "label_mode_other_label_added_skips",
         "label_mode_synchronize_without_label_skips",
@@ -1735,6 +1744,27 @@ def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, pol
         assert ReviewRun.objects.count() == 0
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_rejected_label_request_retries_a_kept_label_and_comments_once(team, repo_config):
+    # A label left on the PR could never be added again, so a failed removal must reach the task's retry.
+    pr = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")["pull_request"]
+    with patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as client_class:
+        client = client_class.return_value
+        client.remove_pr_label.side_effect = requests.ConnectionError("down")
+        with pytest.raises(requests.ConnectionError):
+            _reject_label_request(repo_config, pr, "Nothing new.")
+        client.upsert_sticky_comment.assert_not_called()
+
+        client.remove_pr_label.side_effect = None
+        for notice in ("Nothing new.", "Nothing new.", "A review is running."):
+            _reject_label_request(repo_config, pr, notice)
+
+    assert [posted.args[2] for posted in client.upsert_sticky_comment.call_args_list] == [
+        "Nothing new.",
+        "A review is running.",
+    ]
+
+
 @pytest.mark.parametrize(
     "review_mode,enabled,github_answer,expect_post",
     [
@@ -1742,7 +1772,7 @@ def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, pol
         pytest.param(ReviewMode.LABEL, True, FakeResponse(422), True, id="already_exists"),
         pytest.param(ReviewMode.LABEL, True, FakeResponse(403), True, id="not_permitted"),
         pytest.param(ReviewMode.LABEL, True, requests.ConnectionError("down"), True, id="network_error"),
-        pytest.param(ReviewMode.ALL, True, FakeResponse(201), False, id="all_mode"),
+        pytest.param(ReviewMode.ALL, True, FakeResponse(201), True, id="all_mode"),
         pytest.param(ReviewMode.LABEL, False, FakeResponse(201), False, id="paused"),
     ],
 )
