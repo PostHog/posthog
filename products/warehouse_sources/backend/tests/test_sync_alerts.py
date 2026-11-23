@@ -751,6 +751,20 @@ class TestWarehouseAlerts(APIBaseTest):
             team_id=self.team.id, configuration_id=configuration_id, user_ids=[self.user.id, person.id]
         ) == sorted([self.user.id, person.id] if reached else [self.user.id])
 
+    def test_an_email_destination_reaches_nobody_when_the_warehouse_access_check_fails(self) -> None:
+        person = self._person("member")
+        configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+
+        with patch(
+            "products.warehouse_sources.backend.sync_alerts.email_recipients.UserAccessControl",
+            side_effect=RuntimeError("boom"),
+        ):
+            reached = subscribers_with_warehouse_access(
+                team_id=self.team.id, configuration_id=configuration_id, user_ids=[self.user.id, person.id]
+            )
+
+        assert reached == []
+
     @parameterized.expand([(SourceKind.WAREHOUSE_SOURCE,), (SourceKind.WAREHOUSE_DESTINATION,)])
     def test_a_failure_emails_the_users_an_email_destination_names(self, kind: SourceKind) -> None:
         member = self._person("member")

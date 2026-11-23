@@ -11,12 +11,17 @@ from collections.abc import Collection
 from typing import Final
 from uuid import UUID
 
+import structlog
+
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import filter_members_by_external_data_source_access, get_members_to_notify_for_pipeline_error
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade.api import get_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
+
+logger = structlog.get_logger(__name__)
 
 WAREHOUSE_ALERT_KINDS: Final = (SourceKind.WAREHOUSE_SOURCE.value, SourceKind.WAREHOUSE_DESTINATION.value)
 
@@ -41,10 +46,31 @@ def subscribers_with_warehouse_access(*, team_id: int, configuration_id: UUID, u
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return []
-    return sorted({membership.user_id for membership in _reachable_members(team, user_ids=user_ids)})
+    members = get_members_to_notify_for_pipeline_error(team, user_ids=user_ids)
+    return sorted({membership.user_id for membership in _members_with_warehouse_access(members, team)})
 
 
-def _reachable_members(team: Team, *, user_ids: Collection[int] | None = None) -> list[OrganizationMembership]:
-    return filter_members_by_external_data_source_access(
-        get_members_to_notify_for_pipeline_error(team, user_ids=user_ids), team
-    )
+def _reachable_members(team: Team) -> list[OrganizationMembership]:
+    return filter_members_by_external_data_source_access(get_members_to_notify_for_pipeline_error(team), team)
+
+
+def _members_with_warehouse_access(
+    memberships: list[OrganizationMembership], team: Team
+) -> list[OrganizationMembership]:
+    """`filter_members_by_external_data_source_access`, but failing closed: a destination names these users one by
+    one, so a check that cannot run must not email them."""
+    if not memberships:
+        return memberships
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return memberships
+        return [
+            membership
+            for membership in memberships
+            if UserAccessControl(membership.user, team).check_access_level_for_resource(
+                "external_data_source", "viewer"
+            )
+        ]
+    except Exception:
+        logger.exception("Warehouse access check failed, emailing none of the named users", team_id=team.id)
+        return []
