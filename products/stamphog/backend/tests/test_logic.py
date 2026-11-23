@@ -668,7 +668,6 @@ class GetPrReviewThreadsTests(SimpleTestCase):
         threads = self._fetch(self._threads_page([node], has_next=False))
         assert threads == [
             {
-                "id": "RT_1",
                 "is_resolved": True,
                 "is_outdated": False,
                 "path": "src/util.py",
@@ -1879,7 +1878,6 @@ def _evidence_context() -> dict:
         "discussion": [{"user": member, "author_association": "MEMBER", "body": "Looks fine.", "reactions": {}}],
         "review_threads": [
             {
-                "id": "RT_1",
                 "is_resolved": False,
                 "path": "src/util.py",
                 "line": 3,
@@ -1888,7 +1886,6 @@ def _evidence_context() -> dict:
                 ],
             },
             {
-                "id": "RT_2",
                 "is_resolved": True,
                 "path": "src/app.py",
                 "line": 9,
@@ -1897,16 +1894,16 @@ def _evidence_context() -> dict:
                 ],
             },
             _bot_thread(),
-            {**_bot_thread(), "id": "RT_4", "is_resolved": True},
+            _bot_thread(body="Rename this.", is_resolved=True),
         ],
         "check_runs": [],
         "policy_files": {},
     }
 
 
-def _bot_thread() -> dict:
-    finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": "Should fix."}
-    return {"id": "RT_3", "is_resolved": False, "path": "src/db.py", "line": 12, "comments": [finding]}
+def _bot_thread(body: str = "Should fix.", is_resolved: bool = False) -> dict:
+    finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": body}
+    return {"is_resolved": is_resolved, "path": "src/db.py", "line": 12, "comments": [finding]}
 
 
 def _bot_comment(login: str) -> dict:
@@ -1987,6 +1984,21 @@ class TestEvidenceFingerprint(SimpleTestCase):
             (
                 "empty_comment_review",
                 lambda c: c["reviews"].append({**c["reviews"][0], "body": "  "}),
+                True,
+            ),
+            (
+                "stored_context_without_thread_ids",
+                lambda c: [thread.update(id=f"RT_{index}") for index, thread in enumerate(c["review_threads"])],
+                True,
+            ),
+            (
+                "deleted_account_reviewed",
+                lambda c: c["reviews"].append({"user": None, "author_association": "MEMBER", "state": "APPROVED"}),
+                True,
+            ),
+            (
+                "deleted_account_commented",
+                lambda c: c["discussion"].append({"user": None, "author_association": "MEMBER", "body": "Hold."}),
                 True,
             ),
             ("nul_in_description", lambda c: c["pr"].update(body="Adds a\x00 helper."), True),

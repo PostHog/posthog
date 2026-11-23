@@ -28,7 +28,8 @@ _VERSION = 1
 
 
 def _is_person(login: str, is_bot: bool, association: str | None) -> bool:
-    if is_bot or "[bot]" in login or login.lower() in _MACHINE_USERS:
+    # A deleted account comes back with no user, so it has no login.
+    if not login or is_bot or "[bot]" in login or login.lower() in _MACHINE_USERS:
         return False
     return association in _PROMPT_ASSOCIATIONS
 
@@ -63,19 +64,29 @@ def _discussion(comments: list[Any]) -> list[dict]:
     ]
 
 
+def _opening(thread: dict) -> dict:
+    for comment in thread.get("comments") or []:
+        if isinstance(comment, dict):
+            return {"user": comment.get("author"), "body": comment.get("body") or ""}
+    return {}
+
+
 def _review_threads(threads: list[Any]) -> list[dict]:
     """The resolved threads, and the unresolved threads that a person wrote in, with those comments.
 
     The engine shows only unresolved threads, so a reply in a resolved thread is no evidence, but
     resolving or reopening a thread is, a bot's finding included. A thread that only a bot or an
-    outsider wrote in counts once somebody resolves it, so a bot opening one moves nothing. The thread
-    id keeps two threads on one line apart, so resolving one instead of the other moves the hash.
+    outsider wrote in counts once somebody resolves it, so a bot opening one moves nothing.
+
+    The opening comment keeps two threads on one line apart, so resolving one instead of the other
+    moves the hash. A GitHub thread id would do the same, but contexts stored before this hash existed
+    hold no thread id, and their refusals would then never match unchanged evidence.
     """
     projected = []
     for thread in threads:
         if not isinstance(thread, dict):
             continue
-        location = {"id": thread.get("id"), "path": thread.get("path"), "line": thread.get("line")}
+        location = {"path": thread.get("path"), "line": thread.get("line"), "opening": _opening(thread)}
         if thread.get("is_resolved"):
             projected.append({**location, "is_resolved": True})
             continue
