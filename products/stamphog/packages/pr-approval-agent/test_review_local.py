@@ -1005,6 +1005,8 @@ _DOCS_PROOF = Attestation(
 )
 _DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
 _DOCS_NOTE = replace(_DOCS_PROOF, name="docs_note", check="Docs note", app_id=79, publisher_files=())
+# Its publisher posts only for a revert, so routing must not wait for it on any other PR.
+_DOCS_REVERT = replace(_DOCS_PROOF, name="docs_revert", check="Docs revert", app_id=82, title="^Revert")
 _SITE_PROOF = replace(
     _DOCS_PROOF,
     name="site_proof",
@@ -1213,10 +1215,19 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
 ) -> None:
     # `Docs lint` never reports here, and it must not hold back a PR whose files are all proven.
     # `Docs note` pins no publisher, so it never counts for a bot.
+    # `Docs revert` covers the same files, but no title here starts with `Revert`.
     policy = replace(
         review_pr.POLICY,
         bot_authors=bot_authors,
-        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT, _DOCS_NOTE, _SITE_PROOF, _SITE_UNUSABLE),
+        attestations=(
+            *review_pr.POLICY.attestations,
+            _DOCS_PROOF,
+            _DOCS_LINT,
+            _DOCS_NOTE,
+            _DOCS_REVERT,
+            _SITE_PROOF,
+            _SITE_UNUSABLE,
+        ),
     )
     monkeypatch.setattr(review_pr, "POLICY", policy)
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])

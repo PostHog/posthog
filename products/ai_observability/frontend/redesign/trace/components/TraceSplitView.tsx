@@ -1,5 +1,5 @@
 import type { TraceNodeApi, TraceStepFeedbackApi } from '../../../generated/api.schemas'
-import { EvalRollupOutcome } from '../types'
+import { EvalRollupOutcome, TreeStep } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 import { TraceTree } from './TraceTree'
 
@@ -7,6 +7,7 @@ export interface TraceSplitViewProps {
     tree: TraceNodeApi[]
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
+    onStepNode: (step: TreeStep) => void
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
@@ -14,12 +15,15 @@ export interface TraceSplitViewProps {
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
     matchStepCount?: number
+    treeRevealCount?: number
+    showTraceKeys?: boolean
 }
 
 export function TraceSplitView({
     tree,
     selectedNodeId,
     onSelectNode,
+    onStepNode,
     onPrefetchNode,
     detail,
     evalOutcomes,
@@ -27,6 +31,8 @@ export function TraceSplitView({
     matchingNodeIds = null,
     highlightQuery = null,
     matchStepCount = 0,
+    treeRevealCount = 0,
+    showTraceKeys = false,
 }: TraceSplitViewProps): JSX.Element {
     return (
         <div className="@container h-full">
@@ -36,11 +42,13 @@ export function TraceSplitView({
                         nodes={tree}
                         selectedNodeId={selectedNodeId}
                         onSelectNode={onSelectNode}
+                        onStepNode={onStepNode}
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
                         stepFeedback={stepFeedback}
                         matchingNodeIds={matchingNodeIds}
-                        matchStepCount={matchStepCount}
+                        revealCount={treeRevealCount}
+                        showTraceKeys={showTraceKeys}
                     />
                 </aside>
                 <div className="min-w-0 flex-1 @3xl:overflow-y-auto">

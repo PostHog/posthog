@@ -10,7 +10,12 @@ import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType }
 
 import type { TeamPublicType, TeamType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import { featureFlagLogic, scheduleDateFromStoredISO, scheduleDateToProjectTzISO } from './featureFlagLogic'
+import {
+    featureFlagLogic,
+    nextCronRunDate,
+    scheduleDateFromStoredISO,
+    scheduleDateToProjectTzISO,
+} from './featureFlagLogic'
 
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
@@ -25,6 +30,7 @@ export interface featureFlagScheduleEditLogicValues {
     editIsRecurring: boolean
     editOperationType: ScheduledChangeOperationType | null
     editPayloadValue: boolean
+    editPickedDay: Dayjs | null
     editRecurrenceInterval: RecurrenceInterval | null
     editRepeatsValue: RecurrenceInterval | 'cron' | 'none'
     editSaving: boolean
@@ -65,6 +71,9 @@ export interface featureFlagScheduleEditLogicActions {
     }
     setEditPayloadValue: (value: boolean) => {
         value: boolean
+    }
+    setEditPickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
     }
     setEditRecurrenceInterval: (interval: RecurrenceInterval | null) => {
         interval: RecurrenceInterval | null
@@ -132,6 +141,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         closeEdit: true,
         setEditScheduledAt: (date: Dayjs | null) => ({ date }),
         setEditCronExpression: (cron: string | null) => ({ cron }),
+        setEditPickedDay: (day: Dayjs | null) => ({ day }),
         setEditRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
         setEditEndDate: (date: Dayjs | null) => ({ date }),
         setEditIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
@@ -156,6 +166,16 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 openEdit: (_, { schedule, timezone }) =>
                     schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null,
                 setEditScheduledAt: (_, { date }) => date,
+                closeEdit: () => null,
+            },
+        ],
+        // The day last picked in the date picker, apart from editScheduledAt, which starts as the
+        // stored next run and is overwritten by each cron edit. Null until the user picks a day.
+        editPickedDay: [
+            null as Dayjs | null,
+            {
+                setEditPickedDay: (_, { day }) => day,
+                openEdit: () => null,
                 closeEdit: () => null,
             },
         ],
@@ -356,24 +376,10 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
             if (!cron) {
                 return
             }
-            const fields = cron.trim().split(/\s+/)
-            if (fields.length !== 5) {
-                return
-            }
-            try {
-                const timezone = values.projectTimezone
-                // Use the later of now or the existing date so that paused/old
-                // schedules don't snap to an already-elapsed time. The existing
-                // date is a browser-local Dayjs whose wall clock mirrors the
-                // project timezone — reinterpret it in project tz to get the real instant.
-                const now = new Date()
-                const existing = values.editScheduledAt?.tz(timezone, true).toDate()
-                const currentDate = existing && existing > now ? existing : now
-                const interval = CronExpressionParser.parse(cron, { currentDate, tz: timezone })
-                const nextDate = interval.next().toDate()
-                actions.setEditScheduledAt(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
-            } catch {
-                // Invalid — don't update
+            const nextRun = nextCronRunDate(cron, values.projectTimezone, values.editPickedDay)
+            // Invalid expression: leave the date picker as it is
+            if (nextRun) {
+                actions.setEditScheduledAt(nextRun)
             }
         },
         saveEdit: async () => {

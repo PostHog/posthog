@@ -12,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataCatalogScene } from './DataCatalogScene'
 import { METRICS_INTRO_SEEN_KEY } from './metricsIntroLogic'
+import { USAGE_SNAPSHOT } from './usageStoryFixtures'
 
 const nodes = [
     {
@@ -405,6 +406,26 @@ export const OverviewWithSuggestions: Story = {
     },
 }
 
+const usageScanParameters = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+        FEATURE_FLAGS.DATA_CATALOG_USAGE,
+    ],
+    msw: {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/data_catalog/usage/': [USAGE_SNAPSHOT],
+                '/api/projects/:team_id/data_catalog/usage/latest/': USAGE_SNAPSHOT,
+            },
+        },
+    },
+}
+
+export const OverviewWithSuggestedMetrics: Story = {
+    parameters: usageScanParameters,
+}
+
 export const OverviewWithoutWarehouseAccess: Story = {
     beforeEach: () => {
         const context = window.POSTHOG_APP_CONTEXT!
@@ -539,6 +560,20 @@ export const MetricsEmpty: Story = {
 
 export const MetricsEmptyNarrow: Story = {
     ...MetricsEmpty,
+    decorators: [inMainContent('w-128')],
+}
+
+export const MetricsSuggested: Story = {
+    parameters: {
+        ...usageScanParameters,
+        // The scan window in the fixture ends in late October.
+        mockDate: '2026-10-30',
+        pageUrl: urls.dataCatalog('metrics'),
+    },
+}
+
+export const MetricsSuggestedNarrow: Story = {
+    ...MetricsSuggested,
     decorators: [inMainContent('w-128')],
 }
 

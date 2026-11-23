@@ -71,16 +71,16 @@ let env = process.env
 if (constrained) {
     env = { GOMEMLIMIT: plan.goMemLimit, ...process.env }
     console.info(
-        `${plan.headroomGib} GiB of memory headroom: running tsgo with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
+        `${plan.headroomGib} GiB of memory headroom: running tsc with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
     )
 }
 
-const result = spawnSync('tsgo', args, { cwd: frontendDir, env, stdio: 'inherit' })
+const result = spawnSync('tsc', args, { cwd: frontendDir, env, stdio: 'inherit' })
 if (result.error) {
-    console.error(`Failed to run tsgo: ${result.error.message}`)
+    console.error(`Failed to run tsc: ${result.error.message}`)
     process.exit(1)
 }
 if (result.status === 0) {
-    console.info('No errors reported by tsgo.')
+    console.info('No errors reported by tsc.')
 }
 process.exit(result.status ?? 1)

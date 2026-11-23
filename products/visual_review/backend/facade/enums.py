@@ -199,6 +199,7 @@ class BaselineEntrySource(LabeledStrEnum):
 
     SEED = "seed", "seed"
     MERGE = "merge", "merge"
+    REPAIR = "repair", "repair"
 
 
 class BaselineApprovalState(LabeledStrEnum):

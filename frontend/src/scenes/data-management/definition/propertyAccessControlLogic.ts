@@ -16,6 +16,8 @@ import type {
     PropertyAccessControlStateApi,
 } from 'products/access_control/frontend/generated/api.schemas'
 
+import type { OrganizationMemberType, RoleType } from '../../../types'
+
 export interface PropertyAccessControlLogicProps {
     propertyDefinitionId: string
     teamId: number
@@ -104,13 +106,13 @@ export interface propertyAccessControlLogicMeta {
         defaultLevel: (localState: LocalAccessControlState | null) => AccessLevelEnumApi
         memberOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
         roleOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
-        allMembers: (members: import('../../../types').OrganizationMemberType[] | null) => {
+        allMembers: (members: OrganizationMemberType[] | null) => {
             email: string
             first_name: string
             id: string
             last_name: string
         }[]
-        allRoles: (roles: import('../../../types').RoleType[]) => {
+        allRoles: (roles: RoleType[]) => {
             id: string
             members: any[]
             name: string

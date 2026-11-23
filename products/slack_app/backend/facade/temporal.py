@@ -3,9 +3,7 @@
 Kept apart from ``facade/api.py`` so ``temporalio`` stays off the light data-surface import path.
 """
 
-from collections.abc import Callable
-
-from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+from posthog.temporal.common.registration import ActivityDefinition, QueueBinding, TemporalRegistration
 
 from products.slack_app.backend.temporal import SLACK_APP_ACTIVITIES
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
@@ -35,7 +33,7 @@ WORKFLOWS = [
     SlackAppDailyFocusSweepWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [*SLACK_APP_ACTIVITIES]
+ACTIVITIES: list[ActivityDefinition] = [*SLACK_APP_ACTIVITIES]
 
 __all__ = ["ACTIVITIES", "WORKFLOWS"]
 

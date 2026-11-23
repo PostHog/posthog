@@ -1705,6 +1705,7 @@ class SocialAuthExceptionMiddleware:
                 "google_sso_enforced",
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
+                "chatgpt_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
                 "access_blocked",
@@ -1970,7 +1971,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(
             r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
-            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|latency_percentiles|aggregate|tree"
             r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
         ),
     ),

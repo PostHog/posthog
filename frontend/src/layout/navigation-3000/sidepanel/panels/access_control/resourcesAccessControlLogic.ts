@@ -62,7 +62,7 @@ export function isResourceShownInAccessControls(
 export interface resourcesAccessControlLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | string // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     resourceAccessControls: AccessControlResponseType | null
     resourceAccessControlsLoading: boolean
     resources: APIScopeObject[]
@@ -109,7 +109,7 @@ export interface resourcesAccessControlLogicActions {
 export interface resourcesAccessControlLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         resources: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
             featureFlags: FeatureFlagsSet
         ) => APIScopeObject[]
     }

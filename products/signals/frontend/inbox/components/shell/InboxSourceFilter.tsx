@@ -84,7 +84,7 @@ export function InboxSourceFilter(): JSX.Element {
     const { setSourceFilter } = useActions(inboxFiltersLogic)
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { loadSourceConfigs } = useActions(signalSourcesLogic)
-    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, scoutNamesBySkill } = useValues(scoutFleetLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const [visible, setVisible] = useState(false)
     const [search, setSearch] = useState('')
@@ -101,7 +101,7 @@ export function InboxSourceFilter(): JSX.Element {
         ? [...sources, ...scouts].find((choice) => sameSelection(selection, choice))
         : undefined
     const label = !selectedChoice
-        ? inboxSourceFilterLabel(sourceProductFilter, scoutFilter)
+        ? inboxSourceFilterLabel(sourceProductFilter, scoutFilter, scoutNamesBySkill)
         : selectedChoice.kind === 'scout'
           ? `Scout · ${selectedChoice.label}`
           : selectedChoice.label

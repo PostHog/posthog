@@ -17,6 +17,10 @@ def reactor(key: str) -> EntitlementReactor:
 
 
 class TestEntitlementRegistry(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        get_entitlement_reactor_registry.cache_clear()
+
     def tearDown(self) -> None:
         get_entitlement_reactor_registry.cache_clear()
         super().tearDown()

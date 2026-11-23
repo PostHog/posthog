@@ -1,10 +1,11 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.sdk.testing import (
@@ -30,23 +31,25 @@ BUILDS_PARAMS = "limit=100&sort_by=id%3Adesc"
 JOBS_PARAMS = "limit=100&sort_by=id%3Adesc&include=build.jobs"
 REQUESTS_PARAMS = "limit=100"
 CRONS_PARAMS = "limit=100"
+ORGS_URL = f"{TRAVIS_CI_BASE_URL}/orgs?limit=100&sort_by=id"
 
 
 def _page(collection_key: str, items: list[dict[str, Any]], next_path: str | None = None) -> dict[str, Any]:
     return {collection_key: items, "@pagination": {"next": {"@href": next_path} if next_path else None}}
 
 
-def _serve(pages: dict[str, dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+def _serve(pages: Mapping[str, dict[str, Any] | ScriptedResponse]) -> Callable[[RecordedRequest], ScriptedResponse]:
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.url not in pages:
             raise UnexpectedRequest(f"no page scripted for {request.url}")
-        return ScriptedResponse(json=pages[request.url])
+        page = pages[request.url]
+        return page if isinstance(page, ScriptedResponse) else ScriptedResponse(json=page)
 
     return respond
 
 
 def _collect(
-    pages: dict[str, dict[str, Any]],
+    pages: Mapping[str, dict[str, Any] | ScriptedResponse],
     endpoint: str,
     resume_state: TravisCIResumeConfig | None = None,
     **kwargs: Any,
@@ -55,23 +58,27 @@ def _collect(
     return driver.run(endpoint, _serve(pages), resume_state=resume_state, **kwargs)
 
 
-class TestRepositories:
-    def test_follows_pagination_and_strips_meta_keys(self) -> None:
-        page2_path = "/repos?limit=100&offset=100"
-        pages = {
-            REPOS_URL: _page(
-                "repositories",
-                [{"@type": "repository", "@href": "/repo/1", "id": 1, "slug": "o/a"}],
+class TestTopLevelEndpoints:
+    @parameterized.expand(
+        [
+            ("repositories", REPOS_URL, "/repos?limit=100&offset=100"),
+            ("organizations", ORGS_URL, "/orgs?limit=100&sort_by=id&offset=100"),
+        ]
+    )
+    def test_follows_pagination_and_strips_meta_keys(self, endpoint: str, first_url: str, page2_path: str) -> None:
+        pages: dict[str, dict[str, Any] | ScriptedResponse] = {
+            first_url: _page(
+                endpoint,
+                [{"@type": endpoint[:-1], "@href": "/x/1", "id": 1, "login": "a"}],
                 next_path=page2_path,
             ),
-            f"{TRAVIS_CI_BASE_URL}{page2_path}": _page("repositories", [{"id": 2, "slug": "o/b"}]),
+            f"{TRAVIS_CI_BASE_URL}{page2_path}": _page(endpoint, [{"id": 2, "login": "b"}]),
         }
-        result = _collect(pages, endpoint="repositories")
+        result = _collect(pages, endpoint=endpoint)
 
         assert result.raised is None
-        assert [r["id"] for r in result.rows] == [1, 2]
-        assert "@type" not in result.rows[0] and "@href" not in result.rows[0]
-        assert result.urls == [REPOS_URL, f"{TRAVIS_CI_BASE_URL}{page2_path}"]
+        assert result.rows == [{"id": 1, "login": "a"}, {"id": 2, "login": "b"}]
+        assert result.urls == [first_url, f"{TRAVIS_CI_BASE_URL}{page2_path}"]
         # State is saved AFTER the page is yielded, pointing at the next page, so a crash
         # re-yields the in-progress page instead of skipping it.
         assert result.saved_states == [TravisCIResumeConfig(next_path=page2_path)]
@@ -158,19 +165,27 @@ class TestBuildsFanOut:
         logger.warning.assert_called_once()
 
 
-class TestBuildEmbeddedRows:
-    @parameterized.expand([("jobs", JOBS_PARAMS), ("stages", BUILDS_PARAMS)])
-    def test_incremental_stops_at_build_watermark(self, endpoint: str, params: str) -> None:
-        pages = {
+class TestEmbeddedRows:
+    @parameterized.expand(
+        [
+            ("jobs", "builds", JOBS_PARAMS, "build_id"),
+            ("stages", "builds", BUILDS_PARAMS, "build_id"),
+            ("messages", "requests", REQUESTS_PARAMS, "request_id"),
+        ]
+    )
+    def test_incremental_stops_at_parent_watermark(
+        self, endpoint: str, parent: str, params: str, parent_key: str
+    ) -> None:
+        pages: dict[str, dict[str, Any] | ScriptedResponse] = {
             REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{params}": _page(
-                "builds",
+            f"{TRAVIS_CI_BASE_URL}/repo/1/{parent}?{params}": _page(
+                parent,
                 [
                     {"id": 30, endpoint: [{"@type": endpoint[:-1], "id": 301}, {"id": 302}]},
                     {"id": 25, endpoint: []},
                     {"id": 20, endpoint: [{"id": 201}]},
                 ],
-                next_path=f"/repo/1/builds?{params}&offset=100",
+                next_path=f"/repo/1/{parent}?{params}&offset=100",
             ),
         }
         result = _collect(
@@ -181,10 +196,37 @@ class TestBuildEmbeddedRows:
         )
 
         assert result.rows == [
-            {"id": 301, "build_id": 30, "repository_id": 1},
-            {"id": 302, "build_id": 30, "repository_id": 1},
+            {"id": 301, parent_key: 30, "repository_id": 1},
+            {"id": 302, parent_key: 30, "repository_id": 1},
         ]
-        assert len(result.urls) == 2  # /repos + first builds page; the older page is never fetched
+        assert len(result.urls) == 2  # /repos + first parent page; the older page is never fetched
+
+
+class TestForbiddenRepositories:
+    def test_caches_skip_forbidden_repository_and_send_no_paging_params(self) -> None:
+        cache = {"repository_id": 2, "branch": "main", "name": "cache-linux.tgz", "size": 1024}
+        pages: dict[str, dict[str, Any] | ScriptedResponse] = {
+            REPOS_URL: _page("repositories", [{"id": 1}, {"id": 2}]),
+            f"{TRAVIS_CI_BASE_URL}/repo/1/caches": ScriptedResponse(
+                status=403, json={"error_type": "insufficient_access"}
+            ),
+            f"{TRAVIS_CI_BASE_URL}/repo/2/caches": {"@type": "caches", "caches": [{"@type": "cache", **cache}]},
+        }
+        result = _collect(pages, endpoint="caches")
+
+        assert result.raised is None
+        assert result.rows == [cache]
+
+    def test_forbidden_repository_fails_other_endpoints(self) -> None:
+        pages: dict[str, dict[str, Any] | ScriptedResponse] = {
+            REPOS_URL: _page("repositories", [{"id": 1}]),
+            f"{TRAVIS_CI_BASE_URL}/repo/1/crons?{CRONS_PARAMS}": ScriptedResponse(
+                status=403, json={"error_type": "insufficient_access"}
+            ),
+        }
+        result = _collect(pages, endpoint="crons")
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestPaginationCursorValidation:

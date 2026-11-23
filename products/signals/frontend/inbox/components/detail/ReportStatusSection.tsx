@@ -217,60 +217,57 @@ export function ReportStatusSection({
                         </StatusRow>
                     )}
                 </dl>
-                {editableDecisions &&
-                    hasAgentDecisions && (
-                        // A wrong repository matters most before a pull request exists, so the group starts open then.
-                        <ReportAgentDecisions
-                            values={[
-                                report.repo_slug,
-                                report.actionability && actionabilityLabel(report.actionability),
-                                report.already_addressed ? 'Already addressed' : null,
-                            ]}
-                            defaultExpanded={pullRequests.length === 0}
-                            onToggleCollapsed={onToggleAgentDecisions}
-                        >
-                            {report.repo_slug && (
-                                <ReportRepositoryDecisionRow
-                                    repository={report.repo_slug}
-                                    attribution={decisionAttributions?.repository ?? null}
-                                    onChange={onRepositoryChange}
-                                    saving={repositorySaving}
-                                />
-                            )}
-                            {report.actionability && (
-                                <ReportDecisionRow<SignalReportActionability>
-                                    label="Actionability"
-                                    value={report.actionability}
-                                    attribution={decisionAttributions?.actionability ?? null}
-                                    options={ACTIONABILITY_OPTIONS}
-                                    onChange={
-                                        onActionabilityChange
-                                            ? (actionability) => onActionabilityChange({ actionability })
-                                            : undefined
-                                    }
-                                    saving={actionabilitySaving}
-                                    formatValue={actionabilityLabel}
-                                    data-attr="report-actionability-select"
-                                />
-                            )}
-                            {typeof report.already_addressed === 'boolean' && (
-                                <ReportDecisionRow<AlreadyAddressedValue>
-                                    label="Already addressed"
-                                    value={report.already_addressed ? 'true' : 'false'}
-                                    attribution={decisionAttributions?.already_addressed ?? null}
-                                    options={ALREADY_ADDRESSED_OPTIONS}
-                                    onChange={
-                                        onActionabilityChange
-                                            ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
-                                            : undefined
-                                    }
-                                    saving={actionabilitySaving}
-                                    formatValue={alreadyAddressedLabel}
-                                    data-attr="report-already-addressed-select"
-                                />
-                            )}
-                        </ReportAgentDecisions>
-                    )}
+                {editableDecisions && hasAgentDecisions && (
+                    <ReportAgentDecisions
+                        values={[
+                            report.repo_slug,
+                            report.actionability && actionabilityLabel(report.actionability),
+                            report.already_addressed ? 'Already addressed' : null,
+                        ]}
+                        onToggleCollapsed={onToggleAgentDecisions}
+                    >
+                        {report.repo_slug && (
+                            <ReportRepositoryDecisionRow
+                                repository={report.repo_slug}
+                                attribution={decisionAttributions?.repository ?? null}
+                                onChange={onRepositoryChange}
+                                saving={repositorySaving}
+                            />
+                        )}
+                        {report.actionability && (
+                            <ReportDecisionRow<SignalReportActionability>
+                                label="Actionability"
+                                value={report.actionability}
+                                attribution={decisionAttributions?.actionability ?? null}
+                                options={ACTIONABILITY_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (actionability) => onActionabilityChange({ actionability })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={actionabilityLabel}
+                                data-attr="report-actionability-select"
+                            />
+                        )}
+                        {typeof report.already_addressed === 'boolean' && (
+                            <ReportDecisionRow<AlreadyAddressedValue>
+                                label="Already addressed"
+                                value={report.already_addressed ? 'true' : 'false'}
+                                attribution={decisionAttributions?.already_addressed ?? null}
+                                options={ALREADY_ADDRESSED_OPTIONS}
+                                onChange={
+                                    onActionabilityChange
+                                        ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
+                                        : undefined
+                                }
+                                saving={actionabilitySaving}
+                                formatValue={alreadyAddressedLabel}
+                                data-attr="report-already-addressed-select"
+                            />
+                        )}
+                    </ReportAgentDecisions>
+                )}
             </div>
         </DetailSection>
     )
