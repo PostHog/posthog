@@ -34,7 +34,9 @@ ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 _DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
 _DMARC_REQUEST = r"none|quarantine|reject"
-_DMARC_URI = re.compile(r"mailto:[^\s,;!@]+@[a-z0-9.-]+(?:![0-9]+[kmgt]?)?", re.IGNORECASE)
+_DMARC_URI = re.compile(
+    r"mailto:[^\s,;!@?]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\?[^\s,;!]*)?(?:![0-9]+[kmgt]?)?", re.IGNORECASE
+)
 _DMARC_URI_TAGS = frozenset({"rua", "ruf"})
 _DMARC_TAG_VALUES = {
     name: re.compile(pattern, re.IGNORECASE)
@@ -43,9 +45,9 @@ _DMARC_TAG_VALUES = {
         "sp": _DMARC_REQUEST,
         "adkim": r"[rs]",
         "aspf": r"[rs]",
-        "pct": r"\d{1,3}",
+        "pct": r"100|\d{1,2}",
         "ri": r"\d{1,10}",
-        "fo": r"[01ds](?::[01ds])*",
+        "fo": r"[01ds](?:\s*:\s*[01ds])*",
         "rf": r"afrf|iodef",
     }.items()
 }
@@ -232,7 +234,7 @@ def _policy_in_force(policy: str) -> str | None:
         for name, _, value in (tag.partition("=") for tag in policy.split(";")[1:])
         if name.strip()
     ]
-    names = [name for name, _ in tags if name in _DMARC_TAG_VALUES or name in _DMARC_URI_TAGS]
+    names = ["v", *(name for name, _ in tags if name in _DMARC_TAG_VALUES or name in _DMARC_URI_TAGS or name == "v")]
     if len(names) != len(set(names)):
         return None
     valid = {name: checked for name, value in tags if (checked := _valid_tag_value(name, value))}
