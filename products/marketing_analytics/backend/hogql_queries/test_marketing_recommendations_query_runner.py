@@ -29,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _asset_texts,
     _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
@@ -636,11 +637,13 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
         ]
 
 
-class TestPolicyTopics(SimpleTestCase):
+class TestAdJson(SimpleTestCase):
     @parameterized.expand(
         [
             ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
             ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
             (
                 "texts_are_not_text",
                 {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
@@ -652,3 +655,6 @@ class TestPolicyTopics(SimpleTestCase):
         topics = _policy_topics(json.dumps([json.dumps(entry)]))
 
         assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+
+    def test_asset_texts_skip_non_text(self) -> None:
+        assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)
