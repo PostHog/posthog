@@ -1,5 +1,6 @@
 import json
 import dataclasses
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -31,9 +32,11 @@ from products.stamphog.backend.facade.enums import (
     DigestRunStatus,
     ReviewMode,
     ReviewRunStatus,
+    ReviewVerdict,
     RoutingMode,
 )
 from products.stamphog.backend.facade.github import StamphogGitHubError
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import (
     DigestRun,
     PullRequest,
@@ -986,6 +989,85 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert self.start_workflow.called is expect_start
         if existing_silent:
             assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
+
+    def _finish_as(self, run_id: str, verdict: ReviewVerdict) -> None:
+        # Store the context the way the workflow's fetch does, so the run records what its review saw.
+        client = StamphogGitHubClient("77")
+        output = {
+            **ReviewRun.objects.unscoped().get(id=run_id).output,
+            "pr": client.get_pr("PostHog/posthog", 5),
+            "reviews": client.get_pr_reviews("PostHog/posthog", 5),
+            "discussion": client.get_pr_discussion("PostHog/posthog", 5),
+            "review_threads": client.get_pr_review_threads("PostHog/posthog", 5),
+        }
+        ReviewRun.objects.unscoped().filter(id=run_id).update(
+            status=ReviewRunStatus.COMPLETED, verdict=verdict, output=output
+        )
+
+    def _comment(self, body: str, login: str = "bob", association: str = "MEMBER", bot: bool = False) -> None:
+        user = {"login": login, "type": "Bot" if bot else "User"}
+        self.github.issue_comments.setdefault(("PostHog/posthog", 5), []).append(
+            {"user": user, "author_association": association, "body": body}
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing_changed", ReviewVerdict.REFUSED, lambda t: None, False),
+            (
+                "stamphog_commented",
+                ReviewVerdict.REFUSED,
+                lambda t: t._comment("Not approved.", "stamphog[bot]", bot=True),
+                False,
+            ),
+            ("author_answered", ReviewVerdict.REFUSED, lambda t: t._comment("The flag is checked upstream."), True),
+            ("escalation_answered", ReviewVerdict.ESCALATE, lambda t: t._comment("Owner signed off."), True),
+            ("approval_stands", ReviewVerdict.APPROVED, lambda t: t._comment("Thanks."), False),
+            ("wait_stands", ReviewVerdict.WAIT, lambda t: t._comment("Thanks."), False),
+        ]
+    )
+    def test_request_reviews_a_refused_head_again_only_for_new_evidence(
+        self, _name: str, verdict: ReviewVerdict, change: Callable[[Any], None], expect_created: bool
+    ) -> None:
+        first = self._request().json()["run"]["id"]
+        self._finish_as(first, verdict)
+        change(self)
+        self.start_workflow.reset_mock()
+
+        body = self._request().json()
+
+        assert body["created"] is expect_created
+        assert self.start_workflow.called is expect_created
+        if expect_created:
+            assert ReviewRun.objects.unscoped().get(id=body["run"]["id"]).output["evidence_rerun_of"] == first
+        else:
+            assert body["run"]["id"] == first
+
+    def test_evidence_re_runs_never_repeat_reviewed_evidence_and_stop_at_the_cap(self) -> None:
+        run_id = self._request().json()["run"]["id"]
+        self._finish_as(run_id, ReviewVerdict.REFUSED)
+
+        def answer(text: str) -> dict:
+            self._comment(text)
+            body = self._request().json()
+            if body["created"]:
+                self._finish_as(body["run"]["id"], ReviewVerdict.REFUSED)
+            return body
+
+        assert answer("First answer.")["created"] is True
+        after_first = list(self.github.issue_comments[("PostHog/posthog", 5)])
+        second = answer("Second answer.")
+        assert second["created"] is True
+
+        # Taking the second answer back restores evidence that a review already saw.
+        self.github.issue_comments[("PostHog/posthog", 5)] = after_first
+        body = self._request().json()
+        assert (body["created"], body["run"]["id"]) == (False, second["run"]["id"])
+
+        third = answer("Third answer.")
+        assert third["created"] is True
+        # New evidence past the cap re-runs nothing.
+        body = answer("Fourth answer.")
+        assert (body["created"], body["run"]["id"]) == (False, third["run"]["id"])
 
     @parameterized.expand(
         [

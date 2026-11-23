@@ -64,6 +64,7 @@ from products.stamphog.backend.logic.installations import (
     reviewable_repo_configs,
 )
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint, stored_evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import ROUTING_SAFETY_NET_SECONDS, RoutingBusy
@@ -1601,6 +1602,42 @@ def _withheld_run_output(repo_config: StamphogRepoConfig, pr: dict[str, Any]) ->
     return {WITHHELD_RUN_OUTPUT_KEY: str(withheld.id)} if withheld is not None else {}
 
 
+# On a manual run that reviews a refused head again because people changed the evidence: the run it follows.
+EVIDENCE_RERUN_OUTPUT_KEY = "evidence_rerun_of"
+# Bounds how often people can re-roll the reviewer on one head without pushing.
+_EVIDENCE_RERUNS_PER_HEAD = 3
+_DELIVERED_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+
+
+def _is_delivered_refusal(run: ReviewRun) -> bool:
+    """A refusal or an escalation that the PR saw. A silent run's withheld verdict has its own path."""
+    return run.status in _DELIVERED_STATUSES and run.verdict in _REUSABLE_WITHHELD_VERDICTS and not run.is_silent
+
+
+def _evidence_reruns_left(runs_at_head: QuerySet[ReviewRun]) -> bool:
+    return runs_at_head.filter(output__has_key=EVIDENCE_RERUN_OUTPUT_KEY).count() < _EVIDENCE_RERUNS_PER_HEAD
+
+
+def _reviewed_evidence(runs_at_head: QuerySet[ReviewRun], base_ref: str) -> set[str | None]:
+    """The evidence fingerprints that finished reviews of this head and base saw. Reads only the
+    stored context that the fingerprint covers, never the files or the patches."""
+    rows = runs_at_head.filter(status__in=_DELIVERED_STATUSES).values(
+        "output__pr", "output__reviews", "output__discussion", "output__review_threads"
+    )
+    return {
+        stored_evidence_fingerprint(
+            {
+                "pr": row["output__pr"],
+                "reviews": row["output__reviews"],
+                "discussion": row["output__discussion"],
+                "review_threads": row["output__review_threads"],
+            }
+        )
+        for row in rows
+        if ((row["output__pr"] or {}).get("base") or {}).get("ref") == base_ref
+    }
+
+
 _UNPUBLISHED_SILENT_RUN = Q(
     output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}, verdict_posted_at__isnull=True
 )
@@ -1622,6 +1659,7 @@ def _queue_review_at_head(
     *,
     output: dict[str, Any],
     revisit_wait: bool = False,
+    evidence: str | None = None,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1634,6 +1672,10 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run.
+
+    ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
+    this head is a delivered refusal, the head is reviewed again only for evidence that no finished
+    review of this head saw, and at most ``_EVIDENCE_RERUNS_PER_HEAD`` times.
 
     The request's stamped trigger decides how a silent run counts. A silent run covers only another
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
@@ -1679,6 +1721,19 @@ def _queue_review_at_head(
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
         if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
+            existing = None
+        runs_at_head = (
+            ReviewRun.objects.for_team(team_id).using(run_write_db).filter(pull_request=pr_obj, head_sha=head_sha)
+        )
+        # Every finished review counts, so switching back to evidence that was already reviewed re-rolls nothing.
+        if (
+            existing is not None
+            and evidence is not None
+            and _is_delivered_refusal(existing)
+            and _evidence_reruns_left(runs_at_head)
+            and evidence not in _reviewed_evidence(runs_at_head, (pr.get("base") or {}).get("ref") or "")
+        ):
+            output = {**output, EVIDENCE_RERUN_OUTPUT_KEY: str(existing.id)}
             existing = None
         if existing is not None:
             if existing.status == ReviewRunStatus.QUEUED:
@@ -1872,6 +1927,36 @@ class QueuedReview:
     created: bool
 
 
+def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
+    """The evidence fingerprint of ``pr`` as it is now, when the run that covers its current head for a
+    visible request is a delivered refusal and the head has an evidence re-run left. None otherwise,
+    which saves the reads. Raises on a GitHub error.
+
+    ``_queue_review_at_head`` decides again under the row lock, so a run that lands in between is
+    handled there."""
+    runs_at_head = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr["number"], head_sha=pr["head"]["sha"])
+    )
+    covering = (
+        runs_at_head.exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        .exclude(_UNPUBLISHED_SILENT_RUN)
+        .order_by("-created_at")
+        .first()
+    )
+    if covering is None or not _is_delivered_refusal(covering) or not _evidence_reruns_left(runs_at_head):
+        return None
+    repo = repo_config.repository
+    client = StamphogGitHubClient(repo_config.installation_id)
+    return evidence_fingerprint(
+        pr,
+        reviews=client.get_pr_reviews(repo, pr["number"]),
+        discussion=client.get_pr_discussion(repo, pr["number"]),
+        review_threads=client.get_pr_review_threads(repo, pr["number"]),
+    )
+
+
 def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
     """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
 
@@ -1920,11 +2005,16 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
             "so auto-approval will not review it.",
         )
 
+    try:
+        evidence = _evidence_after_refusal(repo_config, pr)
+    except (StamphogGitHubError, *_GITHUB_ERRORS) as e:
+        raise _github_unavailable(repo, pr_number) from e
     queued = _queue_review_at_head(
         repo_config,
         pr,
         pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
+        evidence=evidence,
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
@@ -1937,6 +2027,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         pr_number=pr_number,
         review_run_id=str(queued.run.id),
         created=queued.created,
+        evidence_rerun=EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
         team_id=team_id,
     )
     return QueuedReview(run=queued.run, created=queued.created)
