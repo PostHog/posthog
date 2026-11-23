@@ -87,8 +87,6 @@ from products.managed_warehouse.backend.temporal.metrics import (
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
-# so the functions that use duckdb import it themselves.
 if TYPE_CHECKING:
     import duckdb
 
@@ -459,7 +457,6 @@ def _copy_data_imports_via_duckdb(
     inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any
 ) -> DeltaTableSnapshotWorkload:
     """Create the DuckLake table directly from Delta using the local DuckDB client."""
-
     import duckdb  # noqa: PLC0415
 
     workload = get_delta_table_snapshot_workload(inputs.model.source_table_uri, team_id=inputs.team_id)
@@ -703,7 +700,6 @@ def _fetch_delta_partition_columns(table_uri: str, *, team_id: int) -> list[str]
 
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
-
     import duckdb  # noqa: PLC0415
 
     try:

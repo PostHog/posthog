@@ -59,8 +59,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
-# so the functions that use duckdb import it themselves.
 if TYPE_CHECKING:
     import duckdb
 
@@ -163,7 +161,6 @@ def connect(access_token: str, database: Optional[str] = None, *, read_only: boo
     Read-only by default: neither imports nor direct queries write, so DuckDB rejects every
     write statement engine-side regardless of what the token is granted.
     """
-
     import duckdb  # noqa: PLC0415
 
     connection_string = build_motherduck_connection_string(database, access_token)

@@ -33,8 +33,6 @@ from products.warehouse_sources.backend.facade.duckgres import (
     sanitize_duckgres_identifier,
 )
 
-# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
-# so the functions that use duckdb import it themselves.
 if TYPE_CHECKING:
     import duckdb
     from clickhouse_driver import Client
@@ -476,7 +474,6 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
 
     In dev mode, automatically resets the catalog database on version mismatch.
     """
-
     import duckdb  # noqa: PLC0415
 
     if config is None:

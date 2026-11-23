@@ -71,8 +71,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck
     connect as connect_motherduck,
 )
 
-# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
-# so the functions that use duckdb import it themselves.
 if TYPE_CHECKING:
     import duckdb
 

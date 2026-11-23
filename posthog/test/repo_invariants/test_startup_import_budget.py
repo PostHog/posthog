@@ -507,13 +507,10 @@ print("WSGI_PREBUILD_OK")
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
 
 
-# The web entry also builds the URLconf, so it imports more than a bare django.setup() does.
-# Each library here starts threads when it loads. bin/granian_preload.py forks the web workers
-# only from a parent without such threads, so the web entry must leave these libraries to the
-# code that uses them.
-FORBIDDEN_AT_WEB_ENTRYPOINT = [
-    "duckdb",  # one thread per CPU — the warehouse and DuckLake modules import it in their functions
-]
+# These libraries start threads when they load. bin/granian_preload.py forks the web workers
+# only from a parent without such threads, so code reachable from the web entry imports them
+# inside the function that uses them.
+FORBIDDEN_AT_WEB_ENTRYPOINT = ["duckdb"]
 
 
 def test_web_entrypoint_does_not_import_thread_starting_libraries() -> None:
