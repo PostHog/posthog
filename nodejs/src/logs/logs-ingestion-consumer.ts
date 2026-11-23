@@ -74,10 +74,10 @@ import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling
 import {
     AUTH_TYPE_HEADER,
     AUTH_TYPE_SECRET_KEY,
-    SECRET_KEY_PREFIX,
     SecretKeyTeams,
     isSecretKey,
     isSecretKeyDigest,
+    loggableToken,
 } from './secret-key-teams'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
@@ -1568,7 +1568,7 @@ export class LogsIngestionConsumer {
                         // resolution to here because it has no Postgres access, so this fires on every
                         // dropped message for a bad token. Already tracked via the metrics below.
                         logger.warn('team_not_found', {
-                            token_with_no_team: sentUnhashedKey ? SECRET_KEY_PREFIX : token,
+                            token_with_no_team: loggableToken(token),
                         })
                         if (!sentUnhashedKey) {
                             this.unknownTokens.record(token)

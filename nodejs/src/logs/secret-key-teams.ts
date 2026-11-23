@@ -15,6 +15,11 @@ export function isSecretKeyDigest(token: string): boolean {
     return token.startsWith(SECRET_KEY_DIGEST_PREFIX)
 }
 
+/** The part of a token that is safe to log. A digest is as good as the key to a reader of the logs. */
+export function loggableToken(token: string): string {
+    return isSecretKey(token) ? SECRET_KEY_PREFIX : isSecretKeyDigest(token) ? token.slice(0, 15) : token
+}
+
 /** A key that no capture service hashed. It is never looked up, logged or recorded. */
 export function isSecretKey(token: string): boolean {
     return token.trimStart().startsWith(SECRET_KEY_PREFIX)

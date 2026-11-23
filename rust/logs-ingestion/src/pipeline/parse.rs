@@ -5,7 +5,8 @@ use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
 use crate::secret_key::{
-    is_secret_key, is_secret_key_digest, AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX,
+    is_secret_key, is_secret_key_digest, AUTH_TYPE_SECRET_KEY, SECRET_KEY_DIGEST_PREFIX,
+    SECRET_KEY_PREFIX,
 };
 
 use super::context::{kafka_header, quarantine_log_message, AppSource, LogsPipelineContext};
@@ -67,8 +68,11 @@ async fn parse(
         }
     };
     let Some(team) = team else {
+        // A digest is as good as the key to a reader of the logs.
         let logged_token = if sent_unhashed_key {
             SECRET_KEY_PREFIX
+        } else if sent_secret_key {
+            token.get(..15).unwrap_or(SECRET_KEY_DIGEST_PREFIX)
         } else {
             token.as_str()
         };

@@ -15,7 +15,7 @@ import {
     parseMinTimestampHeader,
     parseSizeHeader,
 } from '../logs-ingestion-consumer'
-import { AUTH_TYPE_SECRET_KEY, SECRET_KEY_PREFIX, isSecretKey, isSecretKeyDigest } from '../secret-key-teams'
+import { AUTH_TYPE_SECRET_KEY, isSecretKey, isSecretKeyDigest, loggableToken } from '../secret-key-teams'
 import type { LogsIngestionMessage } from '../types'
 import { LogsPipelineContext, quarantineLogMessage, retryOnDependencyUnavailable } from './logs-pipeline-context'
 
@@ -66,7 +66,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
 
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
-                logger.warn('team_not_found', { token_with_no_team: sentUnhashedKey ? SECRET_KEY_PREFIX : token })
+                logger.warn('team_not_found', { token_with_no_team: loggableToken(token) })
                 if (!sentUnhashedKey) {
                     context.unknownTokens?.record(token)
                 }
