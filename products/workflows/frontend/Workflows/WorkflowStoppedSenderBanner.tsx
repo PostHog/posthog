@@ -23,9 +23,7 @@ export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Elem
         }
     }, [stepCount, props.id])
 
-    return broken && originalWorkflow ? (
-        <StoppedSenderBanner {...props} broken={broken} live={originalWorkflow} />
-    ) : null
+    return broken ? <StoppedSenderBanner {...props} broken={broken} /> : null
 }
 
 function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken: StoppedSenderSteps }): JSX.Element {
