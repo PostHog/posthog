@@ -315,6 +315,10 @@ _REASONS_BY_CODE = {
         fix="Send the email's content with `template_key`, or leave this field out.",
     ),
 }
+_CATEGORY_NOT_ACCEPTED_REASON = Reason(
+    why=_REASONS_BY_CODE["field_not_accepted"].why,
+    fix="Wait until PostHog accepts `category`, then send the email again.",
+)
 
 
 def refused_attachment(
@@ -383,6 +387,8 @@ def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
         reason = _SHA256_REASON
     elif code == "unknown_attachment_field" and path[-1] == "content":
         reason = _INLINE_CONTENT_REASON
+    elif code == "field_not_accepted" and path[0] == "category":
+        reason = _CATEGORY_NOT_ACCEPTED_REASON
     else:
         reason = _REASONS_BY_CODE.get(code, _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON)
     attr = "__".join(path)

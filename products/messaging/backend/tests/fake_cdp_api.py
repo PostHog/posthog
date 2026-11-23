@@ -16,10 +16,6 @@ import requests
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
-from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
-CDP_SEND_ROUTE = re.compile(r".*/api/projects/(?P<team_id>\d+)/hog_flows/[^/]+/transactional_email(/send)?$")
-
 RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
@@ -137,7 +133,12 @@ _ATTACHMENT = _object(
 
 
 _SEND_CATEGORY = _object(
-    {"id": _Key(_string(min_length=1)), "type": _Key(_one_of("marketing", "transactional"))}, strict=True
+    {
+        "id": _Key(_string(min_length=1)),
+        "type": _Key(_one_of("marketing", "transactional")),
+        "inherited": _Key(_boolean, optional=True),
+    },
+    strict=True,
 )
 
 
@@ -279,7 +280,6 @@ class FakeCdpApi:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
         refusal = self.refusal or (_sandbox_refusal(request["send"]) if is_code_send else None)
-        refusal = refusal or _opt_out_refusal(url, request)
         if refusal:
             return _response(refusal[0], {"error": refusal[1]})
         requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
@@ -312,7 +312,7 @@ class FakeCdpApi:
             for send in self.queued_sends
         ]
 
-    def categories(self) -> list[dict[str, str] | None]:
+    def categories(self) -> list[dict[str, Any] | None]:
         return [(request.get("send") or {}).get("message_category") for request in self.queued]
 
     def deliver(self) -> list[tuple[str, str]]:
@@ -323,21 +323,6 @@ class FakeCdpApi:
             for request in delivered
             if request["send"]["tracking"]["captureEngagement"] is not False
         ]
-
-
-def _opt_out_refusal(url: str, request: dict[str, Any]) -> tuple[int, str] | None:
-    category = (request.get("send") or {}).get("message_category") or {}
-    if category.get("type") != "marketing":
-        return None
-    route = CDP_SEND_ROUTE.search(url)
-    assert route is not None
-    recipient = MessageRecipientPreference.objects.filter(
-        team_id=int(route["team_id"]), identifier=request["to"]
-    ).first()
-    preferences = recipient.preferences if recipient else {}
-    if "OPTED_OUT" in (preferences.get(category["id"]), preferences.get("$all")):
-        return 422, "recipient_opted_out"
-    return None
 
 
 @frozen
@@ -370,13 +355,16 @@ def _send_fingerprint(url: str, request: dict[str, Any]) -> str:
         if sender.get("email") or sender.get("name")
         else None
     )
+    send_for_fingerprint = {**request["send"], "from": chosen}
+    if (send_for_fingerprint.get("message_category") or {}).get("inherited") is True:
+        send_for_fingerprint.pop("message_category", None)
     return _json_dumps(
         [
             url,
             request["to"],
             request["distinct_id"],
             request.get("variables"),
-            {**request["send"], "from": chosen},
+            send_for_fingerprint,
             _iso_milliseconds(requested_at) if requested_at else None,
         ]
     )

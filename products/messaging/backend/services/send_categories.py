@@ -1,12 +1,11 @@
-from typing import Literal
-from uuid import UUID
-
-from django.db import connection, transaction
+from django.db import connection
 from django.utils import timezone
 
 from products.messaging.backend.facade.contracts import (
     CategoryMismatch,
+    CodeSendCategory,
     MessageCategoryKind,
+    RequestedCategory,
     SendCategory,
     SendCategoryDefinition,
     TooManyCategories,
@@ -15,60 +14,75 @@ from products.messaging.backend.models import MessageCategory
 
 TRANSACTIONAL = "transactional"
 
-RequestedCategory = Literal["transactional"] | SendCategoryDefinition | None
-
 SEND_CATEGORY_LIMIT = 100
 SEND_CATEGORY_LOCK = "send-categories"
 
 
-def requested_kind(requested: RequestedCategory) -> MessageCategoryKind:
+def requested_kind(requested: CodeSendCategory | RequestedCategory) -> MessageCategoryKind:
     return requested.type if isinstance(requested, SendCategoryDefinition) else "transactional"
 
 
-def code_send_category(team_id: int, requested: RequestedCategory) -> SendCategory | None:
+def code_send_category(team_id: int, requested: CodeSendCategory) -> SendCategory | None:
     if not isinstance(requested, SendCategoryDefinition):
         return None
-    category = _category_with_key(team_id, requested.key) or _create(team_id, requested)
-    if category.category_type != requested.type:
-        raise CategoryMismatch(
-            f"The category `{requested.key}` is a {category.category_type} category, so it can't take a "
-            f'{requested.type} email. Send `"type": "{category.category_type}"`, or use another key.'
-        )
-    if category.deleted:
-        _restore(team_id, category)
+    category = _category_with_key(team_id, requested.key)
+    if category is not None:
+        _require_matching_type(category, requested)
+        if not category.deleted:
+            return SendCategory(id=category.id, type=requested.type)
+    category = _create_or_restore(team_id, requested)
     return SendCategory(id=category.id, type=requested.type)
 
 
 def template_send_category(
-    template_category: MessageCategory | None, requested: RequestedCategory
+    loaded_category: MessageCategory | None, requested: CodeSendCategory | RequestedCategory
 ) -> SendCategory | None:
-    if template_category is None:
-        if requested not in (None, TRANSACTIONAL):
+    if requested == "legacy":
+        return None
+    is_inherited = requested in (None, "inherit")
+    if loaded_category is None:
+        if is_inherited or requested == TRANSACTIONAL:
+            return None
+        if isinstance(requested, SendCategoryDefinition) and requested.type == "marketing":
             raise CategoryMismatch(
-                "This template has no message category. Leave `category` out, or send `transactional`."
+                "This template has no message category, so it can't send a marketing email. Use a different "
+                "`template_key` for marketing code sends."
             )
-        return None
-    if requested is not None and not (
+        raise CategoryMismatch("This template has no message category. Leave `category` out, or send `transactional`.")
+    if not is_inherited and not (
         isinstance(requested, SendCategoryDefinition)
-        and requested.key == template_category.key
-        and requested.type == template_category.category_type
+        and requested.key == loaded_category.key
+        and requested.type == loaded_category.category_type
     ):
+        if isinstance(requested, SendCategoryDefinition) and requested.type == "marketing":
+            raise CategoryMismatch(
+                f"This template sends in the {loaded_category.category_type} category `{loaded_category.key}`, so "
+                "it can't send a marketing email. Use a different `template_key` for marketing code sends."
+            )
         raise CategoryMismatch(
-            f"This template sends in the {template_category.category_type} category `{template_category.key}`. "
-            f'Leave `category` out, or send `"key": "{template_category.key}"` with '
-            f'`"type": "{template_category.category_type}"`.'
+            f"This template sends in the {loaded_category.category_type} category `{loaded_category.key}`. "
+            f'Leave `category` out, or send `"key": "{loaded_category.key}"` with '
+            f'`"type": "{loaded_category.category_type}"`.'
         )
-    return SendCategory(id=template_category.id, type=_kind(template_category.category_type))
-
-
-def template_category(team_id: int, category_id: UUID | None) -> MessageCategory | None:
-    if category_id is None:
-        return None
-    return MessageCategory.objects.filter(team_id=team_id, id=category_id).first()
+    return SendCategory(id=loaded_category.id, type=_kind(loaded_category.category_type), inherited=is_inherited)
 
 
 def _kind(category_type: str) -> MessageCategoryKind:
     return "marketing" if category_type == "marketing" else "transactional"
+
+
+def _require_matching_type(category: MessageCategory, requested: SendCategoryDefinition) -> None:
+    if category.category_type == requested.type:
+        return
+    if requested.type == "marketing":
+        raise CategoryMismatch(
+            f"The category `{requested.key}` is a {category.category_type} category, so it can't take a marketing "
+            "email. Use another key for this marketing category."
+        )
+    raise CategoryMismatch(
+        f"The category `{requested.key}` is a {category.category_type} category, so it can't take a transactional "
+        f"email. Use another key, or send it as a {category.category_type} email if that's what you meant."
+    )
 
 
 def _category_with_key(team_id: int, key: str) -> MessageCategory | None:
@@ -80,37 +94,51 @@ def _lock_categories(team_id: int) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{SEND_CATEGORY_LOCK}:{team_id}"])
 
 
-def _create(team_id: int, requested: SendCategoryDefinition) -> MessageCategory:
-    with transaction.atomic():
-        _lock_categories(team_id)
-        if (category := _category_with_key(team_id, requested.key)) is not None:
-            return category
-        _require_room_for(team_id, requested.key)
-        category, _created = MessageCategory.objects.get_or_create(
-            team_id=team_id,
-            key=requested.key,
-            defaults={
-                "name": requested.name,
-                "description": requested.description or "",
-                "category_type": requested.type,
-            },
+def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> MessageCategory:
+    assert connection.in_atomic_block
+    _lock_categories(team_id)
+    category = _category_with_key(team_id, requested.key)
+    if category is not None:
+        return _use_existing(team_id, category, requested)
+    if _at_category_limit(team_id):
+        # The categories API doesn't take the send lock, so re-read once in case it just created this key as the last slot.
+        if (existing := _category_with_key(team_id, requested.key)) is not None:
+            _require_matching_type(existing, requested)
+            if not existing.deleted:
+                return existing
+        raise _too_many_categories(requested.key)
+    category, created = MessageCategory.objects.get_or_create(
+        team_id=team_id,
+        key=requested.key,
+        defaults={
+            "name": requested.name,
+            "description": requested.description or "",
+            "category_type": requested.type,
+        },
+    )
+    if not created:
+        return _use_existing(team_id, category, requested)
+    return category
+
+
+def _use_existing(team_id: int, category: MessageCategory, requested: SendCategoryDefinition) -> MessageCategory:
+    _require_matching_type(category, requested)
+    if category.deleted:
+        if _at_category_limit(team_id):
+            raise _too_many_categories(requested.key)
+        MessageCategory.objects.filter(team_id=team_id, pk=category.pk, deleted=True).update(
+            deleted=False, updated_at=timezone.now()
         )
-        return category
+    return category
 
 
-def _require_room_for(team_id: int, key: str) -> None:
-    if MessageCategory.objects.filter(team_id=team_id, deleted=False).count() >= SEND_CATEGORY_LIMIT:
-        raise TooManyCategories(
-            f"This project has reached its limit of {SEND_CATEGORY_LIMIT} message categories, so a send can't "
-            f"create the category `{key}`. Send the key of a category the project has, or archive categories it no "
-            "longer uses."
-        )
+def _at_category_limit(team_id: int) -> bool:
+    return MessageCategory.objects.filter(team_id=team_id, deleted=False).count() >= SEND_CATEGORY_LIMIT
 
 
-def _restore(team_id: int, category: MessageCategory) -> None:
-    with transaction.atomic():
-        _lock_categories(team_id)
-        archived = MessageCategory.objects.filter(team_id=team_id, pk=category.pk, deleted=True)
-        if archived.exists():
-            _require_room_for(team_id, category.key)
-            archived.update(deleted=False, updated_at=timezone.now())
+def _too_many_categories(key: str) -> TooManyCategories:
+    return TooManyCategories(
+        f"This project has reached its limit of {SEND_CATEGORY_LIMIT} message categories, so a send can't "
+        f"create the category `{key}`. Send the key of a category the project has, or archive categories it no "
+        "longer uses."
+    )

@@ -110,15 +110,26 @@ class RecipientOptedOut(TransactionalEmailError):
     code = "recipient_opted_out"
 
 
+MessageCategoryKind = Literal["marketing", "transactional"]
+
+
 class CategoriesNotEnabled(TransactionalEmailError):
     code = "categories_not_enabled"
     attr = "category"
 
-    def __init__(self) -> None:
-        super().__init__(
-            "Sending in a message category isn't available for this project yet. Leave `category` out, or send "
-            "`transactional`."
-        )
+    def __init__(self, requested_type: MessageCategoryKind = "transactional") -> None:
+        if requested_type == "marketing":
+            message = (
+                "Sending marketing email in a message category isn't available for this project yet, so PostHog "
+                "didn't send this email. Send it from a PostHog workflow instead, or wait until category support "
+                "is enabled."
+            )
+        else:
+            message = (
+                "Sending in a message category isn't available for this project yet. Leave `category` out, or send "
+                "`transactional`."
+            )
+        super().__init__(message)
 
 
 class CategoryMismatch(TransactionalEmailError):
@@ -238,9 +249,6 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
-MessageCategoryKind = Literal["marketing", "transactional"]
-
-
 @frozen
 class SendCategoryDefinition:
     key: str
@@ -249,10 +257,15 @@ class SendCategoryDefinition:
     description: str | None = None
 
 
+RequestedCategory = Literal["transactional"] | SendCategoryDefinition | None
+CodeSendCategory = Literal["legacy", "inherit", "transactional"] | SendCategoryDefinition
+
+
 @frozen
 class SendCategory:
     id: UUID
     type: MessageCategoryKind
+    inherited: bool = False
 
 
 class SandboxFieldsUnsupported(TransactionalEmailError):
@@ -295,7 +308,6 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
-    category: Literal["transactional"] | SendCategoryDefinition | None = None
 
 
 class DeliveryUnavailable(Exception):
