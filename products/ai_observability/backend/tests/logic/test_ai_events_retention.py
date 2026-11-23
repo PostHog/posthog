@@ -11,6 +11,7 @@ from products.ai_observability.backend.logic.ai_events_retention import ai_event
     "raw,expected",
     [
         ("", {}),
+        ("1:60", {1: 60}),
         ("1:90", {1: 90}),
         ("1:90, 2:365", {1: 90, 2: 365}),
         ("1:30,2:365", {1: 30, 2: 365}),
