@@ -223,6 +223,9 @@ def prepare_ast_for_printing(
         from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
             normalize_trino_ast,
         )
+        from posthog.hogql.transforms.trino.timestamp_ranges import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            add_events_timestamp_ranges,
+        )
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
             validate_trino_context,
             validate_trino_source_ast,
@@ -376,6 +379,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("trino_structural_lowering"):
             # The next resolver pass looks up logical schema keys, which may differ from physical column names.
             node = cast(_T_AST, normalize_trino_ast(node, context, physical_names=False))
+            node = cast(_T_AST, add_events_timestamp_ranges(node, context))
         with context.timings.measure("resolve_types_after_trino_structural_lowering"):
             node = clone_expr(node, clear_types=True)
             node = resolve_types(

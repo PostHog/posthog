@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from contextlib import closing
 
@@ -3669,3 +3670,57 @@ def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
     assert "UNION ALL" in sql
     assert "VALUES" not in sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_rows", "expected_bare_bounds"),
+    [
+        ("SELECT count() FROM events WHERE toDate(timestamp) BETWEEN '2026-01-01' AND '2026-01-31'", 2, 2),
+        ("SELECT count() FROM events WHERE toStartOfMonth(timestamp) = '2026-01-01'", 2, 2),
+        ("SELECT count() FROM events WHERE toStartOfDay(timestamp) < '2026-01-01 00:00:00'", 1, 1),
+        ("SELECT count() FROM events WHERE '2026-02-01' <= toDate(timestamp)", 1, 1),
+        (
+            "SELECT count() FROM events WHERE dateTrunc('hour', timestamp) >= toDateTime('2026-01-31 23:00:00') "
+            "AND event = 'x'",
+            2,
+            1,
+        ),
+        ("SELECT count() FROM events WHERE toDate(timestamp) = (toDate('2026-01-01') AS cutoff)", 1, 2),
+        (
+            "SELECT count() FROM events "
+            "WHERE toDate(timestamp) BETWEEN (toDate('2026-01-01') AS low) AND (toDate('2026-01-31') AS high)",
+            2,
+            2,
+        ),
+        ("SELECT count() FROM (SELECT toDate(timestamp) AS day FROM events WHERE day = '2026-01-31')", 1, 2),
+        ("WITH '2026-02-01' AS cutoff SELECT count() FROM events WHERE toDate(timestamp) >= cutoff", 1, 1),
+        ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(event)", None, 0),
+        ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(now() - toIntervalDay(rand() % 9000))", None, 0),
+    ],
+)
+def test_truncated_events_timestamp_filter_adds_a_prunable_range_without_dropping_rows(
+    query: str, expected_rows: int | None, expected_bare_bounds: int
+) -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert len(re.findall(r'\("tenant"\."posthog"\."events"\."timestamp" (?:>=|<) ', sql)) == expected_bare_bounds
+    if expected_rows is None:
+        return
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        connection.execute("ATTACH ':memory:' AS tenant")
+        connection.execute("CREATE SCHEMA tenant.posthog")
+        connection.execute('CREATE TABLE tenant.posthog.events ("timestamp" TIMESTAMP, event VARCHAR)')
+        connection.execute(
+            "INSERT INTO tenant.posthog.events VALUES "
+            "('2025-12-31 23:59:59.999', 'x'), ('2026-01-01 00:00:00', 'x'), "
+            "('2026-01-31 23:59:59.999', 'x'), ('2026-02-01 00:00:00', 'x')"
+        )
+        assert connection.execute(sql, values).fetchone() == (expected_rows,)
