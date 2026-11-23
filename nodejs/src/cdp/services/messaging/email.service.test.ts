@@ -2477,33 +2477,41 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['with files', (): StoredFile[] => [pdf], 'true', 'false'],
-                ['without files', (): StoredFile[] => [], 'false', 'true'],
-            ])('times a send %s apart from the other kind', async (_case, files, counted, untouched) => {
-                invocation.queue = 'email'
-                invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
-                send(files())
-                const latencyCounts = async (withFiles: string): Promise<number[]> => [
-                    await metricTotal(
-                        'cdp_ses_send_duration_ms',
-                        { result: 'success', with_files: withFiles },
-                        'cdp_ses_send_duration_ms_count'
-                    ),
-                    await metricTotal(
-                        'cdp_email_queue_to_send_ms',
-                        { with_files: withFiles },
-                        'cdp_email_queue_to_send_ms_count'
-                    ),
-                ]
-                const countedBefore = await latencyCounts(counted)
-                const untouchedBefore = await latencyCounts(untouched)
+                ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
+                ['without files that SES accepts', (): StoredFile[] => [], sesAccepts, 'success', 'false', 'true'],
+                ['with files that SES rejects', (): StoredFile[] => [pdf], sesRejects, 'error', 'true', 'false'],
+                ['without files that SES rejects', (): StoredFile[] => [], sesRejects, 'error', 'false', 'true'],
+            ])(
+                'times a send %s apart from the other kind',
+                async (_case, files, sesAnswer, sesResult, counted, untouched) => {
+                    invocation.queue = 'email'
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    send(files())
+                    sesAnswer()
+                    const latencyCounts = async (withFiles: string): Promise<number[]> => [
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { result: sesResult, with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_email_queue_to_send_ms',
+                            { with_files: withFiles },
+                            'cdp_email_queue_to_send_ms_count'
+                        ),
+                    ]
+                    const countedBefore = await latencyCounts(counted)
+                    const untouchedBefore = await latencyCounts(untouched)
 
-                const result = await sender().executeSendEmail(invocation)
+                    const result = await sender().executeSendEmail(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
-                expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
-            })
+                    expect(result.error).toEqual(
+                        sesResult === 'error' ? expect.stringContaining('SES error') : undefined
+                    )
+                    expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
+                    expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
+                }
+            )
 
             describe('team budget across load retries', () => {
                 it.each([
