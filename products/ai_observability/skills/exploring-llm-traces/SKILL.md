@@ -93,13 +93,13 @@ A trace with `_detail: { "mode": "summary" }` carries no conversation content at
 Read the content with `detail: "full"`.
 
 The two calls return different sets of events.
-`query-llm-trace` returns every event in the trace at any depth.
+`query-llm-trace` returns every event in the trace at any depth, unless you pass `properties`, which filter the events.
 `query-llm-traces-list` returns only the trace's direct children (events whose `$ai_parent_id` is the trace ID)
-plus its `$ai_metric` and `$ai_feedback` events, so a trace with nested events can come back with few events or none.
+plus its `$ai_metric` and `$ai_feedback` events, so a trace can come back with few events or none.
 Either call can also drop trailing events to fit the response size limit.
-A `_truncated` object then reports `omittedEvents` and `totalEvents`, counted over the events that call fetched.
-The list can also drop whole traces and end with a `_truncated` entry that reports `omittedTraces`;
-re-run with `offset` set to the number of traces you got back to fetch the rest.
+A `_truncated` object then reports `omittedEvents` and `totalEvents`. For the list, `totalEvents` counts only the events it fetched.
+The list can also drop whole traces and end with a `_truncated` entry that reports `omittedTraces`.
+To fetch the rest, add the number of traces you got back to `offset` and re-run; this does not work with `randomOrder`.
 Treat a short or empty `events` array from the list, or any `_truncated` marker, as incomplete, not as evidence the trace is clean.
 For the complete tree, call `query-llm-trace` for that trace, and open `_posthogUrl` if that response is truncated too.
 
