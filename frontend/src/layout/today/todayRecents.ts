@@ -16,6 +16,9 @@ export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseR
 
 export type TodayRecentPane = 'people' | 'monitor' | 'release'
 
+/** The panes whose Recents a person can drag into their own order. */
+export type TodaySortableRecentPane = 'people' | 'monitor'
+
 /**
  * A scene logic that opens one record has a selector with this name. It gives the record as a recent, or null until
  * the record has loaded. It reads the logic's own record, so its name and href always belong together.
