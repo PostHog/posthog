@@ -2,14 +2,23 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.management import call_command
+
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.mcp_analytics.wrapped.activities import WrappedDiscoveryInputs, WrappedTeamInputs
-from posthog.temporal.mcp_analytics.wrapped.coordinator import MCPWrappedCoordinatorWorkflow, WrappedCoordinatorInputs
+from products.mcp_analytics.backend.temporal.wrapped.activities import WrappedDiscoveryInputs, WrappedTeamInputs
+from products.mcp_analytics.backend.temporal.wrapped.coordinator import (
+    MCPWrappedCoordinatorWorkflow,
+    WrappedCoordinatorInputs,
+)
 
 FAILING_TEAM_ID = 3
 _discovered_years: list[int] = []
@@ -47,8 +56,9 @@ async def _run(inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
             )
 
 
-async def test_one_failed_project_does_not_stop_the_others() -> None:
-    result = await _run(WrappedCoordinatorInputs(year=2026, max_concurrent_teams=2))
+@parameterized.expand([("one_run", 500), ("continues_as_new_between_runs", 2)])
+async def test_one_failed_project_does_not_stop_the_others(_name: str, teams_per_run: int) -> None:
+    result = await _run(WrappedCoordinatorInputs(year=2026, max_concurrent_teams=2, teams_per_run=teams_per_run))
 
     assert result == {
         "year": 2026,
@@ -56,6 +66,21 @@ async def test_one_failed_project_does_not_stop_the_others() -> None:
         "statuses": {"ready": 2, "ineligible": 2},
         "failed_team_ids": [FAILING_TEAM_ID],
     }
+
+
+@parameterized.expand(
+    [
+        ("no_concurrency", WrappedCoordinatorInputs(year=2026, max_concurrent_teams=0)),
+        ("negative_concurrency", WrappedCoordinatorInputs(year=2026, max_concurrent_teams=-1)),
+        ("no_teams_per_run", WrappedCoordinatorInputs(year=2026, teams_per_run=0)),
+    ]
+)
+async def test_invalid_limits_fail_before_any_work(_name: str, inputs: WrappedCoordinatorInputs) -> None:
+    with pytest.raises(WorkflowFailureError):
+        await _run(inputs)
+
+    assert _discovered_years == []
+    assert _generated_team_ids == []
 
 
 async def test_chosen_projects_skip_discovery() -> None:
@@ -81,3 +106,17 @@ async def test_without_a_year_the_run_covers_the_current_one() -> None:
 )
 def test_parse_inputs(_name: str, inputs: list[str], expected: WrappedCoordinatorInputs) -> None:
     assert MCPWrappedCoordinatorWorkflow.parse_inputs(inputs) == expected
+
+
+@pytest.mark.django_db
+def test_the_manual_command_starts_the_coordinator() -> None:
+    client = MagicMock()
+    client.execute_workflow = AsyncMock(return_value={})
+
+    with patch("posthog.management.commands.execute_temporal_workflow.connect", new=AsyncMock(return_value=client)):
+        call_command("execute_temporal_workflow", "mcpa-wrapped-coordinator", "2026", "2")
+
+    assert client.execute_workflow.await_args.args[:2] == (
+        "mcpa-wrapped-coordinator",
+        WrappedCoordinatorInputs(year=2026, team_ids=[2]),
+    )

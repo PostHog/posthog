@@ -1,12 +1,14 @@
 import dataclasses
 from datetime import UTC, datetime
 
+from django.db.models.functions import Coalesce
+
 import structlog
 from temporalio import activity
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -32,9 +34,10 @@ def wrapped_team_ids(year: int) -> list[int]:
 
     Each project still has to clear the eligibility bar when its snapshot is generated.
     """
+    # A definition can belong to a child environment, but the wrap is generated for the parent project.
     team_ids = (
         EventDefinition.objects.filter(name=MCP_TOOL_CALL_EVENT, last_seen_at__gte=datetime(year, 1, 1, tzinfo=UTC))
-        .values_list("team_id", flat=True)
+        .values_list(Coalesce("team__parent_team_id", "team_id"), flat=True)
         .distinct()
     )
     return sorted(team_ids)
@@ -55,6 +58,6 @@ def _generate(team_id: int, year: int) -> str:
 @activity.defn
 async def generate_wrapped_activity(inputs: WrappedTeamInputs) -> str:
     async with Heartbeater():
-        status = await database_sync_to_async(_generate)(inputs.team_id, inputs.year)
+        status = await database_sync_to_async_pool(_generate)(inputs.team_id, inputs.year)
     logger.info("mcpa.wrapped.team_generated", team_id=inputs.team_id, year=inputs.year, status=status)
     return status

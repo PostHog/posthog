@@ -3,10 +3,10 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.models.team import Team
-from posthog.temporal.mcp_analytics.wrapped.activities import _generate, wrapped_team_ids
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
+from products.mcp_analytics.backend.temporal.wrapped.activities import _generate, wrapped_team_ids
 
 
 class TestWrappedTeamDiscovery(BaseTest):
@@ -19,8 +19,13 @@ class TestWrappedTeamDiscovery(BaseTest):
         this_year = self._team("this year", "$mcp_tool_call", datetime(2026, 3, 1, tzinfo=UTC))
         self._team("last year", "$mcp_tool_call", datetime(2025, 12, 30, tzinfo=UTC))
         self._team("pageviews only", "$pageview", datetime(2026, 3, 1, tzinfo=UTC))
+        parent = Team.objects.create(organization=self.organization, name="parent")
+        child = Team.objects.create(
+            organization=self.organization, project=parent.project, name="child", parent_team=parent
+        )
+        EventDefinition.objects.create(team=child, name="$mcp_tool_call", last_seen_at=datetime(2026, 3, 1, tzinfo=UTC))
 
-        assert wrapped_team_ids(2026) == [this_year.id]
+        assert wrapped_team_ids(2026) == sorted([this_year.id, parent.id])
 
 
 class TestGenerateWrapped(ClickhouseTestMixin, BaseTest):

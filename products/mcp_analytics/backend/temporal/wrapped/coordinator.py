@@ -15,24 +15,26 @@ from typing import Any
 
 import temporalio
 import temporalio.workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.mcp_analytics.wrapped.constants import (
-    COORDINATOR_WORKFLOW_NAME,
-    DISCOVERY_ACTIVITY_TIMEOUT,
-    DISCOVERY_RETRY_POLICY,
-    GENERATE_ACTIVITY_TIMEOUT,
-    GENERATE_HEARTBEAT_TIMEOUT,
-    GENERATE_RETRY_POLICY,
-    MAX_CONCURRENT_TEAMS,
-)
 
 with temporalio.workflow.unsafe.imports_passed_through():
-    from posthog.temporal.mcp_analytics.wrapped.activities import (
+    from products.mcp_analytics.backend.temporal.wrapped.activities import (
         WrappedDiscoveryInputs,
         WrappedTeamInputs,
         discover_wrapped_team_ids_activity,
         generate_wrapped_activity,
+    )
+    from products.mcp_analytics.backend.temporal.wrapped.constants import (
+        COORDINATOR_WORKFLOW_NAME,
+        DISCOVERY_ACTIVITY_TIMEOUT,
+        DISCOVERY_RETRY_POLICY,
+        GENERATE_ACTIVITY_TIMEOUT,
+        GENERATE_HEARTBEAT_TIMEOUT,
+        GENERATE_RETRY_POLICY,
+        MAX_CONCURRENT_TEAMS,
+        TEAMS_PER_RUN,
     )
 
 
@@ -43,6 +45,10 @@ class WrappedCoordinatorInputs:
     # None discovers every project with tool calls in the year.
     team_ids: list[int] | None = None
     max_concurrent_teams: int = MAX_CONCURRENT_TEAMS
+    teams_per_run: int = TEAMS_PER_RUN
+    # Carried into the next run when this one continues as new, so the final result covers every project.
+    statuses: dict[str, int] = dataclasses.field(default_factory=dict)
+    failed_team_ids: list[int] = dataclasses.field(default_factory=list)
 
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
@@ -56,6 +62,9 @@ class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
+        if inputs.max_concurrent_teams < 1 or inputs.teams_per_run < 1:
+            raise ApplicationError("max_concurrent_teams and teams_per_run must be at least 1", non_retryable=True)
+
         year = inputs.year or temporalio.workflow.now().year
         team_ids = inputs.team_ids
         if team_ids is None:
@@ -66,10 +75,11 @@ class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
                 retry_policy=DISCOVERY_RETRY_POLICY,
             )
 
-        statuses: Counter[str] = Counter()
-        failed_team_ids: list[int] = []
-        for start in range(0, len(team_ids), inputs.max_concurrent_teams):
-            batch = team_ids[start : start + inputs.max_concurrent_teams]
+        statuses: Counter[str] = Counter(inputs.statuses)
+        failed_team_ids = list(inputs.failed_team_ids)
+        this_run, remaining = team_ids[: inputs.teams_per_run], team_ids[inputs.teams_per_run :]
+        for start in range(0, len(this_run), inputs.max_concurrent_teams):
+            batch = this_run[start : start + inputs.max_concurrent_teams]
             results = await asyncio.gather(
                 *(
                     temporalio.workflow.execute_activity(
@@ -90,9 +100,20 @@ class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
                 else:
                     statuses[result] += 1
 
+        if remaining:
+            temporalio.workflow.continue_as_new(
+                dataclasses.replace(
+                    inputs,
+                    year=year,
+                    team_ids=remaining,
+                    statuses=dict(statuses),
+                    failed_team_ids=failed_team_ids,
+                )
+            )
+
         return {
             "year": year,
-            "teams": len(team_ids),
+            "teams": sum(statuses.values()) + len(failed_team_ids),
             "statuses": dict(statuses),
             "failed_team_ids": failed_team_ids,
         }
