@@ -56599,6 +56599,18 @@ export namespace Schemas {
       Observe: 'observe',
     } as const;
 
+    /**
+     * * `ci_job` - ci_job
+     * * `commit_status` - commit_status
+     */
+    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
+
+
+    export const RunGateEnum = {
+      CiJob: 'ci_job',
+      CommitStatus: 'commit_status',
+    } as const;
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -56623,6 +56635,13 @@ export namespace Schemas {
        * * `exact` - exact
        * * `similar` - similar */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
+       *
+       * * `ci_job` - ci_job
+       * * `commit_status` - commit_status */
+      readonly gate: RunGateEnum;
+      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
+      readonly stale_approval_count: number;
       id: string;
       repo_id: string;
       status: string;
@@ -76774,6 +76793,50 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NoRunNeededInput {
+      /** ID of the Visual Review repo the commit belongs to. */
+      repo_id: string;
+      /** Run type that needs no run at this commit, for example `storybook`. */
+      run_type: string;
+      /**
+         * Full SHA of the commit that gets the passing status.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+      /** Branch CI ran on. Only logged. */
+      branch: string;
+      /**
+         * Pull request the commit belongs to, if any. Only logged.
+         * @nullable
+         */
+      pr_number?: number | null;
+    }
+
+    /**
+     * * `posted` - posted
+     * * `run_exists` - run_exists
+     * * `status_gate_off` - status_gate_off
+     */
+    export type NoRunNeededOutcomeEnum = typeof NoRunNeededOutcomeEnum[keyof typeof NoRunNeededOutcomeEnum];
+
+
+    export const NoRunNeededOutcomeEnum = {
+      Posted: 'posted',
+      RunExists: 'run_exists',
+      StatusGateOff: 'status_gate_off',
+    } as const;
+
+    export interface NoRunNeededResult {
+      /** `posted`: the passing status was posted. `run_exists`: a run of this commit and run type owns the status, so nothing was posted. `status_gate_off`: the repo does not use the Visual Review commit status as its gate, so the CI job is the check and nothing was posted.
+       *
+       * * `posted` - posted
+       * * `run_exists` - run_exists
+       * * `status_gate_off` - status_gate_off */
+      outcome: NoRunNeededOutcomeEnum;
+      /** What the report did, in one sentence for the CI log. */
+      detail: string;
+    }
+
     export interface NodeAttentionCount {
       /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
       count: number;
@@ -79372,6 +79435,14 @@ export namespace Schemas {
       action?: OrganizationMemberNoticeAction | null;
     }
 
+    export interface OrganizationExternalProjectLink {
+      readonly id: string;
+      /** Name shown for the project in the project switcher. */
+      readonly name: string;
+      /** Full URL of the project on the other PostHog instance. */
+      readonly url: string;
+    }
+
     export interface Organization {
       readonly id: string;
       /**
@@ -79491,6 +79562,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links: readonly OrganizationExternalProjectLink[];
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -95498,6 +95571,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning?: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links?: readonly OrganizationExternalProjectLink[];
     }
 
     export interface PatchedOrganizationDomain {
@@ -102309,6 +102384,8 @@ export namespace Schemas {
       region: string;
       /** Base URL requests through this connection are sent to. */
       base_url: string;
+      /** API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known. */
+      granted_scopes: string[];
     }
 
     export interface PostHogConnectionTargetError {
@@ -134492,6 +134569,49 @@ export namespace Schemas {
     export interface _TracingLatencyHeatmapResponse {
       /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
       results: _TracingLatencyHeatmapCell[];
+    }
+
+    export interface _TracingTimeseriesQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingLatencyPercentilesRequest {
+      /** The latency percentiles query to execute. */
+      query: _TracingTimeseriesQueryBody;
+    }
+
+    export interface _TracingLatencyPercentilesRow {
+      /** ISO 8601 UTC start of the time bucket. */
+      time: string;
+      /** Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the matching spans in the window hold neither. 0 for a bucket with no such spans. */
+      count: number;
+      /**
+         * Median duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p50_ns: number | null;
+      /**
+         * 95th percentile duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p95_ns: number | null;
+      /**
+         * 99th percentile duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p99_ns: number | null;
+    }
+
+    export interface _TracingLatencyPercentilesResponse {
+      /** One row per time bucket in the window, ordered by time, on the sparkline's time axis. */
+      results: _TracingLatencyPercentilesRow[];
     }
 
     /**
