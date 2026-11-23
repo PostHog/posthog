@@ -1,0 +1,84 @@
+{
+    "resources": [
+        {
+            "body": {
+                "description": "Notify billing when a workflow saves a repair report and waits for an operator.",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "billing spine repair required",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "repo_identifier",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": ["billing"]
+                        },
+                        {
+                            "key": "billing_site_url",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": ["https://billing.posthog.com"]
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'method': 'POST',\n  'headers': {'Authorization': f'Bearer {inputs.slack_workspace.access_token}', 'Content-Type': 'application/json'},\n  'body': {'channel': inputs.channel, 'blocks': inputs.blocks, 'text': inputs.text}\n});\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post repair notification: {res.status}: {res.body}');\n}\n",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "{substring(f'Billing repair #{event.properties.repair_id}\nAttempt: {event.properties.attempt ?? 'Unknown'}\nBilling customer: {event.properties.customer_id ?? 'Unknown'}\nMachine: {event.properties.machine}\nWorkflow ID: {event.properties.workflow_id}\nWorkflow key: {event.properties.workflow_key ?? 'Unknown'}\nSource fact: {event.properties.source_fact_id} ({event.properties.source_fact_type ?? 'Unknown'})\nReason: {event.properties.reason}', 1, 3000)}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View workflow",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "https://cloud.temporal.io/namespaces/{encodeURLComponent(toString(event.properties.namespace))}/workflows/{encodeURLComponent(toString(event.properties.workflow_id))}/{encodeURLComponent(toString(event.properties.run_id))}/history"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C039XEY25ML"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 173069
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "A billing workflow needs repair"
+                    }
+                },
+                "name": "billing workflow repair alerts",
+                "template_id": "template-slack",
+                "type": "destination"
+            },
+            "key": "spine_repair_required",
+            "kind": "destination",
+            "source": {
+                "export": "spineRepairRequired",
+                "file": ".ph/us/project-2/workflow-repair-alerts/index.ts"
+            }
+        }
+    ],
+    "version": 1
+}

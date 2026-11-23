@@ -1,0 +1,6 @@
+{
+    "posthog_hog_function.community_credit_claim_failure": {
+        "kind": "destination",
+        "key": "community_credit_claim_failure"
+    }
+}

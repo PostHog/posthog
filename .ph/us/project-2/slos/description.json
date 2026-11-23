@@ -1,0 +1,1085 @@
+{
+    "resources": [
+        {
+            "body": {
+                "name": "[team-analytics-platform] SLOs",
+                "pinned": true,
+                "tags": ["managed-by:terraform"],
+                "tiles": [
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo_success_rates",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "0",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 0
+                            }
+                        }
+                    },
+                    {
+                        "layouts": {
+                            "sm": {
+                                "h": 1,
+                                "i": "1",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 5
+                            }
+                        },
+                        "text": {
+                            "body": "**Success rate** is a 30-day rolling window showing the percentage of successful operations per SLO. **Burn rate** (below) measures how fast you're consuming your error budget — 1.0 means you're spending at exactly the sustainable rate, >1.0 means you'll exhaust it before the window ends."
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-alerts_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6372084",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 6
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-alerts_timeliness_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6371880",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 6
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-exports_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6371881",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 11
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-exports_eu",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6371877",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 11
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-cohorts_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6371878",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 16
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-cohorts_eu",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6371879",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 16
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-subscriptions_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "subscriptions_us",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 21
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "slo-subscriptions_eu",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "subscriptions_eu",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 21
+                            }
+                        }
+                    }
+                ]
+            },
+            "key": "team_analytics_platform_slos",
+            "kind": "dashboard",
+            "source": {
+                "export": "slosDashboard",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for alert checks.",
+                "name": "SLO: Alert checks — 99% (EU)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    toDate(timestamp) AS date,\n    count() AS total,\n    countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures\nFROM events\nWHERE event = 'slo_operation_completed'\n    AND properties.operation = 'alert_check'\n    AND properties.alert_type = 'insight'\n    AND upper(properties.region) = upper('EU')\n    AND properties.skip_reason IS NULL\n    AND timestamp >= now() - INTERVAL 30 DAY\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-alerts_eu",
+            "kind": "insight",
+            "source": {
+                "export": "untiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for alert check timeliness.",
+                "name": "SLO: Alert timeliness — 99% (EU)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        WITH alert_checks AS (\n    SELECT\n        properties.resource_id AS alert_id,\n        properties.calculation_interval AS calculation_interval,\n        timestamp,\n        lagInFrame(timestamp) OVER (\n            PARTITION BY properties.resource_id, properties.calculation_interval\n            ORDER BY timestamp ASC\n            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING\n        ) AS prev_check\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'alert_check'\n        AND properties.alert_type = 'insight'\n        AND upper(properties.region) = upper('EU')\n        AND properties.skip_reason IS NULL\n        AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')\n        AND timestamp >= now() - INTERVAL 45 DAY\n)\nSELECT\n    toDate(timestamp) AS date,\n    count()           AS total,\n    countIf(\n        (calculation_interval = 'hourly'  AND dateDiff('minute', prev_check, timestamp) > 60)    OR\n        (calculation_interval = 'daily'   AND dateDiff('minute', prev_check, timestamp) > 1440)  OR\n        (calculation_interval = 'weekly'  AND dateDiff('minute', prev_check, timestamp) > 10080) OR\n        (calculation_interval = 'monthly' AND dateDiff('minute', prev_check, timestamp) > 44640)\n    ) AS failures\nFROM alert_checks\nWHERE prev_check != toDateTime(0)\n    AND toDate(timestamp) >= toDate(now()) - 30\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-alerts_timeliness_eu",
+            "kind": "insight",
+            "source": {
+                "export": "untiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for alert check timeliness.",
+                "name": "SLO: Alert timeliness — 99% (US)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        WITH alert_checks AS (\n    SELECT\n        properties.resource_id AS alert_id,\n        properties.calculation_interval AS calculation_interval,\n        timestamp,\n        lagInFrame(timestamp) OVER (\n            PARTITION BY properties.resource_id, properties.calculation_interval\n            ORDER BY timestamp ASC\n            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING\n        ) AS prev_check\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'alert_check'\n        AND properties.alert_type = 'insight'\n        AND upper(properties.region) = upper('US')\n        AND properties.skip_reason IS NULL\n        AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')\n        AND timestamp >= now() - INTERVAL 45 DAY\n)\nSELECT\n    toDate(timestamp) AS date,\n    count()           AS total,\n    countIf(\n        (calculation_interval = 'hourly'  AND dateDiff('minute', prev_check, timestamp) > 60)    OR\n        (calculation_interval = 'daily'   AND dateDiff('minute', prev_check, timestamp) > 1440)  OR\n        (calculation_interval = 'weekly'  AND dateDiff('minute', prev_check, timestamp) > 10080) OR\n        (calculation_interval = 'monthly' AND dateDiff('minute', prev_check, timestamp) > 44640)\n    ) AS failures\nFROM alert_checks\nWHERE prev_check != toDateTime(0)\n    AND toDate(timestamp) >= toDate(now()) - 30\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-alerts_timeliness_us",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for alert checks.",
+                "name": "SLO: Alert checks — 99% (US)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    toDate(timestamp) AS date,\n    count() AS total,\n    countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures\nFROM events\nWHERE event = 'slo_operation_completed'\n    AND properties.operation = 'alert_check'\n    AND properties.alert_type = 'insight'\n    AND upper(properties.region) = upper('US')\n    AND properties.skip_reason IS NULL\n    AND timestamp >= now() - INTERVAL 30 DAY\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-alerts_us",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for cohort calculations. Cohorts not calculated within a day count as failures.",
+                "name": "SLO: Cohort calculations — 99% (EU)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    cc.date,\n    count() AS total,\n    count() - countIf(dc.successes > 0) AS failures\nFROM (\n    SELECT d.date, c.cohort_id\n    FROM (SELECT toDate(now()) - number AS date FROM numbers(37)) d\n    CROSS JOIN (\n        SELECT cohort_id, min(toDate(finished_at)) AS first_seen\n        FROM eu_posthog_cohortcalculationhistory\n        WHERE finished_at >= now() - INTERVAL 37 DAY\n        GROUP BY cohort_id\n    ) c\n    WHERE c.first_seen <= d.date\n) cc\nLEFT JOIN (\n    SELECT\n        toDate(finished_at) AS date,\n        cohort_id,\n        countIf(error_code IS NULL OR error_code = '') AS successes\n    FROM eu_posthog_cohortcalculationhistory\n    WHERE finished_at >= now() - INTERVAL 30 DAY\n        AND finished_at IS NOT NULL\n    GROUP BY date, cohort_id\n) dc ON cc.date = dc.date AND cc.cohort_id = dc.cohort_id\nWHERE cc.date >= toDate(now()) - 30\nGROUP BY cc.date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-cohorts_eu",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for cohort calculations. Cohorts not calculated within a day count as failures.",
+                "name": "SLO: Cohort calculations — 99% (US)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    cc.date,\n    count() AS total,\n    count() - countIf(dc.successes > 0) AS failures\nFROM (\n    SELECT d.date, c.cohort_id\n    FROM (SELECT toDate(now()) - number AS date FROM numbers(37)) d\n    CROSS JOIN (\n        SELECT cohort_id, min(toDate(finished_at)) AS first_seen\n        FROM system.cohort_calculation_history\n        WHERE finished_at >= now() - INTERVAL 37 DAY\n        GROUP BY cohort_id\n    ) c\n    WHERE c.first_seen <= d.date\n) cc\nLEFT JOIN (\n    SELECT\n        toDate(finished_at) AS date,\n        cohort_id,\n        countIf(error_code IS NULL OR error_code = '') AS successes\n    FROM system.cohort_calculation_history\n    WHERE finished_at >= now() - INTERVAL 30 DAY\n        AND finished_at IS NOT NULL\n    GROUP BY date, cohort_id\n) dc ON cc.date = dc.date AND cc.cohort_id = dc.cohort_id\nWHERE cc.date >= toDate(now()) - 30\nGROUP BY cc.date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-cohorts_us",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for exports.",
+                "name": "SLO: Exports — 99% (EU)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    toDate(created_at) AS date,\n    count() AS total,\n    countIf(export_context IS NULL AND content_location IS NULL) AS failures\nFROM eu_posthog_exportedasset\nWHERE created_at >= now() - INTERVAL 30 DAY\n    AND created_at < now() - INTERVAL 10 MINUTE\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-exports_eu",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for exports.",
+                "name": "SLO: Exports — 99% (US)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        SELECT\n    toDate(created_at) AS date,\n    count() AS total,\n    countIf(export_context IS NULL AND content_location IS NULL) AS failures\nFROM postgres.posthog_exportedasset\nWHERE created_at >= now() - INTERVAL 30 DAY\n    AND created_at < now() - INTERVAL 10 MINUTE\nGROUP BY date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-exports_us",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for subscription deliveries.",
+                "name": "SLO: Subscription deliveries — 99% (EU)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        -- Attribute outcomes to the day the delivery started. A started workflow\n-- without a successful completion is a failed SLO operation, including a\n-- workflow that crashes before the interceptor can emit completion.\nWITH starts AS (\n    SELECT\n        toDate(min(timestamp)) AS date,\n        properties.correlation_id AS correlation_id\n    FROM events\n    WHERE event = 'slo_operation_started'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('EU')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n), completed AS (\n    SELECT\n        properties.correlation_id AS correlation_id,\n        max(properties.outcome = 'success') AS succeeded\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('EU')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n)\nSELECT\n    starts.date,\n    count() AS total,\n    countIf(coalesce(completed.succeeded, false) = false) AS failures\nFROM starts\nLEFT JOIN completed USING (correlation_id)\nGROUP BY starts.date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-subscriptions_eu",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Rolling burn rate for subscription deliveries.",
+                "name": "SLO: Subscription deliveries — 99% (US)",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "metric",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    daily AS (\n        -- Attribute outcomes to the day the delivery started. A started workflow\n-- without a successful completion is a failed SLO operation, including a\n-- workflow that crashes before the interceptor can emit completion.\nWITH starts AS (\n    SELECT\n        toDate(min(timestamp)) AS date,\n        properties.correlation_id AS correlation_id\n    FROM events\n    WHERE event = 'slo_operation_started'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('US')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n), completed AS (\n    SELECT\n        properties.correlation_id AS correlation_id,\n        max(properties.outcome = 'success') AS succeeded\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('US')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n)\nSELECT\n    starts.date,\n    count() AS total,\n    countIf(coalesce(completed.succeeded, false) = false) AS failures\nFROM starts\nLEFT JOIN completed USING (correlation_id)\nGROUP BY starts.date\n\n    ),\n    base AS (\n        SELECT\n            d.date,\n            coalesce(daily.total, 0)    AS total,\n            coalesce(daily.failures, 0) AS failures\n        FROM date_range d\n        LEFT JOIN daily ON d.date = daily.date\n    ),\n    rolling AS (\n        SELECT\n            date,\n            sum(failures) OVER w1  AS f1,  sum(total) OVER w1  AS t1,\n            sum(failures) OVER w7  AS f7,  sum(total) OVER w7  AS t7,\n            sum(failures) OVER w30 AS f30, sum(total) OVER w30 AS t30\n        FROM base\n        WINDOW\n            w1  AS (ORDER BY date ASC ROWS BETWEEN 0 PRECEDING AND CURRENT ROW),\n            w7  AS (ORDER BY date ASC ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),\n            w30 AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n    )\nSELECT date, metric, value\nFROM (\n    SELECT\n        date,\n        ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,\n        [\n            round(if(t1  > 0, f1  / t1  / 0.01, 0), 2),\n            round(if(t7  > 0, f7  / t7  / 0.01, 0), 2),\n            round(if(t30 > 0, f30 / t30 / 0.01, 0), 2)\n        ] AS values\n    FROM rolling\n)\nARRAY JOIN metrics AS metric, values AS value\nORDER BY date ASC, metric ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "metric",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo-subscriptions_us",
+            "kind": "insight",
+            "source": {
+                "export": "tiledBurnRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_slos",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Combined 30-day success rates for all SLOs.",
+                "name": "SLO: Success rates",
+                "query": {
+                    "chartSettings": {
+                        "seriesBreakdownColumn": "slo",
+                        "showLegend": true,
+                        "xAxis": {
+                            "column": "date"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": "%"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsLineGraph",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "WITH\n    date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),\n    alerts_eu_daily AS (\n    SELECT\n    toDate(timestamp) AS date,\n    count() AS total,\n    countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures\nFROM events\nWHERE event = 'slo_operation_completed'\n    AND properties.operation = 'alert_check'\n    AND properties.alert_type = 'insight'\n    AND upper(properties.region) = upper('EU')\n    AND properties.skip_reason IS NULL\n    AND timestamp >= now() - INTERVAL 30 DAY\nGROUP BY date\n\n),\nalerts_eu_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN alerts_eu_daily AS daily ON d.date = daily.date\n),\nalerts_eu_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM alerts_eu_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        alerts_timeliness_eu_daily AS (\n    WITH alert_checks AS (\n    SELECT\n        properties.resource_id AS alert_id,\n        properties.calculation_interval AS calculation_interval,\n        timestamp,\n        lagInFrame(timestamp) OVER (\n            PARTITION BY properties.resource_id, properties.calculation_interval\n            ORDER BY timestamp ASC\n            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING\n        ) AS prev_check\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'alert_check'\n        AND properties.alert_type = 'insight'\n        AND upper(properties.region) = upper('EU')\n        AND properties.skip_reason IS NULL\n        AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')\n        AND timestamp >= now() - INTERVAL 45 DAY\n)\nSELECT\n    toDate(timestamp) AS date,\n    count()           AS total,\n    countIf(\n        (calculation_interval = 'hourly'  AND dateDiff('minute', prev_check, timestamp) > 60)    OR\n        (calculation_interval = 'daily'   AND dateDiff('minute', prev_check, timestamp) > 1440)  OR\n        (calculation_interval = 'weekly'  AND dateDiff('minute', prev_check, timestamp) > 10080) OR\n        (calculation_interval = 'monthly' AND dateDiff('minute', prev_check, timestamp) > 44640)\n    ) AS failures\nFROM alert_checks\nWHERE prev_check != toDateTime(0)\n    AND toDate(timestamp) >= toDate(now()) - 30\nGROUP BY date\n\n),\nalerts_timeliness_eu_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN alerts_timeliness_eu_daily AS daily ON d.date = daily.date\n),\nalerts_timeliness_eu_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM alerts_timeliness_eu_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        alerts_timeliness_us_daily AS (\n    WITH alert_checks AS (\n    SELECT\n        properties.resource_id AS alert_id,\n        properties.calculation_interval AS calculation_interval,\n        timestamp,\n        lagInFrame(timestamp) OVER (\n            PARTITION BY properties.resource_id, properties.calculation_interval\n            ORDER BY timestamp ASC\n            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING\n        ) AS prev_check\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'alert_check'\n        AND properties.alert_type = 'insight'\n        AND upper(properties.region) = upper('US')\n        AND properties.skip_reason IS NULL\n        AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')\n        AND timestamp >= now() - INTERVAL 45 DAY\n)\nSELECT\n    toDate(timestamp) AS date,\n    count()           AS total,\n    countIf(\n        (calculation_interval = 'hourly'  AND dateDiff('minute', prev_check, timestamp) > 60)    OR\n        (calculation_interval = 'daily'   AND dateDiff('minute', prev_check, timestamp) > 1440)  OR\n        (calculation_interval = 'weekly'  AND dateDiff('minute', prev_check, timestamp) > 10080) OR\n        (calculation_interval = 'monthly' AND dateDiff('minute', prev_check, timestamp) > 44640)\n    ) AS failures\nFROM alert_checks\nWHERE prev_check != toDateTime(0)\n    AND toDate(timestamp) >= toDate(now()) - 30\nGROUP BY date\n\n),\nalerts_timeliness_us_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN alerts_timeliness_us_daily AS daily ON d.date = daily.date\n),\nalerts_timeliness_us_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM alerts_timeliness_us_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        alerts_us_daily AS (\n    SELECT\n    toDate(timestamp) AS date,\n    count() AS total,\n    countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures\nFROM events\nWHERE event = 'slo_operation_completed'\n    AND properties.operation = 'alert_check'\n    AND properties.alert_type = 'insight'\n    AND upper(properties.region) = upper('US')\n    AND properties.skip_reason IS NULL\n    AND timestamp >= now() - INTERVAL 30 DAY\nGROUP BY date\n\n),\nalerts_us_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN alerts_us_daily AS daily ON d.date = daily.date\n),\nalerts_us_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM alerts_us_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        cohorts_eu_daily AS (\n    SELECT\n    cc.date,\n    count() AS total,\n    count() - countIf(dc.successes > 0) AS failures\nFROM (\n    SELECT d.date, c.cohort_id\n    FROM (SELECT toDate(now()) - number AS date FROM numbers(37)) d\n    CROSS JOIN (\n        SELECT cohort_id, min(toDate(finished_at)) AS first_seen\n        FROM eu_posthog_cohortcalculationhistory\n        WHERE finished_at >= now() - INTERVAL 37 DAY\n        GROUP BY cohort_id\n    ) c\n    WHERE c.first_seen <= d.date\n) cc\nLEFT JOIN (\n    SELECT\n        toDate(finished_at) AS date,\n        cohort_id,\n        countIf(error_code IS NULL OR error_code = '') AS successes\n    FROM eu_posthog_cohortcalculationhistory\n    WHERE finished_at >= now() - INTERVAL 30 DAY\n        AND finished_at IS NOT NULL\n    GROUP BY date, cohort_id\n) dc ON cc.date = dc.date AND cc.cohort_id = dc.cohort_id\nWHERE cc.date >= toDate(now()) - 30\nGROUP BY cc.date\n\n),\ncohorts_eu_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN cohorts_eu_daily AS daily ON d.date = daily.date\n),\ncohorts_eu_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM cohorts_eu_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        cohorts_us_daily AS (\n    SELECT\n    cc.date,\n    count() AS total,\n    count() - countIf(dc.successes > 0) AS failures\nFROM (\n    SELECT d.date, c.cohort_id\n    FROM (SELECT toDate(now()) - number AS date FROM numbers(37)) d\n    CROSS JOIN (\n        SELECT cohort_id, min(toDate(finished_at)) AS first_seen\n        FROM system.cohort_calculation_history\n        WHERE finished_at >= now() - INTERVAL 37 DAY\n        GROUP BY cohort_id\n    ) c\n    WHERE c.first_seen <= d.date\n) cc\nLEFT JOIN (\n    SELECT\n        toDate(finished_at) AS date,\n        cohort_id,\n        countIf(error_code IS NULL OR error_code = '') AS successes\n    FROM system.cohort_calculation_history\n    WHERE finished_at >= now() - INTERVAL 30 DAY\n        AND finished_at IS NOT NULL\n    GROUP BY date, cohort_id\n) dc ON cc.date = dc.date AND cc.cohort_id = dc.cohort_id\nWHERE cc.date >= toDate(now()) - 30\nGROUP BY cc.date\n\n),\ncohorts_us_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN cohorts_us_daily AS daily ON d.date = daily.date\n),\ncohorts_us_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM cohorts_us_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        exports_eu_daily AS (\n    SELECT\n    toDate(created_at) AS date,\n    count() AS total,\n    countIf(export_context IS NULL AND content_location IS NULL) AS failures\nFROM eu_posthog_exportedasset\nWHERE created_at >= now() - INTERVAL 30 DAY\n    AND created_at < now() - INTERVAL 10 MINUTE\nGROUP BY date\n\n),\nexports_eu_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN exports_eu_daily AS daily ON d.date = daily.date\n),\nexports_eu_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM exports_eu_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        exports_us_daily AS (\n    SELECT\n    toDate(created_at) AS date,\n    count() AS total,\n    countIf(export_context IS NULL AND content_location IS NULL) AS failures\nFROM postgres.posthog_exportedasset\nWHERE created_at >= now() - INTERVAL 30 DAY\n    AND created_at < now() - INTERVAL 10 MINUTE\nGROUP BY date\n\n),\nexports_us_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN exports_us_daily AS daily ON d.date = daily.date\n),\nexports_us_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM exports_us_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        subscriptions_eu_daily AS (\n    -- Attribute outcomes to the day the delivery started. A started workflow\n-- without a successful completion is a failed SLO operation, including a\n-- workflow that crashes before the interceptor can emit completion.\nWITH starts AS (\n    SELECT\n        toDate(min(timestamp)) AS date,\n        properties.correlation_id AS correlation_id\n    FROM events\n    WHERE event = 'slo_operation_started'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('EU')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n), completed AS (\n    SELECT\n        properties.correlation_id AS correlation_id,\n        max(properties.outcome = 'success') AS succeeded\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('EU')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n)\nSELECT\n    starts.date,\n    count() AS total,\n    countIf(coalesce(completed.succeeded, false) = false) AS failures\nFROM starts\nLEFT JOIN completed USING (correlation_id)\nGROUP BY starts.date\n\n),\nsubscriptions_eu_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN subscriptions_eu_daily AS daily ON d.date = daily.date\n),\nsubscriptions_eu_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM subscriptions_eu_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n,\n        subscriptions_us_daily AS (\n    -- Attribute outcomes to the day the delivery started. A started workflow\n-- without a successful completion is a failed SLO operation, including a\n-- workflow that crashes before the interceptor can emit completion.\nWITH starts AS (\n    SELECT\n        toDate(min(timestamp)) AS date,\n        properties.correlation_id AS correlation_id\n    FROM events\n    WHERE event = 'slo_operation_started'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('US')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n), completed AS (\n    SELECT\n        properties.correlation_id AS correlation_id,\n        max(properties.outcome = 'success') AS succeeded\n    FROM events\n    WHERE event = 'slo_operation_completed'\n        AND properties.operation = 'subscription_delivery'\n        AND upper(properties.region) = upper('US')\n        AND timestamp >= now() - INTERVAL 30 DAY\n    GROUP BY correlation_id\n)\nSELECT\n    starts.date,\n    count() AS total,\n    countIf(coalesce(completed.succeeded, false) = false) AS failures\nFROM starts\nLEFT JOIN completed USING (correlation_id)\nGROUP BY starts.date\n\n),\nsubscriptions_us_base AS (\n    SELECT\n        d.date,\n        coalesce(daily.total, 0)    AS total,\n        coalesce(daily.failures, 0) AS failures\n    FROM date_range d\n    LEFT JOIN subscriptions_us_daily AS daily ON d.date = daily.date\n),\nsubscriptions_us_rolling AS (\n    SELECT\n        date,\n        sum(failures) OVER w AS f30,\n        sum(total) OVER w    AS t30\n    FROM subscriptions_us_base\n    WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)\n)\n\nSELECT date, slo, value FROM (\n    SELECT date, 'SLO: Alert checks — 99% (EU)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM alerts_eu_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Alert timeliness — 99% (EU)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM alerts_timeliness_eu_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Alert timeliness — 99% (US)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM alerts_timeliness_us_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Alert checks — 99% (US)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM alerts_us_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Cohort calculations — 99% (EU)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM cohorts_eu_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Cohort calculations — 99% (US)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM cohorts_us_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Exports — 99% (EU)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM exports_eu_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Exports — 99% (US)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM exports_us_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Subscription deliveries — 99% (EU)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM subscriptions_eu_rolling\n\n        UNION ALL\n        SELECT date, 'SLO: Subscription deliveries — 99% (US)' AS slo,\n       round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value\nFROM subscriptions_us_rolling\n\n)\nORDER BY date ASC, slo ASC\nLIMIT 500\n"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "date",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "slo",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "value",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": "%"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform", "slo"]
+            },
+            "key": "slo_success_rates",
+            "kind": "insight",
+            "source": {
+                "export": "sloSuccessRates",
+                "file": ".ph/us/project-2/slos/dashboard.ts"
+            }
+        }
+    ],
+    "version": 1
+}

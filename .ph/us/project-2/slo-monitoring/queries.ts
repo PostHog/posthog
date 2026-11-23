@@ -1,0 +1,452 @@
+import { type SloOperation, sortedOperations } from './config'
+
+// The queries as the dashboard has them: indented here for reading, stored without the indentation and with a final newline.
+function flush(text: string): string {
+    const lines = text
+        .replace(/^\n/, '')
+        .replace(/\n[ ]*$/, '')
+        .split('\n')
+    const indent = Math.min(...lines.filter((line) => line.trim()).map((line) => line.length - line.trimStart().length))
+    return `${lines.map((line) => line.slice(indent)).join('\n')}\n`
+}
+
+// Row budgets, with a 2x margin.
+const burnRateLimit = 168 * 4 * 2 // 7 days * 24h * 4 metrics
+const durationLimit = 7 * 3 * 2 // 7 days * 3 percentiles
+const successRateLimit = sortedOperations.length * 28 * 2
+
+// An explicit list, so the success rate query doesn't depend on which operations sent events.
+const operationList = sortedOperations.map((operation) => `'${operation.key}'`).join(', ')
+
+// The queries in PostHog hold (100 - slo) / 100 as it was printed at 512-bit precision, which a JavaScript number can't reproduce. Changing the text would rewrite every burn rate query.
+const ERROR_BUDGET_TEXT: Readonly<Record<number, string>> = {
+    99.95: '0.00050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003815',
+}
+
+function errorBudget(slo: number): string {
+    return ERROR_BUDGET_TEXT[slo] ?? String(Number(((100 - slo) / 100).toPrecision(12)))
+}
+
+// Hourly burn rates over four windows for one operation in one region.
+export function burnRateQuery(operation: SloOperation, region: string): string {
+    const budget = errorBudget(operation.slo)
+    return flush(`
+    -- Single scan: GROUP BY (cid, hour) extracts correlation_id once per row.
+    -- Correlated events (cid != '') are paired by cid then attributed to start hour.
+    -- Uncorrelated events (cid = '') use bucket-based counting with clamp.
+    -- Sampled operations (properties.sample_rate < 1.0) are reweighted by 1/sample_rate
+    -- so the dashboard reflects true volume; events without the property coalesce to 1.0.
+    WITH weighted_events AS (
+        SELECT
+            event,
+            timestamp,
+            coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+            properties.outcome AS outcome,
+            coalesce(toFloat(properties.sample_rate), 1.0) AS sample_rate,
+            1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND properties.operation = '${operation.key}'
+          AND properties.region = '${region}'
+          AND timestamp >= now() - INTERVAL 35 DAY
+    ),
+    per_cid_hour AS (
+        SELECT
+            correlation_id AS cid,
+            toStartOfHour(timestamp) AS event_hour,
+            sumIf(weight, event = 'slo_operation_started') AS starts,
+            sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+            -- Per-cid sample_rate for the correlated-path collapse. All events in a pair
+            -- share the same rate (coin flip is per-operation) so max() is unambiguous.
+            max(sample_rate) AS cid_sample_rate,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+        FROM weighted_events
+        GROUP BY cid, event_hour
+    ),
+    hourly AS (
+        SELECT hour, sum(total) AS total, sum(failures) AS failures
+        FROM (
+            -- Uncorrelated: starts/successes already weighted; 1 row per hour.
+            SELECT
+                event_hour AS hour,
+                starts AS total,
+                greatest(starts - successes, 0.0) AS failures
+            FROM per_cid_hour
+            WHERE cid = ''
+
+            UNION ALL
+
+            -- Correlated: collapse across hours per cid, attribute to start hour.
+            -- Each cid = one operation, weighted by 1/sample_rate of its events.
+            SELECT
+                toStartOfHour(min(first_start)) AS hour,
+                1.0 / max(cid_sample_rate) AS total,
+                if(max(successes) > 0, 0.0, 1.0 / max(cid_sample_rate)) AS failures
+            FROM per_cid_hour
+            WHERE cid != ''
+            GROUP BY cid
+            HAVING hour IS NOT NULL
+        )
+        GROUP BY hour
+    ),
+    hour_range AS (
+        SELECT toStartOfHour(now()) - INTERVAL number HOUR AS hour FROM numbers(841)
+    ),
+    base AS (
+        SELECT
+            h.hour AS hour,
+            coalesce(hourly.total, 0) AS total,
+            coalesce(hourly.failures, 0) AS failures
+        FROM hour_range AS h
+        LEFT JOIN hourly ON h.hour = hourly.hour
+    ),
+    rolling AS (
+        SELECT
+            hour,
+            total AS t1h,
+            failures AS f1h,
+            sum(total) OVER w24h AS t24h,
+            sum(failures) OVER w24h AS f24h,
+            sum(total) OVER w7d AS t7d,
+            sum(failures) OVER w7d AS f7d,
+            sum(total) OVER w28d AS t28d,
+            sum(failures) OVER w28d AS f28d
+        FROM base
+        WINDOW
+            w24h AS (ORDER BY hour ASC ROWS BETWEEN 23 PRECEDING AND CURRENT ROW),
+            w7d  AS (ORDER BY hour ASC ROWS BETWEEN 167 PRECEDING AND CURRENT ROW),
+            w28d AS (ORDER BY hour ASC ROWS BETWEEN 671 PRECEDING AND CURRENT ROW)
+    )
+    SELECT hour AS time, metric, value
+    FROM (
+        SELECT
+            hour,
+            if(t1h  > 0, round((f1h  / t1h)  / ${budget}, 2), NULL) AS raw_1h,
+            if(t24h > 0, round((f24h / t24h) / ${budget}, 2), NULL) AS raw_24h,
+            if(t7d  > 0, round((f7d  / t7d)  / ${budget}, 2), NULL) AS raw_7d,
+            if(t28d > 0, round((f28d / t28d) / ${budget}, 2), NULL) AS raw_28d,
+            ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
+            [
+                sign(raw_1h)  * log10(1 + abs(raw_1h)),
+                sign(raw_24h) * log10(1 + abs(raw_24h)),
+                sign(raw_7d)  * log10(1 + abs(raw_7d)),
+                sign(raw_28d) * log10(1 + abs(raw_28d))
+            ] AS vals
+        FROM rolling
+        WHERE hour >= now() - INTERVAL 7 DAY
+    )
+    ARRAY JOIN metrics AS metric, vals AS value
+    ORDER BY time ASC, metric ASC
+    LIMIT ${burnRateLimit}
+    `)
+}
+
+// Daily p50, p95 and p99 durations in seconds for one operation in one region.
+export function durationQuery(operation: SloOperation, region: string): string {
+    return flush(`
+    WITH daily AS (
+        SELECT
+            toDate(timestamp) AS date,
+            quantile(0.50)(toFloat(properties.duration_ms)) / 1000 AS p50,
+            quantile(0.95)(toFloat(properties.duration_ms)) / 1000 AS p95,
+            quantile(0.99)(toFloat(properties.duration_ms)) / 1000 AS p99
+        FROM events
+        WHERE event = 'slo_operation_completed'
+          AND properties.operation = '${operation.key}'
+          AND properties.region = '${region}'
+          AND properties.duration_ms IS NOT NULL
+          AND timestamp >= now() - INTERVAL 7 DAY
+        GROUP BY date
+    ),
+    date_range AS (
+        SELECT toDate(now()) - number AS date FROM numbers(7)
+    ),
+    base AS (
+        SELECT
+            d.date AS date,
+            daily.p50,
+            daily.p95,
+            daily.p99
+        FROM date_range AS d
+        LEFT JOIN daily ON d.date = daily.date
+    )
+    SELECT date AS day, metric, value
+    FROM (
+        SELECT
+            date,
+            ['p50', 'p95', 'p99'] AS metrics,
+            [
+                round(p50, 1),
+                round(p95, 1),
+                round(p99, 1)
+            ] AS vals
+        FROM base
+    )
+    ARRAY JOIN metrics AS metric, vals AS value
+    ORDER BY day ASC, metric ASC
+    LIMIT ${durationLimit}
+    `)
+}
+
+export const successRateQuery = flush(`
+    -- Pair starts to completions by correlation_id (same as the burn rate query) so an
+    -- operation that starts late in a day and finishes after midnight is attributed to its
+    -- start day, not miscounted as a failure on the start day and dropped on the next.
+    -- Uncorrelated events (cid = '') fall back to per-day bucket counting with a clamp.
+    -- Sampled operations are reweighted by 1/sample_rate so the rate reflects true volume;
+    -- events without the property coalesce to 1.0 (no sampling).
+    WITH weighted_events AS (
+        SELECT
+            event,
+            timestamp,
+            properties.operation AS operation,
+            coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+            properties.outcome AS outcome,
+            1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND properties.operation IN (${operationList})
+          AND timestamp >= now() - INTERVAL 56 DAY
+    ),
+    per_cid_day AS (
+        SELECT
+            operation,
+            correlation_id AS cid,
+            toDate(timestamp) AS event_date,
+            sumIf(weight, event = 'slo_operation_started') AS starts,
+            sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+            -- One operation per cid, so all its events share a weight; max() collapses them.
+            max(weight) AS cid_weight,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+        FROM weighted_events
+        GROUP BY operation, cid, event_date
+    ),
+    daily AS (
+        SELECT operation, date, sum(total) AS total, sum(failures) AS failures
+        FROM (
+            -- Uncorrelated: starts/successes already weighted; 1 row per (operation, day).
+            SELECT
+                operation,
+                event_date AS date,
+                starts AS total,
+                greatest(starts - successes, 0.0) AS failures
+            FROM per_cid_day
+            WHERE cid = ''
+
+            UNION ALL
+
+            -- Correlated: collapse across days per (operation, cid), attribute to start day.
+            SELECT
+                operation,
+                toDate(min(first_start)) AS date,
+                max(cid_weight) AS total,
+                if(max(successes) > 0, 0.0, max(cid_weight)) AS failures
+            FROM per_cid_day
+            WHERE cid != ''
+            GROUP BY operation, cid
+            HAVING date IS NOT NULL
+        )
+        GROUP BY operation, date
+    ),
+    date_range AS (
+        -- 28 displayed days + 28 days of look-back so every displayed point has a full
+        -- 28-day rolling window (avoids the warm-up ramp at the left edge of the chart).
+        SELECT toDate(now()) - number AS date FROM numbers(56)
+    ),
+    operations AS (
+        SELECT arrayJoin([${operationList}]) AS operation
+    ),
+    base AS (
+        SELECT
+            d.date AS date,
+            o.operation AS operation,
+            coalesce(daily.total, 0) AS total,
+            coalesce(daily.failures, 0) AS failures
+        FROM date_range AS d
+        CROSS JOIN operations AS o
+        LEFT JOIN daily ON d.date = daily.date AND o.operation = daily.operation
+    ),
+    rolling AS (
+        SELECT
+            date,
+            operation,
+            sum(total) OVER (PARTITION BY operation ORDER BY date ASC ROWS BETWEEN 27 PRECEDING AND CURRENT ROW) AS t28,
+            sum(failures) OVER (PARTITION BY operation ORDER BY date ASC ROWS BETWEEN 27 PRECEDING AND CURRENT ROW) AS f28
+        FROM base
+    )
+    SELECT
+        date AS day,
+        operation,
+        if(t28 > 0, round((t28 - f28) / t28 * 100, 2), NULL) AS success_rate
+    FROM rolling
+    WHERE date >= toDate(now()) - INTERVAL 27 DAY
+    ORDER BY date ASC, operation ASC
+    LIMIT ${successRateLimit}
+`)
+
+export const volumeQuery = flush(`
+    -- No correlation_id needed: single 28-day bucket has no cross-bucket issue.
+    -- Counts reconstructed to true volume by weighting each event by 1/sample_rate;
+    -- events without the property coalesce to 1.0 (no sampling).
+    WITH weighted_events AS (
+        SELECT
+            event,
+            properties.operation AS operation,
+            properties.region AS raw_region,
+            properties.outcome AS outcome,
+            1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND timestamp >= now() - INTERVAL 28 DAY
+    )
+    SELECT
+        operation,
+        if(
+            count(raw_region) OVER (PARTITION BY operation) = 1,
+            'all*',
+            raw_region
+        ) AS region,
+        sumIf(weight, event = 'slo_operation_started') AS started,
+        sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+        sumIf(weight, event = 'slo_operation_completed' AND outcome = 'failure') AS failures,
+        greatest(
+            sumIf(weight, event = 'slo_operation_started')
+              - sumIf(weight, event = 'slo_operation_completed'),
+            0.0
+        ) AS never_completed,
+        if(
+            sumIf(weight, event = 'slo_operation_started') > 0,
+            round(sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success')
+              / sumIf(weight, event = 'slo_operation_started') * 100, 2),
+            NULL
+        ) AS success_rate
+    FROM weighted_events
+    GROUP BY operation, raw_region
+    ORDER BY operation, region
+`)
+
+export const alertDeliveryByTypeQuery = flush(`
+    WITH delivery_events AS (
+        SELECT
+            event,
+            timestamp,
+            coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+            coalesce(nullIf(properties.region, ''), 'unknown') AS region,
+            coalesce(nullIf(properties.alert_type, ''), 'unknown') AS alert_type,
+            properties.outcome AS outcome
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND properties.operation = 'alert_delivery'
+          AND timestamp >= now() - INTERVAL 28 DAY
+    ),
+    per_delivery_day AS (
+        SELECT
+            correlation_id,
+            region,
+            alert_type,
+            toDate(timestamp) AS event_day,
+            countIf(event = 'slo_operation_started') AS starts,
+            countIf(event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+        FROM delivery_events
+        GROUP BY correlation_id, region, alert_type, event_day
+    ),
+    daily AS (
+        SELECT day, region, alert_type, sum(started) AS started, sum(successes) AS successes
+        FROM (
+            SELECT
+                event_day AS day,
+                region,
+                alert_type,
+                starts AS started,
+                least(starts, successes) AS successes
+            FROM per_delivery_day
+            WHERE correlation_id = ''
+
+            UNION ALL
+
+            SELECT
+                toDate(min(first_start)) AS day,
+                region,
+                alert_type,
+                1 AS started,
+                if(max(successes) > 0, 1, 0) AS successes
+            FROM per_delivery_day
+            WHERE correlation_id != ''
+            GROUP BY correlation_id, region, alert_type
+            HAVING day IS NOT NULL
+        )
+        GROUP BY day, region, alert_type
+    )
+    SELECT
+        day,
+        concat(region, ' / ', alert_type) AS series,
+        round(if(started > 0, successes / started * 100, 0), 4) AS success_rate,
+        started,
+        successes,
+        started - successes AS failures
+    FROM daily
+    ORDER BY day ASC, series ASC
+`)
+
+export const regressionQuery = flush(`
+    -- Same pairing and sample-rate weighting as the burn rate tiles. Yesterday's correlated
+    -- starts are paired with completions from today, so operations in flight at midnight
+    -- aren't counted as failures.
+    WITH per_cid AS (
+        SELECT
+            properties.region AS region,
+            properties.operation AS operation,
+            coalesce(nullIf(properties.correlation_id, ''), '') AS cid,
+            toDate(timestamp) AS d,
+            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') AS starts,
+            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+            max(1.0 / coalesce(toFloat(properties.sample_rate), 1.0)) AS w,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+        FROM events
+        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+          AND properties.region IN ('US', 'EU')
+          AND timestamp >= today() - 17
+        GROUP BY region, operation, cid, d
+    ),
+    daily AS (
+        SELECT region, operation, d, sum(total) AS total, sum(failures) AS failures
+        FROM (
+            SELECT region, operation, d, starts AS total, greatest(starts - successes, 0.0) AS failures
+            FROM per_cid
+            WHERE cid = ''
+
+            UNION ALL
+
+            SELECT region, operation, toDate(min(first_start)) AS d, max(w) AS total, if(max(successes) > 0, 0.0, max(w)) AS failures
+            FROM per_cid
+            WHERE cid != ''
+            GROUP BY region, operation, cid
+            HAVING d IS NOT NULL
+        )
+        GROUP BY region, operation, d
+    ),
+    scored AS (
+        SELECT
+            region,
+            operation,
+            d,
+            total,
+            failures,
+            failures / total / 0.0005 AS burn,
+            median(failures / total / 0.0005) OVER (PARTITION BY region, operation ORDER BY d ASC ROWS BETWEEN 14 PRECEDING AND 1 PRECEDING) AS baseline
+        FROM daily
+    )
+    SELECT
+        concat(region, ' / ', operation) AS operation,
+        round(total) AS total,
+        round(failures) AS failures,
+        round(burn, 1) AS burn_rate,
+        round(baseline, 1) AS baseline_burn_rate,
+        -- Floor the baseline at 1x so near-zero baselines don't turn a handful of failures into a huge ratio.
+        round(if(total >= 100 AND failures >= 10, burn / greatest(baseline, 1.0), 0), 2) AS regression_ratio
+    FROM scored
+    WHERE d = yesterday()
+    ORDER BY regression_ratio DESC
+    LIMIT 100
+`)

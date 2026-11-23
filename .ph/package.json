@@ -1,0 +1,16 @@
+{
+    "name": "@posthog/posthog-as-code",
+    "version": "0.0.0",
+    "private": true,
+    "description": "This repository's own PostHog definitions, one stack per folder, checked with `hog check`",
+    "type": "module",
+    "scripts": {
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@posthog/sdk": "workspace:*"
+    },
+    "devDependencies": {
+        "typescript": "catalog:"
+    }
+}

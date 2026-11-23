@@ -292,6 +292,16 @@ importers:
         specifier: ^2.3.3
         version: 2.3.3
 
+  .ph:
+    dependencies:
+      '@posthog/sdk':
+        specifier: workspace:*
+        version: link:../packages/sdk
+    devDependencies:
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   common/esbuilder:
     dependencies:
       '@tailwindcss/postcss':
@@ -841,6 +851,9 @@ importers:
       '@posthog/products-slack-app':
         specifier: workspace:*
         version: link:../products/slack_app
+      '@posthog/products-stacks':
+        specifier: workspace:*
+        version: link:../products/stacks
       '@posthog/products-stamphog':
         specifier: workspace:*
         version: link:../products/stamphog
@@ -904,6 +917,9 @@ importers:
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
+      '@posthog/sdk':
+        specifier: workspace:*
+        version: link:../packages/sdk
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -1563,6 +1579,9 @@ importers:
       '@posthog/mcp':
         specifier: workspace:*
         version: link:../services/mcp
+      '@posthog/sdk':
+        specifier: workspace:*
+        version: link:../packages/sdk
       cli-table3:
         specifier: 0.6.5
         version: 0.6.5
@@ -5460,6 +5479,37 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/stacks:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.450.0(@types/react@18.3.31)(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: ^10.4.2
+        version: 10.4.2
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -24572,8 +24622,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.537.0:
-    resolution: {integrity: sha512-50B9H7Pk0O9HZPyv8PsYxU+1dyNMJ5sWq271zAgUlRQ5ND+j4E6WytseO2EeXqJdEhSCwVTEX7OTDoCMQjakfw==}
+  unlayer-types@1.539.0:
+    resolution: {integrity: sha512-n/YNjw7MtOz75CrTWUU/XSd9/1pjS9Zsea0/0wYMJl8nm7qM2378xSUirK5yqtK51sV7MNFaGHICUz2QCScw6w==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -35160,7 +35210,7 @@ snapshots:
 
   '@types/pixelmatch@5.2.4':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
 
   '@types/prettier@2.7.3': {}
 
@@ -45219,7 +45269,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.537.0
+      unlayer-types: 1.539.0
 
   react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -47617,7 +47667,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.537.0: {}
+  unlayer-types@1.539.0: {}
 
   unpipe@1.0.0: {}
 

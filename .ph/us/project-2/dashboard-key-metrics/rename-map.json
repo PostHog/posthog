@@ -1,0 +1,138 @@
+{
+    "posthog_alert.export_alert[\"decrease_in_success_rate_eu\"]": {
+        "kind": "alert",
+        "key": "decrease_in_success_rate_eu"
+    },
+    "posthog_alert.export_alert[\"decrease_in_success_rate_us\"]": {
+        "kind": "alert",
+        "key": "decrease_in_success_rate_us"
+    },
+    "posthog_alert.export_alert[\"system_error_spike_eu\"]": {
+        "kind": "alert",
+        "key": "system_error_spike_eu"
+    },
+    "posthog_alert.export_alert[\"system_error_spike_us\"]": {
+        "kind": "alert",
+        "key": "system_error_spike_us"
+    },
+    "posthog_alert.export_alert[\"timeout_spike_eu\"]": {
+        "kind": "alert",
+        "key": "timeout_spike_eu"
+    },
+    "posthog_alert.export_alert[\"timeout_spike_us\"]": {
+        "kind": "alert",
+        "key": "timeout_spike_us"
+    },
+    "posthog_alert.export_alert[\"unknown_alert_spike_eu\"]": {
+        "kind": "alert",
+        "key": "unknown_alert_spike_eu"
+    },
+    "posthog_alert.export_alert[\"unknown_alert_spike_us\"]": {
+        "kind": "alert",
+        "key": "unknown_alert_spike_us"
+    },
+    "posthog_alert.export_alert[\"user_error_spike_eu\"]": {
+        "kind": "alert",
+        "key": "user_error_spike_eu"
+    },
+    "posthog_alert.export_alert[\"user_error_spike_us\"]": {
+        "kind": "alert",
+        "key": "user_error_spike_us"
+    },
+    "posthog_dashboard.team_analytics_platform_key_metrics": {
+        "kind": "dashboard",
+        "key": "team_analytics_platform_key_metrics"
+    },
+    "posthog_dashboard_layout.team_analytics_platform_key_metrics": {
+        "kind": "dashboard",
+        "key": "team_analytics_platform_key_metrics"
+    },
+    "posthog_hog_function.slack_alert_notification[\"decrease_in_success_rate_eu\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-decrease_in_success_rate_eu"
+    },
+    "posthog_hog_function.slack_alert_notification[\"decrease_in_success_rate_us\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-decrease_in_success_rate_us"
+    },
+    "posthog_hog_function.slack_alert_notification[\"system_error_spike_eu\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-system_error_spike_eu"
+    },
+    "posthog_hog_function.slack_alert_notification[\"system_error_spike_us\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-system_error_spike_us"
+    },
+    "posthog_hog_function.slack_alert_notification[\"timeout_spike_eu\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-timeout_spike_eu"
+    },
+    "posthog_hog_function.slack_alert_notification[\"timeout_spike_us\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-timeout_spike_us"
+    },
+    "posthog_hog_function.slack_alert_notification[\"unknown_alert_spike_eu\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-unknown_alert_spike_eu"
+    },
+    "posthog_hog_function.slack_alert_notification[\"unknown_alert_spike_us\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-unknown_alert_spike_us"
+    },
+    "posthog_hog_function.slack_alert_notification[\"user_error_spike_eu\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-user_error_spike_eu"
+    },
+    "posthog_hog_function.slack_alert_notification[\"user_error_spike_us\"]": {
+        "kind": "destination",
+        "key": "slack_alert_notification-user_error_spike_us"
+    },
+    "posthog_insight.alert_creation": {
+        "kind": "insight",
+        "key": "alert_creation"
+    },
+    "posthog_insight.alert_failures_by_exception_type_aggregated": {
+        "kind": "insight",
+        "key": "alert_failures_by_exception_type_aggregated"
+    },
+    "posthog_insight.api_calls_originating_from_our_terraform_provider": {
+        "kind": "insight",
+        "key": "api_calls_originating_from_our_terraform_provider"
+    },
+    "posthog_insight.created_subscriptions": {
+        "kind": "insight",
+        "key": "created_subscriptions"
+    },
+    "posthog_insight.dashboard_created_unique_users_by_event_s_source": {
+        "kind": "insight",
+        "key": "dashboard_created_unique_users_by_event_s_source"
+    },
+    "posthog_insight.dashboards_created_from_template_unique_users": {
+        "kind": "insight",
+        "key": "dashboards_created_from_template_unique_users"
+    },
+    "posthog_insight.export_successes_and_failures[\"eu\"]": {
+        "kind": "insight",
+        "key": "export_successes_and_failures_eu"
+    },
+    "posthog_insight.export_successes_and_failures[\"us\"]": {
+        "kind": "insight",
+        "key": "export_successes_and_failures_us"
+    },
+    "posthog_insight.shared_dashboard_stats": {
+        "kind": "insight",
+        "key": "shared_dashboard_stats"
+    },
+    "posthog_insight.subscription_delivery_success_rate[\"EU\"]": {
+        "kind": "insight",
+        "key": "subscription_delivery_success_rate_eu"
+    },
+    "posthog_insight.subscription_delivery_success_rate[\"US\"]": {
+        "kind": "insight",
+        "key": "subscription_delivery_success_rate_us"
+    },
+    "posthog_insight.usage_by_role": {
+        "kind": "insight",
+        "key": "usage_by_role"
+    }
+}

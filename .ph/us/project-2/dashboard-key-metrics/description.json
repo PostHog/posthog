@@ -1,0 +1,2882 @@
+{
+    "resources": [
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 0,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_eu",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Decrease in success rate for exports (EU)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "lower": 0.99
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "decrease_in_success_rate_eu",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 0,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_us",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Decrease in success rate for exports (US)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "lower": 0.99
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "decrease_in_success_rate_us",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 4,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_eu",
+                        "kind": "insight"
+                    }
+                },
+                "name": "System error spike (EU)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "system_error_spike_eu",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 4,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_us",
+                        "kind": "insight"
+                    }
+                },
+                "name": "System error spike (US)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "system_error_spike_us",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 5,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_eu",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Timeout spike (EU)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "timeout_spike_eu",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 5,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_us",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Timeout spike (US)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "timeout_spike_us",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 6,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_eu",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Unknown alert spike (EU)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.01
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "unknown_alert_spike_eu",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 6,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_us",
+                        "kind": "insight"
+                    }
+                },
+                "name": "Unknown alert spike (US)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.01
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "unknown_alert_spike_us",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 3,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_eu",
+                        "kind": "insight"
+                    }
+                },
+                "name": "User error spike (EU)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "user_error_spike_eu",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "calculation_interval": "daily",
+                "condition": {
+                    "type": "absolute_value"
+                },
+                "config": {
+                    "check_ongoing_interval": false,
+                    "series_index": 3,
+                    "type": "TrendsAlertConfig"
+                },
+                "enabled": true,
+                "insight": {
+                    "$ref": {
+                        "key": "export_successes_and_failures_us",
+                        "kind": "insight"
+                    }
+                },
+                "name": "User error spike (US)",
+                "subscribed_users": [339134],
+                "threshold": {
+                    "configuration": {
+                        "bounds": {
+                            "upper": 0.03
+                        },
+                        "type": "absolute"
+                    }
+                }
+            },
+            "key": "user_error_spike_us",
+            "kind": "alert",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "[team-analytics-platform] Key metrics",
+                "pinned": true,
+                "tags": ["managed-by:terraform"],
+                "tiles": [
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "shared_dashboard_stats",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4386313",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 4,
+                                "x": 0,
+                                "y": 0
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "alert_creation",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4386146",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 4,
+                                "x": 4,
+                                "y": 0
+                            }
+                        }
+                    },
+                    {
+                        "color": "white",
+                        "insight": {
+                            "$ref": {
+                                "key": "created_subscriptions",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4386493",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 4,
+                                "x": 8,
+                                "y": 0
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "dashboards_created_from_template_unique_users",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4385815",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 5
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "dashboard_created_unique_users_by_event_s_source",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6241075",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 5
+                            }
+                        }
+                    },
+                    {
+                        "layouts": {
+                            "sm": {
+                                "h": 1,
+                                "i": "6274566",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 10
+                            }
+                        },
+                        "text": {
+                            "body": "## Alerts, subscriptions & exports 🚨"
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "export_successes_and_failures_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4385817",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 11
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "export_successes_and_failures_eu",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "4704520",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 11
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "subscription_delivery_success_rate_us",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "subscription_us",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 0,
+                                "y": 16
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "subscription_delivery_success_rate_eu",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "subscription_eu",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 6,
+                                "x": 6,
+                                "y": 16
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "alert_failures_by_exception_type_aggregated",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "6157400",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 21
+                            }
+                        }
+                    },
+                    {
+                        "layouts": {
+                            "sm": {
+                                "h": 1,
+                                "i": "6274570",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 26
+                            }
+                        },
+                        "text": {
+                            "body": "## Terraform 🛠️"
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "api_calls_originating_from_our_terraform_provider",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 3,
+                                "i": "4788951",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 27
+                            }
+                        }
+                    },
+                    {
+                        "insight": {
+                            "$ref": {
+                                "key": "usage_by_role",
+                                "kind": "insight"
+                            }
+                        },
+                        "layouts": {
+                            "sm": {
+                                "h": 5,
+                                "i": "3202514",
+                                "minH": 1,
+                                "minW": 1,
+                                "moved": false,
+                                "static": false,
+                                "w": 12,
+                                "x": 0,
+                                "y": 30
+                            }
+                        }
+                    }
+                ]
+            },
+            "key": "team_analytics_platform_key_metrics",
+            "kind": "dashboard",
+            "source": {
+                "export": "keyMetrics",
+                "file": ".ph/us/project-2/dashboard-key-metrics/dashboard.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "decrease_in_success_rate_eu",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-decrease_in_success_rate_eu",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "decrease_in_success_rate_us",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-decrease_in_success_rate_us",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "system_error_spike_eu",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-system_error_spike_eu",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "system_error_spike_us",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-system_error_spike_us",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "timeout_spike_eu",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-timeout_spike_eu",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "timeout_spike_us",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-timeout_spike_us",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "unknown_alert_spike_eu",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-unknown_alert_spike_eu",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "unknown_alert_spike_us",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-unknown_alert_spike_us",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "user_error_spike_eu",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-user_error_spike_eu",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "description": "Post to a Slack channel when this insight alert fires",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$insight_alert_firing",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": {
+                                "$ref": {
+                                    "key": "user_error_spike_us",
+                                    "kind": "alert"
+                                }
+                            }
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "{event.properties.breaches}",
+                                    "type": "plain_text"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "Project: <{project.url}|{project.name}>",
+                                        "type": "mrkdwn"
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View Insight",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}"
+                                    },
+                                    {
+                                        "text": {
+                                            "text": "View Alert",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C09S5802LMU"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 54567
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "Alert triggered: {event.properties.insight_name}"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Export-monitor"
+                    }
+                },
+                "name": "Post to Slack on insight alert firing",
+                "template_id": "template-slack",
+                "type": "internal_destination"
+            },
+            "key": "slack_alert_notification-user_error_spike_us",
+            "kind": "destination",
+            "source": {
+                "export": "exportAlertsByRegion",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Alert creation",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "breakdownFilter": null,
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null,
+                            "explicitDate": false
+                        },
+                        "interval": "day",
+                        "kind": "TrendsQuery",
+                        "properties": [],
+                        "series": [
+                            {
+                                "custom_name": "Unique users",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_alertconfiguration",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "dau",
+                                "name": "postgres.posthog_alertconfiguration",
+                                "table_name": "postgres.posthog_alertconfiguration",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Total count",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_alertconfiguration",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_alertconfiguration",
+                                "table_name": "postgres.posthog_alertconfiguration",
+                                "timestamp_field": "created_at"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "showLegend": true
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "alert_creation",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    1142938,
+                    1294240,
+                    821321,
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "Failures grouped by exception type with alert IDs normalized, showing the core issues affecting alerts",
+                "name": "Alert failures by exception type (aggregated)",
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT\n  coalesce(\n    properties.error_type,\n    if(properties.alert_state = 'Errored', 'Alert configuration error', 'Unknown error')\n  ) AS exception_type,\n  count() AS failure_count,\n  count() * 100.0 / sum(count()) OVER () AS percentage_of_failures,\n  uniq(properties.resource_id) AS unique_alerts_affected,\n  uniq(properties.team_id) AS unique_teams_affected,\n  min(timestamp) AS first_occurrence,\n  max(timestamp) AS last_occurrence\nFROM events\nWHERE event = 'slo_operation_completed'\n  AND properties.operation = 'alert_check'\n  AND (properties.outcome = 'failure' OR properties.alert_state = 'Errored')\n  AND timestamp >= now() - INTERVAL 30 DAY\n  AND timestamp < now()\nGROUP BY exception_type\nORDER BY failure_count DESC\nLIMIT 100"
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "alert_failures_by_exception_type_aggregated",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    821321,
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "API calls originating from our Terraform Provider",
+                "query": {
+                    "chartSettings": {
+                        "xAxis": {
+                            "column": "first_call"
+                        },
+                        "yAxis": [
+                            {
+                                "column": "api_calls",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "display": "ActionsTable",
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT \n    extract(properties.$user_agent, 'version: ([0-9\\\\.\\\\-a-zA-Z]+)') as version,\n    person.properties.email as email,\n    person.properties.org__name as organization,\n    count() as api_calls,\n    min(timestamp) as first_call,\n    max(timestamp) as last_call\nFROM events\nWHERE \n    properties.$user_agent LIKE '%terraform-provider%'\n    AND timestamp >= now() - INTERVAL 7 DAY\nGROUP BY version, email, organization\nORDER BY api_calls DESC"
+                    },
+                    "tableSettings": {
+                        "columns": [
+                            {
+                                "column": "version",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "email",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "organization",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "api_calls",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "first_call",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            },
+                            {
+                                "column": "last_call",
+                                "settings": {
+                                    "formatting": {
+                                        "prefix": "",
+                                        "suffix": ""
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "api_calls_originating_from_our_terraform_provider",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Created subscriptions",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "event": "dashboard subscription created",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "name": "dashboard subscription created"
+                            },
+                            {
+                                "event": "insight subscription created",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "name": "insight subscription created"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "showLegend": true
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "created_subscriptions",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "derived_name": "dashboard created unique users by event's source",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "breakdownFilter": {
+                            "breakdowns": [
+                                {
+                                    "property": "source",
+                                    "type": "event"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": true,
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "event": "dashboard created",
+                                "kind": "EventsNode",
+                                "math": "dau",
+                                "name": "dashboard created"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "display": "ActionsAreaGraph"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "dashboard_created_unique_users_by_event_s_source",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    778670,
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Dashboards created from template (unique users)",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "dateRange": {
+                            "date_from": "-30d"
+                        },
+                        "filterTestAccounts": false,
+                        "interval": "day",
+                        "kind": "TrendsQuery",
+                        "properties": [],
+                        "series": [
+                            {
+                                "custom_name": "Dashboard created from template (unique users)",
+                                "event": "dashboard created",
+                                "kind": "EventsNode",
+                                "math": "dau",
+                                "properties": [
+                                    {
+                                        "key": "from_template",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": "true"
+                                    }
+                                ]
+                            },
+                            {
+                                "custom_name": "Dashboard created (unique users)",
+                                "event": "dashboard created",
+                                "kind": "EventsNode",
+                                "math": "dau"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "percentage",
+                            "display": "ActionsLineGraph",
+                            "formulaNodes": [
+                                {
+                                    "formula": "(A/B) * 100"
+                                }
+                            ],
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "yAxisScaleType": "linear"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "dashboards_created_from_template_unique_users",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "More details about the unknown errors can be found here: https://metabase.prod-eu.posthog.dev/question/565-analyse-unknown-exportedasset-exceptions",
+                "name": "Export Successes and Failures (EU)",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "breakdownFilter": null,
+                        "kind": "TrendsQuery",
+                        "properties": [],
+                        "series": [
+                            {
+                                "custom_name": "Starts",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Success",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "export_context is not null or content_location is not null",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Caught Exceptions",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "exception is not null",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "User failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'user'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "System failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'system'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Timeout failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'timeout_generation'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Unknown failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'unknown'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Uncaught Exceptions",
+                                "distinct_id_field": "created_by_id",
+                                "id": "eu_posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "eu_posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "exception is null and export_context is null and content_location is null and timestamp < now() - interval 10 minute",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "eu_posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "percentage_scaled",
+                            "decimalPlaces": 4,
+                            "display": "ActionsLineGraph",
+                            "formulaNodes": [
+                                {
+                                    "custom_name": "Success",
+                                    "formula": "B/A"
+                                },
+                                {
+                                    "custom_name": "Caught",
+                                    "formula": "C/A"
+                                },
+                                {
+                                    "custom_name": "Uncaught",
+                                    "formula": "H/A"
+                                },
+                                {
+                                    "custom_name": "User Errors",
+                                    "formula": "D/A"
+                                },
+                                {
+                                    "custom_name": "System Errors",
+                                    "formula": "E/A"
+                                },
+                                {
+                                    "custom_name": "Timeout Errors",
+                                    "formula": "F/A"
+                                },
+                                {
+                                    "custom_name": "Unknown Errors",
+                                    "formula": "G/A"
+                                }
+                            ],
+                            "showAlertThresholdLines": true,
+                            "showMultipleYAxes": false,
+                            "showValuesOnSeries": true,
+                            "yAxisScaleType": "log10"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "export_successes_and_failures_eu",
+            "kind": "insight",
+            "source": {
+                "export": "exportResults",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    567706,
+                    633001,
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "description": "More details about the unknown errors can be found here: https://metabase.prod-us.posthog.dev/question/1838-analyse-unknown-exportedasset-exceptions",
+                "name": "Export Successes and Failures (US)",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "breakdownFilter": null,
+                        "kind": "TrendsQuery",
+                        "properties": [],
+                        "series": [
+                            {
+                                "custom_name": "Starts",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Success",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "export_context is not null or content_location is not null",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Caught Exceptions",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "exception is not null",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "User failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'user'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "System failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'system'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Timeout failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'timeout_generation'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Unknown failures",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "failure_type = 'unknown'",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            },
+                            {
+                                "custom_name": "Uncaught Exceptions",
+                                "distinct_id_field": "created_by_id",
+                                "id": "postgres.posthog_exportedasset",
+                                "id_field": "id",
+                                "kind": "DataWarehouseNode",
+                                "math": "total",
+                                "name": "postgres.posthog_exportedasset",
+                                "properties": [
+                                    {
+                                        "key": "exception is null and export_context is null and content_location is null and timestamp < now() - interval 10 minute",
+                                        "type": "hogql",
+                                        "value": null
+                                    }
+                                ],
+                                "table_name": "postgres.posthog_exportedasset",
+                                "timestamp_field": "created_at"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "percentage_scaled",
+                            "decimalPlaces": 4,
+                            "display": "ActionsLineGraph",
+                            "formulaNodes": [
+                                {
+                                    "custom_name": "Success",
+                                    "formula": "B/A"
+                                },
+                                {
+                                    "custom_name": "Caught",
+                                    "formula": "C/A"
+                                },
+                                {
+                                    "custom_name": "Uncaught",
+                                    "formula": "H/A"
+                                },
+                                {
+                                    "custom_name": "User Errors",
+                                    "formula": "D/A"
+                                },
+                                {
+                                    "custom_name": "System Errors",
+                                    "formula": "E/A"
+                                },
+                                {
+                                    "custom_name": "Timeout Errors",
+                                    "formula": "F/A"
+                                },
+                                {
+                                    "custom_name": "Unknown Errors",
+                                    "formula": "G/A"
+                                }
+                            ],
+                            "showAlertThresholdLines": true,
+                            "showMultipleYAxes": false,
+                            "showValuesOnSeries": true,
+                            "yAxisScaleType": "log10"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "export_successes_and_failures_us",
+            "kind": "insight",
+            "source": {
+                "export": "exportResults",
+                "file": ".ph/us/project-2/dashboard-key-metrics/exports.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Shared Dashboard Stats",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "showHeader": true,
+                    "source": {
+                        "breakdownFilter": null,
+                        "compareFilter": null,
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null
+                        },
+                        "filterTestAccounts": true,
+                        "interval": "day",
+                        "kind": "TrendsQuery",
+                        "properties": [],
+                        "samplingFactor": null,
+                        "series": [
+                            {
+                                "event": "viewed dashboard",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "math_group_type_index": null,
+                                "math_property": null,
+                                "math_property_type": null,
+                                "properties": [
+                                    {
+                                        "key": "is_shared",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": "true"
+                                    }
+                                ]
+                            },
+                            {
+                                "event": "dashboard share toggled",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "name": "dashboard share toggled",
+                                "properties": [
+                                    {
+                                        "key": "is_shared",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["true"]
+                                    }
+                                ]
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "numeric",
+                            "aggregationAxisPostfix": null,
+                            "aggregationAxisPrefix": null,
+                            "decimalPlaces": null,
+                            "display": "ActionsLineGraph",
+                            "formulas": null,
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "yAxisScaleType": "linear"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "shared_dashboard_stats",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Subscription delivery success rate (EU)",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "dateRange": {
+                            "date_from": "-30d"
+                        },
+                        "filterTestAccounts": false,
+                        "interval": "day",
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "custom_name": "Started",
+                                "event": "slo_operation_started",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "properties": [
+                                    {
+                                        "key": "operation",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["subscription_delivery"]
+                                    },
+                                    {
+                                        "key": "region",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["EU"]
+                                    }
+                                ]
+                            },
+                            {
+                                "custom_name": "Succeeded",
+                                "event": "slo_operation_completed",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "properties": [
+                                    {
+                                        "key": "operation",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["subscription_delivery"]
+                                    },
+                                    {
+                                        "key": "outcome",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["success"]
+                                    },
+                                    {
+                                        "key": "region",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["EU"]
+                                    }
+                                ]
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "percentage_scaled",
+                            "display": "ActionsLineGraph",
+                            "formulaNodes": [
+                                {
+                                    "custom_name": "Success rate",
+                                    "formula": "B/A"
+                                }
+                            ],
+                            "showLegend": true,
+                            "showValuesOnSeries": true
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "subscription_delivery_success_rate_eu",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/subscriptions.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Subscription delivery success rate (US)",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "dateRange": {
+                            "date_from": "-30d"
+                        },
+                        "filterTestAccounts": false,
+                        "interval": "day",
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "custom_name": "Started",
+                                "event": "slo_operation_started",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "properties": [
+                                    {
+                                        "key": "operation",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["subscription_delivery"]
+                                    },
+                                    {
+                                        "key": "region",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["US"]
+                                    }
+                                ]
+                            },
+                            {
+                                "custom_name": "Succeeded",
+                                "event": "slo_operation_completed",
+                                "kind": "EventsNode",
+                                "math": "total",
+                                "properties": [
+                                    {
+                                        "key": "operation",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["subscription_delivery"]
+                                    },
+                                    {
+                                        "key": "outcome",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["success"]
+                                    },
+                                    {
+                                        "key": "region",
+                                        "operator": "exact",
+                                        "type": "event",
+                                        "value": ["US"]
+                                    }
+                                ]
+                            }
+                        ],
+                        "trendsFilter": {
+                            "aggregationAxisFormat": "percentage_scaled",
+                            "display": "ActionsLineGraph",
+                            "formulaNodes": [
+                                {
+                                    "custom_name": "Success rate",
+                                    "formula": "B/A"
+                                }
+                            ],
+                            "showLegend": true,
+                            "showValuesOnSeries": true
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "subscription_delivery_success_rate_us",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/subscriptions.ts"
+            }
+        },
+        {
+            "body": {
+                "dashboards": [
+                    {
+                        "$ref": {
+                            "key": "team_analytics_platform_key_metrics",
+                            "kind": "dashboard"
+                        }
+                    }
+                ],
+                "name": "Usage by role",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "breakdownFilter": {
+                            "breakdowns": [
+                                {
+                                    "property": "role_at_organization",
+                                    "type": "person"
+                                }
+                            ]
+                        },
+                        "dateRange": {
+                            "date_from": "-90d",
+                            "date_to": null,
+                            "explicitDate": false
+                        },
+                        "filterTestAccounts": true,
+                        "interval": "week",
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "id": "214129",
+                                "kind": "ActionsNode",
+                                "math": "total",
+                                "name": "[team-analytics-platform] Clicked New action in data management"
+                            }
+                        ],
+                        "trendsFilter": {
+                            "display": "ActionsAreaGraph"
+                        },
+                        "version": 2
+                    }
+                },
+                "tags": ["managed-by:terraform"]
+            },
+            "key": "usage_by_role",
+            "kind": "insight",
+            "source": {
+                "file": ".ph/us/project-2/dashboard-key-metrics/insights.ts"
+            }
+        }
+    ],
+    "version": 1
+}

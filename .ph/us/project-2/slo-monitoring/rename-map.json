@@ -1,0 +1,194 @@
+{
+    "posthog_alert.alert_delivery_slo[\"EU\"]": {
+        "kind": "alert",
+        "key": "alert_delivery_slo_eu"
+    },
+    "posthog_alert.alert_delivery_slo[\"US\"]": {
+        "kind": "alert",
+        "key": "alert_delivery_slo_us"
+    },
+    "posthog_alert.slo_regression": {
+        "kind": "alert",
+        "key": "slo_regression"
+    },
+    "posthog_dashboard.slo_monitoring": {
+        "kind": "dashboard",
+        "key": "slo_monitoring"
+    },
+    "posthog_dashboard_layout.slo_monitoring": {
+        "kind": "dashboard",
+        "key": "slo_monitoring"
+    },
+    "posthog_hog_function.slo_regression_slack": {
+        "kind": "destination",
+        "key": "slo_regression_slack"
+    },
+    "posthog_insight.alert_delivery_by_type": {
+        "kind": "insight",
+        "key": "alert_delivery_by_type"
+    },
+    "posthog_insight.alert_delivery_failure_rate[\"EU\"]": {
+        "kind": "insight",
+        "key": "alert_delivery_failure_rate_eu"
+    },
+    "posthog_insight.alert_delivery_failure_rate[\"US\"]": {
+        "kind": "insight",
+        "key": "alert_delivery_failure_rate_us"
+    },
+    "posthog_insight.slo_burn_rate[\"ai_subscription_prompt_generation_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_ai_subscription_prompt_generation_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"ai_subscription_prompt_generation_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_ai_subscription_prompt_generation_us"
+    },
+    "posthog_insight.slo_burn_rate[\"alert_check_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_alert_check_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"alert_check_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_alert_check_us"
+    },
+    "posthog_insight.slo_burn_rate[\"alert_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_alert_delivery_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"alert_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_alert_delivery_us"
+    },
+    "posthog_insight.slo_burn_rate[\"dashboard_widget_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_dashboard_widget_delivery_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"dashboard_widget_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_dashboard_widget_delivery_us"
+    },
+    "posthog_insight.slo_burn_rate[\"export_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_export_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"export_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_export_us"
+    },
+    "posthog_insight.slo_burn_rate[\"query_service_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_query_service_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"query_service_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_query_service_us"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_create_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_create_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_create_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_create_us"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_delete_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_delete_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_delete_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_delete_us"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_delivery_eu"
+    },
+    "posthog_insight.slo_burn_rate[\"subscription_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-burn_subscription_delivery_us"
+    },
+    "posthog_insight.slo_duration[\"ai_subscription_prompt_generation_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_ai_subscription_prompt_generation_eu"
+    },
+    "posthog_insight.slo_duration[\"ai_subscription_prompt_generation_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_ai_subscription_prompt_generation_us"
+    },
+    "posthog_insight.slo_duration[\"alert_check_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_alert_check_eu"
+    },
+    "posthog_insight.slo_duration[\"alert_check_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_alert_check_us"
+    },
+    "posthog_insight.slo_duration[\"alert_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_alert_delivery_eu"
+    },
+    "posthog_insight.slo_duration[\"alert_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_alert_delivery_us"
+    },
+    "posthog_insight.slo_duration[\"dashboard_widget_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_dashboard_widget_delivery_eu"
+    },
+    "posthog_insight.slo_duration[\"dashboard_widget_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_dashboard_widget_delivery_us"
+    },
+    "posthog_insight.slo_duration[\"export_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_export_eu"
+    },
+    "posthog_insight.slo_duration[\"export_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_export_us"
+    },
+    "posthog_insight.slo_duration[\"query_service_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_query_service_eu"
+    },
+    "posthog_insight.slo_duration[\"query_service_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_query_service_us"
+    },
+    "posthog_insight.slo_duration[\"subscription_create_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_create_eu"
+    },
+    "posthog_insight.slo_duration[\"subscription_create_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_create_us"
+    },
+    "posthog_insight.slo_duration[\"subscription_delete_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_delete_eu"
+    },
+    "posthog_insight.slo_duration[\"subscription_delete_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_delete_us"
+    },
+    "posthog_insight.slo_duration[\"subscription_delivery_eu\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_delivery_eu"
+    },
+    "posthog_insight.slo_duration[\"subscription_delivery_us\"]": {
+        "kind": "insight",
+        "key": "slo_monitoring-dur_subscription_delivery_us"
+    },
+    "posthog_insight.slo_regression": {
+        "kind": "insight",
+        "key": "slo_regression"
+    },
+    "posthog_insight.slo_success_rate": {
+        "kind": "insight",
+        "key": "slo_success_rate"
+    },
+    "posthog_insight.slo_volume": {
+        "kind": "insight",
+        "key": "slo_volume"
+    }
+}
