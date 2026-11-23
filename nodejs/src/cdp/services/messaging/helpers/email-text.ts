@@ -8,13 +8,10 @@ const SKIPPED_SELECTORS = [
     'noscript',
     'template',
     '[hidden]',
+    // The two spellings email builders write. Selectors match style text literally, so rarer spacing is not covered.
     '[style*="display:none" i]',
+    '[style*="display: none" i]',
 ]
-
-// Selectors match style text literally, so spacing in "display : none" is removed inside tags before matching.
-const TAG = /<[a-z][^>]*>/gi
-const STYLE_ATTRIBUTE = /\bstyle\s*=\s*("[^"]*"|'[^']*')/gi
-const HIDING_DISPLAY = /display\s*:\s*none/gi
 
 // Bounds the work per send. Longer html goes out without a text part, as html-only emails always did.
 const MAX_HTML_CHARACTERS = 1 << 20
@@ -22,9 +19,21 @@ const MAX_HTML_CHARACTERS = 1 << 20
 const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
 
 const VISIBLE_CHARACTER = /[^\s\p{Cf}\p{M}]/u
-const ZERO_WIDTH_SPACE = /\u200b/g
-// An item whose content starts with a block leaves its marker on a line of its own.
-const LONE_LIST_MARKER = /^-\n+/gm
+// Soft hyphens, zero-width spaces, word joiners and byte order marks can sit inside a code like 482&shy;913
+// without showing, so a code copied from the text part would differ from the one the html shows.
+const INVISIBLE_SEPARATORS = /[\u00ad\u200b\u2060\ufeff]/g
+
+const BLOCK_TAGS = new Set([
+    'p',
+    'div',
+    'table',
+    'blockquote',
+    'pre',
+    'center',
+    'section',
+    ...['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+])
+const LIST_TAGS = new Set(['ul', 'ol'])
 
 const SCRIPT_URL = /^javascript:/i
 
@@ -38,11 +47,12 @@ const hasReadableContent = (node: DomNode): boolean =>
         ? VISIBLE_CHARACTER.test(node.data ?? '')
         : node.name === 'img'
           ? Boolean(node.attribs?.alt?.trim())
-          : (node.children ?? []).some(hasReadableContent)
+          : (node.name === 'a' && Boolean(linkTarget(node.attribs?.href ?? ''))) ||
+            (node.children ?? []).some(hasReadableContent)
 
 const toText = compile({
     wordwrap: false,
-    // Zero-width spaces split codes such as 482&#8203;913; they are dropped below instead of becoming spaces.
+    // Leaves out the zero-width space, which the library treats as whitespace, so it is dropped below instead.
     whitespaceCharacters: ' \t\r\n\f',
     // By default only the first <body> is rendered, which drops content a sender put after </body>.
     baseElements: { selectors: [], returnDomByDefault: true },
@@ -68,12 +78,23 @@ const toText = compile({
     ],
     formatters: {
         listItem: (elem, walk, builder) => {
-            if (!hasReadableContent(elem)) {
+            const first = elem.children.find(hasReadableContent)
+            if (!first) {
                 return
             }
             builder.openBlock({ leadingLineBreaks: 1 })
-            builder.addInline('- ')
-            walk(elem.children, builder)
+            if (first.name && LIST_TAGS.has(first.name)) {
+                // An item that only holds a nested list gets no marker of its own.
+                walk(elem.children, builder)
+            } else if (first.name && BLOCK_TAGS.has(first.name)) {
+                // The marker goes before the first block's text, not on a line of its own above it.
+                builder.addInline('- ')
+                walk(first.children, builder)
+                walk(elem.children.slice(elem.children.indexOf(first) + 1), builder)
+            } else {
+                builder.addInline('- ')
+                walk(elem.children, builder)
+            }
             builder.closeBlock({ trailingLineBreaks: 1 })
         },
         altText: (elem, _walk, builder) => {
@@ -85,18 +106,13 @@ const toText = compile({
     },
 })
 
-const withPlainHidingStyles = (html: string): string =>
-    html.replace(TAG, (tag) =>
-        tag.replace(STYLE_ATTRIBUTE, (attribute) => attribute.replace(HIDING_DISPLAY, 'display:none'))
-    )
-
 export const plainTextFromHtml = (html: string): string => {
     if (html.length > MAX_HTML_CHARACTERS) {
         return ''
     }
     let text: string
     try {
-        text = toText(withPlainHidingStyles(html)).replace(ZERO_WIDTH_SPACE, '').replace(LONE_LIST_MARKER, '').trim()
+        text = toText(html).replace(INVISIBLE_SEPARATORS, '').trim()
     } catch {
         // html-to-text recurses once per element, so deeply nested html overflows the stack.
         // The email then goes out without a text part, as html-only emails always did.

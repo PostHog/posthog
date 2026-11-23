@@ -55,8 +55,8 @@ describe('plainTextFromHtml', () => {
         ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
         ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
         [
-            'hidden styles with any spacing around the colon',
-            '<div style="display : none">Old</div><div style=\'color:red;display:\tnone\'>Older</div><p>Hello</p>',
+            'hidden styles in the spellings email builders write',
+            '<div title="1 > 0" style="display: none">Old</div><div style="color:red;DISPLAY:NONE">Older</div><p>Hello</p>',
             'Hello',
         ],
         [
@@ -67,7 +67,12 @@ describe('plainTextFromHtml', () => {
         ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 20), ''],
         ['nested lists', '<ul><li>One<ul><li>Two</li></ul></li><li>Three</li></ul>', '- One\n- Two\n\n- Three'],
         ['lists nested many levels deep', '<ul><li>'.repeat(200) + 'Hi' + '</li></ul>'.repeat(200), '- Hi'],
-        ['a list item that starts with a paragraph', '<ul><li><p>Step one</p></li></ul>', 'Step one'],
+        ['a list item that starts with a paragraph', '<ul><li><p>Step one</p></li></ul>', '- Step one'],
+        [
+            'a list item that holds only a linked image',
+            '<ul><li><a href="https://example.com/reset"><img src="button.png"></a></li></ul>',
+            '- https://example.com/reset',
+        ],
         [
             'an ordered list with Roman numerals',
             '<p>Code: 1</p><ol type="I" start="4000"><li>Open</li></ol>',
@@ -75,7 +80,8 @@ describe('plainTextFromHtml', () => {
         ],
         ['a code ending in a full stop', '<p>482913.</p>', '482913.'],
         ['a code split by a zero-width space', '<p>482&#8203;913</p>', '482913'],
-        ['style text shown as content', '<pre>style="display : none"</pre>', 'style="display : none"'],
+        ['a code split by a soft hyphen', '<p>482&shy;913</p>', '482913'],
+        ['a hyphen on a line of its own', '<pre>a\n-\nb</pre>', 'a\n-\nb'],
         ['an image-only ordered list', '<ol><li><img src="banner.png"></li></ol>', ''],
         ['a link with spaces around a page anchor', '<a href=" #top ">Back</a>', 'Back'],
         ['a code shown as an image', '<p>Your code:</p><img src="code.png" alt="482913">', 'Your code:\n\n482913'],
