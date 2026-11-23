@@ -50,7 +50,7 @@ export function proposedUsageSummary(usage: ProposedUsage): string {
     const dashboards = new Set(
         usage.charts.flatMap((chart) => (chart.dashboard_id === null ? [] : [chart.dashboard_id]))
     )
-    const charts = usage.charts.length + usage.other_charts
+    const charts = new Set(usage.charts.map((chart) => chart.insight_short_id)).size + usage.other_charts
     if (dashboards.size > 0) {
         parts.push(pluralize(dashboards.size, 'dashboard'))
     }

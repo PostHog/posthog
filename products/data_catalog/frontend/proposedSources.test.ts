@@ -17,16 +17,16 @@ describe('proposedUsageSummary', () => {
     test.each([
         ['falls back to the build count without sources', NO_SOURCES, '5 people · used 30 times'],
         [
-            'counts each dashboard once and adds the charts it does not list',
+            'counts each chart and each dashboard once and adds the charts it does not list',
             {
                 ...NO_SOURCES,
                 people: 14,
-                charts: [chart('a', 7), chart('b', 7), chart('c', null)],
+                charts: [chart('a', 7), chart('a', 8), chart('a', null), chart('b', 7)],
                 other_charts: 2,
                 surfaces: [{ product: 'sql_editor', people: 2, runs: 9 }],
                 agents: { people: 6, sessions: 11, runs: 31 },
             },
-            '14 people · 1 dashboard · 5 charts · 11 agent sessions · SQL editor',
+            '14 people · 2 dashboards · 4 charts · 11 agent sessions · SQL editor',
         ],
     ])('%s', (_, usage, expected) => {
         // pluralize keeps a number and its noun together with a non-breaking space.
