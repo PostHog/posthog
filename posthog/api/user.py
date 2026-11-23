@@ -1426,13 +1426,15 @@ class UserViewSet(
                 refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    change.apply()
+                    change.apply(
+                        keep_session_key=request.session.session_key,
+                        revoke_sessions=not is_impersonated_session(request),
+                    )
             except IntegrityError:
                 # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()
                 refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()

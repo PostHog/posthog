@@ -5,14 +5,16 @@ from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer, Ema
 from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
+from posthog.session.activity import revoke_other_sessions
 
 
 @frozen
 class UserEmailChange:
     """A change of the email that an account signs in with.
 
-    The identities that signed in with the old email must not reach the account after the change,
-    so `apply` removes them with the write.
+    The identities and sessions that signed in with the old email must not reach the account after
+    the change, so `apply` removes them with the write. The next sign-in with the new email links the
+    account again.
     """
 
     user: User
@@ -26,8 +28,13 @@ class UserEmailChange:
             or EmailValidationHelper.user_exists_with_gmail_canonical(self.new_email, exclude_user_id=self.user.pk)
         )
 
-    def apply(self) -> None:
-        """Writes the new email and removes the old sign-in identities. Call it in a transaction."""
+    def apply(self, *, keep_session_key: str | None, revoke_sessions: bool = True) -> None:
+        """Writes the new email and removes the old sign-in identities and sessions. Call it in a transaction.
+
+        Pass `keep_session_key` only when the person in that session proved that they control the new
+        email. `revoke_sessions=False` is for a change made while staff impersonates the user, so that
+        support does not sign the customer out.
+        """
         old_domain = OrganizationDomain.objects.get_verified_for_email_address(self.user.email)
         self.user.email = EmailNormalizer.normalize(self.new_email)
         self.user.pending_email = None
@@ -41,17 +48,5 @@ class UserEmailChange:
                 user=self.user, identity_provider_config__organization_id=old_domain.organization_id
             ).delete()
 
-
-def remove_saml_links_keyed_by(user: User, email: str) -> None:
-    """Deletes the user's SAML links whose ID at the identity provider is this email.
-
-    For a rename by the identity provider itself. A link with an ID that is not this email is still
-    correct after the rename, so it stays. A link keyed by the old email would give the account to
-    whoever the provider gives that address to next. The next sign-in links the account again by
-    its new email.
-    """
-    links = UserSocialAuth.objects.filter(user=user, provider="saml")
-    # The stored ID is "<identity provider>:<ID from the provider>".
-    stale = [link.pk for link in links if link.uid.partition(":")[2].lower() == email.lower()]
-    if stale:
-        UserSocialAuth.objects.filter(pk__in=stale).delete()
+        if revoke_sessions:
+            revoke_other_sessions(self.user, keep_session_key)

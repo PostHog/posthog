@@ -23,7 +23,6 @@ from posthog.helpers.user_email_change import UserEmailChange
 from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
-from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_email_change_emails
 
 logger = structlog.get_logger(__name__)
@@ -174,9 +173,7 @@ class MemberEmailMigration:
                 change = UserEmailChange(user=user, new_email=new_email)
                 if change.is_taken():
                     return "Another account already uses this email"
-                change.apply()
-                # In the same transaction, so an email never changes while the old sessions stay signed in.
-                revoke_other_sessions(user, keep_session_key=None)
+                change.apply(keep_session_key=None)
                 # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin
                 # page shows the change. It commits with the change, so no change is left without history.
                 LogEntry.objects.log_actions(
