@@ -386,6 +386,10 @@ The device approval page `/device` follows the same path. A visitor without a se
 - An account created while that cookie is present gets `onboarding_skipped_reason` set to `device_login` instead of `connector`. It skips onboarding and goes to `/welcome` the same way.
 - Approving or denying the device login clears the cookie.
 
+## Recent sign-in
+
+Approving OAuth consent, approving a device login, and authorizing the legacy CLI each create a credential that outlives the browser session. They need a session that signed in or re-authenticated within `SESSION_SENSITIVE_ACTIONS_AGE` (2 hours by default), and that a risk check has not flagged for a step-up. An older session gets the same `403 sensitive_action_required_reauth` that creating a personal API key returns. The app answers it with the re-authentication modal and sends the request again after the person signs in, so they do not start over. Declining consent, and looking up or denying a device code, need no recent sign-in.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`
