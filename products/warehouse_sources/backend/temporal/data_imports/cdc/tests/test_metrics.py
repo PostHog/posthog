@@ -179,7 +179,6 @@ class TestExtractionMetricsSmoke:
         names = {update.metric.name for update in updates}
         assert "cdc_events_extracted_total" in names
         assert "cdc_slot_advance_total" in names
-        # Histograms stay per fleet: a per-source label multiplies every bucket on every pod.
         histograms = [u for u in updates if u.metric.kind == BUFFERED_METRIC_KIND_HISTOGRAM]
         assert {u.metric.name for u in histograms} == {
             "cdc_extraction_duration_seconds",
@@ -210,7 +209,6 @@ class TestExtractionMetricsSmoke:
         store = MemoryObjectStore()
         _put_buffer_file(store, streaming, seq=1, size=10, age=timedelta(hours=2))
         _put_buffer_file(store, streaming, seq=2, size=5, age=timedelta(minutes=1))
-        # Waits for its table's snapshot to land, so it is not backlog.
         _put_buffer_file(store, snapshotting, seq=1, size=100, age=timedelta(days=1))
         observed_from = int(time.time())
 
