@@ -424,6 +424,18 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             state: { ...baseInvocation.state, send: { attachments } },
         })
 
+        const withQueuedFiles: Partial<CyclotronJobInvocation> = {
+            queueParameters: {
+                type: 'email',
+                to: { email: 'test@example.com', name: 'Test User' },
+                from: { integrationId: 1 },
+                subject: 'Your invoice',
+                text: 'Attached',
+                html: '<p>Attached</p>',
+                attachments: [invoice, logo],
+            },
+        }
+
         const fileBytesOn = async (id: string): Promise<string | null> => {
             const { rows } = await db.query('SELECT file_bytes::text FROM cyclotron_jobs WHERE id = $1', [id])
             return rows[0].file_bytes
@@ -437,21 +449,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                 '1000',
             ],
             ['a send whose only file is empty', withFiles({}, [{ ...invoice, sizeBytes: 0 }]), '0'],
-            [
-                'a send whose files come with its email queue parameters',
-                {
-                    queueParameters: {
-                        type: 'email' as const,
-                        to: { email: 'test@example.com', name: 'Test User' },
-                        from: { integrationId: 1 },
-                        subject: 'Your invoice',
-                        text: 'Attached',
-                        html: '<p>Attached</p>',
-                        attachments: [invoice, logo],
-                    },
-                },
-                '1000',
-            ],
+            ['a send whose files come with its email queue parameters', withQueuedFiles, '1000'],
             ['a send without files', {}, null],
         ])('is stored on the row of %s when it is queued', async (_name, invocation, stored) => {
             const queue = await startQueue()
@@ -461,12 +459,15 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await fileBytesOn(id)).toBe(stored)
         })
 
-        it('is stored on the row of a workflow that moves to the email queue to send files', async () => {
+        it.each([
+            ['in its send state', withFiles()],
+            ['in its email queue parameters', withQueuedFiles],
+        ])('is stored on the row of a workflow that moves to the email queue with files %s', async (_name, files) => {
             const queue = await startQueue()
             const id = await enqueue(queue)
             const [claimed] = await (await consume(queue, queueName)).claimed()
 
-            await queue.queueInvocationResults([movedToEmail({ ...claimed, ...withFiles() })])
+            await queue.queueInvocationResults([movedToEmail({ ...claimed, ...files })])
 
             expect(await fileBytesOn(id)).toBe('1000')
         })
