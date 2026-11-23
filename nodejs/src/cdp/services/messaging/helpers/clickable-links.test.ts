@@ -84,6 +84,36 @@ describe('clickableHrefs', () => {
             ['https://example.com/bye'],
         ],
         [
+            'an anchor inside a script in an SVG title',
+            '<svg><title><script><a href="https://example.com/bye">Unsubscribe</a></script></title></svg>',
+            [],
+        ],
+        [
+            'an anchor inside a script in an SVG description',
+            '<svg><desc><script><a href="https://example.com/bye">Unsubscribe</a></script></desc></svg>',
+            [],
+        ],
+        [
+            'an anchor inside a script after an HTML tag breaks out of an SVG drawing',
+            '<svg><p><script><a href="https://example.com/bye">Unsubscribe</a></script></p></svg>',
+            [],
+        ],
+        [
+            'an anchor inside a script in an HTML MathML annotation-xml element',
+            '<math><annotation-xml encoding="text/html"><script><a href="https://example.com/bye">Unsubscribe</a></script></annotation-xml></math>',
+            [],
+        ],
+        [
+            'an SVG anchor nested inside an SVG foreign object',
+            '<svg><foreignObject><svg><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg></foreignObject></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor inside CDATA in an SVG style element',
+            '<svg><style><![CDATA[</style><a href="https://example.com/bye">Unsubscribe</a>]]></style></svg>',
+            [],
+        ],
+        [
             'an anchor after a self-closing style tag inside an SVG drawing',
             '<svg><style/><a href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
             ['https://example.com/bye'],
@@ -117,6 +147,26 @@ describe('clickableHrefs', () => {
             'an anchor inside a select',
             '<select><option><a href="https://example.com/bye">Unsubscribe</a></option></select>',
             [],
+        ],
+        [
+            'an anchor after an input implicitly closes a select',
+            '<select><input><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after a nested select implicitly closes a select',
+            '<select><select><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor inside a textarea that implicitly closes a select',
+            '<select><textarea><a href="https://example.com/bye">Unsubscribe</a></textarea>',
+            [],
+        ],
+        [
+            'an anchor after a closed textarea that implicitly closed a select',
+            '<select><textarea></textarea><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
         ],
         [
             'an anchor inside a script in a select',
@@ -180,6 +230,10 @@ describe('clickableHrefs', () => {
             'an SVG element with a large tag name followed by many end tags',
             '<svg><' + 'a'.repeat(750_000) + '>' + '</x>'.repeat(100_000) + '</svg>',
         ],
+        [
+            'many nested MathML text integration points followed by unmatched SVG end tags',
+            '<math><mtext>'.repeat(50_000) + '</svg>'.repeat(50_000),
+        ],
     ])('finds the anchor in linear time after %s', (_name, filler) => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
@@ -194,6 +248,24 @@ describe('preferencesTokensInBody', () => {
             `<svg></svg><div><a href="${longHref}"></div>` +
             '<div>x</div>'.repeat(20_000) +
             '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
+        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
+    })
+
+    it('extracts the preferences token without IDNA-normalizing long Unicode hostnames', () => {
+        const unicodeHost = Array.from({ length: 4_000 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join('')
+        const unicodeLinks = Array.from({ length: 160 }, (_, i) => `<a href="https://${unicodeHost}/p${i}">x</a>`).join(
+            ''
+        )
+        const specialSchemeLinks = [
+            `<a href="https:\\\\${unicodeHost}/p">x</a>`,
+            `<a href="https://\t/${unicodeHost}/p">x</a>`,
+            `<a href="https:${unicodeHost}/p">x</a>`,
+        ].join('')
+        const html =
+            unicodeLinks +
+            specialSchemeLinks +
+            '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
+        expect(html.length).toBeLessThan(BODY_MAX_LENGTH)
         expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
     })
 
