@@ -36,6 +36,7 @@ from products.data_modeling.backend.facade.api import (
     clear_legacy_sync_interval,
     delete_node,
     endpoint_link,
+    failing_model_count,
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
@@ -106,10 +107,25 @@ class NodeRunSerializer(serializers.Serializer):
     )
 
 
+class NodeRunSkippedNodeSerializer(serializers.Serializer):
+    node_id = serializers.UUIDField(help_text="The node left out of the run.")
+    name = serializers.CharField(help_text="Name of the node left out of the run.")
+    reason = serializers.CharField(
+        help_text="Why the node was left out: its query doesn't compile, or it depends on a node whose query doesn't compile."
+    )
+
+
 class NodeRunResponseSerializer(serializers.Serializer):
     node_ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="The nodes included in the dependency run.",
+    )
+    skipped = NodeRunSkippedNodeSerializer(
+        many=True,
+        help_text=(
+            "Nodes the run selected but left out, because their query doesn't compile or they depend on one that "
+            "doesn't. Their sources can't be checked against your access, so they don't run."
+        ),
     )
 
 
@@ -627,12 +643,6 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
-_LAST_RUN_FAILED = models.Q(_latest_job_status=DataModelingJob.Status.FAILED) | models.Q(
-    _latest_job_status__isnull=True, properties__system__last_run_status=DataModelingJob.Status.FAILED
-)
-_SERVING_SUSPENDED = models.Q(properties__system__suspended__has_key=DataModelingJobEngine.CLICKHOUSE)
-
-
 class NodeAttentionCountSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
@@ -839,6 +849,12 @@ class NodeViewSet(
         request=NodeRunSerializer,
         responses={
             200: NodeRunResponseSerializer,
+            400: OpenApiResponse(
+                description="The direction is missing or invalid, the node is not a view, or the node's query doesn't compile."
+            ),
+            403: OpenApiResponse(
+                description="You can't edit every view in the run, or a view in it reads a table you don't have access to."
+            ),
             409: OpenApiResponse(
                 description="The run started from the PostHog app and a view it would build is still running."
             ),
@@ -866,7 +882,7 @@ class NodeViewSet(
             )
 
         try:
-            node_ids = run_related_node_materializations(
+            run = run_related_node_materializations(
                 node.team_id,
                 node.id,
                 direction=body.validated_data["direction"],
@@ -880,7 +896,7 @@ class NodeViewSet(
             raise Conflict(str(error))
         except MaterializationRanRecentlyError as error:
             raise Throttled(wait=error.retry_after_seconds, detail=str(error))
-        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
+        return response.Response(NodeRunResponseSerializer(run).data, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
         by_param = {
@@ -961,8 +977,9 @@ class NodeViewSet(
     @action(methods=["GET"], detail=False, pagination_class=None)
     def attention_count(self, req: request.Request, *args, **kwargs) -> response.Response:
         """How many of the models the list shows have failed their last run or are suspended."""
-        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
-        count = self.get_queryset().filter(_LAST_RUN_FAILED | _SERVING_SUSPENDED).count()
+        count = failing_model_count(self.team, self.user_access_control)
+        if count is None:
+            raise PermissionDenied(_READ_DENIED)
         return response.Response(NodeAttentionCountSerializer({"count": count}).data)
 
     @extend_schema(

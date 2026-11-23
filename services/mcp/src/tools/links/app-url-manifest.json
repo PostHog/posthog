@@ -169,16 +169,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiObservabilityTag": {
-        "template": "/ai-evals/taggers/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "aiObservabilityTags": {
-        "template": "/ai-evals/taggers",
-        "params": [],
-        "scope": "project"
-    },
     "aiObservabilityTools": {
         "template": "/ai-observability/tools",
         "params": [],
@@ -597,6 +587,11 @@
     "dashboardTile": {
         "template": "/dashboard/{id}/tiles/{tileId}",
         "params": ["id", "tileId"],
+        "scope": "project"
+    },
+    "dashboardV2": {
+        "template": "/dashboard-v2",
+        "params": [],
         "scope": "project"
     },
     "dashboards": {

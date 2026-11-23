@@ -1913,7 +1913,7 @@ class TestPrinter(BaseTest):
             ("mysql", "sha1(CONVERT(%(hogql_val_0)s USING utf8mb4))"),
             ("snowflake", "sha1(%(hogql_val_0)s)"),
             ("redshift", "sha1(%(hogql_val_0)s)"),
-            ("trino", "lower(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
+            ("trino", "lower(to_hex(sha1(to_utf8(CAST('abc' AS VARCHAR)))))"),
         ]
     )
     def test_sha1_dialects(self, dialect: HogQLDialect, expected: str) -> None:
@@ -2025,6 +2025,11 @@ class TestPrinter(BaseTest):
             self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
+        self.assertEqual(
+            self._expr("groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(timestamp)), uuid), 1)"),
+            "groupArraySortedIf(2)(tuple(negate(toUnixTimestamp64Milli(toTimeZone(events.timestamp, %(hogql_val_0)s))), events.uuid), 1)",
+        )
+        self.assertEqual(self._expr("groupArraySorted(2)(event)"), "groupArraySorted(2)(events.event)")
 
     @parameterized.expand(
         [

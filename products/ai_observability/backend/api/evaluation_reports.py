@@ -53,6 +53,7 @@ SCHEDULE_RRULE_ERROR = (
     "Scheduled reports support daily or weekly cadences. Use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'."
 )
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+MAX_EMAIL_ADDRESSES = 100
 REPORT_NOT_SUPPORTED_ERROR = "Reports are not supported for this evaluation."
 AI_DATA_PROCESSING_NOT_APPROVED_ERROR = (
     "Evaluation reports need AI data processing to be approved in organization settings."
@@ -331,14 +332,27 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Delivery targets must be a list.")
         team = self.context["get_team"]()
         slack_ids_to_verify: set[int] = set()
+        email_address_count = 0
         for target in value:
             if not isinstance(target, dict):
                 raise serializers.ValidationError("Each delivery target must be an object.")
             target_type = target.get("type")
             if target_type not in ("email", "slack"):
                 raise serializers.ValidationError(f"Invalid delivery target type: {target_type}")
-            if target_type == "email" and not target.get("value"):
-                raise serializers.ValidationError("Email delivery target must include a 'value' field.")
+            if target_type == "email":
+                email_value = target.get("value")
+                addresses = (
+                    [address for address in email_value.split(",") if address.strip()]
+                    if isinstance(email_value, str)
+                    else []
+                )
+                if not addresses:
+                    raise serializers.ValidationError("Email delivery target must include at least one email address.")
+                email_address_count += len(addresses)
+                if email_address_count > MAX_EMAIL_ADDRESSES:
+                    raise serializers.ValidationError(
+                        f"Email delivery targets can include at most {MAX_EMAIL_ADDRESSES} email addresses."
+                    )
             if target_type == "slack":
                 integration_id = target.get("integration_id")
                 channel = target.get("channel")

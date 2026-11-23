@@ -383,7 +383,8 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
@@ -585,12 +586,15 @@ Claim content stores a server-generated `display_name`: a phase label for intern
 Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
 
 **Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
-The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another person's claim or a task claim requires explicit `takeover=true`.
+A person's claim, direct or through an external agent, covers all of their actors: the person, each of their agents, and tasks they started. Any of them resumes it without takeover, adds work to it, and can release it.
+On an API request the `X-PostHog-Task-Id` header is caller-supplied, so a task counts as its creator only when the creator authenticates the request, even when the task is already associated with the claim.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
 When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
+The task id header is caller-supplied, so a task counts as its creator only on requests the creator authenticates.
 A task started by anyone else is refused while a person holds the claim.
-That task can resume the person's claim and add pull requests and notes to it, but only the person can release it.
+An explicit takeover by another actor of the same person still moves the claim, for example when a person turns their agent's claim into their own.
 A takeover can name the claim it expects to replace in `takeover_claim_id`, and the server refuses it when a different claim is active.
 In the Inbox, a suggested reviewer claims a report from their own row, and the report shows who works on it under the title. Agent and task claims are not shown there, because a person still has to review the agent's work.
 Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
@@ -807,7 +811,13 @@ Both report-pipeline stages write here too, under the `pipeline:implementation` 
 
 `authority` and `tags` (with their backing GIN index) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`.
 
-`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry first hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); within its post-expiry grace the key stays taken and both `forget` and the `remember` upsert still find it. The daily `prune_expired_scratchpad_entries` janitor then hard-deletes rows whose expiry is more than `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, so lapsed entries cannot pile up forever; durable (`expires_at`-null) rows are never swept. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
+`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry first hides a row from `search_scratchpad` (`include_expired=True` is the human audit path, and an exact-key read through the scout endpoint returns an `expired` marker instead of nothing, as `scout_harness/AGENTS.md` describes); within its post-expiry grace the key stays taken and both `forget` and the `remember` upsert still find it. The daily `prune_expired_scratchpad_entries` janitor then hard-deletes rows whose expiry is more than `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, so lapsed entries cannot pile up forever; durable (`expires_at`-null) rows are never swept by it. A separate daily `expire_dangling_report_pointers` sweep sets `expires_at` (never deletes, never touches `content` or `updated_at`, and stores a revision under `system:report-pointer-sweep`) on an old durable `report:` entry whose one report id is missing from its team or `deleted`, so the janitor can then remove it; its write sits behind `SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS`, off by default. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
+
+HogQL reads the same rows as `system.scout_scratchpad`, so a scout pre-check, the SQL editor, or an agent can count and group memory without paging `scout-scratchpad-search`.
+The table has the same `signal_scout` access scope and resource-level rules as `system.scout_runs`, and returns `content` to the same audience the search tool already serves.
+Unlike the search tool, it returns expired rows; filter on `expires_at` to drop them.
+Join `created_by_run_id` to `system.scout_runs.id` for the creating scout's `skill_name`. Both it and `created_by_identity` name the creator, not the last writer.
+Private trial memory never reaches this table: a trial run's `remember` and `forget` write to `SignalScoutRun.trial_state`, so the table needs no trial predicate.
 
 ### `SignalProjectProfile`
 
@@ -1041,6 +1051,8 @@ Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.w
 `filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
 Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
 It creates no signals, calls no AI, and moves no sync cursor.
+A source config with a saved filter also returns a read-only `filter_status`, built from its `SignalSourceFilterState` rows: `failing` while a fetch failed and no later fetch succeeded, with the error, the time it failed, and the earliest window still to read again.
+It counts only results recorded for the filter saved now (each state row stores a fingerprint of the filter that produced it), on warehouse schemas that this environment owns and that are not deleted.
 
 #### `SignalTeamConfigViewSet`
 
@@ -1585,11 +1597,13 @@ The implementation path checks these gates again under the report lock before ta
 
 **Plan roll-up** (`backend/plan_rollup.py`). A `part_of` child carries the work and closes on its own pull request; the plan usually carries nothing of its own, so without the roll-up it sits in the inbox forever after the last step lands. When every live step of a plan is closed, the plan takes their verdict: resolved when at least one resolved, suppressed when they all were, untouched while any step is open. A deleted step is not a verdict and is dropped. Deleting a step also triggers the check. A plan that becomes ready checks its own steps, so completion can follow a failed attempt during research. Each plan is locked before the check reads and updates its state. The walk continues through plans that are already closed. Archiving a resolved plan is refused, for the same reason `_apply_pr_report_state` refuses it. The walk continues up a plan of plans, bounded by `MAX_PLAN_ROLLUP_LEVELS`, which tracks the `MAX_REPORT_LINK_GRAPH_LEVELS` depth `validated_report_link_write` accepts: a hierarchy the write path allows but the walk stops short of would leave its top plan open, with every step that could retrigger the walk already closed. A plan with a pending replacement is skipped like any other report, and that read, like the pull request read beside it, is pinned to the writer because a replacement written moments earlier must not read as absent. A plan a person pressed Implement on does carry its own pull request, and while that pull request is open, draft, or unknown the steps decide nothing: resolving on their verdict would hide a plan whose own work is still in flight, and archiving on it would send the dismissal receiver to close that pull request. It is hooked on `SignalReport`'s status change (`receivers.roll_up_plan_parents_when_report_closes`) rather than on the pull request webhook, so a merged pull request, a manual resolve, a bulk state change and an MCP state write all reach it. Plenty of steps close with no pull request at all. A `part_of` row written on a step that already closed runs the check too, from the link write path, because that write announces no status change of its own.
 
-**Stacked plans** (`backend/stack_plan.py`). Research can return an optional `layers` plan on `ReportPresentationOutput`: two to six layers, each with a title, a scope, and the index of an earlier layer it depends on. A forward reference falls back to the previous layer, so the order is always acyclic. When the pass settles ready, `mark_report_ready_activity` creates one ready child report per layer in the same transaction. Each child gets the scope as its summary, the plan's latest safety, actionability, priority, repository and reviewer judgments, a `part_of` link to the plan, and a `depends_on` link to its dependency. A layer is born ready without `promoted_at`, like a scout report: it runs no research, so it fires no `signal_report_started`, and the inbox ranking spine takes it in through its born-visible branch. A plan that already has children keeps them on a re-research. The plan itself is held by the `plan_parent` gate, and its settle-point auto-start then starts the layers whose dependencies already have a pull request. After that, each pull request sync on a report queues `start_dependent_stack_layers`, which starts the waiting layers. A layer whose dependency has an open or draft pull request starts on that dependency's automation branch, and the run state carries `stack_base_branch`, so the task launch protects that branch as the PR base instead of the base of the dependency's PR. A merged dependency leaves the layer on the default base. Replacing a whole stack after a lower layer is superseded, a server-side GitHub stack link, and a collapsed inbox list are not built yet.
+**Stacked plans** (`backend/stack_plan.py`). Research can return an optional `layers` plan on `ReportPresentationOutput`: two to six layers, each with a title, a scope, and the index of an earlier layer it depends on. A forward reference falls back to the previous layer, so the order is always acyclic. When the pass settles ready, `mark_report_ready_activity` creates one ready child report per layer in the same transaction. Each child gets the scope as its summary, the plan's latest safety, actionability, priority, repository and reviewer judgments, a `part_of` link to the plan, and a `depends_on` link to its dependency. A layer is born ready without `promoted_at`, like a scout report: it runs no research, so it fires no `signal_report_started`, and the inbox ranking spine takes it in through its born-visible branch. A plan that already has children keeps them on a re-research. The plan itself is held by the `plan_parent` gate, and its settle-point auto-start then starts the layers whose dependencies already have a pull request. After that, each pull request sync on a report queues `start_dependent_stack_layers`, which starts the waiting layers. A layer whose dependency has an open or draft pull request starts on that dependency's automation branch, and the run state carries `stack_base_branch`, so the task launch protects that branch as the PR base instead of the base of the dependency's PR. A merged dependency leaves the layer on the default base. Replacing a whole stack after a lower layer is superseded and a server-side GitHub stack link are not built yet.
 
 **Report detail** (`backend/report_plan.py`). The report detail response carries a `plan` field: the plan the report leads or belongs to, with each step's title, status, `suppression_source`, primary pull request, and the steps of the same plan it `depends_on`. A report with incoming `part_of` edges is a plan and lists its own steps, even when it is also a step of a larger plan. Otherwise its oldest outgoing `part_of` names the plan. Deleted steps, and dependencies on reports outside the plan, are left out. The field is null in list responses, because it costs several queries per report. The inbox renders it as a Plan block in the summary, after the Solution section, and hides the `## Plan` sentence that `_layer_summary` writes on each layer. The frontend finds that sentence by its text (`isGeneratedPlanSection`), so the two must change together.
 
 **The recurrence chain** (`backend/recurrence.py`) reads incoming `recurrence_of` edges to follow a forked report to its current live successor.
+
+**Inbox list** (`backend/report_link_summary.py`), behind the `inbox-cards-link-related-reports` organization flag. Each list row carries a `link_summary`: the one link its card strip shows, read for the whole page in a fixed number of queries. A layer shows its plan, a plan shows its own layers, and any other report shows its first outgoing link in the order `recurrence_of`, `duplicate_of`, `depends_on`, `follow_up_of`. A `follow_up_of` to the report a recurrence names folds into the recurrence. Links to deleted reports drop out, and `depends_on` links between layers of the same plan are left to the layer buttons. The plan carries a lead layer: the first layer in review, else the first waiting layer, else the last layer. The web inbox collapses the loaded layers of a plan, and the plan itself, into one card at the best rank among them. The card shows the lead layer when that layer is loaded. The list does not show the reverse direction, such as "3 reports wait on this one", because that needs an incoming-link read per row.
 
 The inbox renders both types in the work log: a `report_link` row shows its kind, reason, and a link to the other report, and an `autostart_skip` row says in plain words why nothing started and links the deciding report.
 
@@ -1687,6 +1701,38 @@ Every check fails open (metric `signals_daily_limit_check_failed_open_total`).
 No `enforced` property: every event is a real block.
 Unlike the billing gates, the ingestion and scout stages do emit (with `report_id=null`) — the limit is user-set and the volume is bounded by the team's own signal flow, and the events answer "why did nothing arrive today".
 Promotion-stage events keep the billing discipline of firing only when the signal would have promoted; both events fire independently when both limits bind.
+
+### Per-user report run limit
+
+Starting a run from a report (the inbox Implement button, a suggested prompt, `inbox-report-actions-run`, or a tasks create for a signal report) spends a per-user budget, because the run uses inference the customer does not pay for until a pull request lands.
+Two throttle pairs enforce it with one shared cache scope per window: `ReportTaskActionRunBurstThrottle` / `ReportTaskActionRunSustainedThrottle` in `backend/throttles.py` and `SignalReportTaskCreateBurstThrottle` / `SignalReportTaskCreateSustainedThrottle` in the tasks product.
+Both read the allowed number from `resolve_report_task_run_limits` in `backend/report_task_limits.py`, the tasks product through `facade/report_task_limits.py`, so the two paths cannot drift.
+
+The defaults are 20 runs an hour and 50 runs in a rolling 24 hours.
+The `signal-report-task-limits` flag raises them with no deploy. The flag stays on for everyone and its JSON payload is read for a fixed distinct id, like `signals-scout`. The payload is keyed by region, because internal flags are shared across US and EU and ids differ between them:
+
+```json
+{
+  "US": {
+    "default": { "per_hour": 20, "per_day": 50 },
+    "organizations": { "<organization id>": { "per_day": 150 } },
+    "teams": { "2": { "per_hour": 60, "per_day": 200 } },
+    "users": { "<user uuid>": { "per_day": 300 } }
+  },
+  "EU": {}
+}
+```
+
+- **Precedence:** each field resolves on its own, most specific first: user, team, organization, `default`, then the code constants. The request's team id and its parent project id are separate team layers, so a field the team entry does not set comes from the parent project's entry.
+- **The counter stays per user.** Only the allowed number changes, and it is the number for the user in the project the request is made in, so a raised project limit does not raise the same person's limit in other projects. A raised limit applies on the next request with no cache reset.
+- **Bounds:** a value is clamped to `MAX_RUNS_PER_HOUR` / `MAX_RUNS_PER_DAY`. A value that is not a positive integer is ignored and the next layer applies.
+- **Fail safe:** a missing flag, an unreadable payload, a missing region or a malformed entry falls back to the code constants, and the exception is captured.
+- **Local evaluation only.** The payload is read from the locally evaluated flag definitions on every run attempt, with no request to the flags service.
+- **Scout runs keep the defaults.** A sandbox token has its own bucket per task, and its scout's daily cap still bounds it.
+
+The 429 detail names the limit that was reached (hourly or daily) and its current value.
+When both limits are reached, the detail names the one with the longest wait, and `Retry-After` carries that wait.
+The Prometheus counter `signals_report_task_runs_throttled` (label `window`) counts refused runs.
 
 ### Self-driving free trial
 

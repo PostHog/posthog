@@ -51,9 +51,11 @@ async function getOrFetchCached<D extends keyof State, T extends keyof State>(de
         if (cached !== undefined) {
             waitUntil(
                 fetchAndCache().catch((error) => {
-                    getPostHogClient().captureException(error, undefined, {
-                        tag: 'max_ai',
-                        context: `${opts.name}_background_revalidation`,
+                    getPostHogClient().captureException(error, {
+                        properties: {
+                            tag: 'max_ai',
+                            context: `${opts.name}_background_revalidation`,
+                        },
                     })
                 })
             )
@@ -62,9 +64,11 @@ async function getOrFetchCached<D extends keyof State, T extends keyof State>(de
 
         return await fetchAndCache()
     } catch (error) {
-        getPostHogClient().captureException(error, undefined, {
-            tag: 'max_ai',
-            context: `get_or_fetch_${opts.name}`,
+        getPostHogClient().captureException(error, {
+            properties: {
+                tag: 'max_ai',
+                context: `get_or_fetch_${opts.name}`,
+            },
         })
         return undefined
     }
@@ -184,9 +188,11 @@ describe('getOrFetchCached', () => {
 
         expect(result).toBeUndefined()
         expect(fetcher).toHaveBeenCalledOnce()
-        expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), undefined, {
-            tag: 'max_ai',
-            context: 'get_or_fetch_org',
+        expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+            properties: {
+                tag: 'max_ai',
+                context: 'get_or_fetch_org',
+            },
         })
     })
 
@@ -207,9 +213,11 @@ describe('getOrFetchCached', () => {
         expect(result).toEqual({ distinct_id: 'u1' })
         await flushBackgroundTasks()
         expect(await cache.get('cachedUser:u1')).toEqual({ distinct_id: 'u1' })
-        expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), undefined, {
-            tag: 'max_ai',
-            context: 'user_background_revalidation',
+        expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+            properties: {
+                tag: 'max_ai',
+                context: 'user_background_revalidation',
+            },
         })
     })
 

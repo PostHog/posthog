@@ -8,7 +8,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { IntakeProducer, intakeModeOf } from '../intake/intake-producer'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from '../intake/intake-producer'
 import { Claim, Produced, Recalled, Run, RunIntake, carriesSecret, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
@@ -147,7 +147,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             // Read on each launch, so a team-list change in the settings reaches the next webhook.
             intake: {
                 modeOf: (teamId) => intakeModeOf(this.config)(teamId),
-                producer: new IntakeProducer(this.outputs),
+                producer: new IntakeProducer(this.outputs, undefined, undefined, intakeClusterOf(this.config)),
             },
         })
     }

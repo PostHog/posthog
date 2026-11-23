@@ -139,7 +139,7 @@ Refresh `pattern:apm:last-perf-audit` at the end of every audit, also when it fi
 Write a scratchpad entry whenever you observe something a future run should know. Encode the category in the key prefix — `pattern:` / `noise:` / `addressed:` / `dedupe:`. Domain label `apm`.
 
 - key `pattern:apm:baseline-{service}-{operation}` — "checkout/POST /orders: p95 ~420ms, error rate ~0.3%, ~1.2k req/h at this hour-of-week (2026-06-21)"
-- key `dedupe:apm:{service}:{operation}` — "Surfaced p95 regression on payments/charge (320ms→1.4s, count steady ~800/h) starting 2026-06-21 14:00 UTC. If still elevated next run, edit the report; if back under ~400ms, treat as recovered."
+- key `dedupe:apm:{service}:{operation}` — "Surfaced p95 regression on payments/charge (320ms→1.4s, count steady ~800/h) starting 2026-06-21 14:00 UTC. If still elevated next run, edit the report; if back under ~400ms, treat as recovered." Set `expires_at` about two weeks past the last elevated reading and move it on each re-confirm: by then the regression sits in the 7-days-ago comparison window, so a later one is a new episode.
 - key `noise:apm:{service}` — "frontend/GET /healthz: high-volume readiness probe, ignore; deploy-window p95 blips recover within one bucket, don't report unless sustained ≥2 buckets."
 - key `report:apm:{service}:{operation}` — the `report_id` of a report you filed for a regression on this operation (error rate, p95, traffic cliff), so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `pattern:apm:last-perf-audit` — the date and outcome of the last standing-performance audit, which gates the next one.

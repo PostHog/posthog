@@ -14,7 +14,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.amplitude.settings import (
+    AMPLITUDE_DATA_API_HOSTS,
     AMPLITUDE_ENDPOINTS,
+    AMPLITUDE_EXPERIMENT_HOSTS,
     AMPLITUDE_HOSTS,
     COMPOSITION_ENDPOINT,
     COMPOSITION_PROPERTIES,
@@ -22,11 +24,13 @@ from products.warehouse_sources.sources.amplitude.settings import (
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_EXPORT_LATENCY_HOURS,
     EVENTS_EXPORT_WINDOW_HOURS,
+    EXPERIMENT_PAGE_SIZE,
     RETENTION_ENDPOINT,
     RETENTION_RETURN_EVENT,
     RETENTION_START_EVENT,
     REVENUE_LTV_ENDPOINT,
     REVENUE_LTV_METRICS,
+    AmplitudeApi,
     AmplitudeEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -69,6 +73,13 @@ class AmplitudeRetryableError(Exception):
 # activity and re-downloads the window, rather than failing the sync outright.
 AMPLITUDE_INVALID_ARCHIVE_ERROR = "Amplitude export response was not a valid zip archive"
 
+AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR = "Amplitude Management API key is not set"
+AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR = "Amplitude rejected the Management API key"
+
+
+class AmplitudeManagementKeyError(Exception):
+    pass
+
 
 @dataclasses.dataclass(frozen=False)
 class AmplitudeResumeConfig:
@@ -78,6 +89,10 @@ class AmplitudeResumeConfig:
 
 def _host(region: str) -> str:
     return AMPLITUDE_HOSTS.get(region, AMPLITUDE_HOSTS["us"])
+
+
+def _management_headers(management_api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {management_api_key}", "Accept": "application/json"}
 
 
 def _auth_headers(api_key: str, secret_key: str) -> dict[str, str]:
@@ -142,6 +157,29 @@ def validate_credentials(api_key: str, secret_key: str, region: str) -> tuple[bo
             "Organization settings → Projects in Amplitude) and that the selected region matches your project.",
         )
     return False, f"Unexpected response from Amplitude (status {response.status_code})."
+
+
+def validate_management_api_key(management_api_key: str, region: str) -> tuple[bool, Optional[str]]:
+    url = f"{AMPLITUDE_EXPERIMENT_HOSTS.get(region, AMPLITUDE_EXPERIMENT_HOSTS['us'])}/api/1/deployments?limit=1"
+    try:
+        response = make_tracked_session(redact_values=(management_api_key,)).get(
+            url, headers=_management_headers(management_api_key), timeout=30
+        )
+    except Exception as e:
+        return (
+            False,
+            f"Could not reach Amplitude Experiment ({e}). Please check your network and selected region, then retry.",
+        )
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code in (401, 403):
+        return (
+            False,
+            "Amplitude rejected the Management API key. Create a key under Experiment → Management API in "
+            "Amplitude, and check that the selected region matches your project.",
+        )
+    return False, f"Unexpected response from Amplitude Experiment (status {response.status_code})."
 
 
 @retry_with_deadline(
@@ -286,16 +324,67 @@ def _get_list_rows(
     config: AmplitudeEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
+    host = (
+        AMPLITUDE_DATA_API_HOSTS.get(region, AMPLITUDE_DATA_API_HOSTS["us"])
+        if config.api == AmplitudeApi.DATA
+        else _host(region)
+    )
     session = make_tracked_session()
     yield from _fetch_list(
         session,
-        _host(region),
+        host,
         config.path,
         _auth_headers(api_key, secret_key),
         config.data_selector,
         config.name,
         logger,
     )
+
+
+def _get_experiment_management_rows(
+    management_api_key: Optional[str],
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
+) -> Iterator[dict[str, Any]]:
+    if not management_api_key:
+        raise AmplitudeManagementKeyError(
+            f"{AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR}: the {config.name} table reads the Experiment Management API"
+        )
+
+    host = AMPLITUDE_EXPERIMENT_HOSTS.get(region, AMPLITUDE_EXPERIMENT_HOSTS["us"])
+    headers = _management_headers(management_api_key)
+    session = make_tracked_session(redact_values=(management_api_key,))
+
+    cursor: Any = None
+    while True:
+        params: dict[str, Any] = {**config.params, "limit": EXPERIMENT_PAGE_SIZE}
+        if cursor is not None:
+            params["cursor"] = cursor
+        url = f"{host}{config.path}?{urlencode(params)}"
+
+        response = _get(session, url, headers)
+        if response.status_code in (401, 403):
+            raise AmplitudeManagementKeyError(
+                f"{AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR}: status={response.status_code}"
+            )
+        if not response.ok:
+            logger.error(f"Amplitude {config.name} error: status={response.status_code}, body={response.text[:500]}")
+            response.raise_for_status()
+
+        body = response.json()
+        items = body.get(config.data_selector) if isinstance(body, dict) and config.data_selector else None
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                yield {k: v for k, v in item.items() if k not in config.excluded_fields}
+        resumable_source_manager.safe_point()
+
+        next_cursor = body.get("nextCursor") if isinstance(body, dict) else None
+        # Stop on a repeated cursor too, so a server that echoes it back cannot loop forever.
+        if next_cursor is None or next_cursor == "" or next_cursor == cursor:
+            return
+        cursor = next_cursor
 
 
 def _get_fanout_rows(
@@ -517,6 +606,7 @@ def _get_rows(
     api_key: str,
     secret_key: str,
     region: str,
+    management_api_key: Optional[str],
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
@@ -540,6 +630,8 @@ def _get_rows(
         yield from _get_composition_rows(api_key, secret_key, region, config, logger, resumable_source_manager)
     elif endpoint == REVENUE_LTV_ENDPOINT:
         yield from _get_revenue_ltv_rows(api_key, secret_key, region, config, logger, resumable_source_manager)
+    elif config.requires_management_api_key:
+        yield from _get_experiment_management_rows(management_api_key, region, config, logger, resumable_source_manager)
     elif config.fanout is not None:
         yield from _get_fanout_rows(api_key, secret_key, region, config, logger)
     else:
@@ -555,6 +647,7 @@ def amplitude_source(
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    management_api_key: Optional[str] = None,
 ) -> SourceResponse:
     config = AMPLITUDE_ENDPOINTS[endpoint]
 
@@ -564,6 +657,7 @@ def amplitude_source(
             api_key=api_key,
             secret_key=secret_key,
             region=region,
+            management_api_key=management_api_key,
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,

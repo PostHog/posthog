@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models import Q, QuerySet
 
 import django_filters
@@ -6,9 +8,10 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.pagination import BoundedLimitOffsetPagination
+from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import is_service_auth
 
@@ -82,9 +85,17 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DataModelingJobPagination(BoundedLimitOffsetPagination):
+class DataModelingJobPagination(CappedCountLimitOffsetPagination):
     default_limit = 10
     max_limit = 100
+    count_cap = 1000
+
+    def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> list[Any] | None:
+        jobs_counted = queryset.order_by()[: self.count_cap + 1].count()
+        self.set_count(min(jobs_counted, self.count_cap), is_capped=jobs_counted > self.count_cap)
+        offset = self.get_offset(request)
+        limit = self.get_limit(request) or self.default_limit
+        return super().paginate_queryset(queryset[offset : offset + limit], request, view)
 
 
 class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):

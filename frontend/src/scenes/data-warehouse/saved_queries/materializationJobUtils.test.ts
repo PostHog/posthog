@@ -1,6 +1,12 @@
 import { DataModelingJob } from '~/types'
 
-import { computeJobDuration, jobLogsWindow, latestSuccessfulSyncAt } from './materializationJobUtils'
+import {
+    computeJobDuration,
+    jobLogsWindow,
+    jobsPageCount,
+    jobsPageRowRange,
+    latestSuccessfulSyncAt,
+} from './materializationJobUtils'
 
 const START = '2024-01-10T10:00:00Z'
 const START_PLUS_90S = '2024-01-10T10:01:30Z'
@@ -22,6 +28,42 @@ function makeJob(overrides: Partial<DataModelingJob>): DataModelingJob {
 }
 
 describe('materializationJobUtils', () => {
+    test.each([
+        ['an exact count', { count: 25 }, 3, 5, { firstRow: 21, lastRow: 25, countLabel: '25' }],
+        [
+            'an exact count below the rows on the page',
+            { count: 3 },
+            1,
+            10,
+            { firstRow: 1, lastRow: 3, countLabel: '3' },
+        ],
+        [
+            'a capped count on its first page',
+            { count: 1000, count_is_capped: true },
+            1,
+            10,
+            { firstRow: 1, lastRow: 10, countLabel: '1,000+' },
+        ],
+        [
+            'a capped count on a page after the cap',
+            { count: 1000, count_is_capped: true },
+            101,
+            10,
+            { firstRow: 1001, lastRow: 1010, countLabel: '1,000+' },
+        ],
+    ])('jobsPageRowRange for %s', (_name, page, pageNumber, rowsOnPage, expected) => {
+        expect(jobsPageRowRange(page, pageNumber, 10, rowsOnPage)).toEqual(expected)
+    })
+
+    test.each([
+        ['an exact count', { count: 45 }, 1, 3],
+        ['no rows', { count: 0 }, 1, 1],
+        ['a capped count with a next page', { count: 1000, count_is_capped: true, next: '/next' }, 50, 51],
+        ['a capped count on its last page', { count: 1000, count_is_capped: true, next: null }, 51, 51],
+    ])('jobsPageCount for %s', (_name, page, pageNumber, expected) => {
+        expect(jobsPageCount(page, pageNumber, 20)).toEqual(expected)
+    })
+
     // humanFriendlyDuration joins units with a non-breaking space
     const NINETY_SECONDS = '1m\u00a030s'
 

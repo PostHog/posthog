@@ -8,6 +8,7 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueTagRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
@@ -43,6 +44,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/severity_rules",
         ErrorTrackingSeverityRuleViewSet,
         "project_error_tracking_severity_rule",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/tag_rules",
+        ErrorTrackingIssueTagRuleViewSet,
+        "project_error_tracking_tag_rule",
         ["team_id"],
     )
     routers.projects.register(

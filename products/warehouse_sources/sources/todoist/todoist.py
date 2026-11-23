@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from requests import Response
+
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     JSONResponseCursorPaginator,
@@ -10,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTClient,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -57,6 +60,23 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
 
 
+class _HasMoreCursorPaginator(JSONResponseCursorPaginator):
+    # Some v1 endpoints flag the last page with `has_more: false` and do not promise to drop the cursor.
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        body = response.json()
+        if isinstance(body, dict) and body.get("has_more") is False:
+            self._has_next_page = False
+
+
+def _list_paginator(config: TodoistEndpointConfig) -> Any:
+    if not config.paginated:
+        return "single_page"
+    if config.stop_on_has_more:
+        return _HasMoreCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+    return _cursor_paginator()
+
+
 def _parent_id_mapper(fan_out: TodoistFanOut) -> Any:
     # `include_from_parent=["id"]` injects the parent's id as `_<parent>_id`; expose it under the
     # endpoint's parent id column (for collaborators this keeps the pre-migration row shape).
@@ -77,10 +97,6 @@ def _may_have_comments(task: dict[str, Any]) -> bool:
 
 # Parent rows that cannot produce child rows, dropped before the child request is made.
 _PARENT_FILTERS: dict[str, Any] = {"comments": _may_have_comments}
-
-
-def _format_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -118,11 +134,11 @@ def _list_source(
     resumable_source_manager: ResumableSourceManager[TodoistResumeConfig],
     incremental_since: Optional[datetime],
 ) -> SourceResponse:
-    params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    params: dict[str, Any] = {"limit": config.page_limit or PAGE_LIMIT} if config.paginated else {}
     # Only the lower bound is sent: a cursor must be reused with the exact params that issued it,
     # and an upper bound of "now" would differ between the attempt that saved it and the resume.
     if config.incremental_param and incremental_since is not None:
-        params[config.incremental_param] = _format_datetime(incremental_since)
+        params[config.incremental_param] = format_datetime(incremental_since)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -138,7 +154,8 @@ def _list_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "results",
+                    "data_selector": config.data_selector,
+                    "paginator": _list_paginator(config),
                 },
             }
         ],
@@ -267,8 +284,8 @@ def _completed_task_pages(
 
     while window_since < run_end:
         window_until = resumed_until or min(window_since + COMPLETED_TASKS_WINDOW, run_end)
-        since_value = _format_datetime(window_since)
-        until_value = _format_datetime(window_until)
+        since_value = format_datetime(window_since)
+        until_value = format_datetime(window_until)
 
         def stage(
             state: Optional[dict[str, Any]],

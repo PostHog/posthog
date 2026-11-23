@@ -13,6 +13,16 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Keep backend validation and drain retry decisions aligned with the agent's
+# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in adapters/error-classification.ts.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+    "upstream_rate_limited",
+)
+
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
@@ -38,6 +48,7 @@ MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
 # `interaction_origin` of eval harness runs; becomes the `x-posthog-mcp-consumer` value "eval".
 EVAL_INTERACTION_ORIGIN = "eval"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
+AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG = "tasks-agent-egress-enrollment"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.

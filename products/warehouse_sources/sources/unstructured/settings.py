@@ -29,6 +29,10 @@ class UnstructuredEndpointConfig:
     drop_fields: tuple[str, ...] = ()
     # Per-job endpoints: list /jobs/ first, then call `path` (with a `{job_id}` placeholder) once per job.
     fan_out_jobs: bool = False
+    # Per-connector endpoints: list `connector_list_path` first, then call `path` (with a `{connector_id}`
+    # placeholder) once per connector, stamping the connector id onto the row as `connector_id_field`.
+    connector_list_path: str | None = None
+    connector_id_field: str | None = None
     sort_mode: Literal["asc", "desc"] = "asc"
 
 
@@ -57,6 +61,21 @@ UNSTRUCTURED_ENDPOINTS: dict[str, UnstructuredEndpointConfig] = {
     ),
     # The API returns notifications newest first and accepts no sort parameter.
     "notifications": UnstructuredEndpointConfig(name="notifications", path="/api/v1/notifications", sort_mode="desc"),
+    # A template carries only a free-form `last_updated` string, so there is no stable field to partition on.
+    "templates": UnstructuredEndpointConfig(name="templates", path="/api/v1/templates/", partition_key=None),
+    # The API keeps only the latest connection check per connector, so each sync holds one row per connector.
+    "source_connection_checks": UnstructuredEndpointConfig(
+        name="source_connection_checks",
+        path="/api/v1/sources/{connector_id}/connection-check",
+        connector_list_path="/api/v1/sources/",
+        connector_id_field="source_id",
+    ),
+    "destination_connection_checks": UnstructuredEndpointConfig(
+        name="destination_connection_checks",
+        path="/api/v1/destinations/{connector_id}/connection-check",
+        connector_list_path="/api/v1/destinations/",
+        connector_id_field="destination_id",
+    ),
 }
 
 ENDPOINTS = tuple(UNSTRUCTURED_ENDPOINTS.keys())

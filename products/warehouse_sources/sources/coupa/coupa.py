@@ -1,6 +1,5 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -12,6 +11,7 @@ from products.warehouse_sources.sources.coupa.settings import COUPA_ENDPOINTS, P
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -94,15 +94,6 @@ def _mint_token(
     return response.json()["access_token"]
 
 
-def _format_timestamp(value: Any) -> str:
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
-
-
 def _normalize_keys(row: dict[str, Any]) -> dict[str, Any]:
     # Coupa serializes keys with hyphens in some responses (e.g. updated-at);
     # normalize the top level so the updated_at cursor is always present.
@@ -164,7 +155,7 @@ def get_rows(
 
     params: dict[str, Any] = {"limit": PAGE_SIZE}
     if should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["updated_at[gt]"] = _format_timestamp(db_incremental_field_last_value)
+        params["updated_at[gt]"] = format_datetime(db_incremental_field_last_value)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume_config.next_offset if resume_config is not None else 0

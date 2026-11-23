@@ -6,7 +6,6 @@ from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError, close_old_connections, transaction
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -24,7 +23,6 @@ from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.exceptions import CatalogConflict
 from products.data_catalog.backend.logic.relationships import accept_proposal, propose_relationship, reject_proposal
 from products.data_catalog.backend.models import RelationshipProposal
-from products.data_catalog.backend.presentation.serializers import RelationshipProposalSerializer
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 # events and persons always exist in the HogQL database, so propose-time existence checks pass.
@@ -236,19 +234,6 @@ class TestRelationshipConcurrency(NonAtomicBaseTest):
         assert DataWarehouseJoin.objects.filter(team_id=self.team.id, field_name=_JOIN["field_name"]).count() == 1
 
 
-class TestRelationshipProposalSerializer(SimpleTestCase):
-    @parameterized.expand([(0.0,), (1.0,)])
-    def test_confidence_boundaries_are_valid(self, confidence: float) -> None:
-        serializer = RelationshipProposalSerializer(data={**_JOIN, "confidence": confidence})
-        assert serializer.is_valid(), serializer.errors
-
-    @parameterized.expand([(-0.01,), (1.01,)])
-    def test_confidence_outside_range_is_invalid(self, confidence: float) -> None:
-        serializer = RelationshipProposalSerializer(data={**_JOIN, "confidence": confidence})
-        assert not serializer.is_valid()
-        assert "confidence" in serializer.errors
-
-
 class TestRelationshipAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -307,10 +292,6 @@ class TestRelationshipAPI(APIBaseTest):
         assert body["code"] == "catalog_conflict"
         assert "already exists" in body["detail"]
         assert body["extra"]["proposal_id"] == first.json()["id"]
-
-    def test_create_proposal_rejects_invalid_confidence(self) -> None:
-        response = self.client.post(self.url, {**_JOIN, "confidence": 1.01}, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_proposal_rejects_malformed_join_key(self) -> None:
         response = self.client.post(self.url, {**_JOIN, "source_table_key": "("}, format="json")

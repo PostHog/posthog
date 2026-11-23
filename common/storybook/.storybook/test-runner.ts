@@ -46,6 +46,7 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
+const IN_PAGE_WAIT_TIMEOUT_MS = 5000
 
 // Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
 // cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
@@ -624,8 +625,11 @@ async function takeSnapshotWithTheme(
             return areAllImagesLoaded
         })
         // `decoding="async"` lets a loaded image paint a frame later, so wait for its pixels.
-        await page.evaluate(() =>
-            Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+        await waitAtMost(
+            page.evaluate(() =>
+                Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+            ),
+            IN_PAGE_WAIT_TIMEOUT_MS
         )
     }
 
@@ -961,8 +965,8 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     // only close to capture time, and the screenshot races the font-display:swap repaint. Kicking
     // the loads off explicitly here means late-mounted text renders in the real fonts directly, so
     // there is no swap left to race. No-op once the fonts are cached.
-    await page
-        .evaluate(() =>
+    await waitAtMost(
+        page.evaluate(() =>
             Promise.all(
                 ['400', '500', '700', '800'].flatMap((weight) => [
                     document.fonts.load(`${weight} 16px RoundHog`),
@@ -970,8 +974,20 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
                     document.fonts.load(`${weight} 16px Inter`),
                 ])
             ).then(() => document.fonts.ready)
-        )
-        .catch(() => undefined)
+        ),
+        IN_PAGE_WAIT_TIMEOUT_MS
+    )
+}
+
+async function waitAtMost(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+        promise.catch(() => undefined),
+        new Promise<void>((resolve) => {
+            timeoutId = setTimeout(resolve, timeoutMs)
+        }),
+    ])
+    clearTimeout(timeoutId)
 }
 
 function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[], jestTimeout?: number): void {
@@ -995,6 +1011,28 @@ async function waitForInnerViewport(
     )
 }
 
+// A page can stop painting while it still answers script, and page.evaluate has no timeout. Failing here
+// lets the jest environment replace the page before the retry, instead of the attempt reaching the jest timeout.
+async function waitForTwoAnimationFrames(page: Page): Promise<void> {
+    try {
+        await page.waitForFunction(
+            () =>
+                new Promise<boolean>((resolve) =>
+                    requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+                ),
+            undefined,
+            { timeout: IN_PAGE_WAIT_TIMEOUT_MS }
+        )
+    } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'TimeoutError') {
+            throw error
+        }
+        throw new Error(`The page painted no animation frame within ${IN_PAGE_WAIT_TIMEOUT_MS}ms.`, {
+            cause: error,
+        })
+    }
+}
+
 async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
     const currentViewport = page.viewportSize()
     if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
@@ -1012,11 +1050,11 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
         await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() => undefined)
     })
 
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
         void document.body.offsetHeight
         window.dispatchEvent(new Event('resize'))
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     })
+    await waitForTwoAnimationFrames(page)
 
     await page
         .waitForFunction(

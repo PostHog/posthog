@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Max
+from django.db.models.fields.json import KeyTransform
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.functions.prompt_jev import DECISION_FUNCTIONS, PromptJevFinder
@@ -16,7 +17,7 @@ from posthog.hogql.parser import parse_select
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.uuidt import UUIDT
 
-from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
+from ..facade.contracts import VIEW_ENGINE_ANNOTATIONS, SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -131,6 +132,19 @@ def all_saved_query_names(team_id: int, *, ids: Collection[UUID] | None = None) 
     if ids is not None:
         saved_queries = saved_queries.filter(id__in=ids)
     return {str(saved_query_id): name for saved_query_id, name in saved_queries.values_list("id", "name")}
+
+
+def hogql_referenceable_saved_query_ids(team_id: int) -> frozenset[UUID]:
+    """The saved queries every HogQL database of this team exposes by name, whatever its feature flags. One query."""
+    saved_queries = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, managed_viewset__isnull=True)
+        .exclude(deleted=True)
+        .annotate(**{name: KeyTransform(key, "query") for key, name in VIEW_ENGINE_ANNOTATIONS.items()})
+        .only("id")
+    )
+    return frozenset(
+        saved_query.id for saved_query in saved_queries if saved_query.engine.referenceable_from_clickhouse.available
+    )
 
 
 def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:

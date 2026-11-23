@@ -152,8 +152,8 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
 fn start_label_cardinality(config: &Config) -> Arc<LabelCardinality> {
     let settings = config.label_cardinality_settings();
     info!(
-        "Label cardinality detector in {:?} mode (limit {} values, share {})",
-        settings.mode, settings.value_limit, settings.min_share
+        "Label cardinality detector in {:?} mode (limit {} values, new-series share {})",
+        settings.mode, settings.value_limit, settings.min_new_share
     );
     let detector = LabelCardinality::new(settings);
     detector.spawn_pruner();

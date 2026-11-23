@@ -30,6 +30,8 @@ from posthog.credentials_service.errors import (
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
@@ -70,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SourceExtractionNotImplementedError,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -421,7 +424,7 @@ class TestJobToContinue(BaseTest):
 
         assert [continued.id for continued in jobs_to_continue] == [newer.id, older.id]
 
-    def test_the_continuing_job_counts_the_rows_of_the_job_it_continues_once(self) -> None:
+    def test_the_continuing_job_bills_the_usage_of_the_job_it_continues_once(self) -> None:
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
         )
@@ -432,12 +435,26 @@ class TestJobToContinue(BaseTest):
         job = ExternalDataJob.objects.create(
             team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
         )
+        destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, type=ExternalDataDestination.Type.SNOWFLAKE, name="snowflake"
+        )
+        ExternalDataDestinationDelivery.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            job=stopped,
+            destination=destination,
+            run_uuid="run-a1",
+            batch_index=0,
+            rows_written=500,
+            bytes_exported=2048,
+        )
 
-        cast(Any, module._carry_rows_synced).func(job, stopped)
-        cast(Any, module._carry_rows_synced).func(job, stopped)
+        cast(Any, module._carry_billable_usage).func(job, stopped)
+        cast(Any, module._carry_billable_usage).func(job, stopped)
 
         job.refresh_from_db()
         assert job.rows_synced == 500
+        billed_jobs = ExternalDataDestinationDelivery.objects.for_team(self.team.pk).values_list("job_id", flat=True)
+        assert list(billed_jobs) == [job.id]
 
 
 @pytest.mark.asyncio
@@ -887,6 +904,7 @@ async def test_http_401_is_reraised_for_activity_retry():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error_class", [RESTClientRetryableError, RetryableHTTPError])
 @pytest.mark.parametrize(
     "retry_after, expected_delay",
     [
@@ -898,14 +916,16 @@ async def test_http_401_is_reraised_for_activity_retry():
     ],
 )
 async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in(
-    retry_after: float | None, expected_delay: timedelta | None
+    error_class: type[RESTClientRetryableError | RetryableHTTPError],
+    retry_after: float | None,
+    expected_delay: timedelta | None,
 ):
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
     # be honored by type even when the source's get_retryable_errors doesn't list the message, so
     # every REST-based source gets this benign, self-recovering failure logged as a warning instead
     # of minting error-tracking noise.
-    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
+    error = error_class("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -923,7 +943,7 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         assert raised.value is error
     else:
         assert isinstance(raised.value, ApplicationError)
-        assert raised.value.type == "RESTClientRetryableError"
+        assert raised.value.type == error_class.__name__
         assert raised.value.next_retry_delay == expected_delay
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
@@ -1352,7 +1372,7 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
     with (
         _patched_activity_reaching_run(source, schema) as run_mock,
         mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted, earlier])),
-        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()) as carry,
+        mock.patch.object(module, "_carry_billable_usage", new=mock.AsyncMock()) as carry,
     ):
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
 
@@ -1387,7 +1407,7 @@ async def test_a_full_refresh_to_an_external_destination_reads_the_source_from_t
         _patched_activity_reaching_run(source, schema) as run_mock,
         mock.patch.object(module, "external_destination_ids_for", return_value=external_destination_ids),
         mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted])),
-        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()),
+        mock.patch.object(module, "_carry_billable_usage", new=mock.AsyncMock()),
     ):
         await import_data_activity_sync(_inputs_no_reset())
 

@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
 import { AccessControlLevel, OrganizationInviteType, OrganizationMemberType, PreflightStatus, UserType } from '~/types'
+import type { OrganizationType } from '~/types'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {
@@ -203,7 +204,7 @@ export interface inviteLogicMeta {
             isInviteConfirmed: boolean,
             hasExistingMemberInvite: boolean
         ) => boolean
-        availableProjects: (currentOrganization: null | import('~/types').OrganizationType) => any[]
+        availableProjects: (currentOrganization: OrganizationType | null) => any[]
         isInviting: (invitedTeamMembersInternalLoading: boolean) => boolean
         messageError: (inviteFieldError: InviteFieldError | null) => string | null
         recipientNameError: (inviteFieldError: InviteFieldError | null) => string | null

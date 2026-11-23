@@ -1005,10 +1005,9 @@ pub async fn insert_person_for_team_in_pg(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
-                created_at, properties, properties_last_updated_at,
-                properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                created_at, properties, team_id, is_user_id, is_identified, uuid, version
             )
-            VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
+            VALUES ('2023-04-05', $1, $2, NULL, true, $3, 0)
             RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
@@ -1887,9 +1886,10 @@ impl TestContext {
         Ok((key_id, raw_key))
     }
 
-    /// Creates a team with a public token, a secret token and an optional backup, plus the
-    /// PSAK mirror row for each secret, as the #63111 backfill does. Don't insert another
-    /// PSAK with the same raw token: `secure_value` is unique.
+    /// Creates a team with a public token, plus a PSAK mirror row for the secret token and
+    /// the optional backup, as the #63111 backfill left every real team: the secret values
+    /// live only as PSAK hashes, not on the team row. Don't insert another PSAK with the
+    /// same raw token: `secure_value` is unique.
     pub async fn create_team_with_secret_token(
         &self,
         public_token: Option<&str>,
@@ -1939,43 +1939,18 @@ impl TestContext {
         .await?;
         assert_eq!(res.rows_affected(), 1);
 
-        // Insert team with secret tokens
-        let mut query_str = String::from(
-            "INSERT INTO posthog_team (id, uuid, organization_id, project_id, api_token, secret_api_token"
-        );
+        let query_str = "INSERT INTO posthog_team (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)";
 
-        // Add secret_api_token_backup column if provided
-        if backup_secret_token.is_some() {
-            query_str.push_str(", secret_api_token_backup");
-        }
-
-        query_str.push_str(", name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES ($1, $2, $3::uuid, $4, $5, $6");
-
-        // Add backup token parameter placeholder if provided
-        if backup_secret_token.is_some() {
-            query_str.push_str(", $7");
-            query_str.push_str(", $8, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $9, 'USD', '30d', false)");
-        } else {
-            query_str.push_str(", $7, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $8, 'USD', '30d', false)");
-        }
-
-        let mut query = sqlx::query(&query_str)
+        let res = sqlx::query(query_str)
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
             .bind(team.id)
             .bind(&team.api_token)
-            .bind(&secret_token);
-
-        if let Some(ref backup) = backup_secret_token {
-            query = query.bind(backup);
-        }
-
-        query = query
             .bind(&team.name)
-            .bind(team.cookieless_server_hash_mode.unwrap_or(0));
-
-        let res = query.execute(&mut *conn).await?;
+            .bind(team.cookieless_server_hash_mode.unwrap_or(0))
+            .execute(&mut *conn)
+            .await?;
         assert_eq!(res.rows_affected(), 1);
 
         // Insert group type mappings
