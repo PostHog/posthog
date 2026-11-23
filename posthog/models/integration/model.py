@@ -276,7 +276,7 @@ class Integration(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     created_by_id: int | None
 
-    # A BEFORE UPDATE trigger (migration 1452) sets this from the old row. It goes up by 1 when a
+    # A BEFORE UPDATE trigger (migration 1454) sets this from the old row. It goes up by 1 when a
     # content column changes, so writes that skip save() count too. A value set in Python is ignored.
     row_version = models.BigIntegerField(default=0, db_default=0, editable=False)
 

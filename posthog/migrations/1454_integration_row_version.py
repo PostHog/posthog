@@ -35,7 +35,7 @@ DROP FUNCTION IF EXISTS posthog_integration_bump_row_version();
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1451_organization_is_ai_data_processing_locked"),
+        ("posthog", "1453_disable_activitylog_detail_gin_fastupdate"),
     ]
 
     operations = [
