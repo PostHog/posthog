@@ -1335,7 +1335,8 @@ class TestAWSIntegration:
         )
 
 
-UUID_SHAPED_EXTERNAL_ID = r"posthog-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# Matches organization IDs (UUIDT, version nibble 0) but not uuid4.
+ORGANIZATION_SHAPED_EXTERNAL_ID = r"posthog-[0-9a-f]{8}-[0-9a-f]{4}-0[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 class _ProbedSTS:
@@ -1376,10 +1377,10 @@ def _read_timeout() -> Exception:
     [
         (_access_denied(), None),
         ("allow", "allows access without a required external id"),
-        (UUID_SHAPED_EXTERNAL_ID, "allows access without a required external id"),
+        (ORGANIZATION_SHAPED_EXTERNAL_ID, "allows access without a required external id"),
         (_read_timeout(), "internal error"),
     ],
-    ids=["denied", "allowed", "uuid_shaped_wildcard", "timed_out"],
+    ids=["denied", "allowed", "organization_shaped_wildcard", "timed_out"],
 )
 def test_validate_aws_role_arn_refuses_a_role_other_organizations_could_assume(
     random_probe: Exception | str, error: str | None

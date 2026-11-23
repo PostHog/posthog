@@ -2,7 +2,6 @@
 
 import re
 import json
-import uuid
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
@@ -15,6 +14,7 @@ from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model, row_writes
@@ -199,8 +199,8 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
 
     # These two tests are required to test both that an external id is
     # required and that it's not set to wildcard.
-    # Shaped like a real organization ID, so a wildcard that matches organization IDs also lets this one through.
-    if _assume_role_is_allowed(external_sts, aws_role_arn, ExternalId=f"posthog-{uuid.uuid4()}"):
+    # Generated the way organization IDs are, so a wildcard that matches organization IDs also lets this one through.
+    if _assume_role_is_allowed(external_sts, aws_role_arn, ExternalId=f"posthog-{UUIDT()}"):
         raise common.IntegrationError(
             f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
         )
