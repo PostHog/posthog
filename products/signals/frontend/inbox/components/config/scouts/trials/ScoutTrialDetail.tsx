@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
+import { ScoutDialogs } from '../ScoutDialogs'
 import { ScoutRubricsButton } from '../ScoutRubricsButton'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import type { ScoutTrialsViewProps } from './ScoutTrialsView'
@@ -144,7 +145,12 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                         >
                             Refresh status
                         </LemonButton>
-                        {selectedConfig && <ScoutRubricsButton config={selectedConfig} />}
+                        {selectedConfig && (
+                            <>
+                                <ScoutRubricsButton config={selectedConfig} />
+                                <ScoutDialogs config={selectedConfig} />
+                            </>
+                        )}
                     </div>
                 </>
             ) : (
