@@ -32,6 +32,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
+from products.access_control.backend.models.role import Role
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.facade.api import get_team_experiments_settings
 from products.experiments.backend.facade.testing import set_team_experiments_config
@@ -1590,6 +1591,46 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("duplicates", response.json()["detail"])
+
+    def test_customer_analytics_role_default_pins_drop_empty_roles_and_reject_foreign_roles(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        own_role = Role.objects.create(name="Customer success", organization=self.organization)
+        empty_role = Role.objects.create(name="Billing", organization=self.organization)
+        foreign_role = Role.objects.create(
+            name="Customer success", organization=Organization.objects.create(name="Other")
+        )
+        pins = [{"kind": "account_field", "id": "stripe_customer_id"}]
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {
+                "customer_analytics_config": {
+                    "role_default_pinned_properties": [
+                        {"role_id": str(own_role.id), "pinned_properties": pins},
+                        {"role_id": str(empty_role.id), "pinned_properties": []},
+                    ]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            response.json()["customer_analytics_config"]["role_default_pinned_properties"],
+            [{"role_id": str(own_role.id), "pinned_properties": pins}],
+        )
+
+        rejected = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {
+                "customer_analytics_config": {
+                    "role_default_pinned_properties": [{"role_id": str(foreign_role.id), "pinned_properties": pins}]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST, rejected.json())
+        self.assertIn("Roles not found", rejected.json()["detail"])
 
     def test_project_member_cannot_change_customer_analytics_default_pins(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

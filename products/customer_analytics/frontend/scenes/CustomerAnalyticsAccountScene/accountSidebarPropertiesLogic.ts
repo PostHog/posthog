@@ -31,15 +31,13 @@ import {
     ACCOUNTS_TABLE_DATA_NODE_KEY,
 } from 'products/customer_analytics/frontend/constants'
 import * as api from 'products/customer_analytics/frontend/generated/api'
-import type {
-    AccountApi,
-    UserCustomerAnalyticsConfigApi,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { PinnedAccountPropertyApi } from '../../generated/api.schemas'
 import { accountPropertyDataLogic } from './accountPropertyDataLogic'
 import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import {
+    AccountSidebarConfig,
     accountSidebarConfigLogic,
     AvailableDefinitions,
     ResolvedPinnedAccountProperty,
@@ -82,7 +80,7 @@ export interface accountSidebarPropertiesLogicValues {
     sharedPropertyDataLoadFailed: boolean // accountPropertyDataLogic
     availableDefinitions: AvailableDefinitions | null // accountSidebarConfigLogic
     availableDefinitionsLoadFailed: boolean // accountSidebarConfigLogic
-    config: UserCustomerAnalyticsConfigApi | null // accountSidebarConfigLogic
+    config: AccountSidebarConfig | null // accountSidebarConfigLogic
     configLoadFailed: boolean // accountSidebarConfigLogic
     sidebarPinnedProperties: ResolvedPinnedAccountProperty[] // accountSidebarConfigLogic
     members: OrganizationMemberType[] | null // membersLogic
@@ -290,7 +288,7 @@ export interface accountSidebarPropertiesLogicMeta {
             propertyData: AccountSidebarPropertyData | null
         ) => AccountRelationshipMember[]
         propertiesAvailable: (
-            config: UserCustomerAnalyticsConfigApi | null,
+            config: AccountSidebarConfig | null,
             availableDefinitions: AvailableDefinitions | null,
             needsPropertyData: boolean,
             propertyData: AccountSidebarPropertyData | null,
@@ -601,7 +599,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     s.account,
                 ],
                 (
-                    config: UserCustomerAnalyticsConfigApi | null,
+                    config: AccountSidebarConfig | null,
                     definitions: AvailableDefinitions | null,
                     needsPropertyData: boolean,
                     data: AccountSidebarPropertyData | null,

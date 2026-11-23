@@ -23,7 +23,8 @@ const TEAM_URL = '/api/environments/:team_id/'
 
 interface TeamUpdateBody {
     customer_analytics_config: {
-        default_pinned_properties: PinnedAccountPropertyApi[]
+        default_pinned_properties?: PinnedAccountPropertyApi[]
+        role_default_pinned_properties?: { role_id: string; pinned_properties: PinnedAccountPropertyApi[] }[]
     }
 }
 
@@ -65,7 +66,7 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
         resumeKeaLoadersErrors()
     })
 
-    it('loads, cleans stale references, saves order, and clears defaults', async () => {
+    it('loads, cleans stale references, saves order, clears defaults, and saves one role without touching others', async () => {
         const submittedBodies: TeamUpdateBody[] = []
         useMocks({
             get: {
@@ -94,6 +95,10 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
                 default_pinned_properties: [
                     { kind: 'custom_property', id: customProperty.id },
                     { kind: 'custom_property', id: 'missing' },
+                ],
+                role_default_pinned_properties: [
+                    { role_id: 'role-other', pinned_properties: [{ kind: 'relationship', id: relationship.id }] },
+                    { role_id: 'role-csm', pinned_properties: [] },
                 ],
             },
         })
@@ -128,6 +133,22 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
 
         expect(submittedBodies[1]).toEqual({
             customer_analytics_config: { default_pinned_properties: [] },
+        })
+
+        logic.actions.setSelectedRoleId('role-csm')
+        logic.actions.openConfigurator()
+        logic.actions.setDraftPinnedPropertyKeys(['custom:custom-1'])
+        await expectLogic(logic, () => logic.actions.saveDefaultPinnedProperties())
+            .toDispatchActions(['saveDefaultPinnedPropertiesSuccess'])
+            .toFinishAllListeners()
+
+        expect(submittedBodies[2]).toEqual({
+            customer_analytics_config: {
+                role_default_pinned_properties: [
+                    { role_id: 'role-other', pinned_properties: [{ kind: 'relationship', id: relationship.id }] },
+                    { role_id: 'role-csm', pinned_properties: [{ kind: 'custom_property', id: customProperty.id }] },
+                ],
+            },
         })
     })
 

@@ -9,6 +9,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.property import validate_group_type_index
 
+from products.access_control.backend.facade.api import organization_role_names
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
     InvalidPinnedAccountProperties,
@@ -544,6 +545,18 @@ class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serialize
         ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
 
 
+class TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(serializers.Serializer):
+    role_id = serializers.UUIDField(help_text="Organization role whose members inherit these properties.")
+    pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        help_text="Ordered account properties shown to members of this role.",
+    )
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsRoleDefaultPinnedProperties"
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -571,6 +584,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Pass an empty list to show no properties by default."
         ),
     )
+    role_default_pinned_properties = TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Default pinned account properties per organization role. A user who has not saved a personal "
+            "selection sees the merged defaults of every role they belong to, ordered by role name, instead "
+            "of default_pinned_properties. Replaces every role's defaults on write."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -582,6 +605,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "payment_event",
             "account_group_type_index",
             "default_pinned_properties",
+            "role_default_pinned_properties",
         ]
 
     def update(
@@ -611,3 +635,19 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
         except InvalidPinnedAccountProperties as error:
             raise serializers.ValidationError(error.errors)
         return [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties]
+
+    def validate_role_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        role_ids = [entry["role_id"] for entry in value]
+        if len(set(role_ids)) != len(role_ids):
+            raise serializers.ValidationError("Each role can appear only once.")
+        organization_id = self.instance.team.organization_id
+        known_role_ids = organization_role_names(organization_id=organization_id, role_ids=role_ids).keys()
+        if unknown_role_ids := [str(role_id) for role_id in role_ids if role_id not in known_role_ids]:
+            raise serializers.ValidationError(f"Roles not found in this organization: {', '.join(unknown_role_ids)}.")
+        return [
+            {"role_id": str(entry["role_id"]), "pinned_properties": pinned_properties}
+            for entry in value
+            if (pinned_properties := self.validate_default_pinned_properties(entry["pinned_properties"]))
+        ]
