@@ -1020,8 +1020,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "updated_at",
         "created_at",
         "id",
-        "secret_api_token",
-        "secret_api_token_backup",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],

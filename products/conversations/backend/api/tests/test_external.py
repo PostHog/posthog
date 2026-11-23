@@ -84,8 +84,6 @@ class TestExternalTicketAPI(BaseTest):
         # The #63111 backfill's mirror row authenticates the legacy token string with
         # support_ticket:read, so GET keeps working for migrated tokens.
         token = generate_random_token_secret()
-        self.team.secret_api_token = token
-        self.team.save(update_fields=["secret_api_token"])
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",

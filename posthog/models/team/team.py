@@ -340,15 +340,24 @@ class Team(UUIDTClassicModel):
     ingested_production_event_last_checked_at = models.DateTimeField(null=True, blank=True)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
-    secret_api_token = models.CharField(
-        max_length=200,
-        null=True,
-        blank=True,
+    # Replaced by ProjectSecretAPIKey (#63111). raise_on_access proves no reader is left
+    # before the columns drop (#66179); the plaintext values still in the columns are
+    # retired by a separate null-out step before the physical drop.
+    secret_api_token = deprecate_field(
+        models.CharField(
+            max_length=200,
+            null=True,
+            blank=True,
+        ),
+        raise_on_access=True,
     )
-    secret_api_token_backup = models.CharField(
-        max_length=200,
-        null=True,
-        blank=True,
+    secret_api_token_backup = deprecate_field(
+        models.CharField(
+            max_length=200,
+            null=True,
+            blank=True,
+        ),
+        raise_on_access=True,
     )
 
     # Session recording

@@ -118,12 +118,9 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_rejects_team_secret_api_token(self):
-        # The team-wide secret token is readable by any project member, so it must
-        # not unlock this bulk export without API scope checks.
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token"])
-
-        response = self._get(token=self.team.secret_api_token)
+        # A legacy team secret token with no PSAK mirror row carries no scopes, so it must
+        # not unlock this bulk export.
+        response = self._get(token=generate_random_token_secret())
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

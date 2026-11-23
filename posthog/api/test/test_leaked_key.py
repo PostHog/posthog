@@ -183,6 +183,9 @@ class TestPublicLeakedKeyReport(APIBaseTest):
             # personal-key lookup runs and misses. Guards the shape fallback against
             # false positives.
             ("legacy_shape_but_not_a_real_key", "x" * 43),
+            # The phs_ prefix triggers only the PSAK lookup. A legacy team secret token
+            # with no backfilled mirror row misses it, and nothing else looks for it.
+            ("phs_prefix_with_no_psak_row", "phs_legacy_token_with_no_mirror_row"),
         ]
     )
     def test_unrecognized_token_is_not_found(self, _name: str, token: str) -> None:
@@ -191,37 +194,14 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"found": False, "type": None})
 
-    def test_team_secret_token_is_not_auto_detected(self) -> None:
-        # Team.secret_api_token shares the "phs_" prefix with project secret API
-        # keys, but it's a different model (Team, not ProjectSecretAPIKey), so the
-        # single lookup the "phs_" prefix triggers (find_project_secret_api_key)
-        # naturally misses — it's intentionally excluded from auto-detect (see
-        # _PREFIX_TO_CANONICAL_TYPE in secret_revocation.py) since it can't be
-        # auto-rotated without a user to attribute the rotation to.
-        token = "phs_legacy_team_secret_token_for_public_endpoint_test"
-        self.team.secret_api_token = token
-        self.team.save()
-
-        response = self._post(token)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"found": False, "type": None})
-
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.secret_api_token, token)
-
-    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_team_token_with_backfilled_psak_deletes_the_row_and_notifies_admins(
-        self, _name, token_field, mock_psak_exposed, mock_ff_exposed
+        self, mock_psak_exposed, mock_ff_exposed
     ) -> None:
         # The backfilled row IS the leaked legacy credential: revocation deletes it and
         # tells the admins to rotate the still-valid team token.
         token = "phs_legacy_team_secret_token_with_migrated_row"
-        self.team.secret_api_token = "phs_some_current_primary_value" if token_field != "secret_api_token" else token
-        setattr(self.team, token_field, token)
-        self.team.save()
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
         signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
@@ -233,8 +213,6 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertTrue(
             RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
-        self.team.refresh_from_db()
-        self.assertEqual(getattr(self.team, token_field), token)
         # The widget signing secret mirrored the leaked value; it must stop verifying it.
         signing_secret.refresh_from_db()
         self.assertNotEqual(signing_secret.secret, token)
@@ -253,8 +231,6 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         # grace-window previous secret. Retirement must wipe it and the email must say
         # the grace window ended rather than that the active secret changed.
         token = "phs_legacy_team_secret_token_still_in_grace_window"
-        self.team.secret_api_token = token
-        self.team.save()
         create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
         signing_secret = SigningSecret.objects.for_team(self.team.id).create(
             team=self.team,

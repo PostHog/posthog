@@ -2062,8 +2062,6 @@ class TestAdminConsoleApiKeys(BaseTest):
         key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Admin key")
         old_secure_value = key.secure_value
         legacy_token = "phs_legacy_token_mirrored_in_console"
-        self.team.secret_api_token = legacy_token
-        self.team.save()
         mirrored, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy key", value=legacy_token)
         url = f"/admin/console/teams/{self.team.pk}/secret-api-keys/revoke/"
 

@@ -273,11 +273,14 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
     def test_update_adding_restricted_scope_is_refused_for_the_legacy_token_key(
         self, scope, mirrors_legacy_token, expected_status
     ):
-        self.team.secret_api_token = "phs_" + "l" * 40
-        self.team.save()
-        secure_value = hash_key_value(self.team.secret_api_token if mirrors_legacy_token else "phs_" + "o" * 40)
+        # Only the #63111 backfill creates keys without a creator, so created_by=None is
+        # what marks a key as the migrated legacy token.
         key = ProjectSecretAPIKey.objects.create(
-            team=self.team, label="existing key", secure_value=secure_value, scopes=["feature_flag:read"]
+            team=self.team,
+            label="existing key",
+            secure_value=hash_key_value("phs_" + "l" * 40),
+            scopes=["feature_flag:read"],
+            created_by=None if mirrors_legacy_token else self.user,
         )
 
         response = self.client.patch(

@@ -40,8 +40,8 @@ class InternalTicketAPITestCase(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["conversations_enabled", "secret_api_token"])
+        self.team.save(update_fields=["conversations_enabled"])
+        self.legacy_secret_token = generate_random_token_secret()
         self.client = APIClient()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -242,7 +242,7 @@ class TestInternalTicketAPI(InternalTicketAPITestCase):
             ),
             (
                 "legacy_secret_api_token",
-                lambda self: {"HTTP_AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+                lambda self: {"HTTP_AUTHORIZATION": f"Bearer {self.legacy_secret_token}"},
                 status.HTTP_401_UNAUTHORIZED,
             ),
             (

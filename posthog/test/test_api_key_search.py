@@ -92,18 +92,16 @@ class TestApiKeySearchTool(BaseTest):
         self.assertIn(b"PSAK Search Key", response.content)
         self.assertIn(f"/admin/posthog/projectsecretapikey/{key.id}/change/".encode(), response.content)
 
-    @parameterized.expand([("primary", "secret_api_token", False), ("backup", "secret_api_token_backup", True)])
-    def test_finds_legacy_team_secret_token(self, _name: str, token_field: str, is_backup: bool):
+    def test_finds_legacy_team_secret_token_through_its_mirror_row(self):
+        # A legacy team secret token only exists as its backfilled PSAK mirror row (#63111),
+        # so a pasted legacy value must resolve through the PSAK lookup.
         token = generate_random_token_secret()
-        setattr(self.team, token_field, token)
-        self.team.save()
+        create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
 
         response = self._search(token)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Feature flags secure API key", response.content)
-        self.assertEqual(b"(backup)" in response.content, is_backup)
-        self.assertIn(f"/admin/console/teams/{self.team.pk}/".encode(), response.content)
+        self.assertIn(b"Migrated legacy secret API key", response.content)
 
     def test_unknown_token_shows_no_results(self):
         response = self._search("not-a-real-key-at-all-1234567890")

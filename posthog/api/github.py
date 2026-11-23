@@ -3,7 +3,6 @@ from hashlib import sha256
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Q
 
 import requests
 import structlog
@@ -18,21 +17,16 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.project_secret_api_key import retire_leaked_team_secret_token
 from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_ACCESS_TOKEN,
     CANONICAL_OAUTH_REFRESH_TOKEN,
     CANONICAL_PERSONAL_API_KEY,
     CANONICAL_PROJECT_SECRET_API_KEY,
-    CANONICAL_TEAM_SECRET_TOKEN,
     revoke_leaked_secret,
 )
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Team
-from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.tasks.email import send_feature_flags_secure_api_key_exposed
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -271,25 +265,6 @@ class SecretAlert(APIView):
                 revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
                 local_found = revocation.found
                 key_kind = revocation.key_type
-
-                # A leaked team token with a backfilled PSAK row (#63111) matches above, where
-                # _revoke_project_secret_api_key also sends the rotate-your-key notice.
-                if not revocation.found:
-                    try:
-                        team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
-                        local_found = True
-                        key_kind = CANONICAL_TEAM_SECRET_TOKEN
-                        retirement = retire_leaked_team_secret_token(team.id, token)
-                        send_feature_flags_secure_api_key_exposed(
-                            team.id,
-                            mask_key_value(token),
-                            more_info,
-                            signing_secret_replaced=retirement.replaced,
-                            grace_window_ended=retirement.grace_window_ended,
-                        )
-
-                    except Team.DoesNotExist:
-                        pass
 
                 pending_events.append(
                     {

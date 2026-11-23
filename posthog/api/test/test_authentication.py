@@ -2978,16 +2978,6 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         result = authenticator.authenticate(self._request_with_header(unknown_token))
         self.assertIsNone(result)
 
-    def test_does_not_fall_back_to_team_secret_api_token(self):
-        # Set Team.secret_api_token to a legacy token; PSAK auth should ignore it.
-        legacy_token = "phs_" + "b" * 35
-        self.team.secret_api_token = legacy_token
-        self.team.save()
-
-        authenticator = ProjectSecretAPIKeyAuthentication()
-        result = authenticator.authenticate(self._request_with_header(legacy_token))
-        self.assertIsNone(result)
-
     def test_authenticate_without_token_returns_none(self):
         wsgi_request = self.factory.get("/")
         authenticator = ProjectSecretAPIKeyAuthentication()

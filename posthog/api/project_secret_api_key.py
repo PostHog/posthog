@@ -91,12 +91,6 @@ def _enforce_caller_may_grant_business_knowledge_read(request: Request, team: Te
         )
 
 
-def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
-    team = key.team
-    tokens = (team.secret_api_token, team.secret_api_token_backup)
-    return any(token and key.secure_value == hash_key_value(token) for token in tokens)
-
-
 def _enforce_gateway_bans(request: Request, team) -> None:
     """A phs_ key reaches the gateway with no user attached, so the user bans that
     other gateway credential paths enforce run here, when the scope is granted."""
@@ -201,13 +195,15 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
-        # Every project member can read the legacy secret token, so the check on the person who grants
-        # the scope does not limit who ends up holding this key.
+        # Only the #63111 backfill creates keys without a creator, so created_by marks a key
+        # migrated from the legacy secret token. Every project member could read that value
+        # while the plaintext endpoints existed, so the check on the person who grants the
+        # scope does not limit who ends up holding this key.
         restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
-        if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
+        if restricted_legacy_scopes and self.instance is not None and self.instance.created_by_id is None:
             raise serializers.ValidationError(
-                "This key is the project's legacy secret token, which every project member can read. "
-                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
+                "This key was migrated from the project's legacy secret token, which every project member "
+                f"could read. Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
             )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
@@ -274,19 +270,17 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     )
 
 
-def retire_leaked_team_secret_token(team_id: int, token: str) -> "SigningSecretRetirement":
+def retire_leaked_team_secret_token(team_id: int, token_hash: str, token_mask: str) -> "SigningSecretRetirement":
     """Record a leaked legacy token's hash and replace a widget signing secret still
-    carrying it. The hash keeps the pre-drop rerun of the #63111 backfill from minting a
-    fresh mirror row for the value. Returns what changed on the signing secret row."""
+    carrying the value. The hash keeps a rerun of the #63111 backfill from minting a
+    fresh mirror row for it. Returns what changed on the signing secret row."""
     # Lazy: conversations imports posthog.api modules at load time.
     from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
 
     # One transaction: the revoked hash and the signing secret change commit together.
     with transaction.atomic():
-        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
-            team_id=team_id, secure_value=hash_key_value(token)
-        )
-        return retire_leaked_signing_secret(team_id, token)
+        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(team_id=team_id, secure_value=token_hash)
+        return retire_leaked_signing_secret(team_id, token_hash, token_mask)
 
 
 def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:
@@ -295,24 +289,27 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
 
     A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
     is the revocation (rolling would leave a new live key the team never asked for).
-    Any other key gets the ordinary roll-and-notify.
+    Any other key gets the ordinary roll-and-notify. Only the backfill creates keys
+    without a creator, so created_by tells the two apart without reading the retired
+    plaintext token columns.
     """
-    team = project_secret_api_key.team
-    for token in (team.secret_api_token, team.secret_api_token_backup):
-        if token and project_secret_api_key.secure_value == hash_key_value(token):
-            with transaction.atomic():
-                project_secret_api_key.delete()
-                # In the same transaction: once the row is gone a retried report finds no
-                # PSAK and would never retire a signing secret still mirroring the value.
-                retirement = retire_leaked_team_secret_token(team.id, token)
-            send_feature_flags_secure_api_key_exposed(
-                team.id,
-                mask_key_value(token),
-                more_info,
-                signing_secret_replaced=retirement.replaced,
-                grace_window_ended=retirement.grace_window_ended,
-            )
-            return True
+    if project_secret_api_key.created_by_id is None:
+        team_id = project_secret_api_key.team_id
+        token_hash = project_secret_api_key.secure_value
+        token_mask = project_secret_api_key.mask_value
+        with transaction.atomic():
+            project_secret_api_key.delete()
+            # In the same transaction: once the row is gone a retried report finds no
+            # PSAK and would never retire a signing secret still mirroring the value.
+            retirement = retire_leaked_team_secret_token(team_id, token_hash, token_mask)
+        send_feature_flags_secure_api_key_exposed(
+            team_id,
+            token_mask,
+            more_info,
+            signing_secret_replaced=retirement.replaced,
+            grace_window_ended=retirement.grace_window_ended,
+        )
+        return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
     return False
 

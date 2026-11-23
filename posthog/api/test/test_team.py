@@ -3876,12 +3876,6 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
 
 
 class TestSecretApiTokenVisibility(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-        self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        self.team.save()
-
     def _oauth_token(self, scope: str) -> str:
         application = OAuthApplication.objects.create(
             name="Test OAuth App",

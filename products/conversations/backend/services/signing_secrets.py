@@ -3,7 +3,7 @@ from django.db import transaction
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.utils import generate_random_token, mask_key_value
+from posthog.models.utils import generate_random_token, hash_key_value, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
 
@@ -31,16 +31,17 @@ def log_signing_secret_change(team: Team, changes: list[Change], *, user: User |
     )
 
 
-def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetirement:
+def retire_leaked_signing_secret(team_id: int, token_hash: str, token_mask: str) -> SigningSecretRetirement:
     """Replace the widget identity verification secret when it still carries a leaked
     legacy team token (#63111).
 
     Leak revocation deletes the token's PSAK mirror row, but a signing secret row holding
     the same value would keep verifying identity hashes signed with the leaked token.
     Mint a fresh secret with no grace window, so verification fails closed until an admin
-    reads the new value from Conversations settings. Returns whether the active secret
-    was replaced, and whether a rotation grace window ended because the previous secret
-    held the token.
+    reads the new value from Conversations settings. Takes the token's hash rather than
+    its plaintext, because the admin console revocation path only holds the PSAK row's
+    secure_value. Returns whether the active secret was replaced, and whether a rotation
+    grace window ended because the previous secret held the token.
     """
     with transaction.atomic():
         row = SigningSecret.objects.for_team(team_id).select_related("team").select_for_update(of=("self",)).first()
@@ -50,7 +51,7 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetir
         update_fields = []
         replaced = False
         grace_window_ended = False
-        if row.secret == token:
+        if hash_key_value(row.secret) == token_hash:
             row.secret = generate_random_token()
             row.rotated_independently = True
             update_fields += ["secret", "rotated_independently"]
@@ -59,12 +60,12 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetir
                     type="Team",
                     action="changed",
                     field="conversations_signing_secret",
-                    before=mask_key_value(token),
+                    before=token_mask,
                     after=mask_key_value(row.secret),
                 )
             )
             replaced = True
-        if row.previous_secret == token:
+        if row.previous_secret is not None and hash_key_value(row.previous_secret) == token_hash:
             # An expired previous secret is still cleared, but the email must not claim a
             # grace window ended when the widget already rejected the value.
             grace_window_ended = row.previous_secret_active
@@ -76,7 +77,7 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetir
                     type="Team",
                     action="deleted",
                     field="conversations_signing_secret_previous",
-                    before=mask_key_value(token),
+                    before=token_mask,
                     after=None,
                 )
             )

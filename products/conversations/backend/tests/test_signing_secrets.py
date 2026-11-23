@@ -5,10 +5,14 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
-from posthog.models.utils import mask_key_value
+from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
 from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
+
+def _retire(team_id: int, token: str):
+    return retire_leaked_signing_secret(team_id, hash_key_value(token), mask_key_value(token))
 
 
 class TestRetireLeakedSigningSecret(BaseTest):
@@ -25,7 +29,7 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
 
-        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
         self.assertTrue(retirement.replaced)
         self.assertFalse(retirement.grace_window_ended)
@@ -49,7 +53,7 @@ class TestRetireLeakedSigningSecret(BaseTest):
             rotated_independently=True,
         )
 
-        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
         # The active secret stays, so nothing was "replaced" for the exposure email. The
         # grace window only "ended" if the widget still accepted the previous secret;
@@ -65,7 +69,7 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_leaves_an_unrelated_row_untouched(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_unrelated")
 
-        retirement = retire_leaked_signing_secret(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
         self.assertFalse(retirement.replaced)
         self.assertFalse(retirement.grace_window_ended)

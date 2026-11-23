@@ -119,8 +119,7 @@ _REVOKERS = {
 # SECRET_API_TOKEN_PREFIX with project secret API keys and are deliberately not in
 # this map: a leaked one matches the project-secret-api-key path through its
 # backfilled PSAK mirror row (#63111), which revokes the credential and sends the
-# rotate-your-key notice. github.py keeps a notify-only fallback for column values
-# with no mirror row, until the column drops.
+# rotate-your-key notice.
 _PREFIX_TO_CANONICAL_TYPE = {
     PERSONAL_API_KEY_PREFIX: CANONICAL_PERSONAL_API_KEY,
     SECRET_API_TOKEN_PREFIX: CANONICAL_PROJECT_SECRET_API_KEY,
