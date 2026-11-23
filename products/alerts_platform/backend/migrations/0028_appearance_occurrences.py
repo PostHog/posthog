@@ -108,6 +108,7 @@ class Migration(migrations.Migration):
                 ),
                 ("registered_until", models.DateTimeField(blank=True, null=True)),
                 ("read_span", models.DurationField(blank=True, null=True)),
+                ("advanced_at", models.DateTimeField(default=django.utils.timezone.now)),
                 (
                     "team",
                     models.ForeignKey(

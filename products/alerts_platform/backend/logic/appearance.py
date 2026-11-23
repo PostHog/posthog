@@ -7,8 +7,8 @@ message that announced it.
 
 A check reads the window from where the last recorded check stopped to where the store is complete.
 The window's end is recorded with the check's groups, so each window is announced once, however
-late or often its checks run. Quiet hours hold no announcement here: the schedule runs no check
-inside them, so what appeared then is announced by the first check after them.
+late or often its checks run. A check that runs inside quiet hours, because it was late, announces
+nothing and keeps its window, so the first check after them announces what appeared.
 """
 
 from collections.abc import Sequence
@@ -60,8 +60,8 @@ from products.alerts_platform.backend.logic.platform_lifecycle import due_checks
 
 logger = structlog.get_logger(__name__)
 
-# How many occurrences a check reads before its filters run. More than this in one window are left
-# out and the overflow is marked as a lower bound. `max_instances` caps what is announced.
+# How many occurrences a check reads before its filters run. A window with more ends where the read
+# stopped, and the next check reads on from there. `max_instances` caps what is announced.
 MAX_OCCURRENCES_READ: Final = 1000
 # A group's source detail at most this large. With `MAX_INSTANCES_CEILING` groups, one check stays well
 # inside `MAX_BATCH_PAYLOAD_BYTES`, so a check is never too large to record on its own.
@@ -69,6 +69,7 @@ MAX_DETAIL_BYTES: Final = 4096
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
+_REGISTRY_STALLED: Final = "New occurrences are not being recorded for this project. PostHog has been notified."
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
@@ -108,6 +109,9 @@ def evaluate_appearance_batch(source: SourceKind, team_id: int, slot: str, cutof
     store = occurrences.store_for(source)
     try:
         reader = _Reader(store, team_id, cutoff)
+    except occurrences.RegistrarStalled as stalled:
+        logger.warning("Occurrence registry stalled", source=source.value, team_id=team_id, reason=str(stalled))
+        return _collect([_failed(source, check, _REGISTRY_STALLED, transient=True, now=cutoff) for check in checks])
     except Exception:
         logger.exception("Failed to read an occurrence store", source=source.value, team_id=team_id)
         return _collect([_failed(source, check, _UNEXPECTED_ERROR, transient=True, now=cutoff) for check in checks])
@@ -147,7 +151,7 @@ def _evaluate(
         )
     }
     admission = check.admit(list(keyed), now=now)
-    checked_until = max(reader.until, since)
+    checked_until = max(window.read_until or reader.until, since)
     outcome = PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=f"window:{checked_until.isoformat()}",

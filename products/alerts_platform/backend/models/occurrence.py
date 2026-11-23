@@ -60,6 +60,8 @@ class PlatformOccurrenceCursor(TeamScopedRootMixin, UUIDModel):
     registered_until = models.DateTimeField(null=True, blank=True)
     # The span the next read asks the feed for, shortened after a read the feed could not finish.
     read_span = models.DurationField(null=True, blank=True)
+    # When the registrar last recorded a read. A cursor that stops advancing fails its alerts' checks.
+    advanced_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "alerts_platformoccurrencecursor"
