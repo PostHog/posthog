@@ -15,7 +15,7 @@ from posthog.schema import IntervalType
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import FileSystemViewLog, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -601,6 +601,63 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("week", "2026-10-05T00:00:00+00:00"),
             ("month", "2026-09-01T00:00:00+00:00"),
         ]
+
+    @parameterized.expand(
+        [
+            ("whole_project_without_a_window", {}, False, ["checkout", "other", "signups"], (None, False)),
+            ("insights_opened_in_the_window", {"viewed_within_days": 14}, False, ["signups"], (14, False)),
+            (
+                "insights_on_dashboards_opened_in_the_window",
+                {"viewed_within_days": 30},
+                False,
+                ["checkout", "signups"],
+                (30, False),
+            ),
+            ("dashboard_filter_inside_the_scope", {"viewed_within_days": 30}, True, ["checkout"], (30, False)),
+            (
+                "whole_project_when_nothing_was_viewed_in_the_window",
+                {"viewed_within_days": 7},
+                False,
+                ["checkout", "other", "signups"],
+                (7, True),
+            ),
+        ]
+    )
+    def test_search_scopes_to_the_insights_the_user_viewed(
+        self,
+        _name: str,
+        params: dict[str, Any],
+        filter_dashboard: bool,
+        expected: list[str],
+        scope: tuple[int | None, bool],
+    ) -> None:
+        on_dashboard = Insight.objects.create(team=self.team, name="Checkout", saved=True)
+        other = Insight.objects.create(team=self.team, name="Other", saved=True)
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        DashboardTile.objects.create(dashboard=dashboard, insight=on_dashboard)
+        for series_key, insight in (("signups", self.insight), ("checkout", on_dashboard), ("other", other)):
+            self._score(_day(22), score=0.99, flag=1, series_key=series_key, insight=insight)
+        someone_else = self._create_user("someone-else@example.com")
+        for user, view_type, ref, days_ago in (
+            (self.user, "insight", self.insight.short_id, 10),
+            (self.user, "dashboard", str(dashboard.id), 20),
+            (someone_else, "insight", other.short_id, 1),
+            # The view log stores any ref and any time a member sends.
+            (self.user, "insight", other.short_id, -1),
+            (self.user, "dashboard", "²", 1),
+            (self.user, "dashboard", str(2**31), 1),
+            (self.user, "dashboard", "9" * 200, 1),
+        ):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=user, type=view_type, ref=ref, viewed_at=NOW - datetime.timedelta(days=days_ago)
+            )
+        if filter_dashboard:
+            params = {**params, "dashboard_id": dashboard.id}
+
+        body = self._get("search", date_from="2026-10-19", **params).json()
+
+        assert sorted(row["series_key"] for row in body["series"]) == expected
+        assert (body["viewed_within_days"], body["viewed_scope_empty"]) == scope
 
     @parameterized.expand(
         [
