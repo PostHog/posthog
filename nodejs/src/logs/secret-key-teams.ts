@@ -6,10 +6,10 @@ import type { Team } from '~/types'
 export const SECRET_KEY_PREFIX = 'phs_'
 export const AUTH_TYPE_HEADER = 'auth-type'
 export const AUTH_TYPE_SECRET_KEY = 'secret_key'
-export const SECRET_KEY_SCOPE = 'logs:write'
+const SECRET_KEY_SCOPE = 'logs:write'
 
 // capture-logs replaces a secret key with this digest, which has the form of `secure_value`.
-export const SECRET_KEY_DIGEST_PREFIX = 'sha256$'
+const SECRET_KEY_DIGEST_PREFIX = 'sha256$'
 
 export function isSecretKeyDigest(token: string): boolean {
     return token.startsWith(SECRET_KEY_DIGEST_PREFIX)
@@ -20,7 +20,6 @@ export function isSecretKey(token: string): boolean {
     return token.trimStart().startsWith(SECRET_KEY_PREFIX)
 }
 
-/** Resolves the digest of a project secret API key to its team. */
 export class SecretKeyTeams {
     private readonly teamIds: LazyLoader<number>
 

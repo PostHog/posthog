@@ -13,7 +13,6 @@ describe('SecretKeyTeams', () => {
         ['no team for a key with no row', null, null],
     ])('resolves %s', async (_, scopes, expected) => {
         const rows = scopes ? [{ secure_value: exampleKeyHash, team_id: 7, scopes }] : []
-        // Filters as the SQL does, so a wrong hash or a missing scope argument finds no row.
         const query = (_use: unknown, _sql: string, [hashes, scope]: [string[], string]) =>
             Promise.resolve({
                 rows: rows.filter((row) => hashes.includes(row.secure_value) && row.scopes.includes(scope)),
