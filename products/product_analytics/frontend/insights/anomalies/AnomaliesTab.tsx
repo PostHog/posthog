@@ -23,6 +23,16 @@ function SeriesCappedBanner(): JSX.Element {
     )
 }
 
+function ScopeFallbackBanner({ viewedWithinDays }: { viewedWithinDays: number }): JSX.Element {
+    return (
+        <div data-attr="anomalies-tab-scope-fallback">
+            <LemonBanner type="info">
+                {`You haven't viewed any insights or dashboards with insights in the last ${viewedWithinDays} days, so this list shows the whole project.`}
+            </LemonBanner>
+        </div>
+    )
+}
+
 export function AnomaliesTab(): JSX.Element {
     const {
         anomalies,
@@ -74,6 +84,9 @@ export function AnomaliesTab(): JSX.Element {
                 </div>
             ) : series.length === 0 ? (
                 <>
+                    {anomalies.viewed_scope_empty && anomalies.viewed_within_days != null && (
+                        <ScopeFallbackBanner viewedWithinDays={anomalies.viewed_within_days} />
+                    )}
                     {anomalies.series_capped && <SeriesCappedBanner />}
                     <AnomaliesEmptyState anomalies={anomalies} />
                 </>
@@ -83,6 +96,9 @@ export function AnomaliesTab(): JSX.Element {
                         <LemonBanner type="info">
                             {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, anomaly results are less reliable.`}
                         </LemonBanner>
+                    )}
+                    {anomalies.viewed_scope_empty && anomalies.viewed_within_days != null && (
+                        <ScopeFallbackBanner viewedWithinDays={anomalies.viewed_within_days} />
                     )}
                     {anomalies.series_capped && <SeriesCappedBanner />}
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-secondary text-sm">
