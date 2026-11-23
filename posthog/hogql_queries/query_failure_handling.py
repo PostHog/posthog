@@ -125,7 +125,7 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
             error = cls(failure.message, start=failure.start, end=failure.end, fix=failure.fix)
         except TypeError:
             return None
-    error.served_from_query_single_flight = True  # type: ignore[attr-defined]
+    vars(error)["served_from_query_single_flight"] = True
     return error
 
 
