@@ -399,7 +399,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
         changed_ids_file = self._ids_file()
         ids_file = self._ids_file(moved.id, only_turned_on.id)
 
-        self._run(
+        output = self._run(
             "--mode",
             "2",
             "--keep-writing-flag-calls-to-events",
@@ -411,6 +411,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertTrue(self._keeps_events_writes(only_turned_on))
         self.assertEqual(Path(changed_ids_file).read_text().split(), [str(moved.id)])
+        self.assertIn(f"Appended 1 changed organization id(s) to {changed_ids_file}.", output)
 
     def test_a_rollback_from_the_changed_ids_file_lowers_only_the_organizations_the_run_moved(self) -> None:
         already_on_two, moved, deleted_later = self._organizations_without_config(3)

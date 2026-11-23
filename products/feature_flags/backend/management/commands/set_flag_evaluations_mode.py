@@ -210,6 +210,7 @@ class Command(BaseCommand):
         chunk_total = math.ceil(len(organization_ids) / chunk_size)
         done_count = 0
         changed_count = 0
+        listed_count = 0
         left_above_count = 0
         experiments_needing_flag_calls_count = 0
         started_at = time.monotonic()
@@ -253,6 +254,7 @@ class Command(BaseCommand):
                         self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, configs_before_chunk)
                     raise
 
+                listed_count += len(configs_before_chunk)
                 done_count += len(chunk_ids)
                 for change in changes:
                     changed_count += change.changed
@@ -269,7 +271,7 @@ class Command(BaseCommand):
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
         if changed_ids_path is not None:
-            self.stdout.write(f"Appended {changed_count} changed organization id(s) to {changed_ids_path}.")
+            self.stdout.write(f"Appended {listed_count} changed organization id(s) to {changed_ids_path}.")
         if left_above_count:
             self.stdout.write(
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
