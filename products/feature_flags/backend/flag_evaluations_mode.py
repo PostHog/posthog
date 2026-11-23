@@ -115,8 +115,6 @@ _TEMPLATE_CHARACTERS = {
     "h": "0123456789abcdef",
     "m": "".join(str(mode) for mode in FlagEvaluationsMode.values),
     "k": "01",
-    "-": "-",
-    " ": " ",
 }
 
 
@@ -126,7 +124,7 @@ def _is_unfinished_record(text: str) -> bool:
     return (
         0 < len(text) < len(_LINE_TEMPLATE)
         and len(text) != _LINE_TEMPLATE.index(" ")
-        and all(character in _TEMPLATE_CHARACTERS[slot] for character, slot in zip(text, _LINE_TEMPLATE))
+        and all(character in _TEMPLATE_CHARACTERS.get(slot, slot) for character, slot in zip(text, _LINE_TEMPLATE))
     )
 
 
@@ -204,7 +202,7 @@ class OrganizationRestore:
     target: FlagEvaluationsConfig
     outcome: RestoreOutcome
     # The same count as on OrganizationModeChange, or None when the restore did not count it. The restore counts it only
-    # for an organization that it moves to FLAG_EVALUATIONS_ONLY, because only that move can stop events writes.
+    # for an organization that it moves to FLAG_EVALUATIONS_ONLY. A run warns about experiments only on that mode too.
     running_experiments_needing_flag_calls_in_events: int | None
 
 

@@ -28,9 +28,11 @@ from posthog.models.team import Team
 
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
+    RecordedChange,
+    parse_recorded_changes,
     restore_organizations_flag_evaluations_configs,
     set_organizations_flag_evaluations_mode,
 )
@@ -753,30 +755,56 @@ class TestSetFlagEvaluationsMode(BaseTest):
             ("keeps_a_whole_last_line", lambda last_id: f"{last_id} 0 0 1 0", True),
             ("drops_a_record_cut_short_by_a_chunk_that_never_committed", lambda last_id: f"{last_id} 0 0 1", False),
             ("drops_an_id_cut_short", lambda last_id: str(last_id)[:20], False),
-            ("refuses_a_whole_record_with_an_unknown_mode", lambda last_id: f"{last_id} 0 0 7 0", None),
-            ("refuses_content_a_run_does_not_write", lambda last_id: '{"organization": 1}', None),
         ]
     )
     def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(
-        self, _name: str, build_last_line: Any, expects_last_line_kept: bool | None
+        self, _name: str, build_last_line: Any, expects_last_line_kept: bool
     ) -> None:
         kept, last, moved = self._organizations_without_config(3)
-        changed_ids_file = self._ids_file()
-        content = f"{kept.id} 0 0 1 0\n{build_last_line(last.id)}"
-        Path(changed_ids_file).write_text(content)
-        args = ("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
+        changed_ids_file = self._file_without_final_newline(f"{kept.id} 0 0 1 0\n{build_last_line(last.id)}")
 
-        if expects_last_line_kept is None:
-            with self.assertRaisesMessage(CommandError, f"{changed_ids_file}:2:"):
-                self._run(*args)
-            self.assertEqual(Path(changed_ids_file).read_text(), content)
-            return
-        self._run(*args)
+        self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
         self.assertEqual(
             self._listed_ids(changed_ids_file),
             [str(kept.id), *([str(last.id)] if expects_last_line_kept else []), str(moved.id)],
         )
+
+    @parameterized.expand(
+        [
+            ("a_whole_record_with_an_unknown_mode", lambda last_id: f"{last_id} 0 0 7 0"),
+            ("content_a_run_does_not_write", lambda last_id: '{"organization": 1}'),
+        ]
+    )
+    def test_a_run_refuses_an_unfinished_last_line_that_a_run_could_not_write(
+        self, _name: str, build_last_line: Any
+    ) -> None:
+        kept, last, moved = self._organizations_without_config(3)
+        content = f"{kept.id} 0 0 1 0\n{build_last_line(last.id)}"
+        changed_ids_file = self._file_without_final_newline(content)
+
+        with self.assertRaisesMessage(CommandError, f"{changed_ids_file}:2:"):
+            self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
+
+        self.assertEqual(Path(changed_ids_file).read_text(), content)
+
+    def test_every_cut_short_record_reads_as_unfinished(self) -> None:
+        line = RecordedChange(
+            organization_id=self.organization.id,
+            before=FlagEvaluationsConfig(mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keeps_events_writes=True),
+            after=FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False),
+        ).to_line()
+        bare_id = str(self.organization.id)
+
+        for length in range(1, len(line)):
+            prefix = line[:length]
+            with self.subTest(prefix=prefix):
+                if prefix == bare_id:
+                    with self.assertRaises(ValueError):
+                        parse_recorded_changes(prefix)
+                else:
+                    self.assertEqual(parse_recorded_changes(prefix), ([], prefix))
+        self.assertEqual(parse_recorded_changes(line), ([RecordedChange.from_line(line)], ""))
 
     def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
         organizations = self._organizations_without_config(5)
