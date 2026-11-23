@@ -21,11 +21,8 @@ const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
-// A mark lasts an hour past the last batch that read it, which covers SNS retries, a moved partition, and a batch that
-// fails until its datastore recovers. A short window caps the keys that reloading a tracking pixel can add, and lets a
-// replay after an outage rewrite what a failed sink dropped.
+// Long enough to cover SNS retries and Kafka redeliveries, short enough that a replay after an outage records again.
 const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 60 * 60
-// A slow Redis costs a possible double count, never a stalled partition.
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
 const sesRecordedMarksUnavailableCounter = new Counter({
@@ -38,8 +35,7 @@ type BatchMarks = { skip: Set<string>; recorded: string[] }
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
 // partition. Any other error fails the batch so Kafka redelivers it once the datastore recovers, which can count
-// a half-recorded notification again. Each notification a flushed batch recorded is marked by its SNS MessageId,
-// so a later redelivery by SNS or Kafka skips it. When Redis can't answer, the batch records without the marks.
+// a half-recorded notification again.
 export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSesWebhooksConsumer'
     private kafkaConsumer: KafkaConsumerInterface
@@ -136,9 +132,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             return new Set()
         }
         const results = await this.recordedMarksPipeline('read', (pipeline) => {
-            // One command per key, because a multi-key command fails with CROSSSLOT when the keys map to different
-            // cluster slots. GETEX resets the TTL of a mark it finds, even when this batch then fails its flush, and
-            // creates no mark that is missing.
+            // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots.
             for (const id of ids) {
                 pipeline.getex(sesNotificationRecordedKey(id), 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
             }
