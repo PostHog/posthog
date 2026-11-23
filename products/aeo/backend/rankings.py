@@ -60,7 +60,7 @@ _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 # check rows are never loaded.
 _BRAND_DAYS_SQL = f"""
     WITH answered AS MATERIALIZED (
-        SELECT check_row.id, (check_row.created_at AT TIME ZONE %(timezone)s)::date AS day
+        SELECT check_row.id, check_row.cited, (check_row.created_at AT TIME ZONE %(timezone)s)::date AS day
         FROM posthog_aeo_citation_check AS check_row
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
@@ -71,14 +71,22 @@ _BRAND_DAYS_SQL = f"""
         SELECT day, count(*) AS answers FROM answered GROUP BY day
     ),
     mentioning AS (
-        SELECT ranked.domain, answered.day, count(DISTINCT answered.id) AS answers
-        FROM posthog_aeo_check_brand AS check_brand
-        JOIN answered ON answered.id = check_brand.citation_check_id
-        JOIN unnest(%(brand_ids)s::uuid[], %(brand_domains)s::text[]) AS ranked(brand_id, domain)
-            ON ranked.brand_id = check_brand.brand_id
-        WHERE check_brand.team_id = %(team_id)s AND check_brand.created_at >= %(since)s
-            AND check_brand.created_at < %(until)s AND (check_brand.mentioned OR check_brand.cited)
-        GROUP BY ranked.domain, answered.day
+        SELECT mention.domain, answered.day, count(DISTINCT answered.id) AS answers
+        FROM (
+            SELECT ranked.domain, check_brand.citation_check_id AS id
+            FROM posthog_aeo_check_brand AS check_brand
+            JOIN unnest(%(brand_ids)s::uuid[], %(brand_domains)s::text[]) AS ranked(brand_id, domain)
+                ON ranked.brand_id = check_brand.brand_id
+            WHERE check_brand.team_id = %(team_id)s AND check_brand.created_at >= %(since)s
+                AND check_brand.created_at < %(until)s AND (check_brand.mentioned OR check_brand.cited)
+            UNION ALL
+            -- The check keeps only its first cited hosts, but its cited flag saw them all, so it also
+            -- counts the target for a citation past the stored hosts.
+            SELECT %(target_domain)s::text, answered.id FROM answered
+            WHERE answered.cited AND %(target_domain)s::text IS NOT NULL
+        ) AS mention
+        JOIN answered ON answered.id = mention.id
+        GROUP BY mention.domain, answered.day
     )
     SELECT ranked.domain, days.day, days.answers, coalesce(mentioning.answers, 0)
     FROM days
@@ -338,6 +346,7 @@ def _brand_days(
                 "brand_ids": [brand_id for brand_id, _ in pairs],
                 "brand_domains": [domain for _, domain in pairs],
                 "domains": [domain for domain, _, _ in brands],
+                "target_domain": next((domain for domain, _, is_target in brands if is_target), None),
                 **named_scope_sql_params(scope),
             },
         )

@@ -1049,7 +1049,8 @@ class TestAEOPromptAPI(APIBaseTest):
             answer_text="Acme Ltd! is popular.",
             cited_urls=["https://rival.io/x"],
         )
-        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.")
+        # The engine cited the brand past the hosts the check keeps: only its cited flag knows.
+        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.", cited=True)
 
         create_own_brand(self.team, "example.com")
         rankings = self.client.get(f"{self.url}rankings/").json()
@@ -1057,7 +1058,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert rankings["competitors_confirmed"] is True
         assert [(row["domain"], row["name"], row["answers_mentioning"]) for row in rankings["brands"]] == [
             ("acme.co.uk", "Acme", 1),
-            ("example.com", "example", 0),
+            ("example.com", "example", 1),
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
