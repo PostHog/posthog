@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+_MAX_AGE_DAYS = 100 * 365
+
 
 class AccountTier(StrEnum):
     # A long-standing paying customer, unlikely to abuse us.
@@ -22,6 +24,14 @@ class AccountCutoffs:
     established_min_age_days: int = 30
     new_max_age_days: int = 14
     new_max_members: int = 2
+
+    def __post_init__(self) -> None:
+        # A bound well inside what timedelta holds, so a payload typo falls back to the defaults instead of failing
+        # the verdict.
+        if not 0 <= self.established_min_age_days <= _MAX_AGE_DAYS or not 0 <= self.new_max_age_days <= _MAX_AGE_DAYS:
+            raise ValueError(f"age cutoffs are days from 0 to {_MAX_AGE_DAYS}")
+        if self.new_max_members < 0:
+            raise ValueError("the member limit is not negative")
 
 
 @frozen

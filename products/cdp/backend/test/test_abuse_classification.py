@@ -25,7 +25,12 @@ SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "n
 NO_CALL_HOG = "print(event.properties.$ip)"
 REQUEST_CATCHER_HOG = "fetch('https://webhook.site/0000')"
 METADATA_HOG = "fetch('http://169.254.169.254/latest')"
-ESTABLISHED = {"has_active_subscription": True, "age": timedelta(days=90)}
+ESTABLISHED = {
+    "has_active_subscription": True,
+    "age": timedelta(days=90),
+    "customer_trust_scores": {"cdp_trigger_events": 7},
+    "cdp_trust_score": 7,
+}
 NEW = {"has_active_subscription": False, "age": timedelta(days=2)}
 NEVER_SYNCED = {"has_active_subscription": None, "age": timedelta(days=90)}
 PAYING_FOR_TEN_DAYS = {"has_active_subscription": True, "age": timedelta(days=10)}
@@ -320,6 +325,50 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
                 [],
             ),
+            (
+                "out_of_range_cutoffs_use_defaults",
+                PAYING_FOR_TEN_DAYS,
+                {**DEFAULT_THRESHOLDS, "established_min_age_days": 1_000_000_000},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "standard",
+                True,
+                False,
+                [],
+            ),
+            (
+                "new_cutoffs_from_payload",
+                {"has_active_subscription": False, "age": timedelta(days=20), "extra_members": 2},
+                {**DEFAULT_THRESHOLDS, "new_max_age_days": 21, "new_max_members": 3},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "new",
+                True,
+                False,
+                [],
+            ),
+            (
+                "established_alerts_at_the_configured_block_threshold",
+                ESTABLISHED,
+                {"alert_threshold": 0.5, "block_threshold": 0.75},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "established",
+                True,
+                True,
+                [],
+            ),
+            (
+                "unreadable_trust_scores_still_score",
+                {**NEW, "customer_trust_scores": ["unexpected"]},
+                None,
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "new",
+                True,
+                False,
+                [],
+            ),
         ]
     )
     def test_the_account_tier_decides_whether_a_moderate_model_score_alerts(
@@ -337,6 +386,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         Organization.objects.filter(pk=self.organization.pk).update(
             has_active_subscription=account["has_active_subscription"],
             created_at=self.organization.created_at - account["age"],
+            customer_trust_scores=account.get("customer_trust_scores", {}),
         )
         for member in range(account.get("extra_members", 0)):
             self._create_user(f"member-{member}@example.com")
@@ -353,6 +403,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 "organization_age_days",
                 "organization_member_count",
                 "has_active_subscription",
+                "cdp_trust_score",
                 "account_tier",
                 "would_alert",
                 "would_block",
@@ -362,6 +413,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "organization_age_days": account["age"].days,
             "organization_member_count": 1 + account.get("extra_members", 0),
             "has_active_subscription": account["has_active_subscription"],
+            "cdp_trust_score": account.get("cdp_trust_score"),
             "account_tier": account_tier,
             "would_alert": would_alert,
             "would_block": would_block,
@@ -539,6 +591,19 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.save()
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_an_unchanged_resave_is_scored_again_when_the_account_tier_changes(self) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(
+            has_active_subscription=True, created_at=self.organization.created_at - timedelta(days=90)
+        )
+        self.gateway.response = httpx.Response(200, json=decision_payload(LOW_CONTROL_SCORES))
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+
+        Organization.objects.filter(pk=self.organization.pk).update(has_active_subscription=False)
+        with self.committed():
+            hog_function.save()
+
+        assert [event["properties"]["would_alert"] for event in self.captured_events()] == [False, True]
 
     @parameterized.expand([("gateway_down", True), ("capture_down", False)])
     def test_a_failed_classification_is_retried_on_the_next_save(self, _name: str, gateway_down: bool) -> None:

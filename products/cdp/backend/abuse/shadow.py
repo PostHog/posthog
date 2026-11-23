@@ -192,12 +192,30 @@ def _account_cutoffs(payload: dict[str, Any], team_id: int) -> AccountCutoffs:
 
 def _account_of(team: Team) -> Account:
     organization = team.organization
+    trust_scores = organization.customer_trust_scores
     return Account(
         age=timezone.now() - organization.created_at,
         has_active_subscription=organization.has_active_subscription,
         member_count=OrganizationMembership.objects.filter(organization_id=organization.id).count(),
         # Billing keys trust scores by usage key, and CDP usage is counted as trigger events.
-        cdp_trust_score=(organization.customer_trust_scores or {}).get("cdp_trigger_events"),
+        cdp_trust_score=trust_scores.get("cdp_trigger_events") if isinstance(trust_scores, dict) else None,
+    )
+
+
+@frozen
+class _Scoring:
+    thresholds: Thresholds
+    account: Account
+    account_tier: AccountTier
+
+
+def _scoring_for(team: Team) -> _Scoring:
+    payload = _flag_payload(team)
+    account = _account_of(team)
+    return _Scoring(
+        thresholds=_thresholds(payload, team.id),
+        account=account,
+        account_tier=account.tier(_account_cutoffs(payload, team.id)),
     )
 
 
@@ -293,10 +311,12 @@ def classify_if_due(hog_function: HogFunction) -> None:
     runtime_content = _with_secret_inputs(hog_function, content)
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
-    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits, outbound_call):
+    scoring = _scoring_for(hog_function.team)
+    entry = _cache_entry(content_hash(content), rule_hits, outbound_call, scoring.account_tier)
+    if cache.get(_hash_key(str(hog_function.id))) == entry:
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits, outbound_call), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -313,24 +333,31 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
-    return _score(hog_function, content, rules.matched_rules(runtime_content), rules.has_outbound_call(runtime_content))
+    return _score(
+        hog_function,
+        content,
+        rules.matched_rules(runtime_content),
+        rules.has_outbound_call(runtime_content),
+        _scoring_for(hog_function.team),
+    )
 
 
 def _score(
-    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], outbound_call: bool
+    hog_function: HogFunction,
+    content: HogFunctionContent,
+    rule_hits: tuple[rules.Rule, ...],
+    outbound_call: bool,
+    scoring: _Scoring,
 ) -> ScoredHogFunction:
-    payload = _flag_payload(hog_function.team)
-    account = _account_of(hog_function.team)
-    account_tier = account.tier(_account_cutoffs(payload, hog_function.team_id))
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
         verdict = classify(
             content,
             team_id=hog_function.team_id,
-            thresholds=_thresholds(payload, hog_function.team_id),
+            thresholds=scoring.thresholds,
             outbound_call=outbound_call,
-            account_tier=account_tier,
+            account_tier=scoring.account_tier,
         )
     except ClassificationFailed as error:
         failure = error.reason
@@ -341,8 +368,8 @@ def _score(
         failure=failure,
         rule_hits=rule_hits,
         outbound_call=outbound_call,
-        account=account,
-        account_tier=account_tier,
+        account=scoring.account,
+        account_tier=scoring.account_tier,
     )
 
 
@@ -365,11 +392,14 @@ def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
     return secret_inputs if isinstance(secret_inputs, dict) else {}
 
 
-def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool) -> str:
+def _cache_entry(
+    public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool, account_tier: AccountTier
+) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
     Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
-    cache holds nothing more about a secret value than the event does."""
-    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}"
+    cache holds nothing more about a secret value than the event does. The tier decides whether a moderate score
+    alerts, so an account that stops paying scores again on its next save."""
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{account_tier}"
 
 
 def report(
@@ -414,7 +444,7 @@ def report(
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(
         _hash_key(str(hog_function.id)),
-        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier),
         _HASH_TTL_SECONDS,
     )
 
