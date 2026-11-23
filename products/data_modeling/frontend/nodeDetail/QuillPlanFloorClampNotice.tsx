@@ -29,7 +29,7 @@ export function QuillPlanFloorClampNotice({ id }: { id: string }): JSX.Element |
     return (
         <Item variant="outline" size="sm" tone="info" className="flex-wrap">
             <ItemContent className="min-w-0">
-                <ItemDescription>
+                <ItemDescription className="line-clamp-none">
                     {planFloorClampMessage(subject, clamp.previous_target_seconds, clamp.plan_floor_seconds)}
                 </ItemDescription>
             </ItemContent>
