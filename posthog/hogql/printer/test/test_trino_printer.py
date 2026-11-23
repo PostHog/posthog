@@ -269,9 +269,30 @@ def test_uses_trino_arbitrary_value_aggregate_for_any_variants() -> None:
     )
 
 
-def test_rejects_table_without_trino_locator() -> None:
+@pytest.mark.parametrize(
+    ("query", "feature_code"),
+    [
+        ("SELECT event FROM events", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM orders", "TRINO_TABLE_LOCATOR_MISSING"),
+        ("SELECT id FROM system.support_tickets", "TRINO_APP_DATABASE_TABLE_UNSUPPORTED"),
+        ("SELECT distinct_id FROM person_distinct_ids", "TRINO_CLICKHOUSE_ONLY_TABLE_UNSUPPORTED"),
+    ],
+)
+def test_rejects_table_without_trino_locator(query: str, feature_code: str) -> None:
+    database = Database(include_posthog_tables=True)
+    database.tables.add_child(
+        TableNode(
+            name="orders",
+            table=DataWarehouseTable(
+                name="orders",
+                url="http://example.com/orders",
+                format="Parquet",
+                fields={"id": StringDatabaseField(name="id")},
+            ),
+        )
+    )
     context = HogQLContext(
-        database=Database(include_posthog_tables=True),
+        database=database,
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
         limit_top_select=False,
@@ -280,8 +301,10 @@ def test_rejects_table_without_trino_locator() -> None:
         apply_events_retention_floor=False,
     )
 
-    with pytest.raises(QueryError, match="TRINO_TABLE_LOCATOR_MISSING"):
-        prepare_and_print_ast(parse_select("SELECT event FROM events"), context, "trino")
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert error.value.feature_code == feature_code
 
 
 def test_normalizes_prewhere_before_validation() -> None:
