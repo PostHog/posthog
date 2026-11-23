@@ -16,7 +16,7 @@ from posthog.models import Organization, Team, User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.batch_exports.backend.facade.testing import create_batch_export
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.testing import create_subscription
