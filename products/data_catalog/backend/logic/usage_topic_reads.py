@@ -29,6 +29,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
@@ -59,7 +60,34 @@ _SAVED_FILTER_FUNCTIONS = frozenset({"matchesAction", "inCohort", "notInCohort"}
 _COHORT_OPERATORS = frozenset({ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort})
 # Activity log entries that can change what a saved filter reads. A created row cannot have run before it existed.
 _CHANGE_ACTIVITIES = ("updated", "deleted")
-_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+# HogQL identifiers can start with `$`, and saved expression names can too.
+_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+# `sql_tables` adds this to the tables of a query that selects `*`, because `*` expands the saved expressions of
+# the table. `call_tables` replaces it with the tables that those expressions read.
+_ASTERISK = "*"
+# The query kinds whose reads the scan knows. Another kind, such as a marketing or revenue query, can find and read
+# warehouse tables by itself, so a query with any other kind counts as unknown.
+_TRACED_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "LifecycleQuery",
+        "StickinessQuery",
+        "PathsQuery",
+        "InsightActorsQuery",
+        "FunnelsActorsQuery",
+        "InsightVizNode",
+        "DataVisualizationNode",
+        "HogQLQuery",
+        "EventsNode",
+        "ActionsNode",
+        "GroupNode",
+        "DataWarehouseNode",
+        "FunnelsDataWarehouseNode",
+        "LifecycleDataWarehouseNode",
+    }
+)
 # A cohort can filter on other cohorts. The scan follows that many levels, and a deeper cohort counts as unknown.
 _COHORT_DEPTH = 5
 
@@ -185,13 +213,16 @@ class ReadSources:
 
     ``field_tables`` maps the name of each warehouse join and saved expression field to the tables that the
     field reads, or to None when the scan cannot tell. ``fields_changed_at`` holds the last change or delete of
-    any of those fields."""
+    any of those fields. ``table_expressions`` holds the saved expression fields of each table, which `*` expands.
+    ``view_changes`` holds the last change of each saved view or of a view that it reads."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
     saved_filters: SavedFilters = NO_SAVED_FILTERS
     field_tables: Mapping[str, frozenset[str] | None] | None = None
     fields_changed_at: datetime | None = None
+    table_expressions: Mapping[str, frozenset[str]] | None = None
+    view_changes: Mapping[str, datetime] | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
@@ -201,6 +232,8 @@ class ReadSources:
             saved_filters=self.saved_filters.as_of(at),
             field_tables=self.field_tables,
             fields_changed_at=self.fields_changed_at,
+            table_expressions=self.table_expressions,
+            view_changes=self.view_changes,
         )
 
     def field_reads(self, bodies: Iterable[object]) -> frozenset[str] | None:
@@ -219,6 +252,22 @@ class ReadSources:
             found |= tables
         return frozenset(found)
 
+    def asterisk_reads(self, tables: Iterable[str]) -> frozenset[str] | None:
+        """The tables that the saved expressions of ``tables`` read, because `*` expands every field of a table."""
+        found: set[str] = set()
+        for table in tables:
+            for field in (self.table_expressions or {}).get(table, frozenset()):
+                field_reads = (self.field_tables or {}).get(field)
+                if field_reads is None:
+                    return None
+                found |= field_reads
+        return frozenset(found)
+
+    def view_changed_after(self, tables: Iterable[str], at: datetime) -> bool:
+        """A reader's denial follows a view's current body, so a view that changed after the call can hide a read."""
+        changes = self.view_changes or {}
+        return any(_changed_after(changes.get(table), at) for table in tables)
+
 
 def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, SavedDefinition]:
     return {key: item for key, item in saved.items() if item.changed_at is not None and item.changed_at <= at}
@@ -227,6 +276,14 @@ def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, S
 class _SavedFilterFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.found = False
+        self.asterisk = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # Only `*` in a select list expands a table's fields. `count(*)` reads no field.
+        self.asterisk = self.asterisk or any(
+            isinstance(column, ast.Field) and column.chain[-1:] == [_ASTERISK] for column in node.select or []
+        )
+        super().visit_select_query(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         self.found = self.found or node.op in _COHORT_OPERATORS
@@ -240,14 +297,17 @@ class _SavedFilterFinder(TraversingVisitor):
 def sql_tables(sql: str) -> frozenset[str] | None:
     """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action.
 
-    The check reads the parsed query, because a comment between two keywords hides them from a text match."""
+    The check reads the parsed query, because a comment between two keywords hides them from a text match. A
+    query that selects `*` also gets the `_ASTERISK` marker."""
     finder = _SavedFilterFinder()
     try:
         finder.visit(parse_select(sql))
         named = frozenset(table_names_as_written({"query": sql}, keep_table_functions=True))
     except (BaseHogQLError, ValidationError):
         return None
-    return None if finder.found else named
+    if finder.found:
+        return None
+    return named | {_ASTERISK} if finder.asterisk else named
 
 
 def _dicts(value: object) -> Iterator[dict[str, Any]]:
@@ -311,6 +371,8 @@ def query_tables(query: object, saved_filters: SavedFilters = NO_SAVED_FILTERS) 
     tables: set[str] = set()
     for node in _dicts(query):
         kind = str(node.get("kind") or "")
+        if kind and kind not in _TRACED_KINDS:
+            return None
         if kind == "HogQLQuery":
             named = sql_tables(str(node.get("query") or ""))
             if named is None:
@@ -439,7 +501,15 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     current = sources.as_of(call.at)
     found = _direct_tables(call, current)
     fields = None if found is None else current.field_reads(_call_bodies(call, current))
-    return None if found is None or fields is None else found | fields
+    if found is None or fields is None:
+        return None
+    tables = (found | fields) - {_ASTERISK}
+    if _ASTERISK in found:
+        expanded = current.asterisk_reads(tables)
+        if expanded is None:
+            return None
+        tables |= expanded
+    return None if current.view_changed_after(tables, call.at) else tables
 
 
 def session_tables(
@@ -690,7 +760,13 @@ def saved_field_tables(
     return {field: reads(field, ()) for field in joins.keys() | expressions.keys()}
 
 
-def _load_saved_fields(team: Team) -> dict[str, frozenset[str] | None]:
+@frozen
+class _SavedFields:
+    field_tables: dict[str, frozenset[str] | None]
+    table_expressions: dict[str, frozenset[str]]
+
+
+def _load_saved_fields(team: Team) -> _SavedFields:
     # A soft-deleted join or expression can still have run before the scan, and an extra table only hides more.
     joins: dict[str, set[str]] = defaultdict(set)
     for field_name, joining_table in DataWarehouseJoin.objects.filter(team_id=team.id).values_list(
@@ -699,12 +775,64 @@ def _load_saved_fields(team: Team) -> dict[str, frozenset[str] | None]:
         if field_name and joining_table:
             joins[field_name].add(joining_table)
     expressions: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    by_table: dict[str, set[str]] = defaultdict(set)
     for table_name, field_name, expression in DataWarehouseExpression.objects.for_team(team.id).values_list(
         "table_name", "field_name", "expression"
     ):
         if field_name:
             expressions[field_name].add((table_name, expression))
-    return saved_field_tables(joins, expressions)
+            by_table[table_name].add(field_name)
+    return _SavedFields(
+        field_tables=saved_field_tables(joins, expressions),
+        table_expressions={table: frozenset(fields) for table, fields in by_table.items()},
+    )
+
+
+@frozen
+class SavedView:
+    names: frozenset[str]
+    sql: str
+    changed_at: datetime | None
+
+
+def view_changes(views: Sequence[SavedView]) -> dict[str, datetime]:
+    """The last change of each view, or of a view that it reads, keyed by every name that the view had.
+
+    A deleted view keeps its old name under ``deleted_name``, so a call before the delete still finds it."""
+    by_name = {name: view for view in views for name in view.names}
+    latest: dict[str, datetime | None] = {}
+
+    def last_change(name: str, path: tuple[str, ...]) -> datetime | None:
+        if name in latest:
+            return latest[name]
+        view = by_name.get(name)
+        if view is None or name in path:
+            return None
+        times = [view.changed_at]
+        for table in (sql_tables(view.sql) or frozenset()) & by_name.keys():
+            times.append(last_change(table, (*path, name)))
+        found = max((time for time in times if time is not None), default=None)
+        latest[name] = found
+        return found
+
+    return {name: time for name in by_name if (time := last_change(name, ())) is not None}
+
+
+def _load_view_changes(team: Team) -> dict[str, datetime]:
+    rows = DataWarehouseSavedQuery.objects.filter(team_id=team.id).values_list(
+        "name", "deleted_name", "query", "created_at", "query_updated_at", "deleted_at"
+    )
+    views = []
+    for name, deleted_name, query, created_at, query_updated_at, deleted_at in rows:
+        times = [time for time in (created_at, query_updated_at, deleted_at) if time is not None]
+        views.append(
+            SavedView(
+                names=frozenset(view_name for view_name in (name, deleted_name) if view_name),
+                sql=str(query.get("query") or "") if isinstance(query, dict) else "",
+                changed_at=max(times, default=None),
+            )
+        )
+    return view_changes(views)
 
 
 def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) -> ReadSources:
@@ -747,12 +875,15 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         *_last_changes(team, "DataWarehouseJoin", since).values(),
         *_last_changes(team, "DataWarehouseExpression", since).values(),
     ]
+    saved_fields = _load_saved_fields(team)
     return ReadSources(
         metric_definitions=definitions,
         insight_queries=queries,
         saved_filters=_load_saved_filters(team, bodies, since),
-        field_tables=_load_saved_fields(team),
+        field_tables=saved_fields.field_tables,
         fields_changed_at=max(field_changes, default=None),
+        table_expressions=saved_fields.table_expressions,
+        view_changes=_load_view_changes(team),
     )
 
 

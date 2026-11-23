@@ -20,6 +20,7 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     ReadSources,
     SavedDefinition,
     SavedFilters,
+    SavedView,
     call_tables,
     cohort_reads,
     fetch_cohorts,
@@ -28,7 +29,9 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     session_tables,
     topic_tables,
     trace_session_tables,
+    view_changes,
 )
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
@@ -70,7 +73,10 @@ _SOURCES = ReadSources(
         "stripe": frozenset({"stripe_customers"}),
         "billing_total": frozenset({"events", "billing"}),
         "broken_total": None,
+        "$billing_total": frozenset({"events", "billing"}),
     },
+    table_expressions={"events": frozenset({"billing_total"})},
+    view_changes={"revenue_view": _EDITED, "stable_view": _CALL_AT - timedelta(days=1)},
 )
 
 
@@ -130,6 +136,16 @@ class TestSessionTables(SimpleTestCase):
             ),
             ("sql_using_a_saved_expression", [_sql("SELECT billing_total FROM events")], {"events", "billing"}),
             ("sql_using_an_untraceable_saved_expression", [_sql("SELECT broken_total FROM events")], None),
+            ("sql_using_a_dollar_saved_expression", [_sql("SELECT $billing_total FROM events")], {"events", "billing"}),
+            ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
+            ("sql_counting_rows_reads_no_field", [_sql("SELECT count(*) FROM events")], {"events"}),
+            ("sql_over_a_view_edited_after_the_run", [_sql("SELECT 1 FROM revenue_view")], None),
+            ("sql_over_a_view_edited_before_the_run", [_sql("SELECT 1 FROM stable_view")], {"stable_view"}),
+            (
+                "query_kind_the_scan_does_not_trace",
+                [_call("query-marketing-recommendations", {"kind": "MarketingAnalyticsRecommendationsQuery"})],
+                None,
+            ),
             ("sql_in_a_cohort", [_sql("SELECT count() FROM events WHERE person_id IN COHORT 7")], None),
             ("sql_matching_an_action", [_sql("SELECT count() FROM events WHERE matchesAction('Signed up')")], None),
             (
@@ -413,6 +429,26 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
         }
 
 
+class TestViewChanges(SimpleTestCase):
+    def test_a_view_changes_when_it_or_a_view_that_it_reads_changes(self) -> None:
+        def at(day: int) -> datetime:
+            return datetime(2026, 10, day, tzinfo=UTC)
+
+        views = [
+            SavedView(names=frozenset({"base"}), sql="SELECT 1 FROM billing", changed_at=at(9)),
+            SavedView(names=frozenset({"top"}), sql="SELECT 1 FROM base", changed_at=at(2)),
+            SavedView(names=frozenset({"POSTHOG_DELETED_1", "gone"}), sql="SELECT 1 FROM events", changed_at=at(5)),
+            SavedView(names=frozenset({"ping"}), sql="SELECT 1 FROM pong", changed_at=at(3)),
+            SavedView(names=frozenset({"pong"}), sql="SELECT 1 FROM ping", changed_at=at(4)),
+        ]
+
+        changes = view_changes(views)
+
+        assert changes["top"] == at(9)
+        assert changes["gone"] == at(5)
+        assert changes["ping"] == changes["pong"] == at(4)
+
+
 class TestSavedFieldTables(SimpleTestCase):
     def test_an_expression_reads_its_body_and_the_fields_it_uses(self) -> None:
         joins = {"stripe": {"stripe_customers"}}
@@ -470,6 +506,19 @@ class TestLoadReadSources(BaseTest):
         sources = load_read_sources(self.team, calls, start)
 
         assert [call_tables(call, sources) for call in calls] == [None, None, frozenset()]
+
+    def test_a_call_over_a_view_that_changed_after_the_call_is_unknown(self) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue_view", query={"kind": "HogQLQuery", "query": "SELECT 1 FROM events"}
+        )
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+            created_at=_CALL_AT - timedelta(days=2), query_updated_at=_CALL_AT + timedelta(days=1)
+        )
+        call = _sql("SELECT 1 FROM revenue_view")
+
+        sources = load_read_sources(self.team, [call], _CALL_AT - timedelta(days=3))
+
+        assert call_tables(call, sources) is None
 
     def test_a_call_through_a_saved_expression_reads_its_tables(self) -> None:
         DataWarehouseExpression.objects.for_team(self.team.id).create(
