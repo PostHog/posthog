@@ -900,6 +900,8 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The transactional email throttles read and write their history here, so each send sees the units
+# that earlier sends charged. A replica-lag miss would hide those charges and let a batch past its limit.
 CACHES["throttle_history"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,

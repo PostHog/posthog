@@ -1185,8 +1185,10 @@ class TestReserveUnits(BaseTest):
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
 
-    def _lagging_reader_caches(self) -> dict[str, Any]:
-        return lagging_reader_caches(self.cache_prefix)
+    def _lagging_reader_caches_with_own_history_keyspace(self) -> dict[str, Any]:
+        configured = lagging_reader_caches(self.cache_prefix)
+        configured["throttle_history"]["KEY_PREFIX"] = f"{self.cache_prefix}-history"
+        return configured
 
     @parameterized.expand(
         [
@@ -1202,7 +1204,7 @@ class TestReserveUnits(BaseTest):
     ):
         now = time.time()
         with (
-            override_settings(CACHES=self._lagging_reader_caches()),
+            override_settings(CACHES=self._lagging_reader_caches_with_own_history_keyspace()),
             patch.object(throttle_class, "rate", "5/minute"),
             patch.object(throttle_class, "timer", lambda _throttle: now),
         ):
@@ -1219,6 +1221,7 @@ class TestReserveUnits(BaseTest):
             finally:
                 for client in (primary_client, reader_client):
                     redis_cache.delete(key, client=client)
+                caches["throttle_history"].delete(key)
 
         self.assertEqual(outcome, retry_after)
 
