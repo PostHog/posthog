@@ -13,15 +13,18 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     READ_CHARS,
     ReadCall,
     ReadSources,
+    SavedDefinition,
     session_tables,
     topic_tables,
     trace_session_tables,
 )
 from products.product_analytics.backend.facade.models import Insight
 
+_CALL_AT = datetime(2026, 10, 10, tzinfo=UTC)
+
 
 def _call(tool: str, payload: Any = None, *, sql: str = "", event: str = "$ai_span", cut: bool = False) -> ReadCall:
-    return ReadCall(session="s1", tool=tool, event=event, payload=payload, sql=sql, cut=cut)
+    return ReadCall(session="s1", tool=tool, event=event, at=_CALL_AT, payload=payload, sql=sql, cut=cut)
 
 
 def _sql(sql: str) -> ReadCall:
@@ -35,12 +38,21 @@ def _trends(*nodes: dict[str, Any], properties: list[dict[str, Any]] | None = No
 _EVENTS_NODE = {"kind": "EventsNode", "event": "$pageview"}
 _WAREHOUSE_NODE = {"kind": "DataWarehouseNode", "table_name": "stripe_charges", "math_hogql": None}
 _HOGQL_INSIGHT = {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 FROM billing"}}
+_HOGQL_FILTER = {"type": "hogql", "key": "[redacted]"}
+
+
+def _saved(body: Any, changed_at: datetime = _CALL_AT - timedelta(days=1)) -> SavedDefinition:
+    return SavedDefinition(body=body, changed_at=changed_at)
+
+
+_EDITED = _CALL_AT + timedelta(days=1)
 _SOURCES = ReadSources(
     metric_definitions={
-        "mrr": {"kind": "HogQLQuery", "query": "SELECT sum(amount) FROM billing"},
-        "steps": {"kind": "MarkdownDefinition", "markdown": "Run a query."},
+        "mrr": _saved({"kind": "HogQLQuery", "query": "SELECT sum(amount) FROM billing"}),
+        "steps": _saved({"kind": "MarkdownDefinition", "markdown": "Run a query."}),
+        "edited": _saved(_trends(_EVENTS_NODE), _EDITED),
     },
-    insight_queries={"abc123": _HOGQL_INSIGHT},
+    insight_queries={"abc123": _saved(_HOGQL_INSIGHT), "edited": _saved(_trends(_EVENTS_NODE), _EDITED)},
 )
 
 
@@ -67,7 +79,7 @@ class TestSessionTables(SimpleTestCase):
             ),
             (
                 "typed_query_with_a_hogql_filter",
-                [_call("query-trends", _trends(_EVENTS_NODE, properties=[{"type": "hogql", "key": "[redacted]"}]))],
+                [_call("query-trends", _trends(_EVENTS_NODE, properties=[_HOGQL_FILTER]))],
                 None,
             ),
             (
@@ -75,11 +87,37 @@ class TestSessionTables(SimpleTestCase):
                 [_call("query-trends", _trends(_EVENTS_NODE, properties=[{"type": "data_warehouse_person_property"}]))],
                 None,
             ),
+            (
+                "funnel_over_a_warehouse_table",
+                [
+                    _call(
+                        "query-funnel",
+                        {
+                            "kind": "FunnelsQuery",
+                            "series": [{"kind": "FunnelsDataWarehouseNode", "table_name": "stripe_charges"}],
+                        },
+                    )
+                ],
+                {"stripe_charges"},
+            ),
+            ("query_over_an_action", [_call("query-trends", _trends({"kind": "ActionsNode", "id": 1}))], None),
             ("cut_typed_input", [_call("query-trends", '{"kind": "TrendsQuery", "ser')], None),
             ("hogql_metric_run", [_call("data-catalog-metric-run", {"name": "mrr"})], {"billing"}),
             ("markdown_metric_run", [_call("data-catalog-metric-run", {"name": "steps"})], set()),
             ("run_of_a_metric_the_scan_cannot_find", [_call("data-catalog-metric-run", {"name": "gone"})], None),
             ("saved_insight_run", [_call("insight-query", {"insightId": "abc123"})], {"billing"}),
+            (
+                "insight_run_with_a_date_override",
+                [_call("insight-query", {"insightId": "abc123", "filters_override": {"date_from": "-7d"}})],
+                {"billing"},
+            ),
+            (
+                "insight_run_with_a_hogql_filter_override",
+                [_call("insight-query", {"insightId": "abc123", "filters_override": {"properties": [_HOGQL_FILTER]}})],
+                None,
+            ),
+            ("insight_edited_after_the_run", [_call("insight-query", {"insightId": "edited"})], None),
+            ("metric_edited_after_the_run", [_call("data-catalog-metric-run", {"name": "edited"})], None),
             ("run_of_an_insight_the_scan_cannot_find", [_call("insight-query", {"insightId": "gone"})], None),
             ("dashboard_run", [_call("dashboard-insights-run", {"id": 1})], None),
         ]
@@ -121,9 +159,11 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
         )
 
     def test_a_conversation_reads_what_its_pieces_read(self) -> None:
-        Insight.objects.create(team=self.team, short_id="abc123", query=_HOGQL_INSIGHT)
         end = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
         at = end - timedelta(hours=3)
+        Insight.objects.create(
+            team=self.team, short_id="abc123", query=_HOGQL_INSIGHT, last_modified_at=at - timedelta(days=1)
+        )
         self._span(
             "p1",
             at,

@@ -45,6 +45,7 @@ from products.data_catalog.backend.logic.usage_topics import (
     build_topics,
     collect_topics_into_snapshot,
     count_session_kinds,
+    describe_topics,
     fetch_session_lookups,
     find_new_topics,
     group_into_topics,
@@ -110,6 +111,10 @@ _LIST_PROMPT_START = "Below are numbered questions"
 
 def _no_heartbeat() -> None:
     return None
+
+
+def _unavailable(_prompt: str) -> str:
+    raise RuntimeError("gateway unavailable")
 
 
 class TestTopicCoverage(SimpleTestCase):
@@ -515,6 +520,32 @@ class TestGroupIntoTopics(SimpleTestCase):
         assert carried == definitions
         assert not any(prompt.startswith(_LIST_PROMPT_START) for prompt in later.prompts)
 
+    @parameterized.expand(
+        [
+            (
+                "written_from_this_scans_questions",
+                lambda _prompt: '{"description": "Revenue per month."}',
+                "Revenue per month.",
+            ),
+            ("a_failed_call_leaves_it_empty", _unavailable, ""),
+        ]
+    )
+    def test_describe_topics_writes_each_topic_from_its_own_sessions(
+        self, _name: str, respond: Any, expected: str
+    ) -> None:
+        previous = [
+            TopicDefinition(title="Revenue", description="Money."),
+            TopicDefinition(title="Churn", description="Lost customers."),
+        ]
+        client = _FakeClient(respond)
+        members = {"Revenue": [_read("a", "mrr")], "Churn": []}
+
+        described = async_to_sync(describe_topics)(client, previous, members, _no_heartbeat)  # type: ignore[arg-type]
+
+        assert described == [TopicDefinition(title="Revenue", description=expected), previous[1]]
+        assert len(client.prompts) == 1
+        assert "mrr" in client.prompts[0]
+
     def test_new_subject_joins_a_carried_list_only_with_enough_evidence(self) -> None:
         previous = [TopicDefinition(title="Revenue", description="Money.")]
         sessions = [
@@ -578,6 +609,8 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
             return prompt.split("<notes>\n1. ")[1].split("\n</notes>")[0]
         if prompt.startswith("Choose the one topic"):
             return "1"
+        if prompt.startswith("Describe one topic"):
+            return '{"description": "Revenue over time."}'
         if "judge fails" in prompt:
             raise RuntimeError("gateway unavailable")
         return '{"metric": true, "description": false}'
@@ -610,7 +643,7 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
                 [
                     TopicCluster(
                         title="Revenue",
-                        description="Money.",
+                        description="Revenue over time.",
                         session_count=3,
                         people=3,
                         coverage=TopicCoverage(metric=2, table=0, nothing=1),
@@ -618,12 +651,14 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
                     )
                 ],
                 TopicSessionCounts(analysis=3, lookup=1, automation=0, unclear=0, unread=0, coverage_unchecked=1),
+                [TopicDefinition(title="Revenue", description="Revenue over time.")],
             ),
             (
                 "no_analysis_sessions_keep_the_previous_list",
                 [_LOOKUP],
                 [],
                 TopicSessionCounts(analysis=0, lookup=1, automation=0, unclear=0, unread=0),
+                _PREVIOUS,
             ),
         ]
     )
@@ -633,6 +668,7 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
         sessions: list[SessionText],
         topics: list[TopicCluster],
         counts: TopicSessionCounts,
+        definitions: list[TopicDefinition],
     ) -> None:
         inputs = _TopicInputs(
             sessions=sessions,
@@ -663,7 +699,7 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
 
         written = write.call_args.kwargs
         assert written["topics"] == topics
-        assert written["topic_definitions"] == self._PREVIOUS
+        assert written["topic_definitions"] == definitions
         assert written["topic_sessions"] == counts
         judge_prompts = [prompt for prompt in client.prompts if prompt.startswith("You review one session")]
         assert not any("Annual revenue?" in prompt for prompt in judge_prompts)

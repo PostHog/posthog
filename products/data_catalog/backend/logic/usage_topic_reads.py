@@ -50,6 +50,7 @@ SELECT
     toString(a.properties.$session_id) AS session,
     a.span_name,
     a.event,
+    a.timestamp,
     substringUTF8(ifNull(a.input_state, ''), 1, {max_chars}) AS input,
     substringUTF8(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_chars}) AS sql,
     lengthUTF8(ifNull(a.input_state, '')) > {max_chars}
@@ -81,17 +82,37 @@ class ReadCall:
     session: str
     tool: str
     event: str
+    at: datetime
     payload: Any
     sql: str
     cut: bool
 
 
 @frozen
-class ReadSources:
-    """The saved definitions that metric runs and insight runs read, keyed by the name a call gives."""
+class SavedDefinition:
+    """A saved query, and when it last changed."""
 
-    metric_definitions: Mapping[str, dict[str, Any] | None]
-    insight_queries: Mapping[str, dict[str, Any]]
+    body: Any
+    changed_at: datetime | None
+
+
+@frozen
+class ReadSources:
+    """The saved definitions that calls read by reference: metrics by name, insights by short id."""
+
+    metric_definitions: Mapping[str, SavedDefinition]
+    insight_queries: Mapping[str, SavedDefinition]
+
+    def as_of(self, at: datetime) -> "ReadSources":
+        """Only a definition that did not change after a call still says what that call read."""
+        return ReadSources(
+            metric_definitions=_unchanged(self.metric_definitions, at),
+            insight_queries=_unchanged(self.insight_queries, at),
+        )
+
+
+def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, SavedDefinition]:
+    return {key: item for key, item in saved.items() if item.changed_at is not None and item.changed_at <= at}
 
 
 def sql_tables(sql: str) -> frozenset[str] | None:
@@ -121,27 +142,33 @@ def _reads_hidden_tables(node: dict[str, Any]) -> bool:
     return any(_EXPRESSION.search(key) and value for key, value in node.items())
 
 
+def _refers_to_action(node: dict[str, Any]) -> bool:
+    return node.get("kind") == "ActionsNode" or node.get("type") == "actions" or "actionId" in node
+
+
 def query_tables(query: object) -> frozenset[str] | None:
     """The tables that a query object reads past PostHog's own tables, or None when the scan cannot tell.
 
-    A HogQL query names its tables, and a warehouse node names its table. Every other node reads PostHog's
-    own tables, which access control does not deny one by one."""
+    A HogQL query names its tables, and a warehouse node names its table. A query runs the stored steps of an
+    action that it refers to, and their filters can read any table, so the scan cannot tell. Every other node
+    reads PostHog's own tables, which access control does not deny one by one."""
     if not isinstance(query, dict):
         return None
     tables: set[str] = set()
     for node in _dicts(query):
-        kind = node.get("kind")
+        kind = str(node.get("kind") or "")
         if kind == "HogQLQuery":
             named = sql_tables(str(node.get("query") or ""))
             if named is None:
                 return None
             tables |= named
             continue
-        if kind == "DataWarehouseNode":
+        # Funnels, lifecycle, experiments and retention each have their own node for a warehouse table.
+        if kind.endswith("DataWarehouseNode") or node.get("table_name"):
             if not node.get("table_name"):
                 return None
             tables.add(str(node["table_name"]))
-        if _reads_hidden_tables(node):
+        if _refers_to_action(node) or _reads_hidden_tables(node):
             return None
     return frozenset(tables)
 
@@ -151,6 +178,17 @@ def metric_tables(definition: dict[str, Any] | None) -> frozenset[str] | None:
     if definition is None or definition.get("kind") == MARKDOWN_DEFINITION_KIND:
         return frozenset()
     return query_tables(definition)
+
+
+def insight_tables(saved: SavedDefinition | None, filters_override: object) -> frozenset[str] | None:
+    """An insight run merges its filter override into the saved query, so the override's filters count too.
+
+    A variable override only sets values, so it reads no table."""
+    if saved is None:
+        return None
+    query = query_tables(saved.body)
+    override = frozenset() if filters_override is None else query_tables(filters_override)
+    return None if query is None or override is None else query | override
 
 
 def _payload_field(call: ReadCall, field: str) -> str:
@@ -166,12 +204,14 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
         # A metadata search logs as a span with its query in the input, and every other query as a generation.
         sql = call.sql if call.event == "$ai_generation" else _payload_field(call, "query")
         return sql_tables(sql) if sql else None
+    current = sources.as_of(call.at)
     if call.tool == RUN_TOOL:
-        name = _payload_field(call, "name")
-        return metric_tables(sources.metric_definitions[name]) if name in sources.metric_definitions else None
+        metric = current.metric_definitions.get(_payload_field(call, "name"))
+        return metric_tables(metric.body) if metric is not None else None
     if call.tool == INSIGHT_TOOL:
-        short_id = _payload_field(call, "insightId")
-        return query_tables(sources.insight_queries[short_id]) if short_id in sources.insight_queries else None
+        overrides = call.payload.get("filters_override") if isinstance(call.payload, dict) else None
+        insight = current.insight_queries.get(_payload_field(call, "insightId"))
+        return insight_tables(insight, overrides)
     if call.tool.startswith(DATA_TOOL_PREFIX):
         return query_tables(call.payload)
     # A dashboard run reads the insights on the dashboard as it is now, which can differ from the run.
@@ -227,8 +267,16 @@ def _fetch_calls(
         },
     )
     return [
-        ReadCall(session=session, tool=tool, event=event, payload=decode_nested_json(raw), sql=sql, cut=bool(cut))
-        for session, tool, event, raw, sql, cut in rows
+        ReadCall(
+            session=session,
+            tool=tool,
+            event=event,
+            at=at,
+            payload=decode_nested_json(raw),
+            sql=sql,
+            cut=bool(cut),
+        )
+        for session, tool, event, at, raw, sql, cut in rows
     ]
 
 
@@ -237,17 +285,31 @@ def _load_sources(team: Team, calls: Sequence[ReadCall]) -> ReadSources:
     short_ids = {
         short_id for call in calls if call.tool == INSIGHT_TOOL and (short_id := _payload_field(call, "insightId"))
     }
-    # An insight that someone deleted after the run still says what the run read. A deleted metric's name can
-    # belong to a new metric, so only live metrics count.
-    definitions = dict(metrics_for_team(team).filter(name__in=names).values_list("name", "definition") if names else [])
+    # A deleted metric's name can belong to a new metric, so only live metrics count. A metric that someone
+    # created or edited after the run fails the time check in `ReadSources.as_of`.
+    metrics = (
+        metrics_for_team(team).filter(name__in=names).values_list("name", "definition", "updated_at", "created_at")
+        if names
+        else []
+    )
+    definitions = {
+        name: SavedDefinition(body=definition, changed_at=updated_at or created_at)
+        for name, definition, updated_at, created_at in metrics
+    }
+    # An insight that someone deleted after the run still says what the run read. The insight API stamps
+    # `last_modified_at` on every change to the query.
     rows = (
         Insight.objects_including_soft_deleted.filter(team_id=team.id, short_id__in=short_ids).values_list(
-            "short_id", "query"
+            "short_id", "query", "last_modified_at"
         )
         if short_ids
         else []
     )
-    queries = {short_id: query for short_id, query in rows if isinstance(query, dict)}
+    queries = {
+        short_id: SavedDefinition(body=query, changed_at=changed_at)
+        for short_id, query, changed_at in rows
+        if isinstance(query, dict)
+    }
     return ReadSources(metric_definitions=definitions, insight_queries=queries)
 
 
