@@ -1,7 +1,10 @@
 import {
+    BATCH_COPIED_BYTES_MAX,
+    BATCH_VARIABLE_DEPTH_MAX,
     BatchCapacity,
     CodeSendBatchRequestSchema,
     TemplateBatchRequestSchema,
+    exceedsCopyLimits,
     slotRequestOf,
 } from './transactional-email-batch'
 
@@ -34,6 +37,62 @@ describe('transactional email batch', () => {
             expect(slotRequestOf(batch, recipient)).toEqual(
                 expect.objectContaining({ variables: { link: 'https://example.com/ada', name: 'Shared' } })
             )
+        })
+    })
+
+    describe('exceedsCopyLimits', () => {
+        const nestedOf = (levels: number): Record<string, unknown> => {
+            let value: Record<string, unknown> = {}
+            for (let level = 1; level < levels; level++) {
+                value = { a: value }
+            }
+            return value
+        }
+        const recipient = (name: string, variables?: Record<string, unknown>) => ({
+            to: `${name}@example.com`,
+            distinct_id: name,
+            idempotency_key: `key-${name}`,
+            ...(variables && { variables }),
+        })
+        // Each of the two recipients copies {"p":"<padding>"}, 8 bytes around the padding, and its own {}, 2 bytes.
+        const paddingAtLimit = BATCH_COPIED_BYTES_MAX / 2 - 10
+        const paddedTo = (padding: number) => ({
+            variables: { p: 'x'.repeat(padding) },
+            recipients: [recipient('ada'), recipient('bo')],
+        })
+
+        it.each([
+            {
+                batch: 'shared variables nested to the depth limit',
+                body: { variables: nestedOf(BATCH_VARIABLE_DEPTH_MAX), recipients: [recipient('ada')] },
+                exceeds: false,
+            },
+            {
+                batch: 'shared variables nested one level deeper',
+                body: { variables: nestedOf(BATCH_VARIABLE_DEPTH_MAX + 1), recipients: [recipient('ada')] },
+                exceeds: true,
+            },
+            {
+                batch: "a recipient's own variables nested one level deeper",
+                body: { variables: {}, recipients: [recipient('ada', nestedOf(BATCH_VARIABLE_DEPTH_MAX + 1))] },
+                exceeds: true,
+            },
+            { batch: 'copies at the byte limit', body: paddedTo(paddingAtLimit), exceeds: false },
+            { batch: 'copies one byte over the limit', body: paddedTo(paddingAtLimit + 1), exceeds: true },
+            {
+                batch: 'a code send whose content each recipient copies over the limit',
+                body: {
+                    variables: {},
+                    send: {
+                        content: { subject: 'Hello', html: 'x'.repeat(BATCH_COPIED_BYTES_MAX / 2) },
+                        tracking: { captureEngagement: false },
+                    },
+                    recipients: [recipient('ada'), recipient('bo')],
+                },
+                exceeds: true,
+            },
+        ])('$batch exceeds the copy limits: $exceeds', ({ body, exceeds }) => {
+            expect(exceedsCopyLimits(body)).toBe(exceeds)
         })
     })
 

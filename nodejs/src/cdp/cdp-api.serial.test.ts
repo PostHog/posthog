@@ -5676,6 +5676,20 @@ describe('CDP API', () => {
                 }
             )
 
+            it('refuses with 413 a batch whose variables nest deeper than its fingerprint can sort', async () => {
+                const levels = 10_000
+                const variables = `${'{"a":'.repeat(levels)}1${'}'.repeat(levels)}`
+                const recipients = JSON.stringify([recipient('ada@example.com')])
+
+                const res = await supertest(app)
+                    .post(pathOf(TEMPLATE))
+                    .set({ Authorization: authorizationFor(kindOf(TEMPLATE)), 'Content-Type': 'application/json' })
+                    .send(`{"variables":${variables},"recipients":${recipients}}`)
+
+                expect([res.status, res.body]).toEqual([413, { error: 'too_large' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
             describe('on a pod of its own', () => {
                 const served: { cdpApi: CdpApi; server: Server }[] = []
                 const servedWith = async (

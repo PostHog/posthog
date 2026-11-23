@@ -12,6 +12,13 @@ export const BATCH_MAX_RECIPIENTS = 100
 // between the copies. The batch bounds the sum, so a small body with many keys cannot multiply into a large heap.
 export const BATCH_VARIABLE_KEYS_MAX = 50_000
 
+// Each recipient's fingerprint sorts and serializes its own copy of the shared variables and send on the event loop, so
+// the batch bounds the bytes of all copies.
+export const BATCH_COPIED_BYTES_MAX = 8 * 1024 * 1024
+
+// The fingerprint's key sort recurses once per level and overflows the stack a few thousand levels down.
+export const BATCH_VARIABLE_DEPTH_MAX = 64
+
 // Django drops a forwarded call after 30 s. A batch still short of its publish this long after it arrived publishes
 // nothing, so no email goes out for a call Django already reported as failed.
 export const BATCH_PUBLISH_DEADLINE_MS = 20_000
@@ -61,12 +68,44 @@ export const BatchSlotRequestSchema = TransactionalEmailRequestSchema.omit({ sch
     send: BatchSendSchema.optional(),
 })
 
-export const copiedVariableKeys = (batch: TransactionalEmailBatchRequest): number => {
+const copiedVariableKeys = (batch: TransactionalEmailBatchRequest): number => {
     const shared = Object.keys(batch.variables).length
     return batch.recipients.reduce(
         (total, recipient) => total + shared + Object.keys(recipient.variables ?? {}).length,
         0
     )
+}
+
+const nestsDeeperThan = (value: unknown, levels: number): boolean => {
+    const pending: [unknown, number][] = [[value, 1]]
+    while (pending.length > 0) {
+        const [current, level] = pending.pop()!
+        if (current === null || typeof current !== 'object') {
+            continue
+        }
+        if (level > levels) {
+            return true
+        }
+        for (const child of Object.values(current)) {
+            pending.push([child, level + 1])
+        }
+    }
+    return false
+}
+
+const byteLengthOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value))
+
+export const exceedsCopyLimits = (batch: TransactionalEmailBatchRequest): boolean => {
+    const own = batch.recipients.map((recipient) => recipient.variables ?? {})
+    // Depth first: serializing a value that nests too deep overflows the stack too.
+    if ([batch.variables, ...own].some((variables) => nestsDeeperThan(variables, BATCH_VARIABLE_DEPTH_MAX))) {
+        return true
+    }
+    if (copiedVariableKeys(batch) > BATCH_VARIABLE_KEYS_MAX) {
+        return true
+    }
+    const shared = byteLengthOf(batch.variables) + (batch.send ? byteLengthOf(batch.send) : 0)
+    return own.reduce((total, variables) => total + shared + byteLengthOf(variables), 0) > BATCH_COPIED_BYTES_MAX
 }
 
 // The same request a single send to this recipient makes, so a single send and a batch recipient replay each other.

@@ -79,7 +79,6 @@ import {
 } from './services/hogflows/transactional-email'
 import {
     BATCH_PUBLISH_DEADLINE_MS,
-    BATCH_VARIABLE_KEYS_MAX,
     BatchCapacity,
     BatchSlotRequestSchema,
     CODE_SEND_BATCH_TOKEN_CLAIMS,
@@ -87,7 +86,7 @@ import {
     TEMPLATE_BATCH_TOKEN_CLAIMS,
     TemplateBatchRequestSchema,
     TransactionalEmailBatchRequest,
-    copiedVariableKeys,
+    exceedsCopyLimits,
     slotRequestOf,
     transactionalEmailBatchRequestsTotal,
 } from './services/hogflows/transactional-email-batch'
@@ -1662,7 +1661,7 @@ export class CdpApi {
                     return refuse('invalid_request', 400, { error: parsed.error.message })
                 }
                 const batch = parsed.data
-                if (copiedVariableKeys(batch) > BATCH_VARIABLE_KEYS_MAX) {
+                if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
                 }
                 const teamId = parseInt(req.params.team_id)
