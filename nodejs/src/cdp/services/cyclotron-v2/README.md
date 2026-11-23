@@ -62,8 +62,8 @@ Each dequeued job exposes an ack interface:
 With `sendsWithFiles` set, as the email worker does when `CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL` is on, the worker runs a second poll.
 The main poll then skips rows with `file_bytes` set, and the second poll dequeues them in the same fair order, no more at a time than the worker has room for.
 A worker with no room spends no SES tokens on them, and a plain send never waits behind them.
-Each poll has its own email index, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_files_fair_dequeue`, so a backlog of one kind of send does not slow the poll for the other.
-Check that both indexes are valid (`pg_index.indisvalid`) before turning the gate on: an interrupted `CREATE INDEX CONCURRENTLY` leaves an invalid index that a retry with `IF NOT EXISTS` does not rebuild.
+Each poll has its own email indexes, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_plain_fair_dequeue` for plain sends and `idx_cyclotron_jobs_email_files_fair_dequeue` for sends with files, so a backlog of one kind of send does not slow the poll for the other.
+Check that all three indexes are valid (`pg_index.indisvalid`) before turning the gate on: an interrupted `CREATE INDEX CONCURRENTLY` leaves an invalid index that a retry with `IF NOT EXISTS` does not rebuild.
 Turn the gate on only once the email jobs queued before the `file_bytes` writers deployed have run.
 Such a job has files but no `file_bytes`, so the main poll claims it and can take a slot the files poll already spent a token on.
 A delayed workflow step keeps such a job queued for as long as its delay.
