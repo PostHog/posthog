@@ -6314,16 +6314,18 @@ Note: Diffed against FusionAuth's official OpenAPI 3.0.3 spec (v1.68.0, 176 path
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/FusionAuth/fusionauth-openapi/main/openapi.yaml>
 
-- [ ] `Entity types (POST /api/entity/type/search; GET /api/entity/type)` — Lookup resolving the entity type on synced Entities, plus the permissions each type defines for grants (high)
-- [ ] `Identity providers (POST /api/identity-provider/search; GET /api/identity-provider)` — Lookup naming the provider on synced IdentityProviderLinks (high)
-- [ ] `Registration report (GET /api/report/registration)` — Registration counts over time per application, a growth metric (medium)
-- [ ] `Login report (GET /api/report/login)` — Login counts over time per application, beyond the daily and monthly active user reports (medium)
+- [x] `Entity types (POST /api/entity/type/search; GET /api/entity/type)` — Lookup resolving the entity type on synced Entities, plus the permissions each type defines for grants (high)
+- [x] `Identity providers (POST /api/identity-provider/search; GET /api/identity-provider)` — Lookup naming the provider on synced IdentityProviderLinks (high)
+- [x] `Registration report (GET /api/report/registration)` — Registration counts over time per application, a growth metric (medium)
+- [x] `Login report (GET /api/report/login)` — Login counts over time per application, beyond the daily and monthly active user reports (medium)
 - [ ] `Totals report (GET /api/report/totals)` — Per-application totals for logins, registrations and users (low)
 - [ ] `User families (GET /api/user/family)` — Family and group relationships between users; needs a userId query parameter (low)
 - [ ] `Webhook event logs (POST /api/system/webhook-event-log/search)` — Webhook delivery events with attempt results, for integration health (low)
 - [ ] `Forms (GET /api/form; GET /api/form/field)` — Registration and admin form definitions with their fields (low)
 
 Note (2026-11-19): Parsed the v1.70.0 OpenAPI file for GET and POST search routes. All earlier gaps are built. Config-only resources such as keys, lambdas, themes, templates, connectors, IP ACLs, messengers and CIMD were excluded. User family needs a user ID and report routes take date range and application parameters.
+
+Note (2026-11-23): Built `EntityTypes`, `IdentityProviders`, `RegistrationReport` and `LoginReport`. The two lookups use the unpaginated retrieve-all `GET` routes (identity provider search needs v1.45.0+). Both reports return hourly counts across all applications, like the DAU/MAU reports; there is no per-application split. Identity provider client secrets and API keys are dropped, also inside `applicationConfiguration`.
 
 ## G2 (G2.com, Inc.) — **thin**
 
