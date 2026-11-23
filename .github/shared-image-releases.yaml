@@ -1568,9 +1568,13 @@ filters:
         - products/web_analytics/backend/hogql_queries/bot_definitions.py
         - products/cdp/backend/facade/models.py
         - products/cdp/backend/models/hog_functions/hog_function.py
+        - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/user_access_control.py
         - products/access_control/backend/facade/subject_access_control.py
+        - products/access_control/backend/facade/contracts.py
         - 'products/access_control/backend/models/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/facade/models.py
         - posthog/user_permissions.py
         - posthog/tasks/email.py
         - posthog/tasks/email_utils.py
@@ -1619,7 +1623,6 @@ filters:
         - products/signals/backend/emission/pipeline.py
         - products/signals/backend/emission/steering.py
         - products/signals/backend/emission/registry.py
-        - products/signals/backend/emission/_prompts.py
         - products/signals/backend/temporal/emitter.py
         - products/signals/backend/temporal/buffer.py
         - products/signals/backend/temporal/types.py
@@ -1638,7 +1641,14 @@ filters:
         - products/signals/backend/llm_spend.py
         - products/signals/backend/system_one_prompts.py
         - products/cdp/backend/internal_events.py
+        - products/access_control/backend/property_access_control.py
+        - products/access_control/backend/facade/contracts.py
+        - 'products/access_control/backend/models/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/facade/models.py
         - ee/billing/quota_limiting.py
+        - ee/billing/billing_manager.py
+        - ee/models/license.py
         - posthog/api/embedding_worker.py
         - posthog/sync.py
         - posthog/schema.py
@@ -1646,6 +1656,7 @@ filters:
         - posthog/event_usage.py
         - posthog/token_bucket.py
         - posthog/helpers/tiktoken_encoding.py
+        - posthog/helpers/encrypted_fields.py
         - posthog/security/outbound_proxy.py
         - posthog/llm/gateway_client.py
         - posthog/llm/system_one.py
@@ -1721,9 +1732,13 @@ filters:
         - products/alerts_platform/backend/logic/platform_reads.py
         - products/subscriptions/backend/facade/api.py
         - products/subscriptions/backend/logic/queries.py
+        - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/user_access_control.py
         - products/access_control/backend/facade/property_access.py
+        - products/access_control/backend/facade/contracts.py
         - 'products/access_control/backend/models/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/facade/models.py
         - products/error_tracking/backend/indexed_embedding.py
         - ee/billing/quota_limiting.py
         - posthog/api/capture.py
@@ -1741,6 +1756,7 @@ filters:
         - posthog/event_usage.py
         - posthog/interval_specs.py
         - posthog/token_bucket.py
+        - posthog/helpers/encrypted_fields.py
         - posthog/scheduling/jitter.py
         - posthog/security/outbound_proxy.py
         - posthog/llm/gateway_client.py
@@ -1769,8 +1785,8 @@ filters:
         - posthog/temporal/alerts/retry_policy.py
         - posthog/temporal/alerts/types.py
         - 'products/*/backend/max_tools.py'
-        - 'products/*/backend/facade/max_tools.py'
-        - 'products/*/backend/tools/**'
+        - products/skills/backend/tools/skills.py
+        - products/ai_observability/backend/tools/run_hog_eval.py
         - 'products/*/backend/hogql_queries/**'
         - 'products/alerts/backend/**'
         - 'products/alerts_platform/backend/**'
@@ -1778,6 +1794,7 @@ filters:
         - 'products/tasks/backend/**'
         - 'products/mcp_store/backend/**'
         - 'products/feature_flags/backend/**'
+        - 'products/ml_inference/backend/**'
         - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/api.py
         - products/access_control/backend/facade/user_access_control.py
@@ -1785,11 +1802,23 @@ filters:
         - products/access_control/backend/facade/contracts.py
         - products/access_control/backend/facade/enums.py
         - 'products/access_control/backend/models/**'
+        - products/approvals/backend/decorators.py
+        - products/approvals/backend/policies.py
+        - products/approvals/backend/models.py
+        - products/approvals/backend/exceptions.py
+        - products/approvals/backend/notifications.py
+        - products/approvals/backend/serializers.py
+        - products/approvals/backend/flag_payloads.py
+        - products/approvals/backend/ownership.py
+        - products/approvals/backend/transactions.py
+        - products/approvals/backend/coverage.py
+        - 'products/approvals/backend/actions/**'
         - 'products/product_analytics/backend/facade/**'
         - products/product_analytics/backend/logic.py
         - 'products/product_analytics/backend/models/**'
         - 'products/notebooks/backend/facade/**'
-        - products/notebooks/backend/collab.py
+        - products/notebooks/backend/markdown_collab.py
+        - products/notebooks/backend/collab_stream.py
         - products/notebooks/backend/logic.py
         - products/notebooks/backend/analytics.py
         - products/notebooks/backend/markdown_conversion.py
@@ -1856,6 +1885,9 @@ filters:
         - products/web_analytics/backend/heatmap_screenshot_grounding.py
         - products/web_analytics/backend/api/heatmaps_api.py
         - 'products/web_analytics/backend/path_cleaning_suggestions/**'
+        - 'products/web_analytics/backend/temporal/health_checks/**'
+        - products/web_analytics/backend/models/health_rollups.py
+        - products/web_analytics/backend/rollups/host_proxy.py
         - products/replay/backend/prompts.py
         - products/signals/backend/facade/api.py
         - products/signals/backend/facade/source_configs.py
@@ -1866,7 +1898,6 @@ filters:
         - products/signals/backend/emission/pipeline.py
         - products/signals/backend/emission/steering.py
         - products/signals/backend/emission/registry.py
-        - products/signals/backend/emission/_prompts.py
         - products/signals/backend/temporal/emitter.py
         - products/signals/backend/temporal/buffer.py
         - products/signals/backend/temporal/types.py
@@ -1886,11 +1917,14 @@ filters:
         - products/signals/backend/system_one_prompts.py
         - ee/billing/quota_limiting.py
         - ee/billing/billing_types.py
+        - ee/billing/billing_manager.py
+        - ee/models/license.py
         - ee/models/property_definition.py
         - ee/models/event_definition.py
         - posthog/api/services/query.py
         - posthog/api/search.py
         - posthog/api/sharing_publish_gate.py
+        - posthog/api/query_access_check.py
         - posthog/api/advanced_activity_logs/viewset.py
         - posthog/api/embedding_worker.py
         - posthog/api/proxy_record_diagnostics.py
@@ -1921,14 +1955,18 @@ filters:
         - posthog/schema.py
         - posthog/errors.py
         - posthog/jwt.py
+        - posthog/cache_utils.py
         - posthog/event_usage.py
         - posthog/token_bucket.py
         - posthog/helpers/tiktoken_encoding.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/helpers/email_utils.py
+        - posthog/helpers/markdown_safety.py
         - posthog/security/llm_prompt_sanitization.py
         - posthog/security/oob_domains.py
         - posthog/security/crosslang/oob_domains.json
         - posthog/security/outbound_proxy.py
+        - posthog/security/bounded_httpx.py
         - posthog/security/pinned_httpx.py
         - posthog/security/pinned_requests.py
         - posthog/llm/gateway_client.py
@@ -1941,6 +1979,7 @@ filters:
         - '!posthog/schema_migrations/test/**'
         - 'posthog/taxonomy/**'
         - 'posthog/integrations/**'
+        - 'posthog/credentials_service/**'
         - 'posthog/hogql/**'
         - 'posthog/hogql_queries/**'
         - 'posthog/clickhouse/**'
@@ -2016,16 +2055,16 @@ images:
             error-tracking:
                 repository: posthog-temporal-workers/error-tracking
                 filter: errorTrackingWorker
-                bootstrapPolicyDigest: 244eff46444b4def8131c77cded1200c44ff064652af15d8e129f9ccd386554a
+                bootstrapPolicyDigest: 2aaa67bfbbb5548af3fc1d2506c8b39311fd3d976e9cb88acc3eb6526c3cfd71
             error-tracking-lifecycle:
                 repository: posthog-temporal-workers/error-tracking-lifecycle
                 filter: errorTrackingLifecycleWorker
-                bootstrapPolicyDigest: 7e44e5ce22a321d575cb2f0b41b6ed7befb449dd1b8ae5aa918adef619a0d970
+                bootstrapPolicyDigest: c56717a8f05bfb0400a522fb0d5fb0f40b3f3f8806391d2abc58d66bf22d137a
             self-driving:
                 repository: posthog-temporal-workers/self-driving
                 filter: selfDrivingWorker
-                bootstrapPolicyDigest: 932ef68e28b11e12f48e0bbc7c1bc93c313156e68553b59fb1fc995b0f470e9d
+                bootstrapPolicyDigest: b3fbdcf35a97871b63a11cd23cab83772e269abaf9168047fec11284d65b66d3
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
-                bootstrapPolicyDigest: ee8ae3beffcd2de3ef8324ac30fe50cee895c50fabca5ff846529dde68bb0b0c
+                bootstrapPolicyDigest: 8e59ac4e49ca0c87767cbf242e1aade17c22fa446e97210c4522912efd68c4a1
