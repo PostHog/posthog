@@ -29,6 +29,7 @@ from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.utils import (
     UUIDT,
@@ -932,7 +933,8 @@ def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
     """Revoke all OAuth artifacts for the token's (user, application) pair - every access
-    token, every refresh token, and every grant, not just the given one.
+    token, every refresh token, every grant, and every personal API key the application
+    provisioned for the user, not just the given one.
 
     Use this where the user or client explicitly asked to disconnect the whole app
     (connected_apps.py, RFC 7009 revoke_token) - there, sweeping every session for that
@@ -986,6 +988,10 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+            # Key by key, so the activity log records each deletion.
+            for key in PersonalAPIKey.objects.filter(provisioned_by=application, user=user):
+                key.delete()
 
 
 def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
@@ -1114,7 +1120,8 @@ def revoke_oauth_token_session(
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
-    """Force-invalidate every outstanding token and grant for an application, across all users.
+    """Force-invalidate every outstanding token, grant, and provisioned personal API key for an
+    application, across all users.
 
     Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
     re-authorize under the new ceiling, instead of waiting for each token to hit its next
@@ -1141,6 +1148,10 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthDeviceGrant.objects.filter(client_id=application.client_id).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
+
+        # Key by key, so the activity log records each deletion.
+        for key in PersonalAPIKey.objects.filter(provisioned_by=application):
+            key.delete()
 
 
 def generate_random_token_cimd_verification() -> str:

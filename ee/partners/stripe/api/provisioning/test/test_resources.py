@@ -45,8 +45,39 @@ class TestResources(StripeProvisioningTestBase):
         pat = PersonalAPIKey.objects.get(user=self.user)
         assert pat.label == f"Stripe - {self.team.name}"[:40]
         assert pat.scoped_teams == [self.team.id]
+        assert pat.provisioned_by_id == self.stripe_app.id
 
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
+
+    @parameterized.expand(
+        [
+            ("gate_off", {"issues_personal_api_key": False}, ["query:read"], None),
+            ("unseeded_ceiling", {}, [], None),
+            ("grant_outside_ceiling", {}, ["insight:read"], None),
+            ("grant_inside_ceiling", {}, ["query:read"], ["query:read"]),
+        ]
+    )
+    def test_create_mints_pat_only_inside_gate_and_ceiling(
+        self, _name: str, provisioning: dict, ceiling: list[str], expected_scopes: list[str] | None
+    ) -> None:
+        token = self._get_bearer_token()
+        self.stripe_app.scopes = ceiling
+        self.stripe_app.save(update_fields=["scopes"])
+        if provisioning:
+            self.stripe_app.update_provisioning(**provisioning)
+
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={"service_id": "analytics"}, token=token)
+
+        assert res.status_code == 200
+        config = res.json()["complete"]["access_configuration"]
+        pat = PersonalAPIKey.objects.filter(user=self.user).first()
+        if expected_scopes is None:
+            assert "personal_api_key" not in config
+            assert pat is None
+        else:
+            assert config["personal_api_key"].startswith("phx_")
+            assert pat is not None
+            assert pat.scopes == expected_scopes
 
     def test_create_with_project_id_is_idempotent(self):
         token = self._get_bearer_token()

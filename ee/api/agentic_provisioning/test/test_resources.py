@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -9,6 +10,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
@@ -237,6 +239,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert pat.scopes == ["query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+        assert pat.provisioned_by_id == app.id
 
     def test_create_resource_pat_excludes_optional_scopes_outside_grant(self):
         token = self._get_bearer_token()
@@ -757,6 +760,14 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
+        assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
+        own_key = mint_personal_api_key(
+            sibling_user,
+            label=self.team.name,
+            scopes=["query:read"],
+            teams=AccessibleTeams.for_user(sibling_user, [self.team.id]),
+            organization_ids=[str(self.team.organization_id)],
+        ).key
 
         res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/remove",
@@ -769,6 +780,8 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         sibling_rt.refresh_from_db()
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
+        assert not PersonalAPIKey.objects.filter(provisioned_by=access_token.application).exists()
+        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
     def test_remove_does_not_delete_other_partners_config(self):
         # The base team is in the caller's scope, but its config belongs to a

@@ -2,11 +2,15 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+
+if TYPE_CHECKING:
+    from posthog.models.oauth import OAuthApplication
 
 
 @frozen
@@ -24,12 +28,14 @@ def mint_personal_api_key(
     organization_ids: Sequence[str] = (),
     description: str | None = None,
     expires_at: datetime | None = None,
+    provisioned_by: "OAuthApplication | None" = None,
 ) -> MintedPersonalAPIKey:
     """Insert a personal API key and return it with its raw value.
 
     This is the only code that creates a personal API key (the `personal-api-key-created-outside-mint`
     semgrep rule enforces it), so the team scope of every key comes from an `AccessibleTeams` that
-    was checked for the key's owner.
+    was checked for the key's owner. `provisioned_by` names the partner application that mints the
+    key during provisioning, so that partner's revocation paths can find it.
     """
     if teams.user_id != owner.pk:
         raise CredentialScopeDenied("The team scope was checked for a different user.")
@@ -46,6 +52,7 @@ def mint_personal_api_key(
         scoped_teams=list(teams.team_ids or []),
         scoped_organizations=list(organization_ids),
         expires_at=expires_at,
+        provisioned_by=provisioned_by,
     )
     return MintedPersonalAPIKey(key=key, value=value)
 

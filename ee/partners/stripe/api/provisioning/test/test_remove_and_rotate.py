@@ -1,7 +1,9 @@
+from posthog.accessible_teams import AccessibleTeams
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
+from posthog.personal_api_key_minting import mint_personal_api_key
 
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
@@ -9,13 +11,27 @@ RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
 
 
 class TestRemoveAndRotate(StripeProvisioningTestBase):
-    def test_rotate_credentials_issues_new_api_key_and_pat(self):
+    def _mint_own_key(self, user: User, like: PersonalAPIKey) -> PersonalAPIKey:
+        return mint_personal_api_key(
+            user,
+            label=like.label,
+            scopes=like.scopes,
+            teams=AccessibleTeams.for_user(user, [self.team.id]),
+            organization_ids=[str(self.team.organization_id)],
+        ).key
+
+    def test_rotate_credentials_issues_new_api_key_and_replaces_pat(self):
         token = self._get_bearer_token()
+        create = self._post_signed_with_bearer(RESOURCES_URL, data={"service_id": "analytics"}, token=token)
+        assert create.status_code == 200
+        initial_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
+        own_key = self._mint_own_key(self.user, initial_pat)
         original_api_key = self.team.api_token
 
         res = self._post_signed_with_bearer(
             f"{RESOURCES_URL}/{self.team.id}/rotate_credentials", data={"label_prefix": "Rotated"}, token=token
         )
+
         assert res.status_code == 200
         body = res.json()
         assert body["status"] == "complete"
@@ -24,7 +40,10 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         self.team.refresh_from_db()
         assert self.team.api_token == rotated_api_key
         assert body["complete"]["access_configuration"]["personal_api_key"].startswith("phx_")
-        assert PersonalAPIKey.objects.filter(user=self.user, label__startswith="Rotated - ").exists()
+        assert not PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
+        rotated_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
+        assert rotated_pat.label.startswith("Rotated - ")
+        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
     def test_rotate_rejects_invalid_label_prefix_with_resource_id(self):
         token = self._get_bearer_token()
@@ -63,10 +82,15 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
             scoped_teams=[self.team.id, 99999],
         )
 
+        provisioned_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
+        own_key = self._mint_own_key(self.user, provisioned_pat)
+
         res = self._post_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}/remove", token=token)
         assert res.status_code == 200
         assert res.json() == {"status": "removed", "id": str(self.team.id)}
         assert not TeamProvisioningConfig.objects.filter(team=self.team).exists()
+        assert not PersonalAPIKey.objects.filter(id=provisioned_pat.id).exists()
+        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
         # The team left the token's scope; since it was the only scoped team the
         # token itself is gone, so further calls are unauthorized.

@@ -60,6 +60,7 @@ from ee.partners.stripe.api.provisioning.core import (
     StripeOAuthAppMissingError,
     base_team_id_from_scope,
     compute_partner_scoped_teams,
+    delete_provisioned_pats,
     get_available_teams_for_user,
     get_oauth_app_for_code,
     get_provisioning_service_id,
@@ -727,7 +728,9 @@ class ResourcesCreateView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(
+            user, team, access_token.application, access_token.scope, label_prefix=label_prefix
+        ):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -812,7 +815,14 @@ class RotateCredentialsView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(
+            user,
+            team,
+            access_token.application,
+            access_token.scope,
+            label_prefix=label_prefix,
+            replace_existing=True,
+        ):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -933,6 +943,9 @@ class ResourceRemoveView(StripeResourceAPIView):
             config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
             if config is not None and config.application_id in (None, access_token.application_id):
                 config.delete()
+
+            if access_token.application is not None:
+                delete_provisioned_pats(access_token.application, team_id=team_id)
         except Exception:
             capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
             capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")

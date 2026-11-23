@@ -28,10 +28,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.scopes.ceilings import narrow_scopes_to_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -673,15 +675,43 @@ def validate_label_prefix(raw: Any) -> str | None:
     return stripped
 
 
+def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User | None = None) -> int:
+    """Delete the personal API keys ``app`` minted for ``team_id``, for one user or for all of them.
+
+    Deletes key by key so the activity log records each deletion. Keys the user created
+    themselves carry no ``provisioned_by``, so they are never matched.
+    """
+    keys = PersonalAPIKey.objects.filter(provisioned_by=app, scoped_teams__contains=[team_id])
+    if user is not None:
+        keys = keys.filter(user=user)
+
+    deleted = 0
+    for key in keys:
+        key.delete()
+        deleted += 1
+
+    return deleted
+
+
 def maybe_create_provisioned_pat(
-    user: User, team: Team, granted_scope: str | None, label_prefix: str | None = None
+    user: User,
+    team: Team,
+    app: OAuthApplication | None,
+    granted_scope: str | None,
+    label_prefix: str | None = None,
+    *,
+    replace_existing: bool = False,
 ) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
 
-    The key carries the granted OAuth token's scopes (``granted_scope``) as-is;
-    this namespace does not enforce a scope ceiling, so what the token was
-    granted is exactly what the PAT gets. Falls back to the default Stripe scope
-    set when the token carried none.
+    Gated by ``app.provisioning.issues_personal_api_key``, which only the legacy Stripe
+    app has. Returns ``None`` when the gate is off, and the caller omits
+    ``personal_api_key`` from the response.
+
+    The key carries the granted OAuth token's scopes (``granted_scope``), or the default
+    Stripe scope set when the token carried none, narrowed to the app's current ceiling.
+    An app with an unseeded ceiling mints nothing, because an empty-scope key fails every
+    scope check and a wildcard would bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -690,27 +720,65 @@ def maybe_create_provisioned_pat(
 
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
+
+    ``replace_existing`` first deletes the keys ``app`` minted earlier for this user and
+    team, in the same transaction as the mint. It deletes them even when no new key is
+    minted, so a rotation always ends the earlier keys.
     """
-    pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
-    # TODO: latent bug - every call mints a new PAT without revoking earlier
-    # ones, so rotate_credentials accumulates live keys instead of rotating
-    # them. A correct fix needs a provenance marker on PersonalAPIKey (or the
-    # provisioned key id recorded on TeamProvisioningConfig) so revocation can
-    # target only provisioned keys - scope alone is ambiguous with keys a user
-    # created via /api/personal_api_keys/ carrying the same team/org scope.
+    if not app:
+        return None
+
+    with transaction.atomic():
+        if replace_existing:
+            delete_provisioned_pats(app, team_id=team.id, user=user)
+
+        pat_scopes = _provisioned_pat_scopes(team, app, granted_scope)
+        if not pat_scopes:
+            return None
+
+        return _mint_provisioned_pat(user, team, app, pat_scopes, label_prefix)
+
+
+def _provisioned_pat_scopes(team: Team, app: OAuthApplication, granted_scope: str | None) -> list[str] | None:
+    if not app.provisioning.issues_personal_api_key:
+        return None
+    if not app.ceiling_scopes:
+        capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
+        return None
+
+    granted = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
+    if "*" in granted:
+        # A legacy wildcard token covers everything, so the ceiling is the cap.
+        pat_scopes = app.ceiling_scopes
+    else:
+        pat_scopes = narrow_scopes_to_ceiling([s for s in granted if ":" in s], app.ceiling_scopes) or []
+
+    if not pat_scopes:
+        capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
+        return None
+
+    return pat_scopes
+
+
+def _mint_provisioned_pat(
+    user: User, team: Team, app: OAuthApplication, pat_scopes: list[str], label_prefix: str | None
+) -> str | None:
     try:
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
         label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
-        minted = mint_personal_api_key(
-            user,
-            label=label,
-            scopes=pat_scopes,
-            teams=AccessibleTeams.for_user(user, [team.id]),
-            organization_ids=[str(team.organization_id)],
-        )
+        # A savepoint, so a failed insert does not abort the caller's transaction.
+        with transaction.atomic():
+            minted = mint_personal_api_key(
+                user,
+                label=label,
+                scopes=pat_scopes,
+                teams=AccessibleTeams.for_user(user, [team.id]),
+                organization_ids=[str(team.organization_id)],
+                provisioned_by=app,
+            )
 
         return minted.value
     except Exception:

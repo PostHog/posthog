@@ -62,6 +62,20 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+    # Set only by the provisioning mint. The partner's rotate, remove, and revoke paths find the
+    # keys it minted through this column, so the personal API key API must never write it.
+    provisioned_by = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="provisioned_personal_api_keys",
+        # Migration 1455 adds the constraint NOT VALID and 1457 builds the index concurrently, so no
+        # migration scans this table while it holds a lock that blocks writes.
+        db_constraint=False,
+        db_index=False,
+    )
 
     # DEPRECATED: value is no longer persisted; use secure_value for hash of value
     value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))
@@ -73,6 +87,15 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
         null=True,
         blank=True,
     )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["provisioned_by"],
+                condition=Q(provisioned_by__isnull=False),
+                name="personalapikey_provisioned_by",
+            ),
+        ]
 
     @property
     def is_expired(self) -> bool:

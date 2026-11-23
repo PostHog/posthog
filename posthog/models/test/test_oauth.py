@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, User
+from posthog.accessible_teams import AccessibleTeams
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.oauth import (
     UNNORMALIZABLE_CIMD_URL,
     OAuthAccessToken,
@@ -22,12 +23,22 @@ from posthog.models.oauth import (
     revoke_oauth_token_session,
 )
 from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
+from posthog.personal_api_key_minting import mint_personal_api_key
 
 
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
         self.user = User.objects.create(email="test@example.com")
+
+    def _mint_key(self, owner: User, provisioned_by: OAuthApplication | None = None) -> PersonalAPIKey:
+        return mint_personal_api_key(
+            owner,
+            label="Partner key",
+            scopes=["query:read"],
+            teams=AccessibleTeams.all_for(owner),
+            provisioned_by=provisioned_by,
+        ).key
 
     def _make_app(self, name: str, client_id: str, **overrides) -> OAuthApplication:
         return OAuthApplication.objects.create(
@@ -507,12 +518,18 @@ class TestOAuthModels(TestCase):
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=5),
         )
+        provisioned_key = self._mint_key(self.user, provisioned_by=app)
+        own_key = self._mint_key(self.user)
+        other_user_provisioned_key = self._mint_key(User.objects.create(email="other@example.com"), provisioned_by=app)
 
         revoke_oauth_session(access_token=access_token)
 
         self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
         self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
         self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
+        self.assertFalse(PersonalAPIKey.objects.filter(id=provisioned_key.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=own_key.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=other_user_provisioned_key.id).exists())
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -646,6 +663,8 @@ class TestOAuthModels(TestCase):
         survivor = OAuthAccessToken.objects.create(
             application=other_app, user=self.user, token="at_survivor", expires=timezone.now() + timedelta(minutes=5)
         )
+        provisioned_key_ids = [self._mint_key(owner, provisioned_by=app).id for owner in (self.user, other_user)]
+        surviving_key_ids = [self._mint_key(self.user).id, self._mint_key(self.user, provisioned_by=other_app).id]
 
         revoke_application_sessions(app)
 
@@ -653,6 +672,8 @@ class TestOAuthModels(TestCase):
         self.assertEqual(OAuthGrant.objects.filter(application=app).count(), 0)
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())
+        self.assertFalse(PersonalAPIKey.objects.filter(id__in=provisioned_key_ids).exists())
+        self.assertEqual(PersonalAPIKey.objects.filter(id__in=surviving_key_ids).count(), len(surviving_key_ids))
 
     @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_application_sessions_stamps_sessions_revoked_at(self):
