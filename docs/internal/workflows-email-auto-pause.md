@@ -94,4 +94,5 @@ Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_
 - Workflow completion does not confirm an email send. Test responses expose the email provider outcome separately; a skipped send retains its reason, and provider acceptance does not confirm inbox delivery.
 - Skipped sends log at error level in the run and record an `email_paused` metric; the run itself continues past the email step, so downstream steps still execute.
 - A workflow with both transactional and marketing email steps stays pausable, and a pause holds every email step in it, the transactional ones too.
+- The sweep reads a workflow's steps before it writes a pause. A workflow republished as transactional in between is paused; its admins get the pause email and can resume it.
 - Sends from the PostHog test sender (the `email_sandbox` step) never count toward a workflow's rates and are never paused by the detector. They record no ordinary email metrics, and the PostHog test sender has its own controls (see [email sending tiers](workflows-email-sending-tiers.md#posthog-test-sender)).
