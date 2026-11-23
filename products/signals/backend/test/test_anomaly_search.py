@@ -642,6 +642,11 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             (self.user, "insight", self.insight.short_id, 10),
             (self.user, "dashboard", str(dashboard.id), 20),
             (someone_else, "insight", other.short_id, 1),
+            # The view log stores any ref and any time a member sends.
+            (self.user, "insight", other.short_id, -1),
+            (self.user, "dashboard", "²", 1),
+            (self.user, "dashboard", str(2**31), 1),
+            (self.user, "dashboard", "9" * 200, 1),
         ):
             FileSystemViewLog.objects.create(
                 team=self.team, user=user, type=view_type, ref=ref, viewed_at=NOW - datetime.timedelta(days=days_ago)

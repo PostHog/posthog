@@ -82,6 +82,11 @@ MAX_SCOPED_INSIGHTS = 1_000
 MIN_RANGE_BUCKETS: Mapping[IntervalType, int] = {IntervalType.WEEK: 2, IntervalType.MONTH: 1}
 # The windows a search can scope to the insights and dashboards the user viewed, in days.
 VIEWED_WITHIN_DAYS = (7, 14, 30, 45, 90)
+# The view log takes any type, ref and time from its caller, so one user can store any number of rows. The viewed
+# scope reads only the newest rows, which bounds the Postgres lookups that follow.
+MAX_VIEWED_ITEMS = 1_000
+# The largest id a dashboard can have. A larger value in an `__in` lookup makes Postgres reject the whole query.
+MAX_DASHBOARD_ID = 2**31 - 1
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
 SCORING_SOURCE_OFF_MESSAGE = (
     "The Product analytics source is turned off in this project's self-driving settings, so no insight is scored. "
@@ -337,19 +342,31 @@ def _viewable_dashboards(team: Team, user: User, insight_ids: Collection[int]) -
     return {insight_id: tuple(ref for ref in refs if ref.id in viewable) for insight_id, refs in by_insight.items()}
 
 
+def _dashboard_id(ref: str) -> int | None:
+    """The dashboard id a view-log ref holds, or None when the ref cannot be one.
+
+    ``str.isdigit`` alone is not enough, because it accepts digits such as ``²`` that ``int`` rejects.
+    """
+    if not (ref.isascii() and ref.isdigit()) or len(ref) > len(str(MAX_DASHBOARD_ID)):
+        return None
+    dashboard_id = int(ref)
+    return dashboard_id if dashboard_id <= MAX_DASHBOARD_ID else None
+
+
 def _viewed_insight_ids(team: Team, user: User, *, days: int, now: datetime.datetime) -> set[int]:
     """The insights the user opened in the last ``days``, and the insights on the live tiles of the dashboards they opened.
 
     A dashboard counts with the tiles it has now, not the tiles it had when the user opened it. The view log records
-    views in the web app only, so an insight read through the API or an MCP tool does not count.
+    views in the web app only, so an insight read through the API or an MCP tool does not count. Only the newest
+    ``MAX_VIEWED_ITEMS`` views count, and a view dated after ``now`` does not count.
     """
     refs: dict[str, set[str]] = {"insight": set(), "dashboard": set()}
     views = recent_view_logs(team_id=team.id, user_id=user.id).filter(
-        type__in=list(refs), viewed_at__gte=now - datetime.timedelta(days=days)
-    )
+        type__in=list(refs), viewed_at__gte=now - datetime.timedelta(days=days), viewed_at__lte=now
+    )[:MAX_VIEWED_ITEMS]
     for view_type, ref in views.values_list("type", "ref"):
         refs[view_type].add(ref)
-    dashboard_ids = {int(ref) for ref in refs["dashboard"] if ref.isdigit()}
+    dashboard_ids = {dashboard_id for ref in refs["dashboard"] if (dashboard_id := _dashboard_id(ref)) is not None}
     return insight_ids_by_short_ids(team_id=team.id, short_ids=refs["insight"]) | live_tile_insight_ids_on_dashboards(
         dashboard_ids, team_id=team.id
     )
