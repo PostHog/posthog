@@ -1132,6 +1132,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'warehouse-partitioning-controls',
             'notebook-app-builder',
             'workflows-email-activity',
             'scout-trials',

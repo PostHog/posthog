@@ -11,7 +11,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1435_ema_issuer_management"),
-        ("warehouse_sources", "0204_externaldataschema_live_query_enabled"),
+        ("warehouse_sources", "0205_repin_remaining_langfuse_api_version_v3"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
