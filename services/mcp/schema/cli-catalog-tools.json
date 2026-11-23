@@ -15460,10 +15460,6 @@
                     "key": "configuration"
                 },
                 {
-                    "param": "confidence",
-                    "key": "confidence"
-                },
-                {
                     "param": "reasoning",
                     "key": "reasoning"
                 },
