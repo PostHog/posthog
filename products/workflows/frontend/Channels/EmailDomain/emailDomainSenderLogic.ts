@@ -25,7 +25,6 @@ export interface EmailSenderConfig {
     provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
     verified?: boolean
-    ses_sending_status?: string
     setup_method?: EmailSetupMethod
 }
 
@@ -192,13 +191,7 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     }
                     try {
                         return await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                            // Like the name save, it sends no MAIL FROM subdomain, so it can't undo one a verification adopted.
-                            config: {
-                                email: senderConfig.email,
-                                name: senderConfig.name,
-                                provider: senderConfig.provider,
-                                setup_method: method,
-                            },
+                            config: { ...senderConfig, setup_method: method },
                         })
                     } catch {
                         return sender
@@ -318,8 +311,7 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             }
             try {
                 const saved = await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                    // Sending the loaded MAIL FROM subdomain back would undo one a verification adopted since.
-                    config: { email: senderConfig.email, provider: senderConfig.provider, name: values.senderName },
+                    config: { ...senderConfig, name: values.senderName },
                 })
                 actions.senderSaved(saved)
             } catch (error) {

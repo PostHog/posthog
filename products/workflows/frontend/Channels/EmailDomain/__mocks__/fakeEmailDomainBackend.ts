@@ -73,7 +73,6 @@ interface Hold {
 }
 
 const CHECKED_AT = '2026-01-01T00:00:00Z'
-const STATUS_CACHE_MS = 10_000
 const FIRST_SENDER_ID = 42
 const VERIFICATION_TOKEN = 'pSM7OoC2Jl6dNKGRmkc4KZpesve3QP3cUUT2FGZZ1PU='
 const DKIM_SELECTORS = [
@@ -186,7 +185,6 @@ export class FakeEmailDomainBackend {
     private failures = new Map<FakeEndpoint, FakeFailure>()
     private oneOffFailures = new Map<FakeEndpoint, FakeFailure>()
     private holds = new Map<FakeEndpoint, Hold>()
-    private statusCache = new Map<number, { status: EmailDomainStatusApi; cachedAt: number }>()
     private nextSenderId = FIRST_SENDER_ID
 
     addSender(config: Pick<EmailSenderConfig, 'email'> & Partial<EmailSenderConfig>): IntegrationConfigApi {
@@ -282,22 +280,11 @@ export class FakeEmailDomainBackend {
         this.publishRecords(domain)
         const state = this.domainState(domain)
         state.ses = 'verified'
-        state.awaitingRecord = false
         state.sendingStopped = false
         this.senders.forEach((sender) => {
-            const { ses_sending_status: _cleared, ...config } = sender.config as EmailSenderConfig
+            const { ses_sending_status: _cleared, ...config } = sender.config as Record<string, unknown>
             if (config.domain === domain) {
                 sender.config = { ...config, verified: true }
-            }
-        })
-    }
-
-    /** A verification elsewhere adopted the MAIL FROM subdomain the provider uses for the domain. */
-    adoptsMailFrom(domain: string, mailFromSubdomain: string): void {
-        this.domainState(domain).mailFromSubdomain = mailFromSubdomain
-        this.senders.forEach((sender) => {
-            if ((sender.config as EmailSenderConfig).domain === domain) {
-                this.updateSender(sender, { mail_from_subdomain: mailFromSubdomain })
             }
         })
     }
@@ -309,7 +296,7 @@ export class FakeEmailDomainBackend {
         state.ses = 'failed'
         state.sendingStopped = true
         this.senders.forEach((sender) => {
-            const config = sender.config as EmailSenderConfig
+            const config = sender.config as Record<string, unknown>
             if (config.domain === domain) {
                 sender.config = { ...config, ses_sending_status: 'failed' }
             }
@@ -348,7 +335,7 @@ export class FakeEmailDomainBackend {
         this.oneOffFailures.delete(endpoint)
     }
 
-    /** Delays every response from the endpoint until the returned function is called. */
+    /** Keeps every response from the endpoint pending until the returned function is called. */
     hold(endpoint: FakeEndpoint): () => void {
         const hold = createHold()
         this.holds.set(endpoint, hold)
@@ -389,22 +376,6 @@ export class FakeEmailDomainBackend {
         }
     }
 
-    /** Like the server, a read without refresh gets the answer cached in the last 10 seconds, and an answer whose
-     * provider verification is not recorded yet is never cached. */
-    private cachedStatusOf(sender: IntegrationConfigApi, refresh: boolean): EmailDomainStatusApi {
-        const cached = this.statusCache.get(sender.id)
-        if (!refresh && cached && Date.now() - cached.cachedAt < STATUS_CACHE_MS) {
-            return cached.status
-        }
-        const config = sender.config as EmailSenderConfig
-        const status = this.statusOf(config.domain)
-        const unrecordedVerification = this.domainState(config.domain).ses === 'verified' && config.verified !== true
-        if (!unrecordedVerification) {
-            this.statusCache.set(sender.id, { status, cachedAt: Date.now() })
-        }
-        return status
-    }
-
     detectionOf(domain: string): EmailDomainConnectCheckApi {
         const host = [...this.dnsHosts.entries()].find(
             ([registered]) => domain === registered || domain.endsWith(`.${registered}`)
@@ -419,12 +390,10 @@ export class FakeEmailDomainBackend {
                 '/api/environments/:team_id/integrations/:id/': this.serve('integration_get', ({ params }) =>
                     this.withSender(Number(params.id), (sender) => sender)
                 ),
-                '/api/environments/:team_id/integrations/:id/email/status/': this.serve(
-                    'email_status',
-                    ({ params, request }) =>
-                        this.withSender(Number(params.id), (sender) =>
-                            this.cachedStatusOf(sender, new URL(request.url).searchParams.get('refresh') === 'true')
-                        )
+                '/api/environments/:team_id/integrations/:id/email/status/': this.serve('email_status', ({ params }) =>
+                    this.withSender(Number(params.id), (sender) =>
+                        this.statusOf((sender.config as EmailSenderConfig).domain)
+                    )
                 ),
                 '/api/environments/:team_id/integrations/domain-connect/check/': this.serve(
                     'domain_connect_check',
@@ -462,14 +431,11 @@ export class FakeEmailDomainBackend {
                 ),
             },
             patch: {
-                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) => {
-                    const config = (body as { config: Partial<EmailSenderConfig> }).config
-                    // Like the server's serializer, an update must name the email, the sender name and the provider.
-                    if (!config.email || !config.name || !config.provider) {
-                        return [400, { detail: 'This field is required.' }]
-                    }
-                    return this.withSender(Number(params.id), (sender) => this.updateSender(sender, config))
-                }),
+                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) =>
+                    this.withSender(Number(params.id), (sender) =>
+                        this.updateSender(sender, (body as { config: Partial<EmailSenderConfig> }).config)
+                    )
+                ),
             },
         }
     }
@@ -481,14 +447,12 @@ export class FakeEmailDomainBackend {
         return async (info) => {
             const body = await readBody(info.request)
             this.requests.push({ endpoint, method: info.request.method, url: info.request.url, body })
-            // A held read answers with the state at request time; a held write lands on release; a refusal never runs.
-            const failure = this.failureFor(endpoint)
-            const read = !failure && info.request.method === 'GET' ? respond(info, body) : null
             await this.holds.get(endpoint)?.promise
+            const failure = this.failureFor(endpoint)
             if (failure) {
                 return [failure.status, failure.body ?? { detail: 'The fake backend refused this request' }]
             }
-            return read ?? respond(info, body)
+            return respond(info, body)
         }
     }
 

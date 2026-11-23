@@ -54,26 +54,8 @@ const LIVE_ON_TEST_SENDER: HogFlow = {
     edges: [{ from: 'trigger_node', to: 'email', type: 'continue' }],
 }
 
-const LIVE_ON_STOPPED_SENDER: HogFlow = {
-    ...LIVE_ON_TEST_SENDER,
-    id: '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
-    actions: [
-        LIVE_ON_TEST_SENDER.actions[0],
-        {
-            id: 'email',
-            type: 'function_email',
-            name: 'Email',
-            description: '',
-            created_at: 0,
-            updated_at: 0,
-            config: { template_id: 'template-email', inputs: { email: { value: { from: { integrationId: 42 } } } } },
-        },
-    ],
-}
-
 const STORED_WORKFLOWS: Record<string, HogFlow> = {
     [LIVE_ON_TEST_SENDER.id]: LIVE_ON_TEST_SENDER,
-    [LIVE_ON_STOPPED_SENDER.id]: LIVE_ON_STOPPED_SENDER,
 }
 
 describe('email domain setup started', () => {
@@ -93,7 +75,6 @@ describe('email domain setup started', () => {
         EmailSetupModal: typeof import('../EmailSetup/EmailSetupModal').EmailSetupModal
         workflowLogic: typeof import('../../Workflows/workflowLogic').workflowLogic
         WorkflowSandboxSenderBanner: typeof import('../../Workflows/WorkflowSandboxSenderBanner').WorkflowSandboxSenderBanner
-        WorkflowStoppedSenderBanner: typeof import('../../Workflows/WorkflowStoppedSenderBanner').WorkflowStoppedSenderBanner
     }
 
     beforeAll(async () => {
@@ -124,8 +105,6 @@ describe('email domain setup started', () => {
             workflowLogic: (await import('../../Workflows/workflowLogic')).workflowLogic,
             WorkflowSandboxSenderBanner: (await import('../../Workflows/WorkflowSandboxSenderBanner'))
                 .WorkflowSandboxSenderBanner,
-            WorkflowStoppedSenderBanner: (await import('../../Workflows/WorkflowStoppedSenderBanner'))
-                .WorkflowStoppedSenderBanner,
         }
     })
 
@@ -194,13 +173,6 @@ describe('email domain setup started', () => {
             ),
             presses: ['workflow-sandbox-sender-fix-domain'],
             entry: 'sandbox_sender_banner_repair',
-        },
-        {
-            from: 'the stopped sender banner on a workflow whose steps use that sender',
-            seed: 'stopped',
-            ui: () => <app.WorkflowStoppedSenderBanner id={LIVE_ON_STOPPED_SENDER.id} />,
-            presses: ['workflow-stopped-sender-fix-domain'],
-            entry: 'stopped_sender_banner',
         },
     ])('sends one start event with the entry for $from', async ({ seed, ui, presses, entry }) => {
         sentEvents.length = 0

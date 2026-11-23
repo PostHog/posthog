@@ -55,7 +55,6 @@ import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSandboxSenderBanner } from './WorkflowSandboxSenderBanner'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
-import { WorkflowStoppedSenderBanner } from './WorkflowStoppedSenderBanner'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
@@ -260,7 +259,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                     <WorkflowSceneHeader {...props} />
                     <WorkflowEmailPauseBanner />
                     {isSavedWorkflow && <WorkflowSandboxSenderBanner id={props.id!} />}
-                    {isSavedWorkflow && <WorkflowStoppedSenderBanner {...workflowProps} />}
                     {isSavedWorkflow && <WorkflowViewOnlyBanner id={props.id!} />}
                     {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
                     {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}

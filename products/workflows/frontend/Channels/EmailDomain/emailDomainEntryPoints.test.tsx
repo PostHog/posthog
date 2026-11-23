@@ -19,7 +19,6 @@ import { MessagingTabActions } from '../../MessagingTabActions'
 import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowSandboxSenderBanner } from '../../Workflows/WorkflowSandboxSenderBanner'
-import { WorkflowStoppedSenderBanner } from '../../Workflows/WorkflowStoppedSenderBanner'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
@@ -186,42 +185,6 @@ describe('email domain setup entry points', () => {
         fireEvent.click(element('workflow-sandbox-sender-fix-domain'))
         await flush()
 
-        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
-    })
-
-    it("opens the stopped sender's domain page or the broken step from the stopped sender banner", async () => {
-        const stopped = backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
-        stopped.config = { ...(stopped.config as Record<string, unknown>), ses_sending_status: 'failed' }
-        const onStoppedSender = {
-            ...LIVE_ON_TEST_SENDER,
-            id: 'flow-2',
-            actions: [
-                LIVE_ON_TEST_SENDER.actions[0],
-                {
-                    id: 'email',
-                    type: 'function_email',
-                    name: 'Email',
-                    config: { inputs: { email: { value: { from: { integrationId: stopped.id } } } } },
-                },
-            ],
-        }
-        useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': onStoppedSender } })
-        await renderInApp(<WorkflowStoppedSenderBanner id="flow-2" />)
-
-        expect(
-            await screen.findByText(
-                new RegExp(
-                    `^Sending stopped for ${DOMAIN}\\. An email step in this workflow sends from it, and those emails fail until the domain's DNS records are fixed\\. Fix your sending domain, or change the sender on that step\\.$`
-                )
-            )
-        ).toBeInTheDocument()
-        fireEvent.click(element('workflow-stopped-sender-change-sender'))
-        await flush()
-        expect(router.values.location.pathname).toMatch(/\/workflows\/flow-2\/workflow$/)
-        expect(router.values.searchParams).toMatchObject({ node: 'email', mode: 'build' })
-
-        fireEvent.click(element('workflow-stopped-sender-fix-domain'))
-        await flush()
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
     })
 
