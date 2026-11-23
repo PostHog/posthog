@@ -38,8 +38,9 @@ from products.workflows.backend.facade.enums import (
 from products.workflows.backend.services.email_domain_dns import (
     PublishedRecords,
     dmarc_hostnames,
-    find_dmarc_record_in_force,
+    dmarc_record_in_force,
     find_published_records,
+    inherited_dmarc_record,
 )
 from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
@@ -328,11 +329,13 @@ def _legacy_dns_record(record: EmailDomainStatusRecord) -> EmailDomainDnsRecord:
     return legacy
 
 
-def _with_dmarc_record_in_force(
-    domain: str, records: Sequence[EmailDomainStatusRecord], published: PublishedRecords
+def _find_published_records(
+    domain: str, records: Sequence[EmailDomainStatusRecord]
 ) -> tuple[tuple[EmailDomainStatusRecord, ...], PublishedRecords]:
     dmarc = next(record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC)
-    in_force, published = find_dmarc_record_in_force(domain, dmarc, published)
+    inherited = inherited_dmarc_record(domain, dmarc)
+    published = find_published_records(domain, [*records, *([inherited] if inherited else [])])
+    in_force, published = dmarc_record_in_force(dmarc, inherited, published)
     return tuple(in_force if record == dmarc else record for record in records), published
 
 
@@ -929,7 +932,7 @@ class SESProvider:
             dkim_tokens=identity.dkim_tokens,
             ses_region=self._ses_region,
         )
-        records, published = _with_dmarc_record_in_force(domain, records, find_published_records(domain, records))
+        records, published = _find_published_records(domain, records)
         dmarc_published = any(record.kind == EmailDomainSetupRecordKind.DMARC for record in published.records)
         is_ready = (
             identity.is_ready(dmarc_published=dmarc_published)

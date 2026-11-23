@@ -30,7 +30,7 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 
 @frozen
@@ -70,28 +70,38 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
     )
 
 
-# Receivers look up a domain's own DMARC record first, then its organizational domain's (RFC 7489, 6.6.3).
 def dmarc_hostnames(domain: str) -> tuple[str, ...]:
     return tuple(f"_dmarc.{name}" for name in dict.fromkeys((domain, _organizational_domain(domain))))
 
 
-def find_dmarc_record_in_force(
-    domain: str, record: EmailDomainStatusRecord, published: PublishedRecords
-) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
-    if record in published.records:
-        in_force = replace(record, value=published.dmarc_values[record])
-        return in_force, replace(published, records=(published.records - {record}) | {in_force})
+def inherited_dmarc_record(domain: str, record: EmailDomainStatusRecord) -> EmailDomainStatusRecord | None:
     organizational_domain = _organizational_domain(domain)
-    if organizational_domain == domain or record in published.unanswered:
-        return record, published
-    inherited = replace(record, hostname=f"_dmarc.{organizational_domain}")
-    found = find_published_records(organizational_domain, [inherited])
-    if inherited in found.records:
-        in_force = replace(inherited, value=found.dmarc_values[inherited])
-        return in_force, replace(published, records=published.records | {in_force})
-    if found.unanswered:
-        return record, replace(published, unanswered=published.unanswered | {record})
-    return record, published
+    if organizational_domain == domain:
+        return None
+    return replace(record, hostname=f"_dmarc.{organizational_domain}")
+
+
+def dmarc_record_in_force(
+    record: EmailDomainStatusRecord, inherited: EmailDomainStatusRecord | None, published: PublishedRecords
+) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    probe = frozenset({inherited} if inherited else ())
+    own = replace(published, records=published.records - probe, unanswered=published.unanswered - probe)
+    if record in published.records:
+        return _with_published_value(record, own)
+    if inherited is None or record in published.unanswered:
+        return record, own
+    if inherited in published.records:
+        return _with_published_value(inherited, own)
+    if inherited in published.unanswered:
+        return record, replace(own, unanswered=own.unanswered | {record})
+    return record, own
+
+
+def _with_published_value(
+    record: EmailDomainStatusRecord, published: PublishedRecords
+) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    in_force = replace(record, value=published.dmarc_values[record])
+    return in_force, replace(published, records=(published.records - {record}) | {in_force})
 
 
 def _organizational_domain(domain: str) -> str:

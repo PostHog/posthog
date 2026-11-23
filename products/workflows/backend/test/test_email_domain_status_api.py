@@ -639,6 +639,17 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
 
+    def test_subdomain_under_a_private_suffix_does_not_inherit_the_suffix_operators_dmarc_record(self) -> None:
+        self.world.dns.add_zone("eu.org")
+        self.world.dns.add_zone("name.eu.org")
+        self.world.dns.publish_txt("_dmarc.eu.org", "v=DMARC1; p=reject")
+        sender = self.create_sender("hello@send.name.eu.org")
+        self.publish(self.records_to_publish(sender, domain="send.name.eu.org"), *ALL_KINDS[:-1])
+
+        body = self.status_body(sender)
+
+        assert (body["status"], record_statuses(body)["dmarc"]) == ("pending", ["pending"])
+
     @parameterized.expand([(DnsFault.TIMEOUT,), (DnsFault.SERVFAIL,)])
     def test_public_resolver_confirms_a_record_the_zone_nameservers_cannot_answer(self, fault: DnsFault) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
@@ -769,6 +780,17 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
             "Our email provider refused to set up this domain. Contact support for help.",
         )
         assert list(Integration.objects.filter(kind="email").values("id", "config")) == senders_before
+
+    @parameterized.expand([(DnsFault.TIMEOUT,), (DnsFault.SERVFAIL,)])
+    def test_unanswered_organizational_dmarc_lookup_holds_verification_until_it_answers(self, fault: DnsFault) -> None:
+        self.world.dns.unpublish(f"_dmarc.{DOMAIN}", "TXT")
+        self.world.dns.publish_txt(f"_dmarc.{ROOT_DOMAIN}", "v=DMARC1; p=reject")
+        self.world.faults.inject(dns_operation(f"_dmarc.{ROOT_DOMAIN}", "TXT"), fault)
+
+        assert self.status_body(self.sender, refresh=False)["status"] in ("pending", "records_found")
+
+        self.world.faults.clear()
+        assert self.status_body(self.sender, refresh=False)["status"] == "verified"
 
     @parameterized.expand(
         product(
