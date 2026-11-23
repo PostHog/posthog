@@ -628,21 +628,26 @@ def pause_workflow_email_sending(
     reason: str,
     paused_by: str = PAUSED_BY_AUTO,
     now: datetime | None = None,
+    unless_transactional: bool = False,
 ) -> bool:
     """Pause one workflow's email and tell the project's admins.
 
     Returns False if it was already paused, which is how two overlapping sweeps stay down to one
     notification. The row is locked for the read-compare-write so the loser sees the pause.
+    `unless_transactional` also returns False when the workflow now sends only transactional email,
+    so a republish after the sweep classified it never leaves it paused.
     """
     now = now or timezone.now()
     with transaction.atomic():
         flow = (
             HogFlow.objects.select_for_update()
             .filter(id=hog_flow_id, team_id=team_id)
-            .only("id", "team_id", "email_sending_paused_at", "email_sending_resumed_at")
+            .only("id", "team_id", "email_sending_paused_at", "email_sending_resumed_at", "actions")
             .first()
         )
         if flow is None or flow.email_sending_paused_at is not None:
+            return False
+        if unless_transactional and sends_only_transactional_email(flow.actions):
             return False
         # A pause landing inside the repeat window of the previous resume is staff-resumable only,
         # and its email must not point the customer at a resume button that will refuse them.
@@ -681,6 +686,7 @@ def apply_pause(decision: PauseDecision, *, now: datetime | None = None) -> bool
         hog_flow_name=decision.hog_flow_name,
         reason=decision.reason,
         now=now,
+        unless_transactional=True,
     )
 
 
