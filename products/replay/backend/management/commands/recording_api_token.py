@@ -25,7 +25,7 @@ List the blocks, then fetch one with a key and byte range from that list:
 
 
 def claimed_by() -> str | None:
-    """The email of whoever claimed this toolbox pod, or None when the pod is unclaimed."""
+    """The claim label of this toolbox pod, as the claim script wrote it, or None when the pod is unclaimed."""
     try:
         lines = POD_LABELS_PATH.read_text().splitlines()
     except OSError:
@@ -33,9 +33,9 @@ def claimed_by() -> str | None:
     for line in lines:
         key, _, quoted = line.partition("=")
         if key == CLAIM_LABEL:
-            # The downward API writes each value as a quoted string, and the claim script spells @ as _at_.
+            # Kept as written, because turning the claim script's `_at_` back into `@` cannot be done without loss.
             value = json.loads(quoted)
-            return value.replace("_at_", "@", 1) if isinstance(value, str) and value else None
+            return value if isinstance(value, str) and value else None
     return None
 
 

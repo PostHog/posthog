@@ -49,7 +49,7 @@ class TestRecordingApiTokenCommand(BaseTest):
         )
         assert claims["team_id"] == self.team.pk
         assert claims["op"] == "read"
-        assert claims["actor"] == "staff@example.com"
+        assert claims["actor"] == "staff_at_example.com"
         assert claims["reason"] == "ticket 1"
         assert 15 * 60 <= claims["exp"] - claims["iat"] <= 15 * 60 + 1
         assert printed["url"] == "http://recording-api:6738"
