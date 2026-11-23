@@ -79435,6 +79435,14 @@ export namespace Schemas {
       action?: OrganizationMemberNoticeAction | null;
     }
 
+    export interface OrganizationExternalProjectLink {
+      readonly id: string;
+      /** Name shown for the project in the project switcher. */
+      readonly name: string;
+      /** Full URL of the project on the other PostHog instance. */
+      readonly url: string;
+    }
+
     export interface Organization {
       readonly id: string;
       /**
@@ -79554,6 +79562,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links: readonly OrganizationExternalProjectLink[];
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -95561,6 +95571,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning?: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links?: readonly OrganizationExternalProjectLink[];
     }
 
     export interface PatchedOrganizationDomain {

@@ -15276,6 +15276,17 @@ export namespace Schemas {
         message: string;
         action?: (OrganizationMemberNoticeAction | null) | undefined;
     };
+    export type OrganizationExternalProjectLink = {
+        id: string;
+        /**
+         * Name shown for the project in the project switcher.
+         */
+        name: string;
+        /**
+         * Full URL of the project on the other PostHog instance.
+         */
+        url: string;
+    };
     export type Organization = {
         id: string;
         /**
@@ -15353,6 +15364,10 @@ export namespace Schemas {
          * A warning when the current request's IP address is not in the saved allowlist.
          */
         ip_restrictions_warning: string | null;
+        /**
+         * Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.
+         */
+        external_project_links: Array<OrganizationExternalProjectLink>;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
