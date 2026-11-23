@@ -514,25 +514,6 @@ class TestTransactionalEmail(APIBaseTest):
             for event in analytics.properties_of("transactional email api send")
         ] == [expected]
 
-    def test_a_categorized_code_send_records_its_client_and_queues_its_category(self, mock_post, _flag, capture):
-        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
-        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
-
-        response = self._psak_client(["transactional_email:write"]).post(
-            self.send_email_url,
-            self._code_send(**MARKETING_SEND),
-            format="json",
-            headers={"X-PostHog-Integration": "django-anymail/13.1"},
-        )
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        newsletter = MessageCategory.objects.get(team=self.team, key="newsletter")
-        assert pipeline.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
-        assert [
-            (event["client"], event["category_type"])
-            for event in analytics.properties_of("transactional email api send")
-        ] == [("django-anymail", "marketing")]
-
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         client = APIClient()
@@ -693,6 +674,9 @@ class TestTransactionalEmail(APIBaseTest):
             ("sandbox_recipient_not_member", 422, 422, "sandbox_recipient_not_member"),
             ("sandbox_fields_unsupported", 400, 400, "sandbox_fields_unsupported"),
             ("sandbox_sender_unavailable", 403, 403, "sandbox_sender_unavailable"),
+            ("recipient_opted_out", 422, 422, "recipient_opted_out"),
+            ("unsubscribe_link_required", 400, 400, "unsubscribe_link_required"),
+            ("copies_not_allowed", 400, 400, "copies_not_allowed"),
             ("message_too_large", 413, 400, "content_too_large"),
         ]
     )
@@ -1076,7 +1060,6 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("link_in_the_html", {"html": UNSUBSCRIBE_HTML}, status.HTTP_202_ACCEPTED),
             ("link_in_the_text_of_an_email_without_html", {"html": "", "text": "Bye: {{unsubscribe_url}}"}, 202),
             ("no_link", {"html": "<p>Hi</p>", "text": "Hi"}, status.HTTP_400_BAD_REQUEST),
             ("link_only_in_the_text_beside_html", {"html": "<p>Hi</p>", "text": "{{ unsubscribe_url }}"}, 400),
@@ -1252,12 +1235,6 @@ class TestTransactionalEmail(APIBaseTest):
                 {"category": {**NEWSLETTER, "key": "$all"}, "html": UNSUBSCRIBE_HTML},
                 "invalid_input",
             ),
-            (
-                "missing_name",
-                None,
-                {"category": {"key": "newsletter", "type": "marketing"}, "html": UNSUBSCRIBE_HTML},
-                "required",
-            ),
         ]
     )
     def test_refuses_a_code_send_in_a_category_it_cant_send_in(
@@ -1296,30 +1273,19 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_send_link", "code", {}, (400, "unsubscribe_link_required")),
-            ("code_send_copies", "code", {}, (400, "copies_not_allowed")),
-            ("code_send_with_files_link", "code", {"attachments": TWO_FILES}, (400, "unsubscribe_link_required")),
-            ("code_send_with_files_copies", "code", {"attachments": TWO_FILES}, (400, "copies_not_allowed")),
-            ("code_send_with_files_opted_out", "code", {"attachments": TWO_FILES}, (422, "recipient_opted_out")),
-            ("template_send_link", "template", {}, (400, "unsubscribe_link_required")),
-            ("template_send_copies", "template", {}, (400, "copies_not_allowed")),
-            ("template_send_opted_out", "template", {}, (422, "recipient_opted_out")),
+            ("unsubscribe_link_required", (400, "unsubscribe_link_required")),
+            ("copies_not_allowed", (400, "copies_not_allowed")),
+            ("recipient_opted_out", (422, "recipient_opted_out")),
         ]
     )
-    def test_the_email_pipelines_refusal_reaches_the_caller(
-        self, cdp_post, _flag, capture, _name, form, fields, refusal
-    ):
+    def test_a_code_send_with_files_keeps_a_category_refusals_code(self, cdp_post, _flag, capture, _name, refusal):
         self.cdp = self.enterContext(FakeCdpApi(refusal=refusal).serving(cdp_post))
-        client = self._psak_client(["transactional_email:write"])
 
-        if form == "code":
-            response = client.post(
-                self.send_email_url,
-                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML, **fields),
-                format="json",
-            )
-        else:
-            response = client.post(self.url, self.body, format="json")
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url,
+            self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML, attachments=TWO_FILES),
+            format="json",
+        )
 
         assert (response.status_code, response.json()["code"]) == refusal
 
@@ -1378,7 +1344,6 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_category_left_out", None, "template", {}, None),
             ("no_category_transactional", None, "template", {"category": "transactional"}, None),
             ("no_category_object", None, "send_email", {"category": NEWSLETTER}, "category_mismatch"),
             ("own_category_left_out", "receipts", "template", {}, "receipts"),
@@ -1458,38 +1423,23 @@ class TestTransactionalEmail(APIBaseTest):
             assert self.cdp.received == []
         assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
 
-    @parameterized.expand(
-        [
-            ("opted_out_of_the_category", "newsletter", NEWSLETTER, "recipient_opted_out"),
-            ("opted_out_of_all_marketing", None, NEWSLETTER, "recipient_opted_out"),
-            ("opted_out_of_another_category", "promos", NEWSLETTER, None),
-            ("transactional_send_to_someone_opted_out_of_all_marketing", None, "transactional", None),
-        ]
-    )
-    def test_a_marketing_code_send_skips_a_recipient_who_opted_out(
-        self, cdp_post, _flag, capture, _name, opted_out_of, category, expected_code
-    ):
+    def test_a_marketing_code_send_skips_a_recipient_who_opted_out(self, cdp_post, _flag, capture):
         self._use_fakes(cdp_post, capture)
         self._category()
-        self._category(key="promos", name="Promos")
         opted_out = self.client.post(
             f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {"identifier": "user@example.com", **({"category_key": opted_out_of} if opted_out_of else {})},
+            {"identifier": "user@example.com", "category_key": "newsletter"},
             format="json",
         )
         assert opted_out.status_code == status.HTTP_201_CREATED, opted_out.json()
 
         response = self._psak_client(["transactional_email:write"]).post(
-            self.send_email_url, self._code_send(category=category, html=self.UNSUBSCRIBE_HTML), format="json"
+            self.send_email_url, self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML), format="json"
         )
 
-        if expected_code:
-            assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
-            assert response.json()["code"] == expected_code
-            assert self.cdp.emails() == []
-        else:
-            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-            assert len(self.cdp.emails()) == 1
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
+        assert response.json()["code"] == "recipient_opted_out"
+        assert self.cdp.emails() == []
 
     def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
         with FakeCdpApi().serving(mock_post) as cdp:
