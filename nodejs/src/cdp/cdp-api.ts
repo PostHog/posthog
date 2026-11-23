@@ -1643,7 +1643,11 @@ export class CdpApi {
                     return
                 }
                 // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
-                if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
+                // Nor does a pod that does not seal, so batch content never reaches the broker in plaintext.
+                if (
+                    intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async' ||
+                    !this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE
+                ) {
                     return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
                 }
                 release = this.transactionalEmailBatchCapacity.admit()

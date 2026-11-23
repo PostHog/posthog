@@ -19,6 +19,7 @@ import * as intakeMessage from '~/cdp/intake/message'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { decodeJobState } from '~/cdp/services/cyclotron-v2/job-codec'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
@@ -5302,7 +5303,9 @@ describe('CDP API', () => {
                 Object.fromEntries(
                     records.map((value) => {
                         const { job } = parseJSON(value.toString())
-                        return [job.id, job.state.state.variables]
+                        const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
+                        const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
+                        return [job.id, decodeJobState(row, opener).state?.variables]
                     })
                 )
             let releaseStalledReads = () => {}
@@ -5329,9 +5332,18 @@ describe('CDP API', () => {
                 const pass = () => (holding = false)
                 return { reached, release, pass }
             }
-            const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
+            const setIntakeModes = ({
+                shadow = '',
+                async = '',
+                sealing = true,
+            }: {
+                shadow?: string
+                async?: string
+                sealing?: boolean
+            }) => {
                 api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
             }
             let intakeRecords: () => Buffer[]
 
@@ -5342,7 +5354,7 @@ describe('CDP API', () => {
             })
 
             afterEach(() => {
-                setIntakeModes({})
+                setIntakeModes({ sealing: false })
                 releaseStalledReads()
                 api['refusalDeadline'] = undefined
                 // The team outlives each test, so its cached workflows config would carry a suspension into the next one.
@@ -5629,21 +5641,25 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['off', false],
-                ['shadow', true],
-            ])('refuses a batch with 409 for a team in intake mode %s, and sends nothing', async (_mode, shadow) => {
-                setIntakeModes({ shadow: shadow ? String(team.id) : '' })
+                ['off', 'off', true],
+                ['shadow', 'shadow', true],
+                ['async on a pod that does not seal', 'async', false],
+            ])(
+                'refuses a batch with 409 for a team in intake mode %s, and sends nothing',
+                async (_name, mode, sealing) => {
+                    setIntakeModes({ [mode]: String(team.id), sealing })
 
-                const res = await sendBatch(TEMPLATE, {
-                    variables: body.variables,
-                    recipients: [recipient('ada@example.com')],
-                })
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com')],
+                    })
 
-                expect(res.status).toEqual(409)
-                expect(res.body).toEqual({ error: 'batch_unavailable' })
-                expect(intakeRecords()).toEqual([])
-                expect(await storedRuns()).toEqual([])
-            })
+                    expect(res.status).toEqual(409)
+                    expect(res.body).toEqual({ error: 'batch_unavailable' })
+                    expect(intakeRecords()).toEqual([])
+                    expect(await storedRuns()).toEqual([])
+                }
+            )
 
             it.each([
                 [
@@ -5824,7 +5840,12 @@ describe('CDP API', () => {
                     const ownQueue = new CyclotronJobQueuePostgresV2(100, hub)
                     await ownQueue.startAsProducer()
                     const cdpApi = new CdpApi(
-                        { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id), ...settings },
+                        {
+                            ...hub,
+                            CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id),
+                            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+                            ...settings,
+                        },
                         cdpDeps,
                         { hogQueue: createMockJobQueue(), hogflowQueue: ownQueue }
                     )
