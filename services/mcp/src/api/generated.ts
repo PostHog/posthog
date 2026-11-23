@@ -106129,7 +106129,7 @@ export namespace Schemas {
     export interface PushStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the push notification. `sending` means it is still going out. `sent` means Apple or Google accepted it for at least one of the person's devices. `not_sent` means none of the person's devices got it, and `reason` says why. `failed` means the send stopped with an error.
+      /** What happened to the push notification. `sending` means it is still going out, or that it finished in the last minute and PostHog hasn't recorded its outcome yet. `sent` means Apple or Google accepted it for at least one of the person's devices. `not_sent` means none of the person's devices got it, and `reason` says why. `failed` means the send stopped with an error.
        *
        * * `sending` - Sending
        * * `sent` - Sent
