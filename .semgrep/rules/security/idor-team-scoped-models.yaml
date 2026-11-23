@@ -230,6 +230,7 @@ rules:
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
