@@ -127,24 +127,6 @@ def json_document_sql(
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
-def stored_properties_document_sql(properties_sql: str) -> str:
-    """The event properties column as document text in its stored shape, which batch exports send.
-
-    Unlike `event_document_sql`, flags stay in the `$feature_flags` map and temporary properties are left out. The map
-    is left out when it is empty, and so are declared string defaults. The query that runs this needs
-    `json_type_escape_dots_in_keys = 1`, or a dotted key prints as `a%2Eb`.
-
-    `events_json_recent` holds the same documents, plus the temporary properties. The export cleaner writes them at
-    insert time, so a change here needs the matching change in
-    `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
-    """
-    return json_document_sql(
-        properties_sql,
-        exclude_empty_key=_FEATURE_FLAGS_KEY,
-        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    )
-
-
 def person_document_sql(person_properties_sql: str) -> str:
     """The person properties column as document text, without the declared string defaults."""
     return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)

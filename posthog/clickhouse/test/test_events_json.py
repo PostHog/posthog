@@ -5,9 +5,9 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.hogql.printer.events_json_document import (
+    EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     json_document_sql,
     person_document_sql,
-    stored_properties_document_sql,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -103,7 +103,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             f"""
             SELECT
                 uuid,
-                {stored_properties_document_sql("properties")},
+                {json_document_sql("properties", exclude_empty_key="$feature_flags", declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS)},
                 {person_document_sql("person_properties")},
                 {json_document_sql("temporary_properties")}
             FROM events_json
