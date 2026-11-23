@@ -44,7 +44,7 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
         assert response.has_next is False
 
-    @parameterized.expand([("v2",), ("v3",)])
+    @parameterized.expand([("v2",), ("v3",), ("unrecognized_V3",)])
     def test_returns_recordings_for_a_team_with_a_stored_sessions_table_version(self, stored_version: str):
         self.team.modifiers = {"sessionTableVersion": stored_version}
         self.team.save()

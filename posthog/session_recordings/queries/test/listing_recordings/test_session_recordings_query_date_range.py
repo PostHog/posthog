@@ -94,6 +94,7 @@ class TestReplaySessionsTableVersion(APIBaseTest):
             ("region_without_coverage", {"date_from": "-7d"}, "EU", None, None, {}, None),
             ("team_pins_v2", {"date_from": "-7d"}, "US", "v2", None, {}, None),
             ("team_pins_v3", {"date_from": "-60d"}, "US", "v3", None, {}, None),
+            ("team_stores_an_unrecognized_version", {"date_from": "-7d"}, "US", "V3", None, {}, None),
             ("request_pins_v2", {"date_from": "-7d"}, "US", None, SessionTableVersion.V2, {}, SessionTableVersion.V2),
             (
                 "pinned_recent_session_ids",
@@ -182,4 +183,9 @@ class TestReplaySessionsTableVersion(APIBaseTest):
             read_version = query._resolved_sessions_table_version()
 
         assert (modifiers.sessionTableVersion if modifiers else None) == expected_version
-        assert read_version == (expected_version or SessionTableVersion(team_version or SessionTableVersion.V2))
+        assert read_version == (
+            expected_version
+            or {None: SessionTableVersion.V2, "v2": SessionTableVersion.V2, "v3": SessionTableVersion.V3}.get(
+                team_version, SessionTableVersion.V1
+            )
+        )

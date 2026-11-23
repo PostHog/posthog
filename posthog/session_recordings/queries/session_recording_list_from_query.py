@@ -304,11 +304,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
 
     def _resolved_sessions_table_version(self) -> SessionTableVersion:
-        # The table the query reads, after the team's stored version applies and auto falls back to v2, so the
-        # query_log tag compares v2 and v3 reads. A stored version arrives as a plain string, not the enum.
+        # The table the query reads, so the query_log tag compares v2 and v3 reads. It mirrors the HogQL database:
+        # auto reads v2, and any other stored value, an unrecognized one included, keeps the v1 table. A stored
+        # version arrives as a plain string that no one validated, so it is compared, never parsed.
         version = create_default_modifiers_for_team(self._team, self._execution_modifiers).sessionTableVersion
-        resolved = SessionTableVersion(version or SessionTableVersion.AUTO)
-        return SessionTableVersion.V2 if resolved == SessionTableVersion.AUTO else resolved
+        if version in (None, SessionTableVersion.AUTO, SessionTableVersion.V2):
+            return SessionTableVersion.V2
+        if version == SessionTableVersion.V3:
+            return SessionTableVersion.V3
+        return SessionTableVersion.V1
 
     def _sessions_v3_flag_enabled(self) -> bool:
         team = self._team
