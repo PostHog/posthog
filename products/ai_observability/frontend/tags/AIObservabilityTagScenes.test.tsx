@@ -1,13 +1,8 @@
 import '@testing-library/jest-dom'
 
-let uuidCounter = 0
-Object.defineProperty(globalThis.crypto, 'randomUUID', {
-    value: () => `mock-uuid-${uuidCounter++}`,
-    configurable: true,
-})
-
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import type { ComponentType } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,15 +11,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { TaggerApi } from '../generated/api.schemas'
 import { scene as tagScene } from './AIObservabilityTagScene'
 import { scene as tagsScene } from './AIObservabilityTagsScene'
 import { llmTaggerLogic } from './llmTaggerLogic'
 import { llmTaggersLogic } from './llmTaggersLogic'
-import { Tagger } from './types'
 
-const tagger: Tagger = {
+const tagger: TaggerApi = {
     id: 'tagger-1',
     name: 'Test tagger',
+    description: '',
     enabled: false,
     tagger_type: 'hog',
     tagger_config: { source: 'return []', tags: [] },
@@ -32,17 +28,17 @@ const tagger: Tagger = {
     model_configuration: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+    created_by: { id: 1, uuid: 'user-1', email: 'test@example.com', hedgehog_config: null },
+    deleted: false,
+    migrated_to_evaluation_id: null,
 }
 
 describe('tagger scene access', () => {
     beforeEach(() => {
-        uuidCounter = 0
         useMocks({
             get: {
-                '/api/environments/:teamId/taggers/': { results: [] },
-                '/api/environments/:teamId/taggers/:id/': tagger,
-                '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': { active_provider_key: null },
+                '/api/projects/:teamId/taggers/': { results: [] },
+                '/api/projects/:teamId/taggers/:id/': tagger,
             },
             post: {
                 '/api/environments/:teamId/query/:kind': { results: [] },
@@ -69,13 +65,12 @@ describe('tagger scene access', () => {
         async ({ scene, buildLogic, loadedText }) => {
             const getSpy = jest.spyOn(api, 'get')
             const dataRequests = (): string[] =>
-                getSpy.mock.calls
-                    .map(([url]) => url)
-                    .filter((url) => url.includes('/taggers/') || url.includes('/llm_analytics/provider_keys/'))
+                getSpy.mock.calls.map(([url]) => url).filter((url) => url.includes('/taggers/'))
             const props = scene.paramsToProps?.({ params: { id: tagger.id }, searchParams: {}, hashParams: {} }) || {}
             // The router mounts SceneExport.logic before rendering the component.
             const unmountSceneLogic = scene.logic?.(props).mount()
-            const Component = scene.component!
+            // The list scene takes no props and the detail scene takes an id, so widen to one shape.
+            const Component = scene.component as ComponentType<{ id?: string }>
             const logic = buildLogic()
 
             try {

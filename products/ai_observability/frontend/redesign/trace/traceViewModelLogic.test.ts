@@ -368,6 +368,70 @@ describe('traceViewModelLogic', () => {
         })
     })
 
+    it('moves the selection on every key and reads only the step the keys settle on', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setDetailTab('raw')
+        await expectLogic(logic).toFinishAllListeners()
+        nodeRequests = []
+        rawRequests = []
+
+        logic.actions.stepNode('next', 'shortcut')
+        expect(logic.values.selectedNodeId).toBe('span-1')
+        logic.actions.stepNode('next', 'arrow')
+        expect(logic.values.selectedNodeId).toBe('gen-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(nodeRequests).toEqual(['gen-1'])
+        expect(rawRequests).toEqual(['gen-1'])
+        await expectLogic(host)
+            .toNotHaveDispatchedActions([host.actionCreators.requestStep('span-1', 'trace-1')])
+            .toDispatchActions([host.actionCreators.requestStep('gen-1', 'trace-1')])
+        expect(capture).toHaveBeenCalledWith('llma trace node loaded', expect.objectContaining({ trigger: 'keyboard' }))
+        expect(capture.mock.calls.filter(([event]) => event === 'llma trace view step keyed')).toEqual([
+            ['llma trace view step keyed', { source: 'arrow' }],
+        ])
+    })
+
+    it('a key past either end restarts the wait without losing the run, and a run that moves nothing reports nothing', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const keyedRuns = (): number =>
+            capture.mock.calls.filter(([event]) => event === 'llma trace view step keyed').length
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.stepNode('previous', 'shortcut')
+        logic.actions.stepNode('previous', 'shortcut')
+        logic.actions.stepNode('previous', 'shortcut')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedNodeId).toBe('trace-1')
+        expect(logic.values.stepReadHeld).toBe(false)
+        expect(keyedRuns()).toBe(1)
+
+        logic.actions.stepNode('previous', 'shortcut')
+        logic.actions.stepNode('parent', 'arrow')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedNodeId).toBe('trace-1')
+        expect(keyedRuns()).toBe(1)
+    })
+
+    it('a step key outside the Spans mode moves nothing', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('timeline')
+
+        logic.actions.stepNode('next', 'shortcut')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedNodeId).toBe('trace-1')
+        expect(logic.values.mode).toBe('timeline')
+    })
+
     it('prefetches only the row the pointer rests on, without rebuilding the shown step or the thread', async () => {
         mountAt()
         await expectLogic(logic).toFinishAllListeners()

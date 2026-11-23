@@ -12,19 +12,20 @@ import (
 var ErrUnavailable = errors.New("audit output unavailable")
 
 type Event struct {
-	SchemaVersion int       `json:"schema_version"`
-	Time          time.Time `json:"time"`
-	RequestID     string    `json:"request_id"`
-	Phase         string    `json:"phase"`
-	TeamID        int64     `json:"team_id,omitempty"`
-	RunID         string    `json:"run_id,omitempty"`
-	ExecutionID   string    `json:"execution_id,omitempty"`
-	ActorID       int64     `json:"actor_id,omitempty"`
-	ActorEpoch    uint64    `json:"actor_epoch,omitempty"`
-	Operation     string    `json:"operation"`
-	Outcome       string    `json:"outcome"`
-	Status        int       `json:"status"`
-	DurationMS    float64   `json:"duration_ms"`
+	SchemaVersion  int       `json:"schema_version"`
+	Time           time.Time `json:"time"`
+	RequestID      string    `json:"request_id"`
+	RelayKeySHA256 string    `json:"relay_key_sha256,omitempty"`
+	Phase          string    `json:"phase"`
+	TeamID         int64     `json:"team_id,omitempty"`
+	RunID          string    `json:"run_id,omitempty"`
+	ExecutionID    string    `json:"execution_id,omitempty"`
+	ActorID        int64     `json:"actor_id,omitempty"`
+	ActorEpoch     uint64    `json:"actor_epoch,omitempty"`
+	Operation      string    `json:"operation"`
+	Outcome        string    `json:"outcome"`
+	Status         int       `json:"status"`
+	DurationMS     float64   `json:"duration_ms"`
 }
 
 type Audit struct {
