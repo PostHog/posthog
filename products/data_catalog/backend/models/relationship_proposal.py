@@ -1,4 +1,3 @@
-from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -30,12 +29,6 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
         default=dict, blank=True, help_text="Extra join configuration (e.g. field mapping)."
     )
 
-    confidence = models.FloatField(
-        null=True,
-        blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-        help_text="Discovery confidence in this join, 0-1.",
-    )
     reasoning = models.TextField(blank=True, help_text="Why this join is proposed.")
     evidence = models.JSONField(default=dict, blank=True, help_text="Sampling evidence: match rates, sample values.")
 
