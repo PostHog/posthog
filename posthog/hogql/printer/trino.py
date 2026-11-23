@@ -208,6 +208,15 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_SCALAR_ARRAY_ITEM_TYPES = (
+    ast.BooleanType,
+    ast.DateTimeType,
+    ast.DateType,
+    ast.DecimalType,
+    ast.FloatType,
+    ast.IntegerType,
+    ast.StringType,
+)
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
 
@@ -1794,6 +1803,11 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(resolved, ast.StringArrayType):
             if isinstance(value_type, ast.FieldType) and self._is_text_backed_warehouse_column(value_type):
                 return ast.StringType(nullable=True)
+            stored_array = (
+                self._stored_warehouse_array_type(value_type) if isinstance(value_type, ast.FieldType) else None
+            )
+            if stored_array is not None:
+                return replace(stored_array, nullable=resolved.nullable)
             return ast.ArrayType(item_type=ast.StringType(), nullable=resolved.nullable)
         # A set query merges branch column types, which turns a curated string array into a plain array.
         if (
@@ -1840,17 +1854,30 @@ class TrinoPrinter(PostgresPrinter):
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
+        stored_type = self._stored_warehouse_column_type(field_type)
+        return stored_type is not None and not stored_type.removeprefix("Nullable(").startswith("Array(")
+
+    def _stored_warehouse_array_type(self, field_type: ast.FieldType) -> ast.ArrayType | None:
+        stored_type = self._stored_warehouse_column_type(field_type)
+        if stored_type is None:
+            return None
+        array_type = infer_cast_constant_type(stored_type, ast.UnknownType(), "clickhouse")
+        if not isinstance(array_type, ast.ArrayType) or not isinstance(array_type.item_type, _SCALAR_ARRAY_ITEM_TYPES):
+            return None
+        return array_type
+
+    def _stored_warehouse_column_type(self, field_type: ast.FieldType) -> str | None:
         backing_type = self._backing_field_type(field_type)
         if backing_type is None or not isinstance(backing_type.table_type, ast.BaseTableType):
-            return False
+            return None
         table = backing_type.table_type.resolve_database_table(self.context)
         if not isinstance(table, S3Table) or not table.structure:
-            return False
+            return None
         field = backing_type.resolve_database_field(self.context)
         if not isinstance(field, DatabaseField):
-            return False
-        match = re.search(rf"(?:^|,)\s*`{re.escape(field.name)}`\s+(\S+)", table.structure)
-        return match is not None and not match.group(1).removeprefix("Nullable(").startswith("Array(")
+            return None
+        match = re.search(rf"(?:^|,)\s*`{re.escape(field.name)}`\s+(.+?)(?=,\s*`|$)", table.structure)
+        return match.group(1).strip() if match is not None else None
 
     def _backing_field_type(self, field_type: ast.FieldType) -> ast.FieldType | None:
         # Derived tables (explicit subqueries, CTEs, ANY JOIN dedupe wrappers) hide the stored column behind projections.
@@ -1887,16 +1914,7 @@ class TrinoPrinter(PostgresPrinter):
         if join is None or not join.table_args or not join.column_aliases or column not in join.column_aliases:
             return None
         rows_expr = join.table_args[0]
-        rows = self._resolve_type(rows_expr)
         index = join.column_aliases.index(column)
-        if (
-            isinstance(rows, ast.ArrayType)
-            and isinstance(rows.item_type, ast.TupleType)
-            and index < len(rows.item_type.item_types)
-        ):
-            item_type = rows.item_type.item_types[index]
-            if not isinstance(item_type, ast.UnknownType):
-                return item_type
         # `arrayJoin(arr)` lowers to `arrayMap(v -> tuple(v), arr)`, typed before a CTE source column was known.
         if (
             index == 0
@@ -1912,6 +1930,15 @@ class TrinoPrinter(PostgresPrinter):
             source = self._resolve_type(rows_expr.args[1])
             if isinstance(source, ast.ArrayType) and not isinstance(source.item_type, ast.UnknownType):
                 return source.item_type
+        rows = self._resolve_type(rows_expr)
+        if (
+            isinstance(rows, ast.ArrayType)
+            and isinstance(rows.item_type, ast.TupleType)
+            and index < len(rows.item_type.item_types)
+        ):
+            item_type = rows.item_type.item_types[index]
+            if not isinstance(item_type, ast.UnknownType):
+                return item_type
         return None
 
     def _unnest_join(self, table_type: ast.ColumnAliasedTableType) -> ast.JoinExpr | None:
