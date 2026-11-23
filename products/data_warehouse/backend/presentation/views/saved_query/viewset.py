@@ -902,13 +902,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         new_name, context = self._validated_new_name(saved_query, body.validated_data["name"])
 
         with transaction.atomic():
+            user = cast(User, request.user)
+            was_impersonated = is_impersonated(request)
             try:
-                plan = apply_model_rename(
+                apply_model_rename(
                     self.team,
                     saved_query.id,
                     new_name,
                     body.validated_data["plan_token"],
                     authorize=self._require_edit_access,
+                    user=user,
+                    was_impersonated=was_impersonated,
                 )
             except ModelRenamePlanStaleError:
                 raise Conflict(RENAME_PLAN_STALE_DETAIL)
@@ -918,8 +922,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 raise serializers.ValidationError(str(error))
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound()
-            user = cast(User, request.user)
-            was_impersonated = is_impersonated(request)
             log_activity(
                 organization_id=self.team.organization_id,
                 team_id=self.team_id,
@@ -941,36 +943,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     ],
                 ),
             )
-            # The rewrites are queryset updates, which no activity receiver sees, so each is logged here.
-            rewritten = {
-                dependent.pk: dependent
-                for dependent in DataWarehouseSavedQuery.objects.filter(
-                    team_id=self.team_id, pk__in=[item.saved_query_id for item in plan.rewrites]
-                ).only("id", "query")
-            }
-            for item in plan.rewrites:
-                after_query = rewritten[item.saved_query_id].query or {}
-                log_activity(
-                    organization_id=self.team.organization_id,
-                    team_id=self.team_id,
-                    user=user,
-                    was_impersonated=was_impersonated,
-                    item_id=item.saved_query_id,
-                    scope="DataWarehouseSavedQuery",
-                    activity="updated",
-                    detail=Detail(
-                        name=item.name,
-                        changes=[
-                            Change(
-                                type="DataWarehouseSavedQuery",
-                                action="changed",
-                                field="query",
-                                before={**after_query, "query": item.before},
-                                after=after_query,
-                            )
-                        ],
-                    ),
-                )
         saved_query.refresh_from_db()
         # The context the name was validated with: a fresh one would build the team's database a third time.
         serializer = self.get_serializer_class()(saved_query, context=context)

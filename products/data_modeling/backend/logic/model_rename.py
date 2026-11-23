@@ -14,7 +14,8 @@ from posthog.hogql.database.database import Database, is_authored_model
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.data_modeling.backend.facade.contracts import (
     ModelRenameBlocked,
@@ -398,9 +399,11 @@ def apply_model_rename(
     plan_token: str,
     *,
     authorize: Callable[[ModelRenamePlan], None],
+    user: User | None = None,
+    was_impersonated: bool = False,
 ) -> ModelRenamePlan:
     """Renames the model to `new_name`, rewrites the models that read it and renames the joins that name it,
-    or writes nothing.
+    or writes nothing. Each rewritten model gets an activity entry for `user`.
 
     Call it in a transaction. It locks the model, the models that read it and those joins, and writes only
     when the plan is still the one the caller was shown and `authorize` accepts it without raising.
@@ -413,7 +416,30 @@ def apply_model_rename(
     if plan.blocked:
         raise ModelRenameBlockedError(plan)
     for rewrite in computed.rewrites:
+        before_query = dict(rewrite.dependent.query or {})
         _write_rewritten_query(rewrite.dependent, rewrite.after)
+        # The rewrite is a queryset update, which no activity receiver sees.
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=rewrite.dependent.pk,
+            scope="DataWarehouseSavedQuery",
+            activity="updated",
+            detail=Detail(
+                name=rewrite.dependent.name,
+                changes=[
+                    Change(
+                        type="DataWarehouseSavedQuery",
+                        action="changed",
+                        field="query",
+                        before=before_query,
+                        after=rewrite.dependent.query,
+                    )
+                ],
+            ),
+        )
     for join, renamed_join in zip(computed.joins, plan.joins, strict=True):
         join.source_table_name = renamed_join.source_table_name_after
         join.joining_table_name = renamed_join.joining_table_name_after
