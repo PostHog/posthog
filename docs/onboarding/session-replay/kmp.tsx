@@ -22,7 +22,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     kotlin {
                                         sourceSets {
                                             commonMain.dependencies {
-                                                implementation("com.posthog:posthog-kmp:0.+")
+                                                implementation("com.posthog:posthog-kmp:1.+")
                                             }
                                         }
                                     }
@@ -31,10 +31,9 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         ]}
                     />
                     <Markdown>
-                        `0.+` resolves to the latest `0.x` release. The SDK is a pre-release, so the API can change
-                        between minor versions – pin an exact version from [Maven
+                        `1.+` resolves to the latest `1.x` release. Pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately. The setup below requires `0.12.0` or higher.
+                        upgrade deliberately.
                     </Markdown>
                     <CalloutBox type="fyi" title="Supported targets">
                         <Markdown>
@@ -63,7 +62,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             content: (
                 <>
                     <Markdown>
-                        Pass a `SessionRecordingConfig` to `PostHogConfig` from shared code. Here are all the available
+                        Pass a `SessionReplayConfig` to `PostHogConfig` from shared code. Here are all the available
                         options:
                     </Markdown>
                     <CodeBlock
@@ -76,14 +75,14 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     import com.posthog.kmp.PostHog
                                     import com.posthog.kmp.PostHogConfig
                                     import com.posthog.kmp.PostHogContext
-                                    import com.posthog.kmp.SessionRecordingConfig
+                                    import com.posthog.kmp.SessionReplayConfig
 
                                     val config = PostHogConfig(
                                         projectToken = "<ph_project_token>",
                                         host = "<ph_client_api_host>",
 
                                         // Enable session recording. Requires enabling in your project settings as well.
-                                        sessionRecording = SessionRecordingConfig(
+                                        sessionReplay = SessionReplayConfig(
                                             enabled = true,
 
                                             // Whether text input values are masked. Default is true.

@@ -132,7 +132,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                 } catch (error: Exception) {
                                     PostHog.captureException(
                                         throwable = error,
-                                        additionalProperties = mapOf("context" to "checkout_flow"),
+                                        properties = mapOf("context" to "checkout_flow"),
                                     )
                                 }
                             `,
