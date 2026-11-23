@@ -1547,10 +1547,10 @@ def test_a_skipped_target_keeps_its_rows_while_the_rest_are_swept(cluster: Click
 @pytest.mark.parametrize(
     "skip_targets,expected",
     [
-        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]),
-        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations"]),
-        (["events_json"], ["sharded_events", "sharded_flag_evaluations"]),
-        (["events_json", "sharded_flag_evaluations"], ["sharded_events"]),
+        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations", "sharded_flag_evaluations_json"]),
+        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations", "sharded_flag_evaluations_json"]),
+        (["events_json"], ["sharded_events", "sharded_flag_evaluations", "sharded_flag_evaluations_json"]),
+        (["events_json", "sharded_flag_evaluations"], ["sharded_events", "sharded_flag_evaluations_json"]),
     ],
     ids=["nothing_skipped", "by_storage_table", "by_read_table", "two_targets"],
 )
@@ -1566,7 +1566,7 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
 def test_events_json_is_swept_by_default() -> None:
     # Skipping a target by default leaves its rows in place while the requests covering them are
     # marked verified, and nothing else in a run says which targets it was supposed to reach.
-    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]
+    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations", "sharded_flag_evaluations_json"]
     assert resolve_sweep_targets(build_op_context()) == expected
     assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 

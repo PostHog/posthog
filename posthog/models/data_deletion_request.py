@@ -1288,8 +1288,9 @@ def discover_affected_mat_columns(properties: list[str], table_column: str, tabl
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
     ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
-    in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
-    value left in a materialized column after its JSON key is gone still counts.
+    in the deletion job, except that it takes one ``table_column``, because only legacy-schema tables reach it.
+    Verification then counts a row as dirty on the same terms the deletion does: a value left in a
+    materialized column after its JSON key is gone still counts.
     """
     if not properties:
         return []
@@ -1398,7 +1399,7 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if (
                 not target.accepts_property_rewrite
-                or target.uses_new_events_schema
+                or target.stores_native_json_properties
                 or not target.may_hold_any_of(events)
             ):
                 continue

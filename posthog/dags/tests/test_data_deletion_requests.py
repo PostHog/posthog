@@ -42,8 +42,10 @@ from posthog.dags.data_deletion_requests import (
     _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
+    _shard_predicate,
     _ShardStaging,
     _target_presence_clause,
+    _TypedColumns,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     cleanup_property_removal_staging,
@@ -84,6 +86,7 @@ from posthog.models.deletion_targets import (
     EVENTS,
     EVENTS_JSON,
     FLAG_EVALUATIONS,
+    FLAG_EVALUATIONS_JSON,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     TargetPlacement,
@@ -1511,7 +1514,7 @@ def _add_person_property_mat_columns(col_defs: list[tuple[str, str, str]], clien
     """Add materialized columns sourced from person_properties for testing.
 
     Comment uses ``column_materializer::person_properties::<prop_name>`` so
-    ``_get_affected_mat_columns(..., table_column="person_properties")`` picks them up.
+    ``_get_affected_mat_columns(..., table_columns=("person_properties",))`` picks them up.
     """
     from django.conf import settings
 
@@ -4144,9 +4147,12 @@ def test_native_property_removal_gate_checks_retained_copies(
         column: native_stored_document(document),
     }
 
-    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
+    def execute_query(query: Query | partial, _role: NodeRole) -> Future:
+        result: Future = Future()
+        if isinstance(query, partial):
+            result.set_result(_TypedColumns(from_properties=[], from_person_properties=[]))
+            return result
         assert isinstance(query.parameters, dict)
-        result: Future[list[tuple[object, ...]]] = Future()
         result.set_result(
             sync_execute(
                 """WITH events_json AS (
@@ -4305,3 +4311,70 @@ def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: li
     before = json.loads(stored)
     after = json.loads(rewritten)
     assert {key: after.get(key) for key in before} == {**before, **changed}
+
+
+_TYPED_COLUMN_ROWS = [
+    ("flag_key", "column_materializer::properties::$feature_flag", False),
+    ("response", "column_materializer::properties::$feature_flag_response", False),
+    ("request_id", "column_materializer::temporary_properties::$feature_flag_request_id", False),
+]
+
+
+class _ColumnCommentClient:
+    def execute(self, sql: str, params: dict) -> list[tuple[str, str, bool]]:
+        return _TYPED_COLUMN_ROWS
+
+
+def _flag_call_removal_request(properties: list[str], **overrides) -> DeletionRequestContext:
+    return DeletionRequestContext(
+        request_id="r",
+        team_id=1,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 2, 1, tzinfo=UTC),
+        events=["$feature_flag_called"],
+        properties=properties,
+        **overrides,
+    )
+
+
+@pytest.mark.parametrize(
+    "properties,expected_reset",
+    [
+        (["$feature_flag", "$feature_flag_response"], ["flag_key", "response"]),
+        (["$feature_flag_request_id"], ["request_id"]),
+        (["$other"], []),
+    ],
+    ids=["derived from properties", "derived from temporary_properties", "no typed column derives from it"],
+)
+def test_shard_predicate_resets_the_typed_columns_derived_from_removed_properties(properties, expected_reset):
+    request = _flag_call_removal_request(properties)
+
+    predicate = _shard_predicate(
+        _ColumnCommentClient(), request, FLAG_EVALUATIONS_JSON, "2026-03-01 00:00:00.000000", ("", {})
+    )
+
+    assert [name for name, _ in predicate.mat_cols] == expected_reset
+    for name in expected_reset:
+        assert f"`{name}` != ''" in predicate.sql
+
+
+def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
+    request = _flag_call_removal_request(["$feature_flag_request_id"], hogql_predicate="properties.plan = 'pro'")
+    cluster = Mock()
+    cluster.any_host_by_role.side_effect = lambda fn, role: Mock(
+        result=lambda: (
+            fn(_ColumnCommentClient())
+            if role is NodeRole.DATA
+            else _TypedColumns(from_properties=[], from_person_properties=[])
+        )
+    )
+
+    with patch("posthog.dags.data_deletion_requests._refuse_unsweepable") as refuse:
+        _refuse_property_removal_unsweepable(
+            cluster, [FLAG_EVALUATIONS_JSON], request, "2026-03-01 00:00:00.000000", log=logging.getLogger()
+        )
+
+    # The second call gates the targets that a HogQL predicate excludes.
+    hogql_excluded_call = refuse.call_args_list[1]
+    predicate, _ = hogql_excluded_call.args[3](FLAG_EVALUATIONS_JSON)
+    assert "`request_id` != ''" in predicate
