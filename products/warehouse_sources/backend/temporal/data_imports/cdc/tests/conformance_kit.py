@@ -25,6 +25,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
+from fsspec.asyn import get_loop
 
 from posthog.dataclasses import frozen
 
@@ -296,12 +297,12 @@ class MemoryObjectStore:
             raise FileNotFoundError(prefix)
         return keys
 
-    def find(self, prefix: str, detail: bool = False) -> dict[str, dict[str, Any]]:
-        return {
-            key: {"name": key, "type": "file", "size": len(data), "LastModified": self.modified.get(key)}
-            for key, data in sorted(self.objects.items())
-            if key.startswith(f"{prefix}/")
-        }
+    loop = get_loop()
+
+    async def _iterdir(self, bucket: str, delimiter: str = "/", prefix: str = "") -> AsyncIterator[dict[str, Any]]:
+        for key, data in sorted(self.objects.items()):
+            if key.startswith(f"{bucket}/{prefix}"):
+                yield {"name": key, "type": "file", "size": len(data), "LastModified": self.modified.get(key)}
 
     def _etag(self, key: str) -> str:
         return hashlib.md5(self.objects[key]).hexdigest()

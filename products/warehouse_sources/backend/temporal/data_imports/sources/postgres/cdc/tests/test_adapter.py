@@ -1,8 +1,10 @@
 import uuid
+import socket
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import psycopg
 import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -13,10 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     PostgresCDCAdapter,
     _slot_setup_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
 _POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+_CLIENT_DEADLINE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline"
 
 
 def _source(**cdc_overrides):
@@ -450,6 +456,30 @@ class TestGetLag:
 
         mock_lag.assert_called_once_with(conn, "slot")
         assert lag == (None if lag_bytes is None else CDCLag(behind_bytes=lag_bytes, retention_cap_mb=cap_mb))
+
+    @patch(f"{_ADAPTER}.get_max_slot_wal_keep_size_mb", return_value=None)
+    def test_a_lag_query_the_server_never_answers_ends_at_the_deadline(self, _cap) -> None:
+        client_end, server_end = socket.socketpair()
+        client_end.settimeout(5)
+        conn = MagicMock()
+        conn.fileno.return_value = client_end.fileno()
+
+        def stalled_query(_conn, _slot):
+            # Returns only once the deadline shuts the socket down, as a blocked libpq read does.
+            client_end.recv(1)
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+        try:
+            with (
+                patch(f"{_ADAPTER}.LAG_CHECK_CLIENT_DEADLINE_SECONDS", 0.01),
+                patch(f"{_CLIENT_DEADLINE}.CANCEL_GRACE_SECONDS", 0.01),
+                patch(f"{_ADAPTER}.get_slot_lag_bytes", side_effect=stalled_query),
+                pytest.raises(ClientDeadlineExceededError),
+            ):
+                PostgresCDCAdapter().get_lag(conn, _source(cdc_enabled=True, cdc_slot_name="slot"))
+        finally:
+            client_end.close()
+            server_end.close()
 
 
 class TestValidatePrerequisites:
