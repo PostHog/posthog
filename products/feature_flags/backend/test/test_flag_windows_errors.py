@@ -204,9 +204,10 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         )
         self._send(
             [
-                # The value on a pageview before the error.
-                ("person-1", "$pageview", 1, {"$feature/new-checkout": True}),
-                ("person-1", "$feature_flag_called", 2, called("other-flag", True)),
+                # The value on a pageview before the error. The call of another flag comes first, because the native
+                # events table reads an event with any flag as one that loaded flags, which ENABLED counts as unexposed.
+                ("person-1", "$feature_flag_called", 1, called("other-flag", True)),
+                ("person-1", "$pageview", 2, {"$feature/new-checkout": True}),
                 ("person-1", "$exception", 3, {}),
                 ("person-2", "$pageview", 1, {"$feature/new-checkout": False, "$feature/other-flag": False}),
                 ("person-2", "$exception", 2, {}),
