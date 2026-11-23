@@ -1726,7 +1726,7 @@ def get_query_runner(
         )
 
     if kind == NodeKind.MARKETING_ANALYTICS_CONVERSION_ACTIONS_QUERY:
-        from products.marketing_analytics.backend.hogql_queries.marketing_conversion_actions_query_runner import (
+        from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
             MarketingAnalyticsConversionActionsQueryRunner,
         )
 
