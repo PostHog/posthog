@@ -592,6 +592,39 @@
                                     },
                                     "type": "array"
                                 },
+                                "conditionalFormatting": {
+                                    "description": "Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`. A rule you leave out is deleted.",
+                                    "items": {
+                                        "properties": {
+                                            "bytecode": {
+                                                "items": {},
+                                                "type": "array"
+                                            },
+                                            "color": {
+                                                "type": "string"
+                                            },
+                                            "colorMode": {
+                                                "enum": ["light", "dark"],
+                                                "type": "string"
+                                            },
+                                            "columnName": {
+                                                "type": "string"
+                                            },
+                                            "id": {
+                                                "type": "string"
+                                            },
+                                            "input": {
+                                                "type": "string"
+                                            },
+                                            "templateId": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["bytecode", "color", "columnName", "id", "input", "templateId"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
                                 "pinnedColumns": {
                                     "description": "Column names to pin to the left of the table.",
                                     "items": {

@@ -25,6 +25,7 @@ import {
 import {
     ActionsNode,
     CompareFilter,
+    ConditionalFormattingRule,
     DateRange,
     ErrorTrackingIssueAssignee,
     ErrorTrackingOrderBy,
@@ -2058,6 +2059,11 @@ export interface AssistantDataVisualizationTableSettings {
     pinnedColumns?: string[]
     /** Transpose rows and columns. */
     transpose?: boolean
+    /**
+     * Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`.
+     * A rule you leave out is deleted.
+     */
+    conditionalFormatting?: ConditionalFormattingRule[]
 }
 
 /**

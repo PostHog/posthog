@@ -3239,6 +3239,13 @@
                     },
                     "type": "array"
                 },
+                "conditionalFormatting": {
+                    "description": "Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`. A rule you leave out is deleted.",
+                    "items": {
+                        "$ref": "#/definitions/ConditionalFormattingRule"
+                    },
+                    "type": "array"
+                },
                 "pinnedColumns": {
                     "description": "Column names to pin to the left of the table.",
                     "items": {

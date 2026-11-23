@@ -25,6 +25,17 @@ const acceptedQueries = [
             chartSettings: { legendPosition: 'bottom', showAnnotations: true },
             tableSettings: {
                 columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
+                conditionalFormatting: [
+                    {
+                        id: 'rule-1',
+                        templateId: 'less_than',
+                        columnName: 'value',
+                        bytecode: ['_H', 1, 32, 'input'],
+                        input: '0',
+                        color: '#ff0000',
+                        colorMode: 'light',
+                    },
+                ],
             },
         },
     },

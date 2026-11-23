@@ -4263,6 +4263,13 @@ class AssistantDataVisualizationTableSettings(BaseModel):
         default=None,
         description=("Columns to display and their order. Omit to show every column returned by the query."),
     )
+    conditionalFormatting: list[ConditionalFormattingRule] | None = Field(
+        default=None,
+        description=(
+            "Cell color rules made in the PostHog app. Send each saved rule back"
+            " unchanged, including `bytecode`. A rule you leave out is deleted."
+        ),
+    )
     pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
     transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
 

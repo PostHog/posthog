@@ -281,10 +281,26 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoxPlot',
 ])
 
+const ConditionalFormattingRule = z.object({
+    bytecode: z.array(z.unknown()),
+    color: z.string(),
+    colorMode: z.enum(['light', 'dark']).optional(),
+    columnName: z.string(),
+    id: z.string(),
+    input: z.string(),
+    templateId: z.string(),
+})
+
 const AssistantDataVisualizationTableSettings = z.object({
     columns: z
         .array(AssistantDataVisualizationColumn)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
+        .optional(),
+    conditionalFormatting: z
+        .array(ConditionalFormattingRule)
+        .describe(
+            'Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`. A rule you leave out is deleted.'
+        )
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
     transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
