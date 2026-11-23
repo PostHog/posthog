@@ -408,6 +408,12 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         recheck: () => {
             actions.loadStatus(true)
         },
+        senderSaved: () => {
+            // Polling ended at ready, so a save that brings back the stop marker reads the records again.
+            if (values.sendingStopped) {
+                actions.recheck()
+            }
+        },
         checkAgain: () => {
             // pinned: analytics event name
             posthog.capture('email domain check again clicked', { domain: values.domain })

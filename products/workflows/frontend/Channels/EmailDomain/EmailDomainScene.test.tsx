@@ -477,13 +477,13 @@ describe('EmailDomainScene', () => {
         seedSender()
         backend.stopsSending(DOMAIN)
         await open(urls.workflowsEmailDomain(SENDER_ID))
-        expectStep('Verification stopped')
+        expectStep('Sending stopped')
         expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
 
         if (recordsFixed) {
             backend.verifyAtProviderOnly(DOMAIN)
         }
-        click('email-domain-restart-verification')
+        click('email-domain-check-again')
         await flush()
 
         expect(!!screen.queryByText(/You can send from/)).toBe(recordsFixed)
@@ -500,7 +500,7 @@ describe('EmailDomainScene', () => {
         'shows a stopped domain the provider reports %s as stopped, and repairs it only on a check',
         async (_, recordsFixedBeforeOpen) => {
             seedSender()
-            backend.stopsSending(DOMAIN)
+            backend.stopsSending(DOMAIN, { recordsRemoved: !recordsFixedBeforeOpen })
             if (recordsFixedBeforeOpen) {
                 backend.verifyAtProviderOnly(DOMAIN)
             } else {
@@ -529,13 +529,14 @@ describe('EmailDomainScene', () => {
         click('email-domain-check-again')
         await flush()
         expectStep(/You can send from/)
-        backend.stopsSending(DOMAIN)
+        backend.stopsSending(DOMAIN, { recordsRemoved: true })
 
         typeInto('email-domain-sender-name', 'Acme Team')
         click('email-domain-save-sender-name')
         await flush()
 
         expectStep('Sending stopped')
+        expect(screen.getAllByText(/^0 of \d+ found$/).length).toBeGreaterThan(0)
     })
 
     it('lets the person restart a stopped verification again after the first restart fails', async () => {

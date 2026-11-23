@@ -72,7 +72,9 @@ const phaseOf = ({
     if (domainVerified) {
         return 'ready'
     }
-    const inProgress = recordsAdded || returnedFromAutoConfigure || STATUSES_IN_PROGRESS.includes(status.status)
+    // Only a stopped sender is verified but not ready, and its repair lives on the verifying step.
+    const inProgress =
+        status.verified || recordsAdded || returnedFromAutoConfigure || STATUSES_IN_PROGRESS.includes(status.status)
     return inProgress || setupEvidenceFound ? 'verifying' : 'settings'
 }
 

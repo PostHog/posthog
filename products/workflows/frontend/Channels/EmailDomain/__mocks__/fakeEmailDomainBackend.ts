@@ -290,11 +290,14 @@ export class FakeEmailDomainBackend {
     }
 
     /** The sender health check found the domain's records gone: its senders keep `verified` but every send fails. */
-    stopsSending(domain: string): void {
+    stopsSending(domain: string, { recordsRemoved = false }: { recordsRemoved?: boolean } = {}): void {
         this.verifyDomain(domain)
         const state = this.domainState(domain)
         state.ses = 'failed'
         state.sendingStopped = true
+        if (recordsRemoved) {
+            state.published.clear()
+        }
         this.senders.forEach((sender) => {
             const config = sender.config as Record<string, unknown>
             if (config.domain === domain) {
@@ -431,11 +434,14 @@ export class FakeEmailDomainBackend {
                 ),
             },
             patch: {
-                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) =>
-                    this.withSender(Number(params.id), (sender) =>
-                        this.updateSender(sender, (body as { config: Partial<EmailSenderConfig> }).config)
-                    )
-                ),
+                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) => {
+                    const config = (body as { config: Partial<EmailSenderConfig> }).config
+                    // Like the server's serializer, an update must name the email and the provider.
+                    if (!config.email || !config.provider) {
+                        return [400, { detail: 'This field is required.' }]
+                    }
+                    return this.withSender(Number(params.id), (sender) => this.updateSender(sender, config))
+                }),
             },
         }
     }

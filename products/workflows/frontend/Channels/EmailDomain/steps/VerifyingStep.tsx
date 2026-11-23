@@ -23,21 +23,21 @@ function Heading(): JSX.Element {
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const { recordsAdded } = useValues(emailDomainManualSetupLogic)
     const host = hostName ?? 'your DNS host'
-    if (status?.status === 'failed') {
-        return (
-            <StepHeading
-                Hoggie={HedgehogPanic}
-                title="Verification stopped"
-                lead="The email provider gave up waiting for the settings. Check them once more, then restart verification."
-            />
-        )
-    }
     if (sendingStopped) {
         return (
             <StepHeading
                 Hoggie={HedgehogPanic}
                 title="Sending stopped"
                 lead="Emails from this domain fail until its settings check out again. Make sure each setting below is in place, then check again."
+            />
+        )
+    }
+    if (status?.status === 'failed') {
+        return (
+            <StepHeading
+                Hoggie={HedgehogPanic}
+                title="Verification stopped"
+                lead="The email provider gave up waiting for the settings. Check them once more, then restart verification."
             />
         )
     }
@@ -96,7 +96,7 @@ function Actions(): JSX.Element {
     const { status, pollingStopped, sendingStopped, allRecordsFound, rechecking, restartResultLoading } =
         useValues(emailDomainStatusLogic)
     const { checkAgain, restartVerification } = useActions(emailDomainStatusLogic)
-    if (status?.status === 'failed') {
+    if (status?.status === 'failed' && !sendingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
                 <BigAction
