@@ -165,7 +165,6 @@ class ExternalDataSourceViewSet(
     ordering = "-created_at"
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # The access control mixin scopes its own actions first.
         scopes = super().dangerously_get_required_scopes(request, view)
         if scopes is not None:
             return scopes

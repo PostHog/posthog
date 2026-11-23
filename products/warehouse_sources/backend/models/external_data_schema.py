@@ -289,8 +289,7 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 FAILURE_STREAK_KEY = "failure_streak"
 FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
-# Set by a manual sync so its run goes ahead instead of standing down. The next failed run rewrites the
-# streak without it.
+# Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
 FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
 
 

@@ -167,7 +167,6 @@ class TestAcquireV3PipelineLockActivityDeferral:
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
         mock_activity.info.return_value.workflow_id = "wf-abc-123"
-        # A manual sync marks the streak itself, not the top of the config.
         streak_keys = {"manual_run_requested"}
         streak = {**_streak(runs, failed_ago), **{k: v for k, v in config_extra.items() if k in streak_keys}}
         config = {k: v for k, v in config_extra.items() if k not in streak_keys}

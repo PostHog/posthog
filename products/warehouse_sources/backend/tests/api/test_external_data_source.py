@@ -4169,7 +4169,6 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
-        # A failing table's run would otherwise stand down and leave the reload with no job.
         assert failing.manual_run_requested is True
         assert healthy.sync_type_config == {}
 
@@ -16248,7 +16247,6 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             ("read_get", "destinations", "external_data_source:read", "GET", True),
             ("read_patch", "destinations", "external_data_source:read", "PATCH", False),
             ("write_patch", "destinations", "external_data_source:write", "PATCH", True),
-            # The destinations override must still fall through to the access control mixin's scopes.
             ("access_controls_read", "access_controls", "access_control:read", "GET", True),
             ("access_controls_source_read", "access_controls", "external_data_source:read", "GET", False),
         ]
