@@ -29,16 +29,131 @@ CLIENT_NAME_MAX_LENGTH = 255
 # trailing "&" followed by entity-name characters without a closing ";" is a cut-off entity.
 _DANGLING_ENTITY_RE = re.compile(r"&[a-zA-Z0-9#]*$")
 
+RESERVED_CLIENT_NAME = "posthog"
+
+# Invisible characters, and the combining marks that NFKD splits off accented letters.
+_IGNORED_CATEGORIES = frozenset({"Cc", "Cf", "Mn", "Me"})
+_FORMAT_CATEGORY = "Cf"
+
+# Hangul fillers are letters by Unicode category, but they render as blank space.
+_BLANK_LETTERS = frozenset({"\u115f", "\u1160", "\u3164", "\uffa0"})
+
+# Stored names keep this one format character because emoji sequences need it.
+_ZERO_WIDTH_JOINER = "\u200d"
+
+# Characters that render like a letter of "posthog" and that NFKD and casefold leave alone. Casefold
+# maps Cherokee small letters to capitals, so the Cherokee keys are capitals.
+_POSTHOG_LOOKALIKES = str.maketrans(
+    {
+        "0": "o",
+        "о": "o",  # Cyrillic
+        "ο": "o",  # Greek
+        "օ": "o",  # Armenian
+        "ⲟ": "o",  # Coptic
+        "ᴏ": "o",
+        "ø": "o",
+        "ɵ": "o",
+        "ꓳ": "o",  # Lisu
+        "ⵔ": "o",  # Tifinagh
+        "〇": "o",
+        "○": "o",
+        "◯": "o",
+        "р": "p",  # Cyrillic
+        "ρ": "p",  # Greek
+        "ⲣ": "p",  # Coptic
+        "ᴘ": "p",
+        "ƥ": "p",
+        "ᵽ": "p",
+        "Ꮲ": "p",  # Cherokee
+        "ꓑ": "p",  # Lisu
+        "ᑭ": "p",  # Canadian syllabics
+        "ѕ": "s",  # Cyrillic
+        "ꜱ": "s",
+        "ʂ": "s",
+        "Ꮪ": "s",  # Cherokee
+        "ꓢ": "s",  # Lisu
+        "т": "t",  # Cyrillic
+        "τ": "t",  # Greek
+        "ⲧ": "t",  # Coptic
+        "ᴛ": "t",
+        "ŧ": "t",
+        "ƭ": "t",
+        "ʈ": "t",
+        "Ꭲ": "t",  # Cherokee
+        "ꓔ": "t",  # Lisu
+        "һ": "h",  # Cyrillic
+        "н": "h",  # Cyrillic
+        "η": "h",  # Greek
+        "ⲏ": "h",  # Coptic
+        "հ": "h",  # Armenian
+        "ʜ": "h",
+        "ħ": "h",
+        "ɦ": "h",
+        "Ꮒ": "h",  # Cherokee
+        "Ꮋ": "h",  # Cherokee
+        "ꓧ": "h",  # Lisu
+        "ԍ": "g",  # Cyrillic
+        "ց": "g",  # Armenian
+        "ɡ": "g",
+        "ɢ": "g",
+        "ǥ": "g",
+        "ɠ": "g",
+        "Ꮐ": "g",  # Cherokee
+        "ꓖ": "g",  # Lisu
+    }
+)
+
+
+def _skeleton(value: str) -> str:
+    """Fold a client name into the form that the reserved-name checks compare.
+
+    NFKD, not NFKC, because accents must stay decomposed so that the combining marks can be dropped.
+    The second NFKD decomposes characters that casefold produces.
+    """
+    folded = unicodedata.normalize("NFKD", unicodedata.normalize("NFKD", value).casefold())
+
+    kept: list[str] = []
+    for char in folded:
+        if char.isspace():
+            kept.append(" ")
+        elif unicodedata.category(char) in _IGNORED_CATEGORIES or char in _BLANK_LETTERS:
+            continue
+        elif unicodedata.decimal(char, None) is not None:
+            kept.append(str(unicodedata.decimal(char)))
+        else:
+            kept.append(char)
+
+    return " ".join("".join(kept).translate(_POSTHOG_LOOKALIKES).split())
+
+
+def _letters_and_digits(value: str) -> str:
+    """The skeleton without spaces or punctuation, so "Post Hog" and "Post-Hog" compare as "posthog".
+
+    Letters from every script stay in place. Dropping non-Latin letters would make a name such as
+    "Аналитика для PostHog" start with "posthog" and fail the DCR prefix rule.
+    """
+    return "".join(char for char in _skeleton(value) if char.isalnum())
+
+
+def _reject_blocked_words(value: str) -> None:
+    skeleton = _skeleton(value)
+    for word in BLOCKED_CLIENT_NAME_WORDS:
+        if word in skeleton:
+            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+
 
 def validate_client_name(value: str) -> None:
-    """Validate that client name doesn't impersonate official apps."""
-    lower_value = value.lower()
+    """Validate that a DCR client name doesn't impersonate official apps.
+
+    Only the start of the name is reserved, because MCP clients name themselves after the server
+    (for example "Claude Code (posthog)").
+    """
+    letters_and_digits = _letters_and_digits(value)
     for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
-        if lower_value.startswith(prefix):
+        if letters_and_digits.startswith(prefix):
             raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
-    for word in BLOCKED_CLIENT_NAME_WORDS:
-        if word in lower_value:
-            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+
+    _reject_blocked_words(value)
 
 
 POSTHOG_OWNED_DOMAINS = ("posthog.com", "posthog.net", "posthog.dev")
@@ -47,35 +162,6 @@ POSTHOG_OWNED_DOMAINS = ("posthog.com", "posthog.net", "posthog.dev")
 # `/public/` routes CDP serves, which some environments expose on the app host itself.
 CUSTOMER_CONTENT_HOST_LABELS = ("webhooks", "hooks")
 CUSTOMER_CONTENT_PATH_PREFIXES = ("/public/",)
-
-_NON_ALPHANUMERIC_RE = re.compile(r"[^a-z0-9]")
-
-# Letters from other scripts that render like a letter of "posthog". NFKD already folds accents,
-# full-width and mathematical forms, but not these, so "PоstHog" with a Cyrillic "о" would pass.
-_POSTHOG_LOOKALIKES = str.maketrans(
-    {
-        "0": "o",
-        "о": "o",
-        "ο": "o",
-        "օ": "o",
-        "ᴏ": "o",
-        "р": "p",
-        "ρ": "p",
-        "ᴘ": "p",
-        "ѕ": "s",
-        "ꜱ": "s",
-        "т": "t",
-        "τ": "t",
-        "ᴛ": "t",
-        "һ": "h",
-        "н": "h",
-        "η": "h",
-        "ʜ": "h",
-        "ɡ": "g",
-        "ԍ": "g",
-        "ɢ": "g",
-    }
-)
 
 
 def is_posthog_controlled_url(url: str) -> bool:
@@ -96,9 +182,7 @@ def is_posthog_controlled_url(url: str) -> bool:
 
 
 def _mentions_posthog(value: str) -> bool:
-    folded = unicodedata.normalize("NFKD", value).casefold()
-    folded = "".join(char for char in folded if not unicodedata.combining(char)).translate(_POSTHOG_LOOKALIKES)
-    return "posthog" in _NON_ALPHANUMERIC_RE.sub("", folded)
+    return RESERVED_CLIENT_NAME in _letters_and_digits(value)
 
 
 def validate_cimd_client_name(value: str, client_id: str) -> None:
@@ -113,10 +197,8 @@ def validate_cimd_client_name(value: str, client_id: str) -> None:
     # document from, so its location is proven. The error doesn't mention this exemption.
     if not is_posthog_controlled_url(client_id) and _mentions_posthog(value):
         raise serializers.ValidationError("Client name cannot contain 'PostHog'")
-    lower_value = value.lower()
-    for word in BLOCKED_CLIENT_NAME_WORDS:
-        if word in lower_value:
-            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+
+    _reject_blocked_words(value)
 
 
 def sanitize_client_name(value: str) -> str:
@@ -127,8 +209,14 @@ def sanitize_client_name(value: str) -> str:
     it past 255 chars. Truncation can slice through an entity (e.g. leaving "&am" from
     "&amp;"), so any dangling partial entity at the end is stripped to avoid rendering
     a stray fragment.
+
+    Format characters other than the zero-width joiner are dropped first, so the stored name
+    renders its letters in the order the reserved-name checks read them.
     """
-    truncated = escape(value)[:CLIENT_NAME_MAX_LENGTH]
+    visible = "".join(
+        char for char in value if char == _ZERO_WIDTH_JOINER or unicodedata.category(char) != _FORMAT_CATEGORY
+    )
+    truncated = escape(visible.strip())[:CLIENT_NAME_MAX_LENGTH]
     undangled = _DANGLING_ENTITY_RE.sub("", truncated)
 
     return undangled

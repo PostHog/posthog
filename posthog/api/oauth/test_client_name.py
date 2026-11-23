@@ -19,9 +19,12 @@ class TestSanitizeClientName(TestCase):
             ("script_tag", "<script>alert(1)</script>", "&lt;script&gt;alert(1)&lt;/script&gt;"),
             ("ampersand_in_middle", "Tom & Jerry", "Tom &amp; Jerry"),
             ("quote", "John's App", "John&#x27;s App"),
+            ("bidi_override_dropped", "\u202egoHtsoP", "goHtsoP"),
+            ("surrounding_whitespace_trimmed", " Acme ", "Acme"),
+            ("emoji_joiner_kept", "\U0001f469\u200d\U0001f4bb Dev Tools", "\U0001f469\u200d\U0001f4bb Dev Tools"),
         ]
     )
-    def test_escapes_short_names_without_truncation(self, _name, value, expected):
+    def test_sanitizes_short_names_without_truncation(self, _name, value, expected):
         self.assertEqual(sanitize_client_name(value), expected)
 
     @parameterized.expand(
@@ -53,6 +56,23 @@ class TestValidateClientName(TestCase):
             ("word_official", "Official MCP Client"),
             ("word_verified", "My Verified App"),
             ("word_trusted_embedded", "MYTRUSTEDAPP"),
+            ("leading_space", " PostHog Wizard"),
+            ("zero_width_space_prefix", "\u200bPostHog MCP"),
+            ("word_joiner_prefix", "\u2060PostHog MCP"),
+            ("hangul_filler_prefix", "\u3164PostHog MCP"),
+            ("leading_punctuation", "[PostHog] Wizard"),
+            ("split_by_space", "Post Hog Wizard"),
+            ("cyrillic_er", "\u0420ostHog Wizard"),
+            ("cyrillic_capitals", "\u0420\u041e\u0405\u0422\u041d\u041e\u050c"),
+            ("greek_rho_and_omicron", "\u03a1\u03bfstHog Wizard"),
+            ("coptic_o", "P\u2c9fstHog Wizard"),
+            ("cherokee_small_letters", "\uabb2ostHog Wizard"),
+            ("bengali_zero", "P\u09e6stHog Wizard"),
+            ("full_width", "\uff30\uff4f\uff53\uff54\uff28\uff4f\uff47 Wizard"),
+            ("mathematical_bold", "\U0001d40f\U0001d428\U0001d42c\U0001d42d\U0001d407\U0001d428\U0001d420"),
+            ("accented", "P\u00f6stH\u00f6g Wizard"),
+            ("cyrillic_o_in_blocked_word", "\u041efficial MCP Client"),
+            ("zero_width_space_in_blocked_word", "Acme Veri\u200bfied"),
         ]
     )
     def test_rejects_impersonating_names(self, _name, value):
@@ -63,6 +83,12 @@ class TestValidateClientName(TestCase):
         [
             ("contains_but_not_prefixed_by_posthog", "Claude Code (posthog-local)"),
             ("unrelated_name", "My Analytics Dashboard"),
+            ("posthog_after_the_client_name", "Claude for PostHog"),
+            ("shares_a_prefix_with_posthog", "Postman Collections"),
+            ("cyrillic_name", "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430"),
+            ("cyrillic_name_ending_with_posthog", "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 PostHog"),
+            ("cjk_name", "\u6570\u636e\u5206\u6790 Client"),
+            ("emoji_name", "\U0001f994 Hedgehog Helper"),
         ]
     )
     def test_accepts_valid_names(self, _name, value):
@@ -84,7 +110,12 @@ class TestValidateCimdClientName(TestCase):
             ("accented", "P\u00f6stH\u00f6g"),
             ("full_width", "\uff30\uff4f\uff53\uff54\uff28\uff4f\uff47"),
             ("zero_width_space", "Post\u200bHog"),
+            ("hangul_filler", "Acme Post\u3164Hog"),
+            ("coptic_o", "Acme P\u2c9fstHog"),
+            ("armenian_ho_and_co", "Acme Post\u0570o\u0581"),
+            ("bengali_zero", "Acme P\u09e6stHog"),
             ("blocked_word", "Acme Trusted Client"),
+            ("blocked_word_with_cyrillic_o", "Acme \u041efficial Client"),
         ]
     )
     def test_rejects_on_other_domains(self, _name, value):
