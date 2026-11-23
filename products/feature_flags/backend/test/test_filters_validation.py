@@ -630,10 +630,10 @@ KEYLESS_VARIANT = {"rollout_percentage": 50}
 
 
 class TestStringVariantKeyHeldByStoredFlag(BaseTest):
-    def _stored_flag(self) -> FeatureFlag:
+    def _stored_flag(self, held_variant: dict[str, Any] = KEYLESS_VARIANT) -> FeatureFlag:
         flag = FeatureFlag.objects.create(team=self.team, key="held")
         FeatureFlag.objects.filter(pk=flag.pk).update(
-            filters={"multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}, KEYLESS_VARIANT]}}
+            filters={"multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}, held_variant]}}
         )
         flag.refresh_from_db()
         return flag
@@ -662,9 +662,29 @@ class TestStringVariantKeyHeldByStoredFlag(BaseTest):
         flag.refresh_from_db()
         assert flag.active is False
 
-    def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(self) -> None:
-        flag = self._stored_flag()
-        flag.filters["multivariate"]["variants"].append({"key": 5, "rollout_percentage": 0})
+    @parameterized.expand(
+        [
+            ("new_number_key", KEYLESS_VARIANT, [KEYLESS_VARIANT, {"key": 5, "rollout_percentage": 0}], 2),
+            ("second_copy_of_the_held_variant", KEYLESS_VARIANT, [KEYLESS_VARIANT, KEYLESS_VARIANT], 2),
+            (
+                "boolean_for_a_held_number",
+                {"key": 1, "rollout_percentage": 50},
+                [{"key": True, "rollout_percentage": 50}],
+                1,
+            ),
+            (
+                "float_for_a_held_integer",
+                {"key": 1, "rollout_percentage": 50},
+                [{"key": 1.0, "rollout_percentage": 50}],
+                1,
+            ),
+        ]
+    )
+    def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(
+        self, _name: str, held_variant: dict[str, Any], written: list[dict[str, Any]], index: int
+    ) -> None:
+        flag = self._stored_flag(held_variant)
+        flag.filters["multivariate"]["variants"] = [{"key": "control", "rollout_percentage": 50}, *written]
         with self.assertRaises(ValidationError) as caught:
             flag.save()
-        assert caught.exception.message_dict == {"filters": ["multivariate.variants[2].key must be a string."]}
+        assert caught.exception.message_dict == {"filters": [f"multivariate.variants[{index}].key must be a string."]}

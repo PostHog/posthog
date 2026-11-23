@@ -1,4 +1,6 @@
 import copy
+import json
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -125,6 +127,10 @@ def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str |
     if len(variants) > EXPERIMENT_MAX_VARIANTS:
         return f"Feature flag must have at most {EXPERIMENT_MAX_VARIANTS} variants"
     return None
+
+
+def _json_text(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
 
 
 class FeatureFlagQuerySet(RootTeamQuerySet):
@@ -325,8 +331,16 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
                 .values_list("filters", flat=True)
                 .first()
             )
-            held = [variant for _, variant in non_string_variants(stored)]
-            unkeyed = [(path, variant) for path, variant in unkeyed if variant not in held]
+            # JSON text tells true from 1 and 1.0, which == does not. The count stops extra copies of a held variant.
+            held = Counter(_json_text(variant) for _, variant in non_string_variants(stored))
+            still_unkeyed = []
+            for path, variant in unkeyed:
+                text = _json_text(variant)
+                if held[text] > 0:
+                    held[text] -= 1
+                else:
+                    still_unkeyed.append((path, variant))
+            unkeyed = still_unkeyed
         if unkeyed:
             raise ValidationError({"filters": f"{unkeyed[0][0]} must be a string."})
 
