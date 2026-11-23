@@ -70,12 +70,22 @@ const linkedMixedEventTrigger: WorkflowTriggerConfig = {
     },
 }
 
+const MARKETING_CATEGORY_ID = '00000000-0000-4000-8000-0000000000c2'
+
+const categories = {
+    '/api/projects/:team_id/messaging_categories/:id/': (req: MockResolverInfo) => [
+        200,
+        { id: req.params.id, category_type: req.params.id === MARKETING_CATEGORY_ID ? 'marketing' : 'transactional' },
+    ],
+}
+
 const transactionalTemplate = {
     id: '00000000-0000-4000-8000-000000000001',
     name: 'Order receipt',
     description: '',
     sensitive: false,
-    transactional_hog_flow_id: 'transactional-flow-1',
+    transactional_hog_flow_id: '00000000-0000-4000-8000-0000000000f1',
+    message_category: '00000000-0000-4000-8000-0000000000c1',
     content: {
         templating: 'liquid',
         email: {
@@ -230,9 +240,10 @@ describe('workflowLogic pages opened from a link or a template', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/:id/': (req: MockResolverInfo) =>
-                    req.params.team_id === String(environmentId)
+                    req.params.team_id === String(environmentId) && req.params.id === transactionalTemplate.id
                         ? [200, transactionalTemplate]
                         : [404, { detail: 'Not found.' }],
+                ...categories,
             },
         })
         const logic = workflowLogic({
@@ -297,13 +308,18 @@ describe('workflowLogic pages opened from a link or a template', () => {
             () => [200, { ...transactionalTemplate, transactional_hog_flow_id: null }],
         ],
         [
+            'the template is in a marketing category, which the send API refuses as well',
+            EVENT_TRIGGER_WITH_NO_EVENT,
+            () => [200, { ...transactionalTemplate, message_category: MARKETING_CATEGORY_ID }],
+        ],
+        [
             'the link names an internal event trigger, which has no person to send to',
             linkedInternalEventTrigger,
             () => [200, transactionalTemplate],
         ],
     ])('opens the linked workflow without an email step when %s', async (_, trigger, respond) => {
         useMocks({
-            get: { '/api/projects/:team_id/messaging_templates/:id/': respond },
+            get: { '/api/projects/:team_id/messaging_templates/:id/': respond, ...categories },
         })
         const logic = workflowLogic({
             id: 'new',

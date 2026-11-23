@@ -45,7 +45,7 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType,
 
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
-import { messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
+import { messagingCategoriesRetrieve, messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
 import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
@@ -244,13 +244,27 @@ async function loadEmailTemplate(templateId: string | undefined): Promise<Messag
         return null
     }
     try {
-        const template = await messagingTemplatesRetrieve(String(ApiConfig.getCurrentTeamId()), templateId)
+        const projectId = String(ApiConfig.getCurrentTeamId())
+        const template = await messagingTemplatesRetrieve(projectId, templateId)
         if (template.sensitive) {
             lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
             return null
         }
-        // Only a transactional template may become a step that sends past marketing opt-outs.
-        return template.transactional_hog_flow_id && template.content?.email ? template : null
+        // Only a transactional template may become a step that sends past marketing opt-outs. A template moved to a
+        // marketing category keeps its workflow, so its category is checked too, as the send API does.
+        if (!template.transactional_hog_flow_id || !template.content?.email) {
+            return null
+        }
+        const category = template.message_category
+            ? await messagingCategoriesRetrieve(projectId, template.message_category)
+            : null
+        if (category?.category_type === 'marketing') {
+            lemonToast.warning(
+                'The workflow opens without the email. Move the template to a transactional category to copy it.'
+            )
+            return null
+        }
+        return template
     } catch {
         lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
         return null
