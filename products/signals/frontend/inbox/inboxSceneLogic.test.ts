@@ -10,6 +10,7 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -206,6 +207,39 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.selectedReportId).toBe('report-1')
             expect(window.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
         })
+    })
+
+    it.each<[string, string]>([
+        ['the Scouts tab', urls.inbox('scouts')],
+        ['a scout page', combineUrl(urls.inboxScout('signals-scout-error-tracking'), { tab: 'runs' }).url],
+        ['the findings panel', urls.inboxFindings()],
+        ['the runs list', urls.inboxRuns()],
+        ['the scratchpad', urls.inboxScratchpad()],
+    ])('Back and Forward across a report opened from %s keep the history', async (_, origin) => {
+        window.history.replaceState({}, '', '/')
+        Object.assign(getPluginContext('router'), { history: window.history, location: window.location })
+        mountLogic()
+        router.actions.push(origin)
+        const historyLength = window.history.length
+
+        router.actions.push(combineUrl(urls.inboxReport('reports', 'report-1'), { back: origin }).url)
+        expect(logic.values.selectedReportId).toBe('report-1')
+        expect(logic.values.activeTab).toBe('scouts')
+        expect(router.values.searchParams.back).toBe(origin)
+
+        window.history.back()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(logic.values.activeTab).toBe('scouts')
+            expect(removeProjectIdIfPresent(window.location.pathname) + window.location.search).toBe(origin)
+        })
+
+        window.history.forward()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBe('report-1')
+            expect(window.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
+        })
+        expect(window.history.length).toBe(historyLength + 1)
     })
 
     it('a bare /inbox lands on the reports tab', () => {

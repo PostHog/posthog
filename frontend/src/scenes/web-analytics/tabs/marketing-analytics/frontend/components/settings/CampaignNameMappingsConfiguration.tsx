@@ -6,6 +6,7 @@ import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, To
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
@@ -15,6 +16,7 @@ import {
     parseCommaSeparatedValues,
     removeCampaignFromMappings,
 } from '../CampaignMapping/mappingUtils'
+import { QuillCampaignNameMappingsConfiguration } from './QuillCampaignNameMappingsConfiguration'
 import { CampaignSuggestion, findCampaignSuggestions } from './stringSimilarity'
 
 export interface CampaignNameMappingsConfigurationProps {
@@ -44,6 +46,7 @@ export function CampaignNameMappingsConfiguration({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     useEffect(() => {
         if (initialUtmValue) {
@@ -156,6 +159,38 @@ export function CampaignNameMappingsConfiguration({
     }
 
     const availableSources = VALID_NATIVE_MARKETING_SOURCES
+
+    const cannotAddMapping =
+        (!sourceFilter && !selectedSource) || !newCleanName.trim() || !newRawValues.trim() || hasAlreadyMappedValues
+
+    if (quillSurface) {
+        return (
+            <QuillCampaignNameMappingsConfiguration
+                sourceFilter={sourceFilter}
+                compact={compact}
+                filteredMappings={filteredMappings}
+                columnHeader={columnHeader}
+                matchField={matchField}
+                campaigns={campaigns}
+                campaignOptions={campaignOptions}
+                campaignsLoading={!!integrationCampaignsLoading[currentIntegration]}
+                availableSources={availableSources}
+                selectedSource={selectedSource}
+                onSelectedSourceChange={setSelectedSource}
+                newCleanName={newCleanName}
+                onNewCleanNameChange={setNewCleanName}
+                newRawValues={newRawValues}
+                onNewRawValuesChange={setNewRawValues}
+                campaignSuggestions={campaignSuggestions}
+                alreadyMappedValues={alreadyMappedValues}
+                cannotAddMapping={cannotAddMapping}
+                onAddMapping={addMapping}
+                onRemoveUtmValue={removeUtmValue}
+                onRemoveMapping={removeMapping}
+                restrictedReason={restrictedReason}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -353,12 +388,7 @@ export function CampaignNameMappingsConfiguration({
                                         size="small"
                                         icon={<IconPlusSmall />}
                                         onClick={addMapping}
-                                        disabled={
-                                            (!sourceFilter && !selectedSource) ||
-                                            !newCleanName.trim() ||
-                                            !newRawValues.trim() ||
-                                            hasAlreadyMappedValues
-                                        }
+                                        disabled={cannotAddMapping}
                                         disabledReason={restrictedReason}
                                     />
                                 </Tooltip>

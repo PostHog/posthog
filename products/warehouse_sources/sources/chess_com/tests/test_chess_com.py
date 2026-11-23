@@ -197,6 +197,200 @@ class TestChessCom:
             }
         ]
 
+    @parameterized.expand(
+        [
+            (
+                "players",
+                "",
+                {
+                    "@id": f"{API}/player/ada",
+                    "url": "https://www.chess.com/member/Ada",
+                    "username": "ada",
+                    "player_id": 41,
+                    "name": "Ada Example",
+                    "avatar": "https://images.example.com/ada.png",
+                    "location": "Example City",
+                    "title": "IM",
+                    "status": "premium",
+                    "country": f"{API}/country/GB",
+                    "joined": 1389043258,
+                    "last_online": 1791288000,
+                    "followers": 17,
+                    "league": "Legend",
+                    "fide": 2301,
+                    "is_streamer": False,
+                    "verified": True,
+                },
+                [
+                    {
+                        "title": "IM",
+                        "status": "premium",
+                        "country": "GB",
+                        "joined_at": datetime.fromtimestamp(1389043258, tz=UTC),
+                        "last_online_at": datetime.fromtimestamp(1791288000, tz=UTC),
+                        "followers": 17,
+                        "league": "Legend",
+                        "fide_rating": 2301,
+                        "is_streamer": False,
+                        "verified": True,
+                    }
+                ],
+            ),
+            (
+                "tournaments",
+                "/tournaments",
+                {
+                    "finished": [
+                        {
+                            "url": "https://www.chess.com/tournament/ada-and-grace-arena",
+                            "@id": f"{API}/tournament/ada-and-grace-arena",
+                            "wins": 3,
+                            "losses": 1,
+                            "draws": 2,
+                            "points_awarded": 4,
+                            "placement": 2,
+                            "status": "eliminated",
+                            "total_players": 40,
+                            "time_class": "blitz",
+                            "type": "swiss",
+                        }
+                    ],
+                    "in_progress": [],
+                    "registered": [
+                        {"@id": f"{API}/tournament/ada-and-grace-arena", "status": "registered"},
+                        {"@id": f"{API}/tournament/next-arena", "status": "invited", "type": "arena"},
+                    ],
+                },
+                [
+                    {
+                        "tournament_key": opaque_key(TEAM_ID, f"{API}/tournament/ada-and-grace-arena"),
+                        "state": "finished",
+                        "status": "eliminated",
+                        "type": "swiss",
+                        "time_class": "blitz",
+                        "wins": 3,
+                        "losses": 1,
+                        "draws": 2,
+                        "points_awarded": 4,
+                        "placement": 2,
+                        "total_players": 40,
+                    },
+                    {
+                        "tournament_key": opaque_key(TEAM_ID, f"{API}/tournament/next-arena"),
+                        "state": "registered",
+                        "status": "invited",
+                        "type": "arena",
+                        "time_class": None,
+                        "wins": None,
+                        "losses": None,
+                        "draws": None,
+                        "points_awarded": None,
+                        "placement": None,
+                        "total_players": None,
+                    },
+                ],
+            ),
+            (
+                "team_matches",
+                "/matches",
+                {
+                    "finished": [
+                        {
+                            "name": "Ada Club vs Grace Club",
+                            "url": "https://www.chess.com/club/matches/7",
+                            "@id": f"{API}/match/7",
+                            "club": f"{API}/club/ada-club",
+                            "results": {"played_as_white": "win", "played_as_black": "agreed"},
+                            "board": f"{API}/match/7/3",
+                        }
+                    ],
+                    "in_progress": [],
+                    "registered": [{"name": "Ada Club vs Others", "@id": f"{API}/match/8"}],
+                },
+                [
+                    {
+                        "match_key": opaque_key(TEAM_ID, f"{API}/match/7"),
+                        "club_key": opaque_key(TEAM_ID, f"{API}/club/ada-club"),
+                        "state": "finished",
+                        "result_as_white": "win",
+                        "result_as_black": "agreed",
+                        "outcome_as_white": "win",
+                        "outcome_as_black": "draw",
+                    },
+                    {
+                        "match_key": opaque_key(TEAM_ID, f"{API}/match/8"),
+                        "club_key": None,
+                        "state": "registered",
+                        "result_as_white": None,
+                        "result_as_black": None,
+                        "outcome_as_white": None,
+                        "outcome_as_black": None,
+                    },
+                ],
+            ),
+        ]
+    )
+    def test_player_tables_hold_one_row_per_entry_with_no_name_or_link(
+        self, endpoint: str, path: str, body: dict[str, Any], expected: list[dict[str, Any]]
+    ) -> None:
+        result = _driver("nobody, ada").run(endpoint, [ScriptedResponse(status=404), ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == [{"player_key": opaque_key(TEAM_ID, "ada"), **row} for row in expected]
+        assert result.paths == [f"/pub/player/nobody{path}", f"/pub/player/ada{path}"]
+        values = [value for row in result.rows for key, value in row.items() if not key.endswith("_key")]
+        dumped = json.dumps(values, default=str).lower()
+        assert "ada" not in dumped and "chess.com" not in dumped and 41 not in values
+
+    def test_leaderboard_players_share_the_key_of_a_listed_player(self) -> None:
+        def entry(username: str | None, rank: int) -> dict[str, Any]:
+            return {
+                "player_id": 41,
+                "@id": f"{API}/player/{username}",
+                "url": f"https://www.chess.com/member/{username}",
+                "username": username,
+                "name": "Someone Example",
+                "score": 3000 - rank,
+                "rank": rank,
+                "title": "GM",
+                "status": "premium",
+                "country": f"{API}/country/XX",
+                "win_count": 5,
+                "loss_count": 1,
+                "draw_count": 0,
+                "trend_score": {"direction": 1, "delta": 22},
+                "trend_rank": {"direction": -1, "delta": 1},
+            }
+
+        body = {"live_blitz": [entry("Ada", 1), entry(None, 2)], "daily": [], "tactics": [entry("grace", 1)]}
+        result = _driver("ada").run("leaderboards", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == ["/pub/leaderboards"]
+        assert [(row["leaderboard"], row["player_key"], row["rank"]) for row in result.rows] == [
+            ("live_blitz", opaque_key(TEAM_ID, "ada"), 1),
+            ("tactics", opaque_key(TEAM_ID, "grace"), 1),
+        ]
+        assert result.rows[0] | {"player_key": None} == {
+            "leaderboard": "live_blitz",
+            "player_key": None,
+            "rank": 1,
+            "score": 2999,
+            "title": "GM",
+            "status": "premium",
+            "country": "XX",
+            "wins": 5,
+            "losses": 1,
+            "draws": 0,
+            "score_trend_direction": 1,
+            "score_trend_delta": 22,
+            "rank_trend_direction": -1,
+            "rank_trend_delta": 1,
+        }
+        values = [value for row in result.rows for key, value in row.items() if not key.endswith("_key")]
+        dumped = json.dumps(values, default=str).lower()
+        assert "ada" not in dumped and "grace" not in dumped and "example" not in dumped and 41 not in values
+
     def test_a_refused_request_fails_the_sync_with_the_status_and_reason(self) -> None:
         result = _driver("ada").run("ratings", [ScriptedResponse(status=403)])
 

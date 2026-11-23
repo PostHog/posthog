@@ -13,17 +13,23 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { AuditCountsApi } from '../generated/api.schemas'
+import { AuditCountsApi, MCPServiceAccountApi } from '../generated/api.schemas'
 import { AUDIT_PAGE_SIZE, AuditQuickFilter, gatewayAuditLogic } from './gatewayAuditLogic'
 import { DecisionTag, credentialOwnerLabel, toProfileUser } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
-const FILTERS: { key: AuditQuickFilter; label: string; countKey: keyof AuditCountsApi }[] = [
+export const FILTERS: { key: AuditQuickFilter; label: string; countKey: keyof AuditCountsApi }[] = [
     { key: 'all', label: 'All activity', countKey: 'all' },
     { key: 'agents', label: 'Agents only', countKey: 'agents' },
     { key: 'approvals', label: 'Approvals', countKey: 'approvals' },
     { key: 'blocked', label: 'Blocked', countKey: 'blocked' },
 ]
+
+export function auditCallerName(callerFilter: string, serviceAccounts: MCPServiceAccountApi[]): string {
+    return callerFilter === 'all'
+        ? 'Everyone'
+        : (serviceAccounts.find((account) => account.id === callerFilter)?.name ?? 'Agent')
+}
 
 export function GatewayAuditLog(): JSX.Element {
     const { auditResponse, auditResponseLoading, callerFilter, counts, hasActiveFilters, quickFilter, page } =
@@ -41,10 +47,7 @@ export function GatewayAuditLog(): JSX.Element {
               ]
             : []),
     ]
-    const selectedCallerName =
-        callerFilter === 'all'
-            ? 'Everyone'
-            : (serviceAccounts.find((account) => account.id === callerFilter)?.name ?? 'Agent')
+    const selectedCallerName = auditCallerName(callerFilter, serviceAccounts)
 
     return (
         <div className="flex flex-col gap-4">
