@@ -44,11 +44,15 @@ REDIRECT_OUTSIDE_POSTHOG = "redirect_uri must point back to PostHog."
 SHARED_MAIL_FROM = "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
 
 
-def email_from_code(enabled: bool | None) -> Any:
-    return patch(
-        "posthoganalytics.feature_enabled",
-        side_effect=lambda key, *_args, **_kwargs: enabled if key == EMAIL_FROM_CODE_FLAG else False,
-    )
+def email_from_code(enabled: bool | None | list[bool]) -> Any:
+    answers: list[bool | None] = list(enabled) if isinstance(enabled, list) else [enabled]
+
+    def answer(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
+        if key != EMAIL_FROM_CODE_FLAG:
+            return False
+        return answers.pop(0) if len(answers) > 1 else answers[0]
+
+    return patch("posthoganalytics.feature_enabled", side_effect=answer)
 
 
 @override_settings(DOMAIN_CONNECT_PRIVATE_KEY=domain_connect_signing_key_pem(), CLOUD_DEPLOYMENT="US")
@@ -484,6 +488,14 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
             ),
             ("token_cannot_change_the_address", True, "pak", SENDER, f"team@{DOMAIN}", status.HTTP_400_BAD_REQUEST),
             (
+                "token_cannot_change_the_address_when_a_later_flag_answer_is_off",
+                [True, False],
+                "pak",
+                SENDER,
+                f"team@{DOMAIN}",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
                 "app_with_the_flag_renames_a_sender_stored_without_an_address",
                 True,
                 "session",
@@ -510,7 +522,13 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
         ]
     )
     def test_sender_update_keeps_the_sender_address(
-        self, _name: str, flag: bool, authentication: str, stored_email: object, sent_email: str, expected_status: int
+        self,
+        _name: str,
+        flag: bool | list[bool],
+        authentication: str,
+        stored_email: object,
+        sent_email: str,
+        expected_status: int,
     ) -> None:
         stored_config = {key: value for key, value in self.config().items() if key != "email"}
         if stored_email is not NO_ADDRESS:

@@ -173,16 +173,15 @@ export const BillingUsageTypesSchema = z
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
-export const EmailSenderConfigSchema = IntegrationsEmailPartialUpdateBody()
-    .shape.config.unwrap()
+const EmailSenderConfigFields = IntegrationsEmailPartialUpdateBody().shape.config.unwrap()
+
+export const EmailSenderConfigSchema = EmailSenderConfigFields.omit({ setup_method: true })
     .extend({
+        email: z.string().describe(EmailSenderConfigFields.shape.email.description!),
+        reply_to: z.string().optional().describe(EmailSenderConfigFields.shape.reply_to.description!),
         provider: z.literal('ses').default('ses').describe('Sending provider. Always `ses`.'),
     })
     .describe('Email sender config.')
-
-export const EmailSenderCreateConfigSchema = EmailSenderConfigSchema.omit({ setup_method: true }).describe(
-    'Email sender config.'
-)
 
 export const DomainConnectSenderIdSchema = IntegrationsDomainConnectApplyUrlCreateBody()
     .shape.integration_id.unwrap()

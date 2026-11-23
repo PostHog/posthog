@@ -41,7 +41,8 @@ Accept the root domain if they prefer it.
 
 If they only give a domain, default the sender to `hello@<domain>` with the company name as the display name.
 Tell them the display name can change later, but the address cannot: a different address needs a new sender.
-Free mailbox domains such as gmail.com are rejected, and so is a domain another PostHog organization already uses; relay that error and suggest contacting support for the second case.
+Free mailbox domains such as gmail.com are rejected, and so is a domain another PostHog organization has already verified; relay that error and suggest contacting support for the second case.
+If another organization has only started setting up the domain, creating the sender succeeds, and the records include an `organization` TXT record that proves your organization owns the domain.
 
 Check `integrations-list` with `kind=email` first; each sender's `display_name` is its address.
 If a sender with the exact requested address exists, skip to step 3 with its `id`.
@@ -56,7 +57,7 @@ The MAIL FROM subdomain belongs to the whole domain, not to one sender: creating
 - When the domain already has a sender, the new sender keeps the domain's MAIL FROM subdomain whatever you pass, and the response carries the value that applies. Leave `mail_from_subdomain` out.
 - On a new domain, leave `mail_from_subdomain` at its default `feedback`. Pick another label such as `bounce` only if `feedback.<domain>` already has an MX record that does not point at `amazonses.com`, for example from another email tool.
 
-The returned `id` is the `integration_id` every other email tool takes.
+Pass the returned `id` as `id` to the status, verify and update tools, and as `integration_id` to `integrations-domain-connect-apply-url-create`.
 
 ### 3. Get the records
 
@@ -77,6 +78,7 @@ Pick the first path that works:
    If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
+   The URL publishes the email provider's records only. After the person approves, call `integrations-email-status-retrieve` with `refresh=true` and publish any record that is still `pending`, such as an `organization` TXT record, through path 2 or 3.
 2. **Your own DNS tools.**
    If you can manage the domain's DNS (a DNS provider MCP server, CLI or API you are authorized to use), add the missing records yourself.
    Read [references/publishing-records.md](references/publishing-records.md) first: it covers the records that must be merged, not duplicated.
@@ -103,13 +105,14 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 - `failed`: the provider stopped checking. Fix the records, then call `integrations-email-verify-create` to restart the check.
 - `verified`: call `integrations-email-verify-create` once. When it returns `success`, every sender on this domain in the project can send.
 
-After about 15 minutes without `verified` and with every record published, stop polling.
-Tell the person the remaining records are in place and propagating, and that they can ask you to check again later or watch the sender's status in PostHog.
+After about 15 minutes without `verified`, stop polling.
+If a record is still `pending`, tell the person which one and the exact name it must be published at, since a record under the wrong name never resolves.
+Otherwise tell them the records are in place and propagating, and that they can ask you to check again later or watch the sender's status in PostHog.
 
 ### 6. Wrap up
 
 Confirm the sender address and display name, and that it now appears as a sender option in workflows and broadcasts.
-If the person wants another address on the same domain, create it with `integrations-email-create` and the domain's current `mail_from_subdomain`, then call `integrations-email-verify-create` once for it.
+If the person wants another address on the same domain, create it with `integrations-email-create`, which keeps the domain's MAIL FROM subdomain, then call `integrations-email-verify-create` once for it.
 The records are already in place, so it succeeds without new DNS work.
 
 ## Changing a sender

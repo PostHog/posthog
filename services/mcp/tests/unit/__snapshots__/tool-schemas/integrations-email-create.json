@@ -6,8 +6,6 @@
             "properties": {
                 "email": {
                     "description": "Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating.",
-                    "format": "email",
-                    "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
                     "type": "string"
                 },
                 "mail_from_subdomain": {
@@ -25,18 +23,8 @@
                     "type": "string"
                 },
                 "reply_to": {
-                    "anyOf": [
-                        {
-                            "format": "email",
-                            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
-                            "type": "string"
-                        },
-                        {
-                            "maxLength": 0,
-                            "type": "string"
-                        }
-                    ],
-                    "description": "Reply-to address for emails from this sender when the email step sets none. Blank clears it."
+                    "description": "Reply-to address for emails from this sender when the email step sets none. Blank clears it.",
+                    "type": "string"
                 }
             },
             "required": ["email", "name"],

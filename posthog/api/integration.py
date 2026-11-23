@@ -3255,13 +3255,10 @@ class IntegrationViewSet(
     def email_update(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         email = self._get_email_integration()
         config = request.validated_data["config"]
-        if email_from_code_enabled(self.team, cast(User, request.user)):
+        scoped = get_authenticator_scopes(request.successful_authenticator) is not None
+        if scoped or email_from_code_enabled(self.team, cast(User, request.user)):
             email.reject_address_change(config["email"])
-        email.update_native_integration(
-            config,
-            email.integration.team_id,
-            keep_shared_mail_from=get_authenticator_scopes(request.successful_authenticator) is not None,
-        )
+        email.update_native_integration(config, email.integration.team_id, keep_shared_mail_from=scoped)
         return Response(IntegrationSerializer(email.integration).data)
 
     def _get_email_integration(self) -> EmailIntegration:

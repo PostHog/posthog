@@ -35,6 +35,28 @@ describe('integrations-email-create', () => {
         )
     })
 
+    it.each(['integrations-email-create', 'integrations-email-partial-update'])(
+        '%s leaves address syntax to the API and drops the setup method',
+        (name) => {
+            const params = GENERATED_TOOLS[name]!().schema.parse({
+                id: 7,
+                config: {
+                    email: 'sales&ops@mail.example.com',
+                    name: 'Example',
+                    reply_to: 'billing=alerts@mail.example.com',
+                    setup_method: 'auto',
+                },
+            })
+
+            expect(params.config).toEqual({
+                email: 'sales&ops@mail.example.com',
+                name: 'Example',
+                reply_to: 'billing=alerts@mail.example.com',
+                provider: 'ses',
+            })
+        }
+    )
+
     it.each(['maildev', 'sandbox'])('rejects the %s provider', (provider) => {
         expect(() =>
             tool.schema.parse({ config: { email: 'hello@mail.example.com', name: 'Example', provider } })
