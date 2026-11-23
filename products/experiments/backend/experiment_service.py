@@ -1313,8 +1313,6 @@ class ExperimentService:
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
         self._reject_live_create_under_launch_policy(is_draft)
-        if not is_draft:
-            self._reject_warehouse_native_launch(exposure_criteria)
 
         ensured = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -1848,14 +1846,6 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
-    @staticmethod
-    def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
-        """A launched experiment runs every recalculation trigger, and which of them may query the customer's
-        warehouse is not decided yet. The exposure stands for the experiment: a warehouse-native experiment
-        always has one."""
-        if warehouse_native_exposure_config(exposure_criteria) is not None:
-            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
-
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
 
@@ -2084,7 +2074,6 @@ class ExperimentService:
         """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
-        self._reject_warehouse_native_launch(experiment.exposure_criteria)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -3836,11 +3825,6 @@ class ExperimentService:
                 team=self.team,
                 user=self.user,
             )
-        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
-            # Covers a draft that launches and a launched experiment that switches its sources.
-            if update_data.get("start_date", experiment.start_date) is not None:
-                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
-
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 

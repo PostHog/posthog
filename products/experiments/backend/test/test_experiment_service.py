@@ -8401,44 +8401,16 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert expected_error in str(ctx.exception)
         assert not Experiment.objects.filter(team=self.team).exists()
 
-    @parameterized.expand(
-        [("launch_action",), ("patch_start_date",), ("live_create",), ("patch_sources_of_a_launched_experiment",)]
-    )
-    def test_refuses_warehouse_native_sources_on_a_launched_experiment(self, path: str) -> None:
+    def test_launches_a_warehouse_native_experiment(self) -> None:
         connection_id = str(self.bigquery.id)
-        exposure_criteria = _warehouse_exposure(connection_id)
-        metrics = [_warehouse_metric(connection_id)]
-        with self.assertRaises(ValidationError) as ctx:
-            if path == "live_create":
-                self.service.create_experiment(
-                    name="Warehouse experiment",
-                    feature_flag_key="warehouse-experiment",
-                    exposure_criteria=exposure_criteria,
-                    metrics=metrics,
-                    start_date=timezone.now(),
-                )
-            elif path == "patch_sources_of_a_launched_experiment":
-                launched = self.service.create_experiment(
-                    name="Events experiment",
-                    feature_flag_key="events-experiment",
-                    metrics=[_EVENTS_METRIC],
-                    start_date=timezone.now(),
-                    allow_unknown_events=True,
-                )
-                self.service.update_experiment(launched, {"exposure_criteria": exposure_criteria, "metrics": metrics})
-            else:
-                experiment = self._create(exposure_criteria=exposure_criteria, metrics=metrics)
-                if path == "launch_action":
-                    self.service.launch_experiment(experiment)
-                else:
-                    self.service.update_experiment(experiment, {"start_date": timezone.now()})
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
 
-        assert "cannot run yet" in str(ctx.exception)
-        assert not Experiment.objects.filter(
-            team=self.team,
-            start_date__isnull=False,
-            exposure_criteria__exposure_config__kind="ExperimentWarehouseNativeExposureConfig",
-        ).exists()
+        self.service.launch_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.start_date is not None
 
     def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
         self.organization.available_product_features = [
