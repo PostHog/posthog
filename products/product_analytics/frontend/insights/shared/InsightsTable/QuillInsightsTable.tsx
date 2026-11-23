@@ -1,7 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { CSSProperties } from 'react'
 
-import { SkeletonText, Table, TableBody, TableCell, TableEmpty, TableHeader, TableRow, cn } from '@posthog/quill'
+import {
+    SkeletonText,
+    Table,
+    TableBody,
+    TableCaption,
+    TableCell,
+    TableEmpty,
+    TableHeader,
+    TableRow,
+    cn,
+} from '@posthog/quill'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
@@ -102,6 +112,11 @@ export function QuillInsightsTable({
             className="rounded-lg border bg-card [--quill-table-sticky-bg:var(--card)]"
             data-attr="insights-table-graph"
         >
+            {model.breakdownRankingCaption ? (
+                <TableCaption data-attr="insights-table-breakdown-ranking">
+                    {model.breakdownRankingCaption}
+                </TableCaption>
+            ) : null}
             <TableHeader>
                 <TableRow ref={headerRowRef}>
                     {columns.map((column) => (

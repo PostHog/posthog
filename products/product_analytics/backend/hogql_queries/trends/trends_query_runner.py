@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from copy import deepcopy
@@ -148,9 +149,41 @@ class _ResultSeriesBreakdown:
 
 
 @frozen
+class _BreakdownRanking:
+    values: list[str] | list[list[str]]
+    event_counts: dict[str, int]
+    other_values_count: int
+    other_event_count: int
+
+    def event_count(self, breakdown_value: Any) -> int:
+        return self.event_counts.get(_breakdown_ranking_key(breakdown_value), 0)
+
+
+@frozen
 class _SharedBreakdownValues:
-    current_period: list[str] | list[list[str]]
-    previous_period: list[str] | list[list[str]] | None
+    current_period: _BreakdownRanking
+    previous_period: _BreakdownRanking | None
+
+    def for_series(self, series: SeriesWithExtras) -> _BreakdownRanking | None:
+        return self.previous_period if series.is_previous_period_series else self.current_period
+
+
+def _breakdown_ranking_key(breakdown_value: Any) -> str:
+    # A multiple breakdown value comes back as a list from one query and as a tuple from another.
+    if isinstance(breakdown_value, list | tuple):
+        return json.dumps([str(part) for part in breakdown_value])
+    return json.dumps(str(breakdown_value))
+
+
+def _event_count_series(
+    series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
+) -> EventsNode | ActionsNode | DataWarehouseNode | GroupNode:
+    # The ranking counts the events that each series matches, whatever the series computes from them. A count has
+    # the same unit in every series, so the sum across series is meaningful even for revenue divided by orders.
+    no_math = {"math_property", "math_property_type", "math_hogql", "math_group_type_index", "math_multiplier"}
+    update: dict[str, Any] = {"math": "total"}
+    update.update({field: None for field in no_math if field in type(series).model_fields})
+    return series.model_copy(update=update)
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -272,14 +305,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
-                series_breakdown_values = None
-                if shared_breakdown_values is not None:
-                    series_breakdown_values = (
-                        shared_breakdown_values.previous_period
-                        if series.is_previous_period_series
-                        else shared_breakdown_values.current_period
-                    )
-                query = self._series_query_builder(series, series_breakdown_values).build_query()
+                ranking = shared_breakdown_values.for_series(series) if shared_breakdown_values is not None else None
+                query = self._series_query_builder(series, ranking.values if ranking else None).build_query()
 
                 # Get around the default 100 limit, bump to the max 10000.
                 # This is useful for the world map view and other cases with a lot of breakdowns.
@@ -324,7 +351,15 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             queries: list[ast.SelectQuery] = []
             for is_previous_period in (False, True):
                 builders = [
-                    self._series_query_builder(series)
+                    self._series_query_builder(
+                        SeriesWithExtras(
+                            series=_event_count_series(series.series),
+                            series_order=series.series_order,
+                            is_previous_period_series=series.is_previous_period_series,
+                            overriden_query=series.overriden_query,
+                            aggregate_values=series.aggregate_values,
+                        )
+                    )
                     for series in self.series
                     if bool(series.is_previous_period_series) == is_previous_period
                 ]
@@ -335,7 +370,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         )
                     )
 
-            top_values: list[list[str] | list[list[str]] | None] = [None, None]
+            rankings: list[_BreakdownRanking | None] = [None, None]
 
             def run(index: int, is_parallel: bool) -> None:
                 try:
@@ -351,7 +386,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         limit_context=self.limit_context,
                         context=self.build_hogql_context(),
                     )
-                    top_values[index] = [row[0] for row in response.results]
+                    rankings[index] = self._breakdown_ranking(response.results)
                 finally:
                     if is_parallel:
                         # This closes the connection of the worker thread only
@@ -366,8 +401,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     thread_name_prefix="trends_breakdown_values",
                 )
 
-        assert top_values[0] is not None
-        return _SharedBreakdownValues(current_period=top_values[0], previous_period=top_values[1])
+        assert rankings[0] is not None
+        return _SharedBreakdownValues(current_period=rankings[0], previous_period=rankings[1])
+
+    @staticmethod
+    def _breakdown_ranking(rows: list[Any]) -> _BreakdownRanking:
+        # Each row repeats the count of all values and their events, taken before the limit.
+        event_counts = {_breakdown_ranking_key(row[0]): int(row[1]) for row in rows}
+        values_count = int(rows[0][2]) if rows else 0
+        all_values_event_count = int(rows[0][3]) if rows else 0
+        return _BreakdownRanking(
+            values=[row[0] for row in rows],
+            event_counts=event_counts,
+            other_values_count=values_count - len(rows),
+            other_event_count=all_values_event_count - sum(event_counts.values()),
+        )
 
     def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
@@ -573,7 +621,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 response.warnings = [*(response.warnings or []), resolved.warning]
             return response
 
-        queries = self.to_queries(shared_breakdown_values=self._shared_breakdown_values)
+        shared_breakdown_values = self._shared_breakdown_values
+        queries = self.to_queries(shared_breakdown_values=shared_breakdown_values)
 
         response_hogql = get_response_hogql(
             queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=self.shared_database
@@ -610,7 +659,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
                 timings_matrix[index + 1] = response.timings
-                res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                res_matrix[index] = self.build_series_response(
+                    response,
+                    series_with_extra,
+                    len(queries),
+                    breakdown_ranking=shared_breakdown_values.for_series(series_with_extra)
+                    if shared_breakdown_values is not None
+                    else None,
+                )
                 if response.error:
                     debug_errors.append(response.error)
             except Exception as e:
@@ -808,7 +864,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return final_result, has_more
 
     def build_series_response(
-        self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int
+        self,
+        response: HogQLQueryResponse,
+        series: SeriesWithExtras,
+        series_count: int,
+        breakdown_ranking: _BreakdownRanking | None = None,
     ) -> list[dict[str, Any]]:
         def get_value(name: str, val: Any):
             if name not in ["date", "total", "breakdown_value"]:
@@ -954,10 +1014,26 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         correct_result_for_sampling(value, factor, math) for value in series_object["data"]
                     ]
 
+            if breakdown_ranking is not None:
+                self._add_breakdown_ranking(series_object, get_value("breakdown_value", val), breakdown_ranking)
+
             series_object["order"] = series.series_order
             series_object["custom_name"] = resolve_series_custom_name(series.series, series_label)
             res.append(series_object)
         return res
+
+    def _add_breakdown_ranking(
+        self, series_object: dict[str, Any], breakdown_value: Any, breakdown_ranking: _BreakdownRanking
+    ) -> None:
+        event_count: int | float
+        if self._is_other_breakdown(breakdown_value):
+            event_count = breakdown_ranking.other_event_count
+            series_object["breakdown_other_values_count"] = breakdown_ranking.other_values_count
+        else:
+            event_count = breakdown_ranking.event_count(breakdown_value)
+        if self.query.samplingFactor and self.query.samplingFactor != 1:
+            event_count = correct_result_for_sampling(event_count, self.query.samplingFactor, "total")
+        series_object["breakdown_event_count"] = event_count
 
     def _filter_buckets_to_days(self, results: list[dict], allowed_iso_days: set[int]) -> list[dict]:
         # All series in a response usually share the same days axis, so cache the kept
@@ -1323,18 +1399,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     else:
                         data_source = results[0][0] if results and results[0] else {}
                         data_length = len(data_source.get("data") or any_result.get("data") or [])
-                        row_results.append(
-                            {
-                                "label": f"filler for {breakdown_value}",
-                                "data": [0] * data_length,
-                                "count": 0,
-                                "aggregated_value": 0,
-                                "breakdown_value": any_result.get("breakdown_value"),
-                                "compare_label": any_result.get("compare_label"),
-                                "days": any_result.get("days"),
-                                "labels": any_result.get("labels"),
-                            }
-                        )
+                        filler: dict[str, Any] = {
+                            "label": f"filler for {breakdown_value}",
+                            "data": [0] * data_length,
+                            "count": 0,
+                            "aggregated_value": 0,
+                            "breakdown_value": any_result.get("breakdown_value"),
+                            "compare_label": any_result.get("compare_label"),
+                            "days": any_result.get("days"),
+                            "labels": any_result.get("labels"),
+                        }
+                        # The formula row starts from the first series, so a filler must carry the ranking too
+                        for ranking_key in ("breakdown_event_count", "breakdown_other_values_count"):
+                            if ranking_key in any_result:
+                                filler[ranking_key] = any_result[ranking_key]
+                        row_results.append(filler)
                 new_result = self.apply_formula_to_results_group(
                     row_results, formula_node, breakdown_value=breakdown_value, aggregate_values=is_total_value
                 )

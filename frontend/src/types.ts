@@ -3558,6 +3558,11 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events that all series counted for this breakdown value. The query ranks the
+     * breakdown values by this count to pick the rows, and the "Other" row holds the count of the rest. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {

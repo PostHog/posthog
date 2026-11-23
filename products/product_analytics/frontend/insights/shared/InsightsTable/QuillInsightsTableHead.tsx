@@ -157,6 +157,13 @@ export function QuillInsightsTableHead({
                 </QuillColumnSortButton>
             )
             break
+        case 'event-count':
+            content = (
+                <QuillColumnSortButton order={order} onClick={sort}>
+                    {column.title}
+                </QuillColumnSortButton>
+            )
+            break
         case 'previous':
             content = (
                 <QuillColumnSortButton order={order} onClick={sort}>

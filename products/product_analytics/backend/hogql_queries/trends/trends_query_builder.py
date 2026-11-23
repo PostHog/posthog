@@ -1076,16 +1076,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def top_breakdown_values_query(self, totals_queries: list[ast.SelectQuery]) -> ast.SelectQuery:
         # The order and the filter match those of the series queries. The values that a series query would cut are
-        # therefore the values that this query leaves out.
+        # therefore the values that this query leaves out. The window columns count every value before the limit,
+        # so the caller knows what the "Other" row holds.
         return cast(
             ast.SelectQuery,
             parse_select(
                 """
-                SELECT breakdown_value
-                FROM {totals}
-                WHERE {breakdown_filter}
-                GROUP BY breakdown_value
-                ORDER BY {breakdown_order} ASC, sum(total) DESC, breakdown_value ASC
+                SELECT
+                    breakdown_value,
+                    total,
+                    count() OVER () AS values_count,
+                    sum(total) OVER () AS all_values_total
+                FROM (
+                    SELECT breakdown_value, sum(total) AS total
+                    FROM {totals}
+                    WHERE {breakdown_filter}
+                    GROUP BY breakdown_value
+                )
+                ORDER BY {breakdown_order} ASC, total DESC, breakdown_value ASC
                 LIMIT {breakdown_limit}
                 """,
                 placeholders={

@@ -563,6 +563,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "label": "Formula (B / A)",
                     "breakdown_value": "Paris",
+                    "breakdown_event_count": 2,
                     "order": 0,
                     "custom_name": None,
                 },
@@ -591,6 +592,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "label": "Formula (B / A)",
                     "breakdown_value": "London",
+                    "breakdown_event_count": 3,
                     "order": 0,
                     "custom_name": None,
                 },
@@ -799,6 +801,41 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 [(series["breakdown_value"], series["data"]) for series in response],
                 [(london, [0, 0, 0, 0, 0, 1, 3, 0]), (other, [0, 0, 0, 0, 0, 2, 3, 0])],
             )
+
+    def test_breakdown_limit_ranks_values_by_event_count_across_series(self):
+        with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
+            _create_event(
+                team=self.team, event="purchase", distinct_id="blabla", properties={"shop": "Paris", "amount": 1000}
+            )
+            for _ in range(3):
+                _create_event(
+                    team=self.team, event="purchase", distinct_id="blabla", properties={"shop": "Rome", "amount": 10}
+                )
+
+        # Paris leads on revenue, Rome on purchases, so only an event count ranking keeps Rome
+        response = self._run(
+            {
+                "series": [
+                    {"kind": "EventsNode", "event": "purchase", "math": "sum", "math_property": "amount"},
+                    {"kind": "EventsNode", "event": "purchase"},
+                ],
+                "breakdownFilter": {"breakdown": "shop", "breakdown_limit": 1},
+                "trendsFilter": {"formula": "A / B", "display": "ActionsTable"},
+            }
+        )
+
+        self.assertCountEqual(
+            [
+                (
+                    series["breakdown_value"],
+                    series["aggregated_value"],
+                    series["breakdown_event_count"],
+                    series.get("breakdown_other_values_count"),
+                )
+                for series in response
+            ],
+            [("Rome", 10, 6, None), ("$$_posthog_breakdown_other_$$", 1000, 2, 1)],
+        )
 
     def test_breakdown_limit_ranks_the_values_of_each_compared_period(self):
         with time_machine.travel("2019-12-25T13:01:01Z", tick=False):

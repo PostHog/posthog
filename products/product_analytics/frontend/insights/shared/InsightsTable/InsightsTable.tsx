@@ -20,6 +20,7 @@ import { IndexedTrendResult } from 'products/product_analytics/frontend/insights
 import { AggregationColumnItem, AggregationColumnTitle, CALC_COLUMN_LABELS } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
+import { EventCountColumnItem, EventCountColumnTitle } from './columns/EventCountColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -105,6 +106,7 @@ export function InsightsTable({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const {
         columns: columnModel,
+        breakdownRankingCaption,
         dataSource,
         hasCheckboxes,
         isSingleSeriesWithBreakdown,
@@ -322,6 +324,14 @@ export function InsightsTable({
                     key: column.key,
                     align: 'right',
                 }
+            case 'event-count':
+                return {
+                    title: <EventCountColumnTitle title={column.title} />,
+                    render: (_: any, item: IndexedTrendResult) => <EventCountColumnItem item={item} />,
+                    sorter: column.sorter,
+                    key: column.key,
+                    align: 'right',
+                }
             case 'value':
                 return {
                     title: isStickiness ? (
@@ -375,6 +385,13 @@ export function InsightsTable({
             loading={insightDataLoading}
             disableTableWhileLoading={false}
             emptyState={emptyState}
+            footer={
+                breakdownRankingCaption ? (
+                    <div className="text-secondary text-xs px-2 py-1" data-attr="insights-table-breakdown-ranking">
+                        {breakdownRankingCaption}
+                    </div>
+                ) : undefined
+            }
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
             rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}

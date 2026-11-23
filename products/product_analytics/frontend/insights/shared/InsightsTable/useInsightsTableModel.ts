@@ -4,6 +4,7 @@ import { ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { alphabet } from 'lib/utils/strings'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -13,13 +14,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { hasBreakdownFilter } from '~/queries/schema/node-guards'
+import { hasBreakdownFilter, isInsightQueryWithSeries } from '~/queries/schema/node-guards'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
+import { getBreakdownRankingCaption } from './breakdownRankingCaption'
 import { getAggregatedValue, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
@@ -44,10 +46,17 @@ export type InsightsTableColumn =
     | { kind: 'aggregation'; key: 'count'; sorter: Sorter }
     | { kind: 'percent-of-total'; key: 'percent-of-total'; sorter: Sorter }
     | { kind: 'previous'; key: 'previous'; sorter: Sorter }
+    | { kind: 'event-count'; key: 'breakdown_event_count'; title: string; sorter: Sorter }
     | { kind: 'value'; key: string; index: number; sorter: Sorter }
     | { kind: 'load-more'; key: 'load-more-columns'; hiddenCount: number }
 
-const NUMERIC_COLUMN_KINDS: InsightsTableColumn['kind'][] = ['aggregation', 'percent-of-total', 'previous', 'value']
+const NUMERIC_COLUMN_KINDS: InsightsTableColumn['kind'][] = [
+    'aggregation',
+    'percent-of-total',
+    'previous',
+    'event-count',
+    'value',
+]
 
 export function isNumericColumn(column: InsightsTableColumn): boolean {
     return NUMERIC_COLUMN_KINDS.includes(column.kind)
@@ -62,6 +71,8 @@ export interface InsightsTableModelProps {
 
 export interface InsightsTableModel {
     columns: InsightsTableColumn[]
+    /** Set when a formula breakdown ranked its values by the events of all series. */
+    breakdownRankingCaption: string | null
     dataSource: IndexedTrendResult[]
     hasCheckboxes: boolean
     isSingleSeriesWithBreakdown: boolean
@@ -278,6 +289,17 @@ export function useInsightsTableModel({
         }
     }
 
+    const breakdownRankingCaption = getBreakdownRankingCaption(indexedResults)
+    if (breakdownRankingCaption) {
+        const seriesCount = querySource && isInsightQueryWithSeries(querySource) ? querySource.series.length : 0
+        columns.push({
+            kind: 'event-count',
+            key: 'breakdown_event_count',
+            title: `Events (${alphabet.slice(0, seriesCount).join(' + ')})`,
+            sorter: (a, b) => (a.breakdown_event_count ?? 0) - (b.breakdown_event_count ?? 0),
+        })
+    }
+
     const valueColumns = useMemo((): InsightsTableColumn[] => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
         if (
@@ -329,6 +351,7 @@ export function useInsightsTableModel({
 
     return {
         columns,
+        breakdownRankingCaption,
         dataSource,
         hasCheckboxes,
         isSingleSeriesWithBreakdown,
