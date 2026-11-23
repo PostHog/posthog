@@ -14,10 +14,10 @@ export default meta
 export const NotEnabled: Story = {
     args: {
         section: {
-            id: 'organization-access-resolution',
-            title: 'Access resolution preview',
+            id: 'organization-oauth-apps',
+            title: 'OAuth applications',
             reason: 'not-enabled',
-            fallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
+            fallback: { sectionId: 'organization-details', label: 'Go to organization settings' },
         },
     },
 }
@@ -25,10 +25,10 @@ export const NotEnabled: Story = {
 export const AdminOnly: Story = {
     args: {
         section: {
-            id: 'organization-access-resolution',
-            title: 'Access resolution preview',
+            id: 'organization-oauth-apps',
+            title: 'OAuth applications',
             reason: 'admin-only',
-            fallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
+            fallback: { sectionId: 'organization-details', label: 'Go to organization settings' },
         },
     },
 }
