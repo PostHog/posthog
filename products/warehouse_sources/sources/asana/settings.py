@@ -13,7 +13,19 @@ from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 #   "user"          -> one request per user the token can see
 #   "team"          -> one request per team across all visible organizations
 #   "portfolio"     -> one request per portfolio across all visible workspaces
-FanOut = Literal["none", "workspace", "organization", "project", "task", "goal", "user", "team", "portfolio"]
+#   "workspace_archived_states" -> two requests per workspace, one per `is_archived` value (true, false)
+FanOut = Literal[
+    "none",
+    "workspace",
+    "organization",
+    "project",
+    "task",
+    "goal",
+    "user",
+    "team",
+    "portfolio",
+    "workspace_archived_states",
+]
 
 # Every Asana resource is identified by its global id ``gid``.
 PRIMARY_KEY = "gid"
@@ -354,6 +366,65 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         path="/status_updates?parent={portfolio_gid}",
         opt_fields=STATUS_UPDATE_OPT_FIELDS,
         partition_key="created_at",
+    ),
+    # One row per task-to-dependency edge. The row is the task that must finish first, so its gid
+    # repeats across every task that waits on it — `task_gid` (the waiting task) completes the key.
+    "task_dependencies": AsanaEndpointConfig(
+        name="task_dependencies",
+        fan_out="task",
+        path="/tasks/{task_gid}/dependencies",
+        opt_fields=["name", "resource_subtype", "completed", "resource_type"],
+        parent_fields={"gid": "task_gid"},
+        primary_keys=["task_gid", PRIMARY_KEY],
+    ),
+    # The reverse edge: the row is a task that waits on `task_gid`.
+    "task_dependents": AsanaEndpointConfig(
+        name="task_dependents",
+        fan_out="task",
+        path="/tasks/{task_gid}/dependents",
+        opt_fields=["name", "resource_subtype", "completed", "resource_type"],
+        parent_fields={"gid": "task_gid"},
+        primary_keys=["task_gid", PRIMARY_KEY],
+    ),
+    # /goal_relationships requires a `supported_goal`, so it fans out per goal. Each relationship has
+    # its own gid, so `gid` alone is unique.
+    "goal_relationships": AsanaEndpointConfig(
+        name="goal_relationships",
+        fan_out="goal",
+        path="/goal_relationships?supported_goal={goal_gid}",
+        opt_fields=[
+            "resource_subtype",
+            "contribution_weight",
+            "supported_goal",
+            "supporting_resource",
+            "supporting_resource.resource_subtype",
+            "resource_type",
+        ],
+    ),
+    # Without `is_archived` the endpoint returns only active categories, but archived ones stay on
+    # existing time tracking entries — so both states are requested.
+    "time_tracking_categories": AsanaEndpointConfig(
+        name="time_tracking_categories",
+        fan_out="workspace_archived_states",
+        path="/time_tracking_categories?workspace={workspace_gid}&is_archived={is_archived}",
+        opt_fields=["name", "color", "is_archived", "resource_type"],
+    ),
+    # /allocations must be filtered to a project, user or placeholder; the project filter (`parent`)
+    # covers every allocation on a visible project.
+    "allocations": AsanaEndpointConfig(
+        name="allocations",
+        fan_out="project",
+        path="/allocations?parent={project_gid}",
+        opt_fields=[
+            "start_date",
+            "end_date",
+            "effort",
+            "assignee",
+            "created_by",
+            "parent",
+            "resource_subtype",
+            "resource_type",
+        ],
     ),
     # AI Studio usage endpoints (organization fan-out — AI Studio is an org/division feature, so
     # non-organization workspaces are skipped to avoid invalid requests). Both require the

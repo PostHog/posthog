@@ -45,19 +45,20 @@ class PandaDocResumeConfig:
 
 
 class PandaDocPagePaginator(PageNumberPaginator):
-    """1-based page paginator that stops as soon as a page returns fewer than PAGE_SIZE rows.
+    """1-based page paginator that stops as soon as a page returns fewer than `page_size` rows.
 
     PandaDoc list responses carry no total, so the hand-rolled source terminated on the first
     short page rather than paying one extra empty-page request. The built-in only stops on an
     empty page, so extend it to also stop on a partial page and keep termination identical.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, page_size: int = PAGE_SIZE) -> None:
         super().__init__(base_page=1, page_param="page")
+        self.page_size = page_size
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
-        if data is not None and len(data) < PAGE_SIZE:
+        if data is not None and len(data) < self.page_size:
             self._has_next_page = False
 
 
@@ -84,7 +85,7 @@ def _paginator_for(config: PandaDocEndpointConfig) -> BasePaginator:
         )
     if config.has_more_path:
         return PandaDocHasMorePaginator(config.has_more_path)
-    return PandaDocPagePaginator()
+    return PandaDocPagePaginator(config.page_size)
 
 
 def _client_config(api_key: str) -> ClientConfig:

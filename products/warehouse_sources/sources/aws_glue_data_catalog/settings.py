@@ -17,6 +17,7 @@ class GlueEndpoint:
     names_only: bool = False
     paginated: bool = True
     missing_is_empty: bool = False
+    request_params: tuple[tuple[str, object], ...] = ()
 
 
 ENDPOINTS: dict[str, GlueEndpoint] = {
@@ -113,6 +114,41 @@ ENDPOINTS: dict[str, GlueEndpoint] = {
         primary_keys=("region", "id"),
         timestamp_columns=("created_on", "completed_on"),
     ),
+    "data_quality_rulesets": GlueEndpoint(
+        operation="ListDataQualityRulesets",
+        result_key="Rulesets",
+        primary_keys=("region", "name"),
+        timestamp_columns=("created_on", "last_modified_on"),
+    ),
+    "triggers": GlueEndpoint(
+        operation="GetTriggers",
+        result_key="Triggers",
+        primary_keys=("region", "name"),
+    ),
+    "schema_registries": GlueEndpoint(
+        operation="ListRegistries",
+        result_key="Registries",
+        primary_keys=("region", "registry_arn"),
+    ),
+    "schemas": GlueEndpoint(
+        operation="ListSchemas",
+        result_key="Schemas",
+        primary_keys=("region", "schema_arn"),
+    ),
+    "schema_versions": GlueEndpoint(
+        operation="ListSchemaVersions",
+        result_key="Schemas",
+        primary_keys=("region", "schema_arn", "schema_version_id"),
+        parent="schemas",
+        missing_is_empty=True,
+    ),
+    "connections": GlueEndpoint(
+        operation="GetConnections",
+        result_key="ConnectionList",
+        primary_keys=("region", "name"),
+        timestamp_columns=("creation_time", "last_updated_time", "last_connection_validation_time"),
+        request_params=(("HidePassword", True),),
+    ),
 }
 
 # GetColumnStatisticsForTable accepts at most 100 column names per request.
@@ -145,7 +181,60 @@ ENDPOINT_DESCRIPTIONS = {
     "column_statistics": "Column statistics for each catalog table, such as null counts, distinct values, and value ranges.",
     "table_optimizer_runs": "Compaction, snapshot retention, and orphan file deletion runs for each Iceberg table.",
     "sessions": "Interactive sessions, with status, duration, and compute use.",
+    "data_quality_rulesets": "Data quality ruleset metadata, with the target table and the rule count.",
+    "triggers": "Triggers, with the schedules and conditions that start jobs and crawlers. Job arguments are not synced.",
+    "schema_registries": "Schema registries in the account.",
+    "schemas": "Schemas in every schema registry, with their status.",
+    "schema_versions": "Version history for each schema registry schema.",
+    "connections": "Connections that jobs and crawlers use to reach data stores. Passwords and other secrets are not synced.",
 }
+
+# Connection rows are readable by every project member, so only known non-secret values are kept.
+# HidePassword covers only the main password, and the Spark, Athena and Python property maps take
+# any key, so those maps are dropped and ConnectionProperties keeps only allowlisted keys.
+SAFE_CONNECTION_PROPERTIES = frozenset(
+    {
+        "HOST",
+        "PORT",
+        "USERNAME",
+        "JDBC_DRIVER_JAR_URI",
+        "JDBC_DRIVER_CLASS_NAME",
+        "JDBC_ENGINE",
+        "JDBC_ENGINE_VERSION",
+        "CONFIG_FILES",
+        "INSTANCE_ID",
+        "JDBC_CONNECTION_URL",
+        "JDBC_ENFORCE_SSL",
+        "SKIP_CUSTOM_JDBC_CERT_VALIDATION",
+        "CONNECTION_URL",
+        "KAFKA_BOOTSTRAP_SERVERS",
+        "KAFKA_SSL_ENABLED",
+        "KAFKA_SKIP_CUSTOM_CERT_VALIDATION",
+        "KAFKA_SASL_MECHANISM",
+        "KAFKA_SASL_PLAIN_USERNAME",
+        "KAFKA_SASL_SCRAM_USERNAME",
+        "KAFKA_SASL_SCRAM_SECRETS_ARN",
+        "KAFKA_SASL_GSSAPI_SERVICE",
+        "KAFKA_SASL_GSSAPI_PRINCIPAL",
+        "SECRET_ID",
+        "CONNECTOR_URL",
+        "CONNECTOR_TYPE",
+        "CONNECTOR_CLASS_NAME",
+        "ENDPOINT",
+        "ENDPOINT_TYPE",
+        "ROLE_ARN",
+        "REGION",
+        "WORKGROUP_NAME",
+        "CLUSTER_IDENTIFIER",
+        "DATABASE",
+    }
+)
+# URL values can carry user:password@ or password= parameters.
+URL_CONNECTION_PROPERTIES = frozenset({"JDBC_CONNECTION_URL", "CONNECTION_URL", "CONNECTOR_URL", "ENDPOINT"})
+UNSAFE_CONNECTION_FIELDS = ("SparkProperties", "AthenaProperties", "PythonProperties")
+SAFE_AUTHENTICATION_FIELDS = ("AuthenticationType", "SecretArn", "KmsKeyArn")
+# TokenUrlParametersMap is free-form and can hold client secrets.
+SAFE_OAUTH2_FIELDS = ("OAuth2GrantType", "OAuth2ClientApplication", "TokenUrl")
 
 ERROR_MESSAGES = {
     "AccessDeniedException": "AWS denied access. Grant the required Glue read permissions and check Lake Formation permissions.",

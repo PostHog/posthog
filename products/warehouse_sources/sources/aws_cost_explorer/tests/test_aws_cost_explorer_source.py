@@ -60,6 +60,14 @@ class TestAwsCostExplorerSource:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
         assert any(key in observed_error for key in self.source.get_retryable_errors())
 
+    def test_a_linked_account_without_discount_permission_stops_retrying(self) -> None:
+        observed_error = (
+            "AWS Cost Explorer request failed: ValidationException - Linked accounts without permissions "
+            "to view discounts may not query for this metric: NET_AMORTIZED_COST"
+        )
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
+
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2024, 5, 1, tzinfo=dt.UTC)
 

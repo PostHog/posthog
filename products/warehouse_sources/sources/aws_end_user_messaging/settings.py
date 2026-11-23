@@ -20,6 +20,8 @@ class FanOut:
     response_name_field: str
     arn_column: str
     name_column: str
+    # Other top-level response fields that every row gets, as (response field, column).
+    extra_columns: tuple[tuple[str, str], ...] = ()
 
 
 @frozen
@@ -96,6 +98,64 @@ ENDPOINTS: dict[str, Endpoint] = {
         primary_keys=("registration_arn",),
         description="Registrations for phone numbers and sender IDs, with their type, status, and versions.",
     ),
+    "registration_associations": Endpoint(
+        operation="ListRegistrationAssociations",
+        result_key="RegistrationAssociations",
+        primary_keys=("registration_arn", "resource_arn"),
+        description="Phone numbers and sender IDs that each registration covers.",
+        fan_out=FanOut(
+            parents=(("registrations", "RegistrationId"),),
+            request_field="RegistrationId",
+            response_arn_field="RegistrationArn",
+            response_name_field="RegistrationId",
+            arn_column="registration_arn",
+            name_column="registration_id",
+            extra_columns=(("RegistrationType", "registration_type"),),
+        ),
+    ),
+    "registration_versions": Endpoint(
+        operation="DescribeRegistrationVersions",
+        result_key="RegistrationVersions",
+        primary_keys=("registration_arn", "version_number"),
+        description="Versions of each registration, with their status history and denial reasons.",
+        fan_out=FanOut(
+            parents=(("registrations", "RegistrationId"),),
+            request_field="RegistrationId",
+            response_arn_field="RegistrationArn",
+            response_name_field="RegistrationId",
+            arn_column="registration_arn",
+            name_column="registration_id",
+        ),
+    ),
+    "registration_field_values": Endpoint(
+        operation="DescribeRegistrationFieldValues",
+        result_key="RegistrationFieldValues",
+        primary_keys=("registration_arn", "version_number", "field_path"),
+        description="Values of the form fields of each registration, such as the company and use case details.",
+        fan_out=FanOut(
+            parents=(("registrations", "RegistrationId"),),
+            request_field="RegistrationId",
+            response_arn_field="RegistrationArn",
+            response_name_field="RegistrationId",
+            arn_column="registration_arn",
+            name_column="registration_id",
+            extra_columns=(("VersionNumber", "version_number"),),
+        ),
+    ),
+    "pool_origination_identities": Endpoint(
+        operation="ListPoolOriginationIdentities",
+        result_key="OriginationIdentities",
+        primary_keys=("pool_arn", "origination_identity_arn"),
+        description="Phone numbers and sender IDs in each pool.",
+        fan_out=FanOut(
+            parents=(("pools", "PoolArn"),),
+            request_field="PoolId",
+            response_arn_field="PoolArn",
+            response_name_field="PoolId",
+            arn_column="pool_arn",
+            name_column="pool_id",
+        ),
+    ),
     "verified_destination_numbers": Endpoint(
         operation="DescribeVerifiedDestinationNumbers",
         result_key="VerifiedDestinationNumbers",
@@ -130,8 +190,8 @@ ENDPOINTS: dict[str, Endpoint] = {
 
 IAM_ACTIONS = tuple(sorted({f"sms-voice:{endpoint.operation}" for endpoint in ENDPOINTS.values()}))
 PERMISSION_MESSAGE = (
-    "AWS denied access. Grant the IAM user or role the sms-voice Describe actions for the tables you select, "
-    "for example sms-voice:Describe*."
+    "AWS denied access. Grant the IAM user or role the sms-voice Describe and List actions for the tables you "
+    "select, for example sms-voice:Describe* and sms-voice:List*."
 )
 INVALID_CREDENTIALS_MESSAGE = (
     "AWS rejected the credentials. Check the access key ID, the secret access key, and the session token."
