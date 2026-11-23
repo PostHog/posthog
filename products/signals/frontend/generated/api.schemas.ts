@@ -1276,6 +1276,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `analytics` - Product analytics
+ * * `slack` - Slack
  * * `freshdesk` - Freshdesk
  * * `freshservice` - Freshservice
  * * `front` - Front
@@ -1438,6 +1439,7 @@ export const SignalSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -1651,6 +1653,7 @@ export interface InboxOnboardingSourceApi {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `slack` - Slack
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -5064,6 +5067,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `analytics` - analytics
+ * * `slack` - slack
  * * `freshdesk` - freshdesk
  * * `freshservice` - freshservice
  * * `front` - front
@@ -5226,6 +5230,7 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -7147,6 +7152,7 @@ export interface SignalNodeApi {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `slack` - slack
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -12882,6 +12888,67 @@ export interface ScoutSuggestionRefreshApi {
     workflow_id: string
 }
 
+export interface SlackChannelScoutCreateApi {
+    /**
+     * Name shown wherever people identify this scout. The scout's skill name is generated from it.
+     * @maxLength 200
+     */
+    display_name: string
+    /** Id of the Slack data warehouse source to read. */
+    source_id: string
+    /**
+     * Ids of the channels to read, at most 20. Every channel must already have synced its message table.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    channel_ids: string[]
+    /**
+     * What the scout looks for in the messages, in plain words. Blank uses a default focus on bug reports, repeated requests, and complaints.
+     * @maxLength 4000
+     */
+    steer?: string
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '0 9 * * 1-5'. Occurrences must be at least 30 minutes apart. Omit for the daily default.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /** Whether the scout files reports in the inbox. False is a dry run: it runs and logs only. */
+    emit?: boolean
+}
+
+export interface SlackChannelScoutCreateResponseApi {
+    /** True when this request created the scout. */
+    created: boolean
+    /** The scout's config, with the Slack source recorded as its owner. */
+    config: SignalScoutConfigApi
+}
+
+export interface SlackScoutChannelApi {
+    /** The Slack channel id, which is also the name of its warehouse schema. */
+    id: string
+    /** The channel name, without the leading #. */
+    name: string
+    /**
+     * HogQL name of the channel's message table. Null until the channel's first sync writes the table.
+     * @nullable
+     */
+    table_name: string | null
+}
+
+export interface SlackScoutChannelSourceApi {
+    /** Id of the Slack data warehouse source. */
+    id: string
+    /** Channels the source syncs, ordered by name. */
+    channels: SlackScoutChannelApi[]
+}
+
+export interface SlackScoutChannelSourcesApi {
+    /** The project's Slack data warehouse sources. Empty when the project has not connected Slack. */
+    sources: SlackScoutChannelSourceApi[]
+}
+
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
 
@@ -14364,11 +14431,341 @@ export type SignalsScoutConfigListParams = {
      */
     search?: string
     /**
+     * Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet.
+     *
+     * * `session_replay` - session_replay
+     * * `llm_analytics` - llm_analytics
+     * * `github` - github
+     * * `linear` - linear
+     * * `jira` - jira
+     * * `zendesk` - zendesk
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `endpoints` - endpoints
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - signals_scout
+     * * `signals_check` - signals_check
+     * * `user_authored` - user_authored
+     * * `logs` - logs
+     * * `health_checks` - health_checks
+     * * `replay_vision` - replay_vision
+     * * `analytics` - analytics
+     * * `slack` - slack
+     * * `freshdesk` - freshdesk
+     * * `freshservice` - freshservice
+     * * `front` - front
+     * * `gorgias` - gorgias
+     * * `kustomer` - kustomer
+     * * `dixa` - dixa
+     * * `plain` - plain
+     * * `gitlab` - gitlab
+     * * `gitea` - gitea
+     * * `shortcut` - shortcut
+     * * `sentry` - sentry
+     * * `rollbar` - rollbar
+     * * `bugsnag` - bugsnag
+     * * `honeybadger` - honeybadger
+     * * `raygun` - raygun
+     * * `datadog` - datadog
+     * * `snyk` - snyk
+     * * `sonarqube` - sonarqube
+     * * `semgrep` - semgrep
+     * * `rapid7_insightvm` - rapid7_insightvm
+     * * `featurebase` - featurebase
+     * * `frill` - frill
+     * * `aha` - aha
+     * * `uservoice` - uservoice
+     * * `productboard` - productboard
+     * * `canny` - canny
+     * * `asknicely` - asknicely
+     * * `retently` - retently
+     * * `appfigures` - appfigures
+     * * `appfollow` - appfollow
+     * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
+     * * `pagerduty` - pagerduty
+     * * `opsgenie` - opsgenie
+     * * `incident_io` - incident_io
+     * * `firehydrant` - firehydrant
+     * * `squadcast` - squadcast
+     * * `servicenow` - servicenow
+     * * `solarwinds_service_desk` - solarwinds_service_desk
+     * * `grafana_irm` - grafana_irm
+     * * `xmatters` - xmatters
+     * * `betterstack` - betterstack
+     * * `newrelic` - newrelic
+     * * `trigger_dev` - trigger_dev
+     * * `checkly` - checkly
+     * * `roark` - roark
+     * * `monte_carlo` - monte_carlo
+     * * `bigeye` - bigeye
+     * * `aws_security_hub` - aws_security_hub
+     * * `aws_guardduty` - aws_guardduty
+     * * `aws_inspector` - aws_inspector
+     * * `microsoft_defender_cloud_apps` - microsoft_defender_cloud_apps
+     * * `clickup` - clickup
+     * * `wrike` - wrike
+     * * `trello` - trello
+     * * `bugherd` - bugherd
+     * * `dynamics365` - dynamics365
+     * * `zoho_crm` - zoho_crm
+     * * `planhat` - planhat
+     * * `trustpilot` - trustpilot
+     * * `okendo` - okendo
+     * * `sleekplan` - sleekplan
+     * * `bettermode` - bettermode
+     * * `discourse` - discourse
+     * * `mintlify` - mintlify
+     * * `langsmith` - langsmith
+     * * `sprig` - sprig
+     * * `gainsight_px` - gainsight_px
+     * * `dynatrace` - dynatrace
+     * * `statuspage` - statuspage
+     * * `cronitor` - cronitor
+     * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
+     * * `asana` - asana
+     * * `monday` - monday
+     * * `plane` - plane
+     * * `azure_devops` - azure_devops
+     * * `helpscout` - helpscout
+     * * `decagon` - decagon
+     * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
+     * * `usersnap` - usersnap
+     * * `typeform` - typeform
+     * * `qualtrics` - qualtrics
+     * * `surveymonkey` - surveymonkey
+     * * `formbricks` - formbricks
+     * * `survicate` - survicate
+     * * `surveysparrow` - surveysparrow
+     * * `lacework` - lacework
+     * * `orca_security` - orca_security
+     * * `tenable_vulnerability_management` - tenable_vulnerability_management
+     * * `google_play_console` - google_play_console
+     * * `azure_application_insights` - azure_application_insights
+     * * `appsignal` - appsignal
+     * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux
+     * * `sonarcloud` - sonarcloud
+     * * `checkmarx` - checkmarx
+     * * `veracode` - veracode
+     * * `veracode_sca` - veracode_sca
+     * * `semgrep_sca` - semgrep_sca
+     * * `gitguardian` - gitguardian
+     * * `infisical` - infisical
+     * * `aws_macie` - aws_macie
+     * * `sentinelone` - sentinelone
+     * * `jfrog_xray` - jfrog_xray
+     * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback
+     * @minLength 1
+     */
+    source_product?: SignalsScoutConfigListSourceProduct
+    /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
      */
     tags?: string
 }
+
+export type SignalsScoutConfigListSourceProduct =
+    (typeof SignalsScoutConfigListSourceProduct)[keyof typeof SignalsScoutConfigListSourceProduct]
+
+export const SignalsScoutConfigListSourceProduct = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Jira: 'jira',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    Endpoints: 'endpoints',
+    Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
+    UserAuthored: 'user_authored',
+    Logs: 'logs',
+    HealthChecks: 'health_checks',
+    ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
+    Slack: 'slack',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Datadog: 'datadog',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
+    Pagerduty: 'pagerduty',
+    Opsgenie: 'opsgenie',
+    IncidentIo: 'incident_io',
+    Firehydrant: 'firehydrant',
+    Squadcast: 'squadcast',
+    Servicenow: 'servicenow',
+    SolarwindsServiceDesk: 'solarwinds_service_desk',
+    GrafanaIrm: 'grafana_irm',
+    Xmatters: 'xmatters',
+    Betterstack: 'betterstack',
+    Newrelic: 'newrelic',
+    TriggerDev: 'trigger_dev',
+    Checkly: 'checkly',
+    Roark: 'roark',
+    MonteCarlo: 'monte_carlo',
+    Bigeye: 'bigeye',
+    AwsSecurityHub: 'aws_security_hub',
+    AwsGuardduty: 'aws_guardduty',
+    AwsInspector: 'aws_inspector',
+    MicrosoftDefenderCloudApps: 'microsoft_defender_cloud_apps',
+    Clickup: 'clickup',
+    Wrike: 'wrike',
+    Trello: 'trello',
+    Bugherd: 'bugherd',
+    Dynamics365: 'dynamics365',
+    ZohoCrm: 'zoho_crm',
+    Planhat: 'planhat',
+    Trustpilot: 'trustpilot',
+    Okendo: 'okendo',
+    Sleekplan: 'sleekplan',
+    Bettermode: 'bettermode',
+    Discourse: 'discourse',
+    Mintlify: 'mintlify',
+    Langsmith: 'langsmith',
+    Sprig: 'sprig',
+    GainsightPx: 'gainsight_px',
+    Dynatrace: 'dynatrace',
+    Statuspage: 'statuspage',
+    Cronitor: 'cronitor',
+    Instatus: 'instatus',
+    Rootly: 'rootly',
+    Zenduty: 'zenduty',
+    SplunkObservabilityCloud: 'splunk_observability_cloud',
+    Uptimerobot: 'uptimerobot',
+    RootlyAlerts: 'rootly_alerts',
+    IncidentIoAlerts: 'incident_io_alerts',
+    FirehydrantAlerts: 'firehydrant_alerts',
+    GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
+    Asana: 'asana',
+    Monday: 'monday',
+    Plane: 'plane',
+    AzureDevops: 'azure_devops',
+    Helpscout: 'helpscout',
+    Decagon: 'decagon',
+    Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
+    Usersnap: 'usersnap',
+    Typeform: 'typeform',
+    Qualtrics: 'qualtrics',
+    Surveymonkey: 'surveymonkey',
+    Formbricks: 'formbricks',
+    Survicate: 'survicate',
+    Surveysparrow: 'surveysparrow',
+    Lacework: 'lacework',
+    OrcaSecurity: 'orca_security',
+    TenableVulnerabilityManagement: 'tenable_vulnerability_management',
+    GooglePlayConsole: 'google_play_console',
+    AzureApplicationInsights: 'azure_application_insights',
+    Appsignal: 'appsignal',
+    Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
+} as const
 
 export type SignalsScoutConfigTrialComparisonHistoryParams = {
     /**

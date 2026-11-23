@@ -44,7 +44,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind, ToolPreset
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, ToolPreset
 from products.signals.backend.models import (
     DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalReport,
@@ -3452,6 +3452,15 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
             "Case-insensitive substring filter over a scout's display name and its skill name. A "
             "scout matches on either, so a person who knows the label and a caller who knows the "
             "identifier both find it. Omit for the whole fleet."
+        ),
+    )
+
+    source_product = serializers.ChoiceField(
+        choices=[(product.value, product.value) for product in SignalSourceProduct],
+        required=False,
+        help_text=(
+            "Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for "
+            "Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet."
         ),
     )
 
