@@ -124,7 +124,7 @@ describe('dev reads', () => {
         }
     }, 10_000)
 
-    it('reads every receipt past the query API default of 100 rows, and fails when its own limit fills', async () => {
+    it('reads every receipt past the query API default of 100 rows, and fails when its own limit fills until a fresh query succeeds', async () => {
         const receipts = (from: number, to: number): Receipt[] =>
             Array.from({ length: to - from }, (_, i) => ({
                 runId: 'run-a',
@@ -142,6 +142,12 @@ describe('dev reads', () => {
             state.receipts.push(...receipts(101, RECEIPT_ROWS))
             clock = QUERY_EVERY_MS
             await expect(truth.head()).rejects.toThrow(`filled all ${RECEIPT_ROWS} rows`)
+            clock = QUERY_EVERY_MS + 1
+            await expect(truth.after(0)).rejects.toThrow(`filled all ${RECEIPT_ROWS} rows`)
+
+            state.receipts.splice(RECEIPT_ROWS - 1)
+            clock = 2 * QUERY_EVERY_MS
+            expect(await truth.head()).toBe(RECEIPT_ROWS - 1)
         } finally {
             await dev.close()
         }
