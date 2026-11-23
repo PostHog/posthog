@@ -273,15 +273,7 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
 
-        # The task reads the row later, so an enable that is undone before it runs is passed along with its content.
-        enabled_content = (
-            {"enabled_content_hash": content_hash(content_of(candidate, candidate.template))}
-            if candidate.enabled
-            else {}
-        )
-        classify_hog_function_for_abuse.delay(
-            team_id=hog_function.team_id, hog_function_id=str(hog_function.id), **enabled_content
-        )
+        classify_hog_function_for_abuse.delay(team_id=hog_function.team_id, hog_function_id=str(hog_function.id))
     except Exception:
         logger.exception("cdp_abuse_classifier_queue_failed", hog_function_id=str(hog_function.id))
 
@@ -331,7 +323,7 @@ def _runs_custom_hog(hog_function: HogFunction) -> bool:
     return template is None or hog_function.hog != template.code
 
 
-def classify_if_due(hog_function: HogFunction, *, enabled_content_hash: str | None = None) -> None:
+def classify_if_due(hog_function: HogFunction) -> None:
     """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
@@ -341,22 +333,16 @@ def classify_if_due(hog_function: HogFunction, *, enabled_content_hash: str | No
     outbound_call = rules.has_outbound_call(runtime_content)
     scoring = _scoring_for(hog_function.team)
     public_content_hash = content_hash(content)
-    enabled = hog_function.enabled or enabled_content_hash == public_content_hash
     reported = cache.get(_hash_key(str(hog_function.id)))
     # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
-    covering_states = (True,) if enabled else (True, False)
+    covering_states = (True,) if hog_function.enabled else (True, False)
     if any(
         reported == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, enabled=state)
         for state in covering_states
     ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(
-        hog_function,
-        _score(hog_function, content, rule_hits, outbound_call, scoring),
-        trigger=Trigger.SAVE,
-        enabled=enabled,
-    )
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -452,14 +438,8 @@ def _cache_entry(
 
 
 def report(
-    hog_function: HogFunction,
-    scored: ScoredHogFunction,
-    *,
-    trigger: Trigger,
-    backfill_run_id: str | None = None,
-    enabled: bool | None = None,
+    hog_function: HogFunction, scored: ScoredHogFunction, *, trigger: Trigger, backfill_run_id: str | None = None
 ) -> None:
-    enabled = hog_function.enabled if enabled is None else enabled
     function_type = hog_function.type or ""
     run = {"trigger": trigger.value} | ({"backfill_run_id": backfill_run_id} if backfill_run_id else {})
     for rule in scored.rule_hits:
@@ -471,7 +451,7 @@ def report(
         metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
         # Without a model verdict, a function no rule matched is unknown rather than clean.
         rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
-        _capture(hog_function, scored, enabled, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
+        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
         return
 
     verdict = scored.verdict
@@ -482,7 +462,6 @@ def report(
     _capture(
         hog_function,
         scored,
-        enabled,
         {
             **run,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
@@ -500,12 +479,18 @@ def report(
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(
         _hash_key(str(hog_function.id)),
-        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier, enabled=enabled),
+        _cache_entry(
+            scored.content_hash,
+            scored.rule_hits,
+            scored.outbound_call,
+            scored.account_tier,
+            enabled=hog_function.enabled,
+        ),
         _HASH_TTL_SECONDS,
     )
 
 
-def _capture(hog_function: HogFunction, scored: ScoredHogFunction, enabled: bool, outcome: dict[str, object]) -> None:
+def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
     team = hog_function.team
     account = scored.account
     properties = {
@@ -522,7 +507,7 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, enabled: bool
         "template_id": hog_function.template_id,
         "code_modified_from_template": scored.code_modified_from_template,
         "outbound_call": scored.outbound_call,
-        "enabled": enabled,
+        "enabled": hog_function.enabled,
         "content_hash": scored.content_hash,
         "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),
         **outcome,

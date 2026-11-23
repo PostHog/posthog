@@ -9,12 +9,10 @@ from products.cdp.backend.abuse import shadow
 # A gateway or capture slowdown holds a worker for the full timeout, so this stays off the default queue.
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 @skip_team_scope_audit
-def classify_hog_function_for_abuse(
-    team_id: int, hog_function_id: str, enabled_content_hash: str | None = None
-) -> None:
+def classify_hog_function_for_abuse(team_id: int, hog_function_id: str) -> None:
     hog_function = shadow.scorable_hog_functions(enabled_only=False).filter(team_id=team_id, id=hog_function_id).first()
     if hog_function is not None:
-        shadow.classify_if_due(hog_function, enabled_content_hash=enabled_content_hash)
+        shadow.classify_if_due(hog_function)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)

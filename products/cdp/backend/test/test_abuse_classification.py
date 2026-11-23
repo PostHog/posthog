@@ -2,8 +2,6 @@ import json
 from datetime import timedelta
 from typing import Any
 
-from unittest.mock import patch
-
 from django.utils import timezone
 
 import httpx
@@ -778,29 +776,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == 2
         assert [event["properties"]["enabled"] for event in self.captured_events()] == [False, True]
-
-    @parameterized.expand(
-        [
-            ("disabled_again", {}, [False, True]),
-            ("edited_and_disabled_again", {"hog": "print('other')"}, [False, False]),
-        ]
-    )
-    def test_an_enable_is_reported_for_its_content_when_tasks_run_after_a_later_disable(
-        self, _name: str, later_changes: dict[str, Any], reported_enabled: list[bool]
-    ) -> None:
-        hog_function = self.create_destination(enabled=False)
-        queued: list[dict[str, Any]] = []
-
-        with patch.object(classify_hog_function_for_abuse, "delay", side_effect=lambda **task: queued.append(task)):
-            for changes in ({"enabled": True}, {"enabled": False, **later_changes}):
-                for field, value in changes.items():
-                    setattr(hog_function, field, value)
-                with self.committed():
-                    hog_function.save()
-        for task in queued:
-            classify_hog_function_for_abuse(**task)
-
-        assert [event["properties"]["enabled"] for event in self.captured_events()] == reported_enabled
 
     @parameterized.expand(
         [
