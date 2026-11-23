@@ -139,7 +139,7 @@ export interface sourceSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => any
         breadcrumbs: (breadcrumbName: string) => Breadcrumb[]
-        todayRecent: (recentName: any, arg: any) => TodayDataRecent | null
+        todayRecent: (recentName: string | null, arg: any) => TodayDataRecent | null
         sidePanelContext: (arg: any) => SidePanelSceneContext | null
     }
 }
@@ -212,7 +212,6 @@ export const sourceSceneLogic = kea<sourceSceneLogicType>([
                           type: 'data_source',
                           name: recentName,
                           href: urls.dataWarehouseSource(id, getDefaultDataWarehouseSourceSceneTab(id)),
-                          // The Sources page stars a source by its id, so a pin from Recents finds the same star.
                           ...(isManagedSourceSceneId(id) ? { ref: cleanSourceId(id) } : {}),
                       }
                     : null,
