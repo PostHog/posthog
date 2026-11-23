@@ -45,9 +45,21 @@ export type RecipientManagerRecipient = {
     updated_at: string
 }
 
+const FRESH_BATCH_SIZE = 500
+
+type PendingFreshRequest = {
+    key: string
+    resolve: (recipient: RecipientManagerRecipient | null) => void
+    reject: (error: unknown) => void
+}
+
 export class RecipientsManagerService {
     private lazyLoader: LazyLoader<RecipientManagerRecipient>
     private anyCaseLoader: LazyLoader<RecipientManagerRecipient>
+    private pendingFresh: Record<'exact' | 'anyCase', PendingFreshRequest[] | null> = {
+        exact: null,
+        anyCase: null,
+    }
 
     constructor(private postgres: Pick<PostgresRouter, 'query'>) {
         this.lazyLoader = new LazyLoader({
@@ -70,11 +82,50 @@ export class RecipientsManagerService {
         return (await (args.anyCase ? this.anyCaseLoader : this.lazyLoader).get(key)) ?? null
     }
 
-    /** Reads directly from the primary database without consulting or populating the cache. */
-    public async getFresh(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
+    /** Reads directly from the primary database without consulting or populating the cache,
+     * batching concurrent callers that arrive before a query starts. */
+    public getFresh(args: RecipientGetArgs): Promise<RecipientManagerRecipient | null> {
+        const anyCase = Boolean(args.anyCase)
+        const bucket = anyCase ? 'anyCase' : 'exact'
         const key = toKey(args)
-        const rows = await this.fetchRecipients([key], Boolean(args.anyCase), PostgresUse.COMMON_WRITE)
-        return rows[key] ?? null
+        return new Promise((resolve, reject) => {
+            let queue = this.pendingFresh[bucket]
+            if (!queue) {
+                queue = []
+                this.pendingFresh[bucket] = queue
+                queueMicrotask(() => {
+                    void this.flushFresh(bucket, anyCase)
+                })
+            }
+            queue.push({ key, resolve, reject })
+        })
+    }
+
+    private async flushFresh(bucket: 'exact' | 'anyCase', anyCase: boolean): Promise<void> {
+        const batch = this.pendingFresh[bucket]
+        this.pendingFresh[bucket] = null
+        if (!batch?.length) {
+            return
+        }
+        const uniqueKeys = [...new Set(batch.map((entry) => entry.key))]
+        try {
+            const rows: Record<string, RecipientManagerRecipient | undefined> = Object.create(null)
+            for (let i = 0; i < uniqueKeys.length; i += FRESH_BATCH_SIZE) {
+                const chunk = await this.fetchRecipients(
+                    uniqueKeys.slice(i, i + FRESH_BATCH_SIZE),
+                    anyCase,
+                    PostgresUse.COMMON_WRITE
+                )
+                Object.assign(rows, chunk)
+            }
+            for (const entry of batch) {
+                entry.resolve(rows[entry.key] ?? null)
+            }
+        } catch (error) {
+            for (const entry of batch) {
+                entry.reject(error)
+            }
+        }
     }
 
     public async getMany(args: RecipientGetArgs[]): Promise<Record<string, RecipientManagerRecipient | null>> {

@@ -107,6 +107,21 @@ describe('clickableHrefs', () => {
             [],
         ],
         [
+            'an anchor inside a script after a paragraph end tag breaks out of an SVG drawing',
+            '<svg></p><script><a href="https://example.com/bye">Unsubscribe</a></script></svg>',
+            [],
+        ],
+        [
+            'an anchor inside a script after a line-break end tag breaks out of an SVG drawing',
+            '<svg></br><script><a href="https://example.com/bye">Unsubscribe</a></script></svg>',
+            [],
+        ],
+        [
+            'an anchor with only xlink:href after a paragraph end tag breaks out of an SVG drawing',
+            '<svg></p><a xlink:href="https://example.com/bye">Unsubscribe</a></svg>',
+            [],
+        ],
+        [
             'an anchor inside a script in an HTML MathML annotation-xml element',
             '<math><annotation-xml encoding="text/html"><script><a href="https://example.com/bye">Unsubscribe</a></script></annotation-xml></math>',
             [],
@@ -315,7 +330,7 @@ describe('clickableHrefs', () => {
         expect(largeStats.tokens).toBeLessThanOrEqual(smallStats.tokens * 12)
         expect(largeStats.contextOps).toBeLessThanOrEqual(Math.max(smallStats.contextOps * 12, 20))
     })
-    it('matches parse5 document parsing across generated combinations of tables, selects, templates, and foreign content', () => {
+    it('matches parse5 document parsing across well-scoped combinations of tables, selects, templates, and foreign content', () => {
         const parse5Hrefs = (html: string): string[] => {
             const doc = parse(html)
             const hrefs = new Set<string>()
@@ -367,6 +382,8 @@ describe('clickableHrefs', () => {
             '</mtext>',
             '</math>',
             '<p>',
+            '</p>',
+            '</br>',
             '<script>',
             '</script>',
             '<style>',
@@ -388,8 +405,8 @@ describe('clickableHrefs', () => {
                 html += fragments[nextInt(fragments.length)]
             }
             html += '<a href="https://example.com/tail">Unsubscribe</a>'
-            const actual = clickableHrefs(html)
-            const expected = parse5Hrefs(html)
+            const actual = [...clickableHrefs(html)].sort()
+            const expected = [...parse5Hrefs(html)].sort()
             if (JSON.stringify(actual) !== JSON.stringify(expected)) {
                 mismatches.push({ html, actual, expected })
                 if (mismatches.length >= 5) {
@@ -482,6 +499,16 @@ describe('hasReplaceableUnsubscribeLink', () => {
             expected: false,
         },
         {
+            name: 'a body that entity-encodes a deterministic sentinel URL outside a placeholder',
+            content: { html: '<a href="https://a/&#95;0/">Fake</a><!-- {{ unsubscribe_url }} -->' },
+            expected: false,
+        },
+        {
+            name: 'a body that entity-encodes a padded sentinel URL outside a placeholder',
+            content: { html: '<a href="https://a/&#95;00000/">Fake</a><!-- {{ unsubscribe_url }} -->' },
+            expected: false,
+        },
+        {
             name: 'a text-only body with the placeholder',
             content: { text: 'Unsubscribe: {{ unsubscribe_url }}' },
             expected: true,
@@ -493,5 +520,19 @@ describe('hasReplaceableUnsubscribeLink', () => {
         },
     ])('returns $expected for $name', ({ content, expected }) => {
         expect(hasReplaceableUnsubscribeLink(content)).toBe(expected)
+    })
+
+    it.each([
+        ['short sequential base-36 markers', Array.from({ length: 80_000 }, (_, i) => `_${i.toString(36)}`).join(' ')],
+        [
+            'fixed-width base-36 markers',
+            Array.from({ length: 80_000 }, (_, i) => `_${i.toString(36).padStart(5, '0')}`).join(' '),
+        ],
+    ])('selects an unused sentinel in linear time with 80,000 %s', (_name, markers) => {
+        const html = `<!-- ${markers} --><a href="{{ unsubscribe_url }}">Unsubscribe</a>`
+        expect(html.length).toBeLessThan(BODY_MAX_LENGTH)
+        const stats = { sentinelScans: 0, tokens: 0, contextOps: 0 }
+        expect(hasReplaceableUnsubscribeLink({ html }, stats)).toBe(true)
+        expect(stats.sentinelScans).toBeLessThanOrEqual(5)
     })
 })

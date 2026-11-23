@@ -354,4 +354,103 @@ describe('RecipientsManager', () => {
             expect(result).toBeNull()
         })
     })
+
+    describe('getFresh', () => {
+        it('batches concurrent primary reads into a single query without caching', async () => {
+            await createRecipient(team.id, 'Alice@Example.com', { 'cat-1': 'OPTED_OUT' })
+            await createRecipient(team.id, 'bob@example.com', { 'cat-1': 'OPTED_IN' })
+
+            const uses: Array<Parameters<typeof hub.postgres.query>[0]> = []
+            const freshManager = new RecipientsManagerService({
+                query: (use, query, values, tag) => {
+                    uses.push(use)
+                    return hub.postgres.query(use, query, values, tag)
+                },
+            })
+
+            const results = await Promise.all([
+                ...Array.from({ length: 25 }, () =>
+                    freshManager.getFresh({ teamId: team.id, identifier: 'alice@example.com', anyCase: true })
+                ),
+                ...Array.from({ length: 25 }, () =>
+                    freshManager.getFresh({ teamId: team.id, identifier: 'bob@example.com', anyCase: true })
+                ),
+                freshManager.getFresh({ teamId: team.id, identifier: 'missing@example.com', anyCase: true }),
+            ])
+
+            expect(uses).toEqual([PostgresUse.COMMON_WRITE])
+            expect(results[0]?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+            expect(results[25]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+            expect(results[50]).toBeNull()
+
+            // A subsequent read hits primary again and observes later updates.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagerecipientpreference SET preferences = $1 WHERE team_id = $2 AND identifier = $3`,
+                [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, 'bob@example.com'],
+                'testUpdateRecipient'
+            )
+            const updated = await freshManager.getFresh({
+                teamId: team.id,
+                identifier: 'bob@example.com',
+                anyCase: true,
+            })
+            expect(updated?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+            expect(uses).toEqual([PostgresUse.COMMON_WRITE, PostgresUse.COMMON_WRITE])
+        })
+
+        it('does not attach a new fresh read to a primary query that already started', async () => {
+            await createRecipient(team.id, 'user@example.com', { 'cat-1': 'OPTED_IN' })
+
+            let releaseFirstQuery!: () => void
+            let firstQueryStarted!: () => void
+            const firstStarted = new Promise<void>((resolve) => {
+                firstQueryStarted = resolve
+            })
+            let queryCount = 0
+
+            const freshManager = new RecipientsManagerService({
+                query: async (use, query, values, tag) => {
+                    queryCount += 1
+                    const current = queryCount
+                    const result = await hub.postgres.query(use, query, values, tag)
+                    if (current === 1) {
+                        firstQueryStarted()
+                        await new Promise<void>((resolve) => {
+                            releaseFirstQuery = resolve
+                        })
+                    }
+                    return result
+                },
+            })
+
+            const firstRead = freshManager.getFresh({
+                teamId: team.id,
+                identifier: 'user@example.com',
+                anyCase: true,
+            })
+            await firstStarted
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagerecipientpreference SET preferences = $1 WHERE team_id = $2 AND identifier = $3`,
+                [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, 'user@example.com'],
+                'testOptOutWhileInFlight'
+            )
+
+            const secondRead = freshManager.getFresh({
+                teamId: team.id,
+                identifier: 'user@example.com',
+                anyCase: true,
+            })
+
+            const second = await secondRead
+            releaseFirstQuery()
+            const first = await firstRead
+
+            expect(first?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+            expect(second?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+            expect(queryCount).toBe(2)
+        })
+    })
 })

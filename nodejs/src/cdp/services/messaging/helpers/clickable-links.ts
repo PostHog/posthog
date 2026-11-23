@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { Token, Tokenizer, TokenizerMode } from 'parse5'
 
 export const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
@@ -76,6 +77,10 @@ const SENTINEL_ORIGIN = 'https://a'
 export type ClickableHrefsStats = {
     tokens: number
     contextOps: number
+}
+
+export type HasReplaceableStats = ClickableHrefsStats & {
+    sentinelScans: number
 }
 
 export type PreferencesTokensStats = {
@@ -274,6 +279,11 @@ const trackTableEnd = (tables: Array<Set<string>>, tagName: string): void => {
     }
 }
 
+/**
+ * Extracts clickable anchor hrefs in a single linear `parse5.Tokenizer` pass without building a DOM
+ * tree, keeping worst-case work O(N) against adversarial markup. Intended as a lint against honest
+ * authoring mistakes (backed by `List-Unsubscribe` headers), not full WHATWG tree construction.
+ */
 export const clickableHrefs = (body: string, stats?: ClickableHrefsStats): string[] => {
     if (body.length > BODY_MAX_LENGTH) {
         return []
@@ -416,6 +426,10 @@ export const clickableHrefs = (body: string, stats?: ClickableHrefsStats): strin
                 const ns = currentNs()
                 if (tag.tagName === 'template' && frames.length > 1) {
                     popTemplateFrame()
+                } else if (ns !== 'html' && (tag.tagName === 'p' || tag.tagName === 'br')) {
+                    while (frame.contexts.length > 0 && frame.contexts[frame.contexts.length - 1].ns !== 'html') {
+                        popContext()
+                    }
                 } else if (ns === 'html' && frame.inSelect) {
                     if (tag.tagName === 'select') {
                         frame.inSelect = false
@@ -472,15 +486,33 @@ export const filledUnsubscribeLength = (body: string | undefined, url: string | 
 export const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
     body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)
 
-const unusedSentinelUrl = (source: string): { origin: string; pathname: string; url: string } => {
-    let n = 0
-    while (true) {
-        const token = `_${n.toString(36)}`
+const unusedSentinelUrl = (
+    source: string,
+    stats?: HasReplaceableStats
+): { origin: string; pathname: string; url: string } => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const token = randomBytes(6).toString('base64url')
+        if (stats) {
+            stats.sentinelScans += 1
+        }
         if (!source.includes(token)) {
             const pathname = `/${token}/`
             return { origin: SENTINEL_ORIGIN, pathname, url: `${SENTINEL_ORIGIN}${pathname}` }
         }
-        n += 1
+    }
+    const used = new Set<string>()
+    if (stats) {
+        stats.sentinelScans += 1
+    }
+    for (const match of source.matchAll(/_[0-9a-z]{5}/g)) {
+        used.add(match[0])
+    }
+    for (let n = 0; ; n += 1) {
+        const token = `_${n.toString(36).padStart(5, '0')}`
+        if (!used.has(token)) {
+            const pathname = `/${token}/`
+            return { origin: SENTINEL_ORIGIN, pathname, url: `${SENTINEL_ORIGIN}${pathname}` }
+        }
     }
 }
 
@@ -489,14 +521,17 @@ const unusedSentinelUrl = (source: string): { origin: string; pathname: string; 
  * link in `html` (or a placeholder in plain `text` when `html` is empty), matching the delivery-time
  * substitution so entity-encoded placeholders and foreign-host wrapper URLs are rejected upfront.
  */
-export const hasReplaceableUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean => {
+export const hasReplaceableUnsubscribeLink = (
+    { html, text }: { html?: string; text?: string },
+    stats?: HasReplaceableStats
+): boolean => {
     if (html) {
-        if (html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
+        if (html.length > BODY_MAX_LENGTH || html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
             return false
         }
-        const sentinel = unusedSentinelUrl(html)
+        const sentinel = unusedSentinelUrl(html, stats)
         const filled = replaceUnsubscribePlaceholder(html, sentinel.url)
-        return clickableHrefs(filled).some((href) => {
+        return clickableHrefs(filled, stats).some((href) => {
             const page = parsePreferencesUrl(href, true)
             return page !== undefined && page.origin === sentinel.origin && page.pathname === sentinel.pathname
         })

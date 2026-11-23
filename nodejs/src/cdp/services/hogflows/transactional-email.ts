@@ -264,11 +264,11 @@ export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | un
 const LIQUID_UNSUBSCRIBE_EXPRESSION =
     '(?:\\{\\{-?\\s*unsubscribe_url(?:_one_click)?\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
 const LIQUID_UNSUBSCRIBE_PLACEHOLDER = new RegExp(LIQUID_UNSUBSCRIBE_EXPRESSION)
-const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^\\s*${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#].*)?\\s*$`)
+const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#].*)?$`)
 
 const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>
     html
-        ? clickableHrefs(html).some((href) => LIQUID_UNSUBSCRIBE_HREF.test(decodeLiquidTags(href)))
+        ? clickableHrefs(html).some((href) => LIQUID_UNSUBSCRIBE_HREF.test(decodeLiquidTags(href).trim()))
         : LIQUID_UNSUBSCRIBE_PLACEHOLDER.test(decodeLiquidTags(text ?? ''))
 
 const hasAddresses = (value: unknown): boolean =>

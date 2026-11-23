@@ -3956,6 +3956,17 @@ describe('Workflows E2E (email queue)', () => {
                 error: 'unsubscribe_link_required',
             },
             {
+                name: 'a code send in a marketing category without its own content whose email step href ends in spaces and a newline',
+                kind: 'code',
+                stepEmail: {
+                    html: `<a href="{{ unsubscribe_url }}?${' '.repeat(80_000)}\nx">Unsubscribe</a>`,
+                    text: 'News',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
                 name: 'a code send in a marketing category with a cc',
                 kind: 'code',
                 payload: codeSendIn(newsletter, { cc: ['copy@example.com'] }),
