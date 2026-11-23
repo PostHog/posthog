@@ -214,7 +214,7 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
             if (filtered) {
-                expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
+                expect(captureException.mock.calls[0]?.[1]?.properties).toMatchObject({ suppress_analytics: true })
             }
             expect(capture).not.toHaveBeenCalled()
             const properties = trackToolCallExtras(tool)
@@ -1000,6 +1000,7 @@ describe('ToolExecutor metrics', () => {
             ['frobnicate', 'unknown_command', 'exec'],
             ['docs-search {"query":"funnels"}', 'tool_as_command', 'docs-search'],
             ['call docs-search {not json}', 'invalid_json', 'docs-search'],
+            ['call docs-search "funnels"', 'invalid_json', 'docs-search'],
         ])('classifies %s as validation', async (command, reason, analyticsTool) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 

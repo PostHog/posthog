@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill-primitives'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,6 +25,9 @@ import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
+import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
 import { mcpToolQualityUrlWithDates } from '../mcpAnalyticsToolQualityLogic'
 import {
     mcpDashboardOverviewLogic,
@@ -34,8 +38,11 @@ import {
 } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
+import { LEADERBOARD_SECTION_IDS } from './leaderboardSections'
+import { LeaderboardSectionsMenu } from './LeaderboardSectionsMenu'
 import { harnessErrorRateRows } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
+import { mcpLeaderboardSectionsLogic } from './mcpLeaderboardSectionsLogic'
 import { Section } from './Section'
 import { ShareOverTimeChart } from './ShareOverTimeChart'
 import { TrendLineCard } from './TrendLineCard'
@@ -52,14 +59,16 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         dailyActivity,
         harnessRows,
         headlineKpis,
-        periodTotals,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
         notableSessions,
         toolRows,
         failedLoads,
+        loadedSections,
         loadingSections,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
         useActions(mcpDashboardOverviewLogic)
@@ -78,6 +87,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         reliabilitySeries,
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
+    const { hiddenSections } = useValues(mcpLeaderboardSectionsLogic)
+    const { showAllSections } = useActions(mcpLeaderboardSectionsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const theme = useChartTheme()
@@ -118,6 +129,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
                 refreshing={dashboardLoading}
+                trailingControls={<LeaderboardSectionsMenu />}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -129,14 +141,37 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     dataAttr="mcp-dashboard-date-filter"
                 />
             </McpSharedFilters>
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+            />
+            <MCPAnalyticsFirstLook />
+            {hiddenSections.length === LEADERBOARD_SECTION_IDS.length && (
+                <div
+                    className="flex flex-col items-start gap-2"
+                    data-attr="mcp-dashboard-all-sections-hidden"
+                    data-quill
+                >
+                    <p className="mb-0">All sections are hidden.</p>
+                    <Button
+                        variant="outline"
+                        onClick={showAllSections}
+                        data-attr="mcp-dashboard-empty-show-all-sections"
+                    >
+                        Show all sections
+                    </Button>
+                </div>
+            )}
 
-            <Section title="Key metrics">
+            <Section id="key-metrics">
                 <KpiTiles
                     kpis={headlineKpis}
-                    users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
                     kpisLoading={!!loadingSections.kpis}
                     usersLoading={!!loadingSections.periodTotals}
+                    kpisLoaded={!!loadedSections.kpis}
+                    usersLoaded={!!loadedSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
                     onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
@@ -158,7 +193,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="Models">
+            <Section id="models">
                 <LabScoreboard
                     shares={scoreboardShares}
                     loading={
@@ -224,7 +259,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 </TwoColumns>
             </Section>
 
-            <Section title="Protocol">
+            <Section id="protocol">
                 <ShareOverTimeChart
                     title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
@@ -238,7 +273,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="What agents do">
+            <Section id="agents">
                 <FacetShareCard
                     title="Most called tools"
                     rows={facets.tool}
@@ -248,7 +283,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section title="Reliability">
+            <Section id="reliability">
                 <TwoColumns>
                     <TrendLineCard
                         title="Error rate"

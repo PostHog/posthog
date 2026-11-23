@@ -47,7 +47,13 @@ from products.review_hog.backend.models import ReviewProjectSettings, ReviewRepo
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
-from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
+from products.review_hog.backend.review_cadence import ReviewCadence
+from products.review_hog.backend.review_notes import (
+    comment_commands_enabled,
+    draft_review_notice,
+    first_review_note,
+    last_review_notice,
+)
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -149,6 +155,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_throttle,
     apply_zero_change_rule,
     plan_delta_review,
+    skip_follow_up,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -333,6 +340,8 @@ class ReviewMeta:
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
     devex_lens: bool = False
+    # The PR changes a file the devex team owns, whether the flag gave the turn the lens or not.
+    devex_lens_routed: bool = False
     # True when the PR passed the lens part cap, so the status comment or the Standard review says it ran in larger parts.
     lens_chunks_capped: bool = False
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
@@ -583,6 +592,8 @@ class PublishInput:
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
     capped_lens_parts: int | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass
@@ -615,7 +626,10 @@ class AppendCodeReviewArtefactInput:
 
 @frozen
 class FlashSessionStats:
-    """How a single-agent turn's sandbox sessions went, as the workflow saw them."""
+    """How a single-agent turn's sandbox sessions went, as the workflow saw them.
+
+    The devex lens session counts only in the `devex_*` fields, so the others compare routed and unrouted turns.
+    """
 
     # Lens sessions that failed for another reason than their timeout, and the ones that timed out.
     lens_failures: int
@@ -626,6 +640,10 @@ class FlashSessionStats:
     coordinator: bool = False
     # Sessions whose agent failed on another arm than the control arm and that ran again on the control arm.
     arm_fallbacks: int = 0
+    # None on a turn without the devex lens.
+    devex_failed: bool | None = None
+    devex_timed_out: bool | None = None
+    devex_session_seconds: float | None = None
 
 
 @frozen
@@ -696,6 +714,8 @@ class TrackReviewStartedInput:
     arm_set: str = CONTROL_ARM_SET
     zero_change_skip_arm: bool = False
     delta_band_arm: bool = False
+    devex_lens_routed: bool = False
+    devex_lens_arm: bool = False
 
 
 @frozen
@@ -733,6 +753,8 @@ class GatePushInput:
     delta_band: bool = False
     # A coordinated PR always records the control arm of the delta split, so evaluations leave these PRs out.
     coordinator: bool = False
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass(frozen=False)
@@ -843,13 +865,19 @@ def _devex_lens_files(repository: str, pr_files: list[PRFile], *, token: str, in
 
     The rules come from the default branch, so a pull request that edits an `owners.yaml` does not change the answer.
     A renamed file is matched at its new path only, so a rename out of a devex-owned path leaves the lens.
-    Empty when the repository declares no ownership or its files could not be read.
+    Empty when the repository declares no ownership or its files could not be read or parsed.
     """
     paths = [pr_file.filename for pr_file in pr_files]
     files = AuthenticatedRepoFiles(
         repository, GitHubFilesFetcher.from_token(token, installation_id=installation_id, priority=Priority.BATCH)
     )
-    ownership = resolve_path_owners(repository, paths, files=files)
+    try:
+        ownership = resolve_path_owners(repository, paths, files=files)
+    except Exception:
+        # The fetch runs this on every Standard turn, and the lens is optional. An `owners.yaml` on the default
+        # branch that does not parse must cost the turn its devex lens, not the whole review.
+        logger.exception("Could not resolve path ownership in %s; the turn runs without the devex lens", repository)
+        return []
     return [path for path in paths if ownership.team_by_path[path] == DEVEX_OWNER_TEAM]
 
 
@@ -978,12 +1006,15 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     coordinator = single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number)
     separate_sessions = single_agent and not coordinator
     # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
-    devex_lens_files = (
+    # The route is resolved with the flag off too, so a turn the flag kept from the lens is a matched control.
+    devex_owned_files = (
         _devex_lens_files(input.repository, fetched.pr_files, token=token, installation_id=installation_id)
-        if not turn_skipped
-        and separate_sessions
-        and pr_number is not None
-        and devex_lens_on(input.repository, pr_number)
+        if not turn_skipped and separate_sessions and pr_number is not None
+        else []
+    )
+    devex_lens_files = (
+        devex_owned_files
+        if devex_owned_files and pr_number is not None and devex_lens_on(input.repository, pr_number)
         else []
     )
     persist_pr_snapshot(
@@ -1023,6 +1054,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         coordinator=coordinator,
         devex_lens=bool(devex_lens_files),
+        devex_lens_routed=bool(devex_owned_files),
         zero_change_skip=pr_number is not None and skips_zero_change_follow_ups(input.repository, pr_number),
         # The delta review only exists for separate sessions, so a coordinated PR stays in the control arm.
         delta_band=separate_sessions
@@ -1074,7 +1106,7 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
-    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    """Whether the rules still give this PR its automatic review when the turn starts, Standard or Deep."""
     if acting_user_id is None or input.repository is None:
         return False
     if input.report_id is not None:
@@ -1168,6 +1200,10 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     borrowed = resolved_from == "default" or (
         input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != owner.user_id
     )
+    # The dispatch passes the run user as an override, but nobody requested an automatic review. The status comment
+    # names whose threshold held findings back, which is the owner's, or the default one for a borrowed user.
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        resolved_from = "default" if borrowed else "author"
     # celebrate_clean_reviews follows the owner, who can differ from the acting user on an override
     # run, so load both users in one query instead of a second round trip below.
     extra_settings_ids = [owner.user_id] if owner.user_id is not None and owner.user_id != acting_user_id else []
@@ -1588,6 +1624,14 @@ def _changed_since_head(
     return ChangedSinceReview.between(earlier.pr_files, current_files)
 
 
+def _changed_code_only(input: SandboxStageInput) -> bool:
+    """Whether a follow-up finding below must-fix posts only on changed code, not only a P3.
+
+    Requested reviews and the first review still look at code the push did not change.
+    """
+    return input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS
+
+
 def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
     """The prompt of the main session, of one lens session on lens part `chunk_id`, or of the devex lens session."""
     snapshot = load_pr_snapshot(
@@ -1609,12 +1653,23 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         if not 1 <= chunk_id <= len(chunks):
             raise ApplicationError(f"Lens part {chunk_id} is not in the plan of {len(chunks)}", non_retryable=True)
         scope_files = chunks[chunk_id - 1]
+    changed_code_only = _changed_code_only(input)
+    # The dedup stage drops a follow-up finding on code that did not change since the last review, so the
+    # sessions see which lines changed and spend no output on findings that would drop.
+    changed_since_review = (
+        _changed_since_last_review(input.team_id, input.report_id, input.head_sha, snapshot.pr_files)
+        if change is None and input.run_index > 1
+        else None
+    )
     return SingleAgentPrompt(
         repository=input.repository,
         pr_metadata=snapshot.pr_metadata,
         merge_base_sha=snapshot.merge_base_sha,
         pr_files=delta_files(snapshot.pr_files, change) if change is not None else snapshot.pr_files,
         delta_since=input.delta_since_head_sha if change is not None else None,
+        changed_since_review=changed_since_review,
+        changed_code_only=changed_code_only,
+        whole_pr_files=snapshot.pr_files,
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
@@ -2006,8 +2061,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
                 budget_left=budget_left,
-                # Requested reviews and the first review still look at code the push did not change.
-                changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
+                changed_code_only=_changed_code_only(input),
                 first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
@@ -2274,13 +2328,22 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
-    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
+    # Only an automatic turn ends with a note about the next automatic review: a comment or UI review runs for
+    # authors without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
+    ready_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
+        cadence = ReviewCadence.load(
+            input.team_id,
+            f"{input.owner}/{input.repo}",
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+        )
+        if cadence is not None and cadence.ends_after_ready_review():
+            ready_notice = last_review_notice(comment_commands_on)
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
         deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
@@ -2299,13 +2362,15 @@ def _publish(input: PublishInput) -> PublishResult:
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
         draft_notice=draft_notice,
+        ready_notice=ready_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
+        snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
-            automatic_reviewed_head_sha=input.head_sha
+            automatic_reviewed_head_sha=input.head_sha, automatic_reviewed_draft=_pr_draft(snapshot)
         )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
@@ -2448,6 +2513,9 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_slowest_session_seconds": sessions.slowest_session_seconds,
                 "flash_coordinator": sessions.coordinator,
                 "flash_arm_fallbacks": sessions.arm_fallbacks,
+                "flash_devex_failed": sessions.devex_failed,
+                "flash_devex_timed_out": sessions.devex_timed_out,
+                "flash_devex_session_seconds": sessions.devex_session_seconds,
             }
         )
     return properties
@@ -2488,6 +2556,8 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             "single_agent_arm_set": input.arm_set,
             "zero_change_skip_arm": input.zero_change_skip_arm,
             "delta_band_arm": input.delta_band_arm,
+            "devex_lens_routed": input.devex_lens_routed,
+            "devex_lens_arm": input.devex_lens_arm,
             **_pr_size_properties(snapshot),
             "pr_draft": _pr_draft(snapshot),
         },
@@ -2577,9 +2647,71 @@ def _head_already_finalized(input: GatePushInput) -> bool:
     return completed_head_sha == input.head_sha
 
 
+def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
+    """The push gate of an automatic Deep turn: only the draft rule applies, with the re-read on GitHub of a Standard turn.
+
+    An automatic Deep turn is the PR's first Deep review: the dispatch starts one at most, and a published Deep review
+    stops every later automatic turn. The other rules weigh a push against the last automatic review, which was a
+    Standard one, so they do not apply. The dispatch keeps a draft on Standard, but a PR can turn back into a draft
+    while its Deep turn waits in the queue.
+    """
+    review = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched")
+    current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    if current is None or not current.pr_metadata.draft:
+        return review
+    token, installation_id = _installation_auth(input.team_id, input.repository)
+    if not _pr_draft_on_github(
+        input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+    ):
+        return review
+    ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    return apply_draft_rule(review, draft=True)
+
+
+def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> PushGateDecision:
+    if decision.skip:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    try:
+        _track_push_gate_decided(input, decision, draft)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
+    return decision
+
+
+def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact | None, draft: bool | None) -> bool:
+    """Rule 0: whether the repository's review cadence has a review for this turn. An unknown cadence reviews."""
+    cadence = ReviewCadence.load(
+        input.team_id,
+        input.repository,
+        installation_id=input.installation_id,
+        github_repo_id=input.github_repo_id,
+    )
+    if cadence is None or cadence.review_pushes:
+        return True
+    reviewed_draft = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(id=input.report_id)
+        .values_list("automatic_reviewed_draft", flat=True)
+        .first()
+    )
+    if reviewed_draft is not False and draft and current is not None:
+        # The queue drops a ready request for the head this turn holds, as for the draft rule below.
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+        draft = _pr_draft_on_github(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        )
+    return cadence.allows_follow_up(reviewed_draft=reviewed_draft, draft=draft)
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
+    if not _cadence_allows_follow_up(input, current, draft):
+        return _record_gate_decision(input, skip_follow_up(), draft)
+    # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
+    # automatic follow-up, and a new condition there would change its command sequence.
+    if input.review_mode == REVIEW_MODE_FULL:
+        return _gate_automatic_deep_push(input)
     snapshot: PRSnapshotArtefact | None = None
     change: PRChange | None = None
     if current is None:
@@ -2636,13 +2768,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             reviewable_lines=plan_lens_chunks(snapshot.pr_files).reviewable_lines if snapshot is not None else None,
             enabled=input.delta_band,
         )
-    if decision.skip:
-        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
-    try:
-        _track_push_gate_decided(input, decision, draft)
-    except Exception:
-        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
-    return decision
+    return _record_gate_decision(input, decision, draft)
 
 
 @activity.defn

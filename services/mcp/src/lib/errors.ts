@@ -220,6 +220,7 @@ export type ExecCommandErrorReason =
     | 'invalid_regex'
     | 'unknown_learn_topic'
     | 'needs_confirmation'
+    | 'needs_write_tool'
 
 /**
  * Thrown by the `exec` dispatcher when it rejects a command before any inner
@@ -437,6 +438,7 @@ export interface PostHogPermissionErrorOptions {
     challengeScopes?: string[] | undefined
     url: string
     method: string
+    remediation?: string | undefined
 }
 
 /**
@@ -451,6 +453,7 @@ export class PostHogPermissionError extends Error {
     public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
+    public readonly remediation: string | undefined
 
     constructor(options: PostHogPermissionErrorOptions) {
         const message = options.missingScope
@@ -463,6 +466,7 @@ export class PostHogPermissionError extends Error {
         this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+        this.remediation = options.remediation
     }
 
     get requiredScopes(): string[] | undefined {
@@ -491,6 +495,9 @@ const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authentic
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
     const callTarget =
         error.method && error.url ? `${error.method} ${formatSafeRequestTarget(error.url)}` : 'this MCP request'
+    if (error.remediation) {
+        return [error.message, '', error.remediation].join('\n')
+    }
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
@@ -779,7 +786,7 @@ export function handleToolError(
         }
 
         try {
-            getPostHogClient().captureException(permissionError, distinctId, properties)
+            getPostHogClient().captureException(permissionError, { distinctId, properties })
         } catch {
             // Never let observability break the request.
         }
@@ -814,7 +821,7 @@ export function handleToolError(
     }
 
     try {
-        getPostHogClient().captureException(mcpError, distinctId, properties)
+        getPostHogClient().captureException(mcpError, { distinctId, properties })
     } catch {
         // Never let observability break the request.
     }

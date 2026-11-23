@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from typing import Any
+
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -12,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ActionConversionGoal,
+    CompareFilter,
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
@@ -26,13 +30,16 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import Database
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.warming.read_history import shape_read_hours
 
 
 @snapshot_clickhouse_queries
@@ -175,6 +182,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert user_run.get_cache_key() != bypass_run.get_cache_key()
         assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
+
+    @parameterized.expand([("toggle_on", True, True), ("toggle_off", False, False)])
+    def test_precompute_toggle_shares_cache_only_when_on(self, _name: str, toggle: bool, shares_key: bool) -> None:
+        date_range = DateRange(date_from="2023-12-08", date_to="2023-12-15")
+        untouched = WebOverviewQuery(dateRange=date_range, properties=[])
+        toggled = WebOverviewQuery(dateRange=date_range, properties=[], useWebAnalyticsPrecompute=toggle)
+
+        untouched_key = WebOverviewQueryRunner(team=self.team, query=untouched).get_cache_key()
+        toggled_key = WebOverviewQueryRunner(team=self.team, query=toggled).get_cache_key()
+
+        assert (untouched_key == toggled_key) is shares_key
 
 
 class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
@@ -323,3 +341,59 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
 
         assert create_for.called == builds_full_database
+
+
+class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
+    def test_query_executed_event_carries_shape_key_ignoring_range_compare_and_precompute_toggle(self) -> None:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-30d"),
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+            useWebAnalyticsPrecompute=True,
+        )
+
+        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            WebOverviewQueryRunner(team=self.team, query=query).run()
+
+        (props,) = [c.args[1] for c in report.call_args_list if c.args[0] == "query executed"]
+        expected = compute_shape_key(
+            WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), self.team.timezone, []
+        )
+        assert props["shape_key"] == expected
+
+    @parameterized.expand(
+        [
+            ("user_read", {}, True, True),
+            ("warming_run", {"trigger": "webAnalyticsQueryWarming", "feature": Feature.CACHE_WARMUP}, True, False),
+            ("digest_run", {"feature": Feature.DIGEST}, True, False),
+            ("scheduled_workflow", {"kind": "temporal"}, True, False),
+            ("switched_off", {}, False, False),
+            ("setting_lookup_fails", {}, ConnectionError("database unavailable"), False),
+        ]
+    )
+    def test_only_user_reads_enter_the_shape_read_history(
+        self, name: str, tags: dict[str, Any], enabled: bool | Exception, recorded: bool
+    ) -> None:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[EventPropertyFilter(key="$host", value=name, operator=PropertyOperator.EXACT)],
+        )
+
+        if tags:
+            tag_queries(team_id=self.team.pk, **tags)
+        try:
+            with (
+                override_instance_config("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", enabled is True),
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_instance_setting",
+                    side_effect=enabled if isinstance(enabled, Exception) else None,
+                    return_value=enabled,
+                ),
+            ):
+                response = WebOverviewQueryRunner(team=self.team, query=query).run()
+        finally:
+            reset_query_tags()
+
+        history = shape_read_hours(team_id=self.team.pk, now=datetime.now(UTC))
+        assert response is not None
+        assert (compute_shape_key(query, self.team.timezone, []) in history) is recorded

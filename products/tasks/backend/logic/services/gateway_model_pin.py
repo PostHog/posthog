@@ -18,7 +18,7 @@ _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
-    # Only ReviewHog's arm-set trial calls it, and the desktop pin has no room left under MAX_GATEWAY_PIN_LENGTH.
+    # Only ReviewHog's arm-set trial calls it.
     "gpt-6.1-terra": frozenset({"review_hog"}),
 }
 
@@ -52,7 +52,7 @@ DESKTOP_AGENT_MODELS: list[str] = list(
     )
 )
 # The Go gateway refuses a pin longer than this at mint.
-MAX_GATEWAY_PIN_LENGTH = 32
+MAX_GATEWAY_PIN_LENGTH = 64
 assert len(gateway_pin(DESKTOP_AGENT_MODELS)) <= MAX_GATEWAY_PIN_LENGTH, (
     "the desktop model pin outgrew the gateway limit"
 )
@@ -63,6 +63,7 @@ FREE_TIER_MODELS: list[str] = [
     "zai-org/glm-5.2",
     "deepseek-ai/deepseek-v4-flash-0731",
     "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3.1-pro",
     "zai-org/glm-5.3-flash",
 ]
 

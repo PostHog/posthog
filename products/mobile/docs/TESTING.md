@@ -353,6 +353,9 @@ The flow:
 8. goes Home and taps **Exit demo** in Settings.
 
 It starts and ends on the sign-in screen with demo mode off, so you can run it again right away.
+
+To check replay, tap **Try the demo**, then open **Views → Sessions**. Play a sample in **Moment** and **Full recording**.
+Open the Sources button, choose **Errors**, and tap **Play all**. These recordings play from bundled fixture snapshots.
 Actions use the app's `testID`s, except the hand-off sheet drag, which starts on its "Choose an agent" header.
 
 ### Set up once
@@ -511,6 +514,16 @@ On both iOS and Android, before allowing live-data capture:
 See [React Native replay installation](https://posthog.com/docs/session-replay/installation/react-native)
 and [privacy controls](https://posthog.com/docs/session-replay/privacy).
 
+## Replay feed timing
+
+Measure the feed in a production-mode bundle, because a development bundle is several times slower.
+Start Metro with `EXPO_PUBLIC_REPLAY_FEED_PERF=1 npx expo start --dev-client --no-dev --minify --clear`.
+The variable turns on the feed's timing marks and debug hooks; release builds never set it.
+Read the marks with the Hermes inspector from `globalThis.__replayFeedPerf.marks`.
+Each mark has a name and a `Date.now()` from the thread that saw it: `gestureEnd`, `switchCommit`, `tabCommitted`, `rangeAnimStart`, `markersPainted`, the player's commands as `player:*`, the page's marks as `page:*`, and `jsStall` and `uiLongFrame` with their length.
+A minified bundle has no module names and no development flag overrides, so `__replayFeedPerf.flags({...})` sets the flags and `__replayFeedPerf.open('/replay/feed')` opens the feed.
+Measure on a recording with hundreds of events and a long duration, since a short recording hides the cost of markers and rebuilds.
+
 ## Web/mobile handoff prototype
 
 The shared handoff protocol lives in `shared/handoffProtocol.ts`. Its local TypeScript configuration lets Storybook build it without installing Expo. The browser integration lives in `frontend/src/lib/utils/webMobileHandoff.ts` at the repository root.
@@ -565,3 +578,11 @@ validation for mixed web/native recordings. No SDK internals or persisted sessio
 modified here. See [SDK bootstrapping](https://posthog.com/docs/libraries/bootstrapping),
 [session semantics](https://posthog.com/docs/data/sessions), and
 [React Native bootstrap support request](https://github.com/PostHog/posthog-js/issues/4978).
+
+### Granular notification preferences
+
+In **Settings → Notification settings**, check that controls are grouped by Reports and Chat, with snooze reminders under Reports. The global switch should disable all feature controls; Work updates should disable only its report activity controls, and Chat notifications only its chat controls. Toggle each activity independently and reopen the screen to verify persistence. Demo mode provides local controls without changing an account.
+
+On a signed-in physical device, disable teammate replies while leaving mentions on: only a message mentioning the recipient should notify them. Disable Chat agent replies and verify that report completions and loop updates still arrive. Then disable report work completion and verify that Chat agent replies still arrive. Turning off Chat notifications should leave Loops enabled. Cancel your own run and verify that its cancellation stays silent for you. For report work with a new PR already awaiting review, completion should produce one PR-ready alert; disabling PR-ready alerts should allow the completion alert instead.
+
+Schedule a snooze reminder, then disable reminders or the master switch. The report should stay snoozed and the scheduled reminder should be canceled. Re-enabling should affect future snoozes only. Change the preference on another device, return this app to the foreground, and verify pending reminders are canceled after preferences refresh. Without connectivity, snoozing should still work without scheduling a reminder.

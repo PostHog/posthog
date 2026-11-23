@@ -31,4 +31,22 @@ describe('ContentAutopilotPromptsTopicTable', () => {
         expect(onSelect).toHaveBeenCalledTimes(1)
         expect(onSelect).toHaveBeenCalledWith(row.topic)
     })
+
+    it('shows the answers behind each rate, without failed checks', () => {
+        const busyRow = {
+            ...row,
+            checks: 1250,
+            failed: 10,
+            mentioned: 620,
+            cited: 310,
+            mention_rate: 0.5,
+            citation_rate: 0.25,
+        }
+        const { container } = render(
+            <ContentAutopilotPromptsTopicTable rows={[busyRow]} selectedTopic={null} onSelect={jest.fn()} />
+        )
+
+        expect(within(container).getByText('50%').textContent).toBe('50% of 1,240')
+        expect(within(container).getByText('25%').textContent).toBe('25% of 1,240')
+    })
 })

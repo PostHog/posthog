@@ -11,9 +11,13 @@ from products.warehouse_sources.sources.appsflyer.appsflyer import (
     LOOKBACK_DAYS,
     MASTER_MAX_LOOKBACK_DAYS,
     MASTER_MAX_REQUEST_DAYS,
+    QUOTA_EXHAUSTED_ERROR,
     RAW_LOOKBACK_DAYS,
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
+    SKAN_DATA_DELAY_DAYS,
+    SKAN_MAX_LOOKBACK_DAYS,
+    SKAN_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -31,6 +35,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -51,11 +56,13 @@ def _csv_response(body: str = _CSV) -> ScriptedResponse:
     return ScriptedResponse(body=body.encode())
 
 
-def _requested_windows(result: DriveResult) -> list[tuple[date, date]]:
+def _requested_windows(
+    result: DriveResult, start_param: str = "from", end_param: str = "to"
+) -> list[tuple[date, date]]:
     windows = []
     for request in result.requests:
-        start = request.param("from")
-        end = request.param("to")
+        start = request.param(start_param)
+        end = request.param(end_param)
         assert start is not None
         assert end is not None
         windows.append((date.fromisoformat(start), date.fromisoformat(end)))
@@ -159,14 +166,9 @@ class TestValidateCredentials:
 
     @pytest.mark.parametrize("status_code", [403, 429])
     @pytest.mark.parametrize("body", ["Limit reached for daily-report", "  LIMIT REACHED for geo-report\n"])
-    def test_validate_reports_used_up_quota_instead_of_access_denied(self, status_code: int, body: str) -> None:
+    def test_validate_accepts_used_up_quota(self, status_code: int, body: str) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, body=body.encode()))):
-            with pytest.raises(AppsFlyerCredentialsError) as exc:
-                validate_credentials("token", "id123")
-        message = str(exc.value)
-        assert "used up its daily report API quota" in message
-        assert "denied access" not in message
-        assert "AppsFlyer said" not in message
+            assert validate_credentials("token", "id123") is True
 
     @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
     def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
@@ -232,6 +234,17 @@ class TestGetRows:
             ("ad_revenue_organic", "/api/raw-data/export/app/id123/ad_revenue_organic_raw/v5"),
             ("ad_revenue_retargeting", "/api/raw-data/export/app/id123/ad-revenue-raw-retarget/v5"),
             ("master_report", "/api/master-agg-data/v4/app/id123"),
+            ("reinstalls", "/api/raw-data/export/app/id123/reinstalls/v5"),
+            ("reinstalls_organic", "/api/raw-data/export/app/id123/reinstalls_organic/v5"),
+            # The postback slugs mix hyphens and underscores in AppsFlyer's own spec.
+            ("install_postbacks", "/api/raw-data/export/app/id123/postbacks/v5"),
+            ("in_app_event_postbacks", "/api/raw-data/export/app/id123/in-app-events-postbacks/v5"),
+            ("retargeting_install_postbacks", "/api/raw-data/export/app/id123/retarget_install_postbacks/v5"),
+            (
+                "retargeting_in_app_event_postbacks",
+                "/api/raw-data/export/app/id123/retarget_in_app_events_postbacks/v5",
+            ),
+            ("skan_performance_report", "/api/skadnetworks/v3/data/app/id123"),
         ],
     )
     def test_report_slug_matches_appsflyer_api(self, endpoint: str, expected_path: str) -> None:
@@ -280,12 +293,81 @@ class TestUsedUpQuota:
         result = _driver().run("daily_report", always(ScriptedResponse(status=status_code, body=b"Limit reached")))
 
         assert isinstance(result.raised, AppsFlyerRetryableError)
+        assert QUOTA_EXHAUSTED_ERROR in str(result.raised)
+
+    @pytest.mark.parametrize(
+        "endpoint, status_code",
+        [
+            ("daily_report", 429),
+            # The SKAN API reports its rate limit as a 400, which is permanent for every other report.
+            ("skan_performance_report", 400),
+        ],
+    )
+    def test_rate_limit_without_quota_body_is_not_reported_as_used_up_quota(
+        self, endpoint: str, status_code: int
+    ) -> None:
+        result = _driver().run(
+            endpoint, always(ScriptedResponse(status=status_code, body=b'{"error": "Too many requests"}'))
+        )
+
+        assert isinstance(result.raised, AppsFlyerRetryableError)
+        assert QUOTA_EXHAUSTED_ERROR not in str(result.raised)
 
     def test_forbidden_without_quota_body_stays_a_permanent_error(self) -> None:
         result = _driver().run("daily_report", always(ScriptedResponse(status=403, body=b"Forbidden")))
 
         assert isinstance(result.raised, requests.HTTPError)
         assert "403 Client Error" in str(result.raised)
+
+
+PLAN_REJECTION_BODY = b"Your current subscription package doesn't include raw data reports. If you'd like to have raw data, contact your CSM"
+
+
+class TestRawDataRejection:
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_copy",
+        [
+            ("installs", PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("installs", b"x" * 600 + PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("daily_report", PLAN_REJECTION_BODY, "may be used up"),
+            ("installs", b"Raw reports historical lookback is limited to 90 days", "may be used up"),
+            ("installs", b"", "may be used up"),
+        ],
+    )
+    def test_400_maps_to_the_message_for_its_cause(self, endpoint: str, body: bytes, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=400, body=body)))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        source = AppsFlyerSource()
+        messages = [
+            message
+            for pattern, message in source.get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
+
+
+class TestNotFoundRejection:
+    @pytest.mark.parametrize(
+        "endpoint, expected_copy",
+        [
+            ("master_report", "doesn't include the Master API"),
+            ("daily_report", "app not found"),
+            ("installs", "app not found"),
+        ],
+    )
+    def test_404_maps_to_the_message_for_its_api(self, endpoint: str, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=404, body=b"")))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        messages = [
+            message
+            for pattern, message in AppsFlyerSource().get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
 
 
 class TestRawAndMasterWindows:
@@ -306,18 +388,44 @@ class TestRawAndMasterWindows:
         for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
             assert next_start == previous_end + timedelta(days=1)
 
-    def test_master_pull_never_exceeds_the_31_day_call_limit(self) -> None:
-        # The Master API rejects a range wider than 31 days, so the backfill has to be windowed.
+    @pytest.mark.parametrize(
+        "endpoint, start_param, end_param, lookback_days, span_days, end_days_ago",
+        [
+            # The Master API rejects a range wider than 31 days.
+            ("master_report", "from", "to", MASTER_MAX_LOOKBACK_DAYS, MASTER_MAX_REQUEST_DAYS, 0),
+            # The SKAN API takes its own date params, caps a call at 90 days, and has no final data
+            # for the last 3 days.
+            (
+                "skan_performance_report",
+                "start_date",
+                "end_date",
+                SKAN_MAX_LOOKBACK_DAYS,
+                SKAN_MAX_REQUEST_DAYS,
+                SKAN_DATA_DELAY_DAYS,
+            ),
+        ],
+    )
+    def test_windowed_aggregate_pull_stays_inside_the_call_limits(
+        self,
+        endpoint: str,
+        start_param: str,
+        end_param: str,
+        lookback_days: int,
+        span_days: int,
+        end_days_ago: int,
+    ) -> None:
         today = datetime.now(UTC).date()
 
-        result = _driver().run("master_report", always(_csv_response()))
+        result = _driver().run(endpoint, always(_csv_response()))
 
         assert result.raised is None
-        windows = _requested_windows(result)
-        assert windows[0][0] == today - timedelta(days=MASTER_MAX_LOOKBACK_DAYS)
-        assert windows[-1][1] == today
+        windows = _requested_windows(result, start_param, end_param)
+        assert windows[0][0] == today - timedelta(days=lookback_days)
+        assert windows[-1][1] == today - timedelta(days=end_days_ago)
         for window_start, window_end in windows:
-            assert 0 <= (window_end - window_start).days < MASTER_MAX_REQUEST_DAYS
+            assert 0 <= (window_end - window_start).days < span_days
+        for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
+            assert next_start == previous_end + timedelta(days=1)
 
     @pytest.mark.parametrize(
         "endpoint, incremental, saved_days_ago, expected_first_from_days_ago, expected_requests",
@@ -442,6 +550,32 @@ class TestRawAndMasterWindows:
             "event_time": "2024-01-01 00:00:00",
             "event_value": "line one\nline two",
         }
+
+
+class TestSkanRows:
+    @pytest.mark.parametrize(
+        "date_value, expected_date",
+        [
+            ("12/8/2021", "2021-12-08"),
+            ("2021-12-08", "2021-12-08"),
+        ],
+    )
+    def test_rows_carry_an_iso_date_and_every_key_column(self, date_value: str, expected_date: str) -> None:
+        # A SKAN 3 style report has no SKAN 4 dimension columns, and a merge needs every key column.
+        csv_body = (
+            "Date,Media Source (pid),Campaign (c),Campaign ID,Site ID,Adset,Adset ID,Ad,Ad ID,Country,"
+            "AF Attribution Flag,Installs\n"
+            f"{date_value},twitter,EU,def,123,,,,,US,,146\n"
+        )
+
+        result = _driver().run("skan_performance_report", always(_csv_response(csv_body)))
+
+        assert result.raised is None
+        row = result.rows[0]
+        assert row["date"] == expected_date
+        assert row["installs"] == "146"
+        assert set(APPSFLYER_ENDPOINTS["skan_performance_report"].primary_keys) <= row.keys()
+        assert row["postback_sequence_index"] == ""
 
 
 class TestAppsFlyerSourceResponse:

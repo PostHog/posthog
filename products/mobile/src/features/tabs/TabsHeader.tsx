@@ -1,13 +1,11 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
+import { LiveAudienceControl } from '@/features/live/LiveAudienceControl'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
-import { BlurEdge } from '@/ui/BlurEdge'
-import { FadeEdge } from '@/ui/FadeEdge'
+import { HEADER_FADE, HeaderBackdrop } from '@/ui/HeaderBackdrop'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
-import { PauseIcon } from '@/ui/icons/PauseIcon'
-import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
@@ -28,12 +26,7 @@ const STATUS_TOP = (HEADER_ROW_HEIGHT + TITLE_HEIGHT) / 2
 const STATUS_BOTTOM = HEADER_TOP + STATUS_TOP + STATUS_HEIGHT
 /** Design-frame offset where a tab's content starts at rest, with or without a status line. */
 export const TABS_HEADER_BOTTOM = HEADER_ROW_BOTTOM + 12
-/** The fade below the row reaches past the first row's top, so rows dissolve under the header instead of being cut. */
-const HEADER_FADE = 28
-const SOLID = HEADER_ROW_BOTTOM / (HEADER_ROW_BOTTOM + HEADER_FADE)
-// The chrome grows by the status line, so the line stays over the solid part and the fade starts below it.
 const STATUS_PADDING = STATUS_BOTTOM - HEADER_ROW_BOTTOM + HEADER_FADE
-const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
 const FILTER_DOT = 8
 
@@ -77,22 +70,20 @@ export function TabsHeader({
     const status = slot?.status ?? null
     const hint = editing ? null : (slot?.hint ?? null)
     const filter = slot?.filter ?? null
-    const pause = slot?.pause ?? null
     const withStatus = status !== null
-    const solid = withStatus ? SOLID_WITH_STATUS : SOLID
+    const headerTop = topOffset(insets, HEADER_TOP)
     return (
         <View
             style={[
                 styles.header,
                 {
-                    paddingTop: topOffset(insets, HEADER_TOP),
+                    paddingTop: headerTop,
                     paddingBottom: withStatus ? STATUS_PADDING : HEADER_FADE,
                     maxWidth: tab === 'inbox' && paired && paneAxis === 'row' ? inboxExtent : undefined,
                 },
             ]}
         >
-            <BlurEdge solid={solid} />
-            <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
+            <HeaderBackdrop fadeStart={headerTop + STATUS_TOP} />
             <View style={styles.titleStack}>
                 <View style={styles.titleGroup}>
                     <View
@@ -128,6 +119,7 @@ export function TabsHeader({
                 </Pressable44>
             ) : (
                 <PillControl height={HEADER_ROW_HEIGHT}>
+                    {slot?.liveAudience ? <LiveAudienceControl /> : null}
                     {filter ? (
                         <Pressable44
                             onPress={filter.onPress}
@@ -141,17 +133,6 @@ export function TabsHeader({
                                 <FilterIcon size={22} />
                                 {filter.active ? <View style={styles.filterDot} testID="inbox-filter-active" /> : null}
                             </View>
-                        </Pressable44>
-                    ) : null}
-                    {pause ? (
-                        <Pressable44
-                            onPress={pause.onPress}
-                            accessibilityLabel={pause.paused ? 'Resume live updates' : 'Pause live updates'}
-                            pressedBackground={colors.background}
-                            style={styles.button}
-                            testID="live-pause"
-                        >
-                            {pause.paused ? <PlayIcon size={20} color={colors.ink} /> : <PauseIcon size={22} />}
                         </Pressable44>
                     ) : null}
                     <Pressable44
@@ -196,6 +177,7 @@ const useStyles = createStyles(({ colors }) => ({
         height: HEADER_ROW_HEIGHT,
     },
     titleGroup: {
+        marginLeft: 7.5,
         height: HEADER_ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',

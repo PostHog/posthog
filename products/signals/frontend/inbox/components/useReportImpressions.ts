@@ -51,7 +51,11 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
  * narrowing the state filter or changing any server filter re-impresses the rows at their new
  * ranks; loading a further page keeps the context and impresses only the new rows.
  */
-export function useReportImpressions(rows: MergedReportRow[], selectedSections: InboxReportSectionKey[]): void {
+export function useReportImpressions(
+    rows: MergedReportRow[],
+    selectedSections: InboxReportSectionKey[],
+    linkStrips: boolean = false
+): void {
     // Fixed-order reads over every state (not just the selected ones), so the hook order never
     // changes when the filter does; the effect below only consults the selected states.
     const sections: Record<InboxReportSectionKey, SectionImpressionState> = {
@@ -135,6 +139,8 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 createdWindow: context.createdWindow,
                 rankerId: sections[sectionKey].loadedRanker,
                 rankingPill: sections[sectionKey].loadedRankingPill,
+                linkStrips,
+                collapsedCounts: sectionRows.map(({ collapsedReportIds }) => collapsedReportIds?.length ?? 0),
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

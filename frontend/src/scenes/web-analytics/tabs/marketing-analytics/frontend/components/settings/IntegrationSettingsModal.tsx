@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 
 import { LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
+import { QuillIntegrationSettingsModal } from './QuillIntegrationSettingsModal'
 
 export type IntegrationSettingsTab = 'field' | 'mappings' | 'sources'
 
@@ -31,6 +34,7 @@ export function IntegrationSettingsModal({
     initialCampaignName,
 }: IntegrationSettingsModalProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<IntegrationSettingsTab>(initialTab || 'field')
+    const quillSurface = useQuillSurface()
 
     // Update active tab when initialTab changes (e.g., when modal opens with a specific tab)
     useEffect(() => {
@@ -38,6 +42,20 @@ export function IntegrationSettingsModal({
             setActiveTab(initialTab)
         }
     }, [initialTab, isOpen])
+
+    if (quillSurface) {
+        return (
+            <QuillIntegrationSettingsModal
+                integrationName={integrationName}
+                isOpen={isOpen}
+                onClose={onClose}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                initialUtmValue={initialUtmValue}
+                initialCampaignName={initialCampaignName}
+            />
+        )
+    }
 
     return (
         <LemonModal

@@ -14,6 +14,7 @@ export interface todayPromptsLogicValues {
     aiAccessRequested: boolean // aiConsentLogic
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    dataProcessingLocked: boolean // aiConsentLogic
     requestingAiAccess: boolean // aiConsentLogic
     githubIntegrations: IntegrationType[] // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
@@ -81,6 +82,7 @@ export const todayPromptsLogic = kea<todayPromptsLogicType>([
                 'aiAccessRequested',
                 'dataProcessingAccepted',
                 'dataProcessingApprovalDisabledReason',
+                'dataProcessingLocked',
                 'requestingAiAccess',
             ],
             integrationsLogic,

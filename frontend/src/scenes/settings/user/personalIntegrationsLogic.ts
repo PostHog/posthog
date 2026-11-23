@@ -19,6 +19,7 @@ import {
 import type { UserGitHubIntegrationItemApi } from '~/generated/core/api.schemas'
 
 import type { TeamPublicType, TeamType } from '../../../types'
+import type { IntegrationType } from '../../../types'
 
 export interface PersonalGitHubIntegration {
     kind: 'github'
@@ -118,10 +119,10 @@ export interface personalIntegrationsLogicValues {
 export interface personalIntegrationsLogicActions {
     loadProjectIntegrations: (_?: any) => any // integrationsLogic
     projectIntegrationsLoaded: (
-        integrations: import('../../../types').IntegrationType[],
+        integrations: IntegrationType[],
         payload?: any
     ) => {
-        integrations: import('../../../types').IntegrationType[]
+        integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
     connectGitHub: () => {

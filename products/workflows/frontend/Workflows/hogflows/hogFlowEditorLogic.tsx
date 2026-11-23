@@ -24,6 +24,7 @@ import type {
     UserBasicType,
 } from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import type { SandboxSenderSurface } from '../../Channels/sandboxSender'
 import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
 import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -260,8 +261,8 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
-    provisionSandboxSender: (surface: import('../../Channels/sandboxSender').SandboxSenderSurface) => {
-        surface: import('../../Channels/sandboxSender').SandboxSenderSurface
+    provisionSandboxSender: (surface: SandboxSenderSurface) => {
+        surface: SandboxSenderSurface
     } // sandboxSenderLogic
     loadWorkflowSuccess: (
         originalWorkflow:
@@ -313,7 +314,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1016,7 +1026,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -1257,7 +1267,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1960,7 +1979,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string

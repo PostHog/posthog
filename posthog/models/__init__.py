@@ -34,6 +34,7 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
+from .identity_provider_email_verification import IdentityProviderEmailVerification
 from .id_jag_identity import IdJagIdentity  # noqa: F401
 from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
 from .instance_setting import InstanceSetting
@@ -43,6 +44,7 @@ from .materialized_column_slots import MaterializedColumnSlot, MaterializedColum
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
+from .organization_entitlement_applied_state import OrganizationEntitlementAppliedState
 from .organization_domain import OrganizationDomain
 from .organization_ip_restrictions import OrganizationIPRestrictions  # noqa: F401
 from .organization_notification_lock import OrganizationMemberNotificationLock
@@ -88,14 +90,17 @@ from .oauth import (
     OAuthIDToken,
     OAuthRefreshToken,
 )
+from .oauth_provisioning_review import CIMDProvisioningReview
 
 __all__ = [
+    "OrganizationEntitlementAppliedState",
     "ActivityLog",
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
     "WorkloadTrustPolicy",
     "WorkloadTrustPolicyRequest",
+    "CIMDProvisioningReview",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",
@@ -115,6 +120,7 @@ __all__ = [
     "HealthIssue",
     "HostDefinition",
     "IdentityProviderConfig",
+    "IdentityProviderEmailVerification",
     "InstanceSetting",
     "Integration",
     "IntegrationRepositoryCacheEntry",

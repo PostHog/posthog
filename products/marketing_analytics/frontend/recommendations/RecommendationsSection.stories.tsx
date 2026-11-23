@@ -117,6 +117,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
     recommendation({
         rule: 'spend_without_conversions',
+        subject: 'spreadsheet templates',
+        campaign: 'Search - Generic',
+        action: 'Add it as a negative, or change the keyword "dashboard software" from broad to exact match',
+        reason: 'Spent $380 (2.5x the campaign\'s non-brand CPA) on 95 clicks with no conversions. None of the main words in this search appear in the ads that showed on it or in the keyword "dashboard software".',
+        impact: 380,
+        cpa: cpa(null, 150, 'campaign'),
+    }),
+    recommendation({
+        rule: 'spend_without_conversions',
         subject: 'free analytics template',
         campaign: 'Search - Generic',
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
@@ -143,15 +152,6 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
                 linkText: 'Keywords',
             },
         ],
-    }),
-    recommendation({
-        rule: 'spend_without_conversions',
-        subject: 'dashboard software jobs',
-        campaign: 'Search - Generic',
-        action: 'Add it as a negative, or change the keyword "dashboard software" from phrase to exact match',
-        reason: "Spent $380 (2.5x the campaign's non-brand CPA) on 95 clicks with no conversions",
-        impact: 380,
-        cpa: cpa(null, 150, 'campaign'),
     }),
     recommendation({
         rule: 'brand_overlap',
@@ -204,21 +204,24 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "You pay $540/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
+        reason: "You pay $600/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
+        impactType: 'estimated',
     }),
     recommendation({
         rule: 'striking_distance',
@@ -233,9 +236,42 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'policy_limited',
         level: 'campaign',
-        subject: 'Performance Max - All products',
-        action: 'Check the affected ads in Policy manager',
-        reason: 'Some asset groups are limited by policy, so they show less often.',
+        subject: 'Search - Product',
+        action: 'Fix or appeal the policy issues in this campaign',
+        reason: "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Product',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
+                url: 'https://ads.google.com/aw/ads',
+                linkText: 'Ads',
+            },
+            {
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
+            },
+            {
+                text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',
+                url: 'https://ads.google.com/aw/policy/ads/issues',
+                linkText: 'Policy manager',
+            },
+            {
+                text: 'Come back here after Google reviews the changes, usually within a business day.',
+            },
+        ],
     }),
     recommendation({
         rule: 'keyword_tracking',
@@ -366,7 +402,7 @@ const SOURCES_WITH_GAPS = [
         'GoogleAds',
         'example',
         ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
-        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+        ['search_term_keyword_stats', 'ad', 'campaign_impression_share_stats']
     ),
     SOURCES[1],
 ]

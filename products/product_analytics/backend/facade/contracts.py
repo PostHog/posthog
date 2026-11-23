@@ -30,6 +30,18 @@ from products.product_analytics.backend.facade.enums import (
 
 
 @dataclass(frozen=True)
+class InsightSummary:
+    """The name and dates of a saved insight, for products that link to one."""
+
+    id: int
+    short_id: str
+    name: str
+    created_at: datetime | None
+    last_modified_at: datetime | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 

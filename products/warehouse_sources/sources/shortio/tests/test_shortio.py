@@ -4,7 +4,12 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
 from products.warehouse_sources.sources.shortio._config import ShortioSourceConfig
-from products.warehouse_sources.sources.shortio.shortio import SHORTIO_BASE_URL, ShortioResumeConfig
+from products.warehouse_sources.sources.shortio.shortio import (
+    DOMAIN_TOP_DIMENSIONS,
+    SHORTIO_BASE_URL,
+    TOP_DIMENSIONS,
+    ShortioResumeConfig,
+)
 from products.warehouse_sources.sources.shortio.source import ShortioSource
 
 DOMAINS_URL = f"{SHORTIO_BASE_URL}/api/domains"
@@ -242,3 +247,74 @@ class TestShortioSource:
         else:
             assert result.raised is None
         assert result.rows == []
+
+    def test_domain_by_interval_walks_all_domains(self) -> None:
+        result = _driver().run(
+            "domain_by_interval",
+            [
+                ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
+                ScriptedResponse(json={"clickStatistics": [{"x": "2026-01-01T00:00:00Z", "y": 4}]}),
+                ScriptedResponse(json={"clickStatistics": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests[1:]] == [
+            ("POST", "/statistics/domain/1/by_interval"),
+            ("POST", "/statistics/domain/2/by_interval"),
+        ]
+        assert all(
+            request.json() == {"period": "total", "tz": "UTC", "clicksChartInterval": "day"}
+            for request in result.requests[1:]
+        )
+        assert result.rows == [{"domain_id": 1, "x": "2026-01-01T00:00:00Z", "y": 4}]
+
+    @parameterized.expand(
+        [
+            ("domain_top", "/statistics/domain/{}/top", DOMAIN_TOP_DIMENSIONS),
+            ("link_top", "/statistics/link/lnk_{}/top", TOP_DIMENSIONS),
+        ]
+    )
+    def test_top_values_fan_out_over_every_dimension(
+        self, endpoint: str, path_template: str, dimensions: tuple[str, ...]
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/domains":
+                return ScriptedResponse(json=[{"id": 1}, {"id": 2}])
+            if request.path == "/api/links":
+                domain_id = request.param("domain_id")
+                return ScriptedResponse(json={"links": [{"idString": f"lnk_{domain_id}"}], "nextPageToken": None})
+            dimension = request.json()["column"]
+            # An empty ranking for one dimension must not stop the other dimensions.
+            if dimension == "social":
+                return ScriptedResponse(json=[])
+            return ScriptedResponse(json=[{"column": f"{dimension}-a", "displayName": "A", "score": 7}])
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        top_requests = [request for request in result.requests if request.origin == "https://statistics.short.io"]
+        assert [(request.method, request.path, request.json()) for request in top_requests] == [
+            (
+                "POST",
+                path_template.format(parent),
+                {"period": "total", "tz": "UTC", "column": dimension, "limit": 100},
+            )
+            for parent in (1, 2)
+            for dimension in dimensions
+        ]
+        # The dimension moves into the body; a stray query parameter is not part of the documented request.
+        assert all(not request.query for request in top_requests)
+        assert result.rows == [
+            {
+                "domain_id": parent,
+                **({"link_id": f"lnk_{parent}"} if endpoint == "link_top" else {}),
+                "dimension": dimension,
+                "value": f"{dimension}-a",
+                "displayName": "A",
+                "score": 7,
+            }
+            for parent in (1, 2)
+            for dimension in dimensions
+            if dimension != "social"
+        ]

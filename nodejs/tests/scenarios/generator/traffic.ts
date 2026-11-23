@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises'
 import { z } from 'zod'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -11,37 +12,41 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
-import type { FollowUpAnswer, JournalEntry } from '../judge/judge'
+import type { FollowUpAnswer, IntakeAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 import type { SesFeedback } from './ses-feedback'
 
-const Rate = z.object({ ratePerSecond: z.number().positive() }).strict()
+const Shape = z.object({ ratePerSecond: z.number().positive(), parks: z.number().int().min(0).default(0) }).strict()
 
 export type Unit = { unitId: string; teamId: number; flowId: string }
 
+export type Emit = (unit: Unit, event: string, properties: object) => Promise<IntakeAnswer>
+
+export type SendClock = { now(): number; wait(ms: number, signal: AbortSignal): Promise<void> }
+
 export type OfferContext = {
-    producer: Pick<KafkaProducerWrapper, 'produce'>
-    eventsTopic: string
-    cdpApi: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'> }
-    sesFeedback: SesFeedback
+    emit: Emit
+    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
+    sesFeedback?: SesFeedback
 }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
-    profile: typeof Rate
+    profile: typeof Shape
     intake: JournalEntry['kind']
     deliveries: string[]
-    flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
-    offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
+    needsLocal?: true
+    flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
+    offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<JournalEntry['answer']>
     followUp?: {
-        flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
+        flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
         offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<FollowUpAnswer>
     }
 }
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
-const EMAIL_ACTION = 'email'
-const WEBHOOK_ACTION = 'webhook'
+export const EMAIL_ACTION = 'email'
+export const WEBHOOK_ACTION = 'webhook'
 
 const unitAddress = (unit: Unit): string => `${unit.unitId}@${UNIT_EMAIL_DOMAIN}`
 
@@ -90,7 +95,13 @@ const webhookStep = async (): Promise<object> => {
     }
 }
 
-function oneStepFlow(teamId: number, name: string, trigger: object, actionId: string, step: object): HogFlow {
+const PARK_FOR = '1s'
+
+type Flow = { name: string; trigger: object; actionId: string; step: object; parks: number }
+
+function parkedFlow(teamId: number, { name, trigger, actionId, step, parks }: Flow): HogFlow {
+    const parkIds = Array.from({ length: parks }, (_, i) => `park_${i + 1}`)
+    const path = ['trigger', ...parkIds, actionId, 'exit']
     return new FixtureHogFlowBuilder()
         .withTeamId(teamId)
         .withName(name)
@@ -99,19 +110,25 @@ function oneStepFlow(teamId: number, name: string, trigger: object, actionId: st
         .withWorkflow({
             actions: {
                 trigger: { type: 'trigger', config: trigger },
+                ...Object.fromEntries(
+                    parkIds.map((id) => [id, { type: 'delay', config: { delay_duration: PARK_FOR } }])
+                ),
                 [actionId]: step,
                 exit: { type: 'exit', config: {} },
             },
-            edges: [
-                { from: 'trigger', to: actionId, type: 'continue' },
-                { from: actionId, to: 'exit', type: 'continue' },
-            ],
+            edges: path.slice(1).map((to, i) => ({ from: path[i], to, type: 'continue' })),
         } as Parameters<FixtureHogFlowBuilder['withWorkflow']>[0])
         .build()
 }
 
+export const kafkaEmit =
+    (producer: Pick<KafkaProducerWrapper, 'produce'>, topic: string): Emit =>
+    (unit, event, properties) =>
+        produce(producer, topic, unit, event, properties)
+
 async function produce(
-    context: OfferContext,
+    producer: Pick<KafkaProducerWrapper, 'produce'>,
+    topic: string,
     unit: Unit,
     event: string,
     properties: object
@@ -122,8 +139,8 @@ async function produce(
         properties: JSON.stringify(properties),
     })
     try {
-        await context.producer.produce({
-            topic: context.eventsTopic,
+        await producer.produce({
+            topic,
             key: Buffer.from(incoming.distinct_id),
             value: Buffer.from(JSON.stringify(incoming)),
         })
@@ -131,6 +148,13 @@ async function produce(
     } catch (error) {
         return { accepted: false, transportError: String(error) }
     }
+}
+
+function localOnly<T>(part: T | undefined, name: string): T {
+    if (part === undefined) {
+        throw new Error(`this traffic kind needs the local ${name}, which only the local target offers`)
+    }
+    return part
 }
 
 function errorOf(body: string): string | undefined {
@@ -148,46 +172,53 @@ const WEBHOOK_EVENT = 'scenario_webhook'
 export const eventEmail: TrafficKind = {
     name: 'event_email',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'event',
     deliveries: [EMAIL_ACTION],
-    flow: async (teamId, emailIntegrationId) =>
-        oneStepFlow(
-            teamId,
-            'Scenario event email',
-            eventTrigger(EMAIL_EVENT),
-            EMAIL_ACTION,
-            await emailStep(emailIntegrationId, 'event.properties.email')
-        ),
-    offer: (unit, context) => produce(context, unit, EMAIL_EVENT, { email: unitAddress(unit) }),
+    flow: async (teamId, emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario event email',
+            trigger: eventTrigger(EMAIL_EVENT),
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.email'),
+            parks,
+        }),
+    offer: (unit, { emit }) => emit(unit, EMAIL_EVENT, { email: unitAddress(unit) }),
 }
 
 export const eventWebhook: TrafficKind = {
     name: 'event_webhook',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'event',
     deliveries: [WEBHOOK_ACTION],
-    flow: async (teamId) =>
-        oneStepFlow(teamId, 'Scenario event webhook', eventTrigger(WEBHOOK_EVENT), WEBHOOK_ACTION, await webhookStep()),
-    offer: (unit, context) => produce(context, unit, WEBHOOK_EVENT, { unit_id: unit.unitId }),
+    flow: async (teamId, _emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario event webhook',
+            trigger: eventTrigger(WEBHOOK_EVENT),
+            actionId: WEBHOOK_ACTION,
+            step: await webhookStep(),
+            parks,
+        }),
+    offer: (unit, { emit }) => emit(unit, WEBHOOK_EVENT, { unit_id: unit.unitId }),
 }
 
 export const transactionalEmail: TrafficKind = {
     name: 'transactional_email',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'transactional',
     deliveries: [EMAIL_ACTION],
-    flow: async (teamId, emailIntegrationId) =>
-        oneStepFlow(
-            teamId,
-            'Scenario transactional email',
-            { type: 'api' },
-            EMAIL_ACTION,
-            await emailStep(emailIntegrationId, 'event.properties.to')
-        ),
-    offer: (unit, { cdpApi }) => sendTransactional(unit, cdpApi),
+    needsLocal: true,
+    flow: async (teamId, emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario transactional email',
+            trigger: { type: 'api' },
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.to'),
+            parks,
+        }),
+    offer: (unit, { cdpApi }, signal) => sendTransactional(unit, localOnly(cdpApi, 'CDP API'), signal),
 }
 
 const BOUNCE_EVENT = 'scenario_bounce'
@@ -195,29 +226,69 @@ const BOUNCE_EVENT = 'scenario_bounce'
 export const bounceFollowup: TrafficKind = {
     name: 'bounce_followup',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'event',
     deliveries: [EMAIL_ACTION],
-    flow: async (teamId, emailIntegrationId) =>
-        oneStepFlow(
-            teamId,
-            'Scenario bounce email',
-            eventTrigger(BOUNCE_EVENT),
-            EMAIL_ACTION,
-            await emailStep(emailIntegrationId, 'event.properties.email')
-        ),
-    offer: (unit, context) => produce(context, unit, BOUNCE_EVENT, { email: unitAddress(unit) }),
+    needsLocal: true,
+    flow: async (teamId, emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario bounce email',
+            trigger: eventTrigger(BOUNCE_EVENT),
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.email'),
+            parks,
+        }),
+    offer: (unit, { emit }) => emit(unit, BOUNCE_EVENT, { email: unitAddress(unit) }),
     followUp: {
         flow: transactionalEmail.flow,
         offer: async (unit, { sesFeedback, cdpApi }, signal) => {
-            const notSent = await sesFeedback.settled(unit.unitId, signal)
+            const notSent = await localOnly(sesFeedback, 'SES feedback').settled(unit.unitId, signal)
             signal.throwIfAborted()
-            return notSent === undefined ? sendTransactional(unit, cdpApi) : { notSent }
+            return notSent === undefined ? sendTransactional(unit, localOnly(cdpApi, 'CDP API'), signal) : { notSent }
         },
     },
 }
 
-async function sendTransactional(unit: Unit, cdpApi: OfferContext['cdpApi']): Promise<JournalEntry['answer']> {
+const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
+
+export const REAL_CLOCK: SendClock = {
+    now: () => performance.now(),
+    wait: async (ms, signal) => {
+        await sleep(ms, undefined, { signal })
+    },
+}
+
+const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
+    retries === 0 ? answer : { ...answer, retries }
+
+async function sendTransactional(
+    unit: Unit,
+    cdpApi: NonNullable<OfferContext['cdpApi']>,
+    signal: AbortSignal
+): Promise<JournalEntry['answer']> {
+    const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
+    const clock = cdpApi.clock ?? REAL_CLOCK
+    const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
+    const deadline = clock.now() + deadlineMs
+    for (let retry = 0; ; retry += 1) {
+        const answer = await postTransactional(unit, cdpApi, request)
+        const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
+        if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
+            return withRetries(answer, retry)
+        }
+        await clock.wait(waitMs, signal)
+        signal.throwIfAborted()
+        if (clock.now() > deadline) {
+            return withRetries(answer, retry)
+        }
+    }
+}
+
+async function postTransactional(
+    unit: Unit,
+    cdpApi: NonNullable<OfferContext['cdpApi']>,
+    request: object
+): Promise<IntakeAnswer> {
     try {
         const response = await internalFetch(
             `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
@@ -227,7 +298,7 @@ async function sendTransactional(unit: Unit, cdpApi: OfferContext['cdpApi']): Pr
                     'content-type': 'application/json',
                     authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
                 },
-                body: JSON.stringify({ to: unitAddress(unit), distinct_id: unit.unitId, variables: {} }),
+                body: JSON.stringify(request),
             }
         )
         const body = await response.text()
@@ -239,4 +310,16 @@ async function sendTransactional(unit: Unit, cdpApi: OfferContext['cdpApi']): Pr
     }
 }
 
-export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup]
+const CAPTURE_EVENT = 'scenario_offer'
+
+export const captureWebhook: TrafficKind = {
+    name: 'capture_webhook',
+    params: z.object({}).strict(),
+    profile: Shape,
+    intake: 'capture',
+    deliveries: [WEBHOOK_ACTION],
+    flow: () => Promise.reject(new Error('capture_webhook drives a workflow a person made once on the target')),
+    offer: (unit, { emit }) => emit(unit, CAPTURE_EVENT, { unit_id: unit.unitId }),
+}
+
+export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup, captureWebhook]

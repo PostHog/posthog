@@ -33,6 +33,7 @@ BASE_COLUMNS = [
     "domain",
     "headcount",
     "headcount_engineering",
+    "icp_fit_score",
     "icp_score",
     "industry",
     "last_3m_avg_mrr",
@@ -360,6 +361,7 @@ def plo_base_targets(
                 "domain": pl.Utf8,
                 "headcount": pl.Int64,
                 "headcount_engineering": pl.Int64,
+                "icp_fit_score": pl.Int64,
                 "icp_score": pl.Int64,
                 "industry": pl.Utf8,
                 "last_3m_avg_mrr": pl.Float64,
@@ -374,7 +376,7 @@ def plo_base_targets(
             }
         )
 
-    df = pl.DataFrame(response.results, schema=BASE_COLUMNS, orient="row")
+    df = pl.DataFrame(response.results, schema=BASE_COLUMNS, orient="row", infer_schema_length=None)
     context.log.info("Found %d base targets", len(df))
     return df
 

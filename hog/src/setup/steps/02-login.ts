@@ -4,6 +4,7 @@ import {
     resumeApproval,
     reusablePending,
     runApproval,
+    SIGN_UP_INSTRUCTIONS,
     type ApprovalFlow,
     type ApprovalResult,
     type PendingResult,
@@ -122,7 +123,7 @@ export const login: Step = {
                 ? waitingStop(pendingResult(flow, pending), projectId, region)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_NEXT}\` to log in to ${host}. Users without an account can sign up on the same page.${region}`
+                      `Run \`${SETUP_NEXT}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
                   )
         }
 

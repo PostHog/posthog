@@ -40,7 +40,8 @@ fi
 
 echo "Downloading JUnit artifacts..."
 for RUN_ID in "${RUN_IDS[@]}"; do
-    ARTIFACT_NAMES=$(gh api "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts" \
+    # Without pagination the API returns only the first 30 artifacts, which drops whole shards.
+    ARTIFACT_NAMES=$(gh api --paginate "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts?per_page=100" \
         --jq '.artifacts[] | select(.name | startswith("junit-results-storybook-")) | .name')
 
     if [ -z "$ARTIFACT_NAMES" ]; then

@@ -3,10 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconChip, IconClock, IconLaptop, IconLock, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink, IconSync } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
+import { getAuthenticatorTypeText, getVerificationStatusText } from './passkeyDisplay'
 import { PasskeyCredential, passkeySettingsLogic } from './passkeySettingsLogic'
+import { QuillPasskeyList } from './QuillPasskeyList'
 
 function VerificationStatusIcon({ verified, verifying }: { verified: boolean; verifying: boolean }): JSX.Element {
     if (verifying) {
@@ -31,32 +34,14 @@ function AuthenticatorTypeIcon({ type }: { type: 'platform' | 'hardware' | 'hybr
     }
 }
 
-function getAuthenticatorTypeText(type: 'platform' | 'hardware' | 'hybrid' | 'unknown'): string {
-    switch (type) {
-        case 'hardware':
-            return 'Hardware'
-        case 'platform':
-            return 'Platform'
-        case 'hybrid':
-            return 'Hybrid'
-        default:
-            return 'Unknown'
-    }
-}
-
-function getVerificationStatusText(verified: boolean, verifying: boolean): string {
-    if (verifying) {
-        return 'Verifying'
-    }
-    if (verified) {
-        return 'Verified'
-    }
-    return 'Not verified'
-}
-
 export function PasskeyList(): JSX.Element {
     const { passkeys, passkeysLoading, verifyingPasskeyId } = useValues(passkeySettingsLogic)
     const { verifyPasskey, openDeleteModal, openRenameModal } = useActions(passkeySettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillPasskeyList />
+    }
 
     if (passkeysLoading && passkeys.length === 0) {
         return (

@@ -2690,6 +2690,8 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
  * * `before` - What a change of the feature flag changed, as it was before the change, in words
  * * `after` - What a change of the feature flag changed, as it was after the change, in words
+ * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+ * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
  * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
  * * `event` - The name of an event that the check looked up
  * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2751,6 +2753,8 @@ export const ExperimentHealthValueKeyEnumApi = {
     ChangedSetting: 'changed_setting',
     Before: 'before',
     After: 'after',
+    BeforeFilters: 'before_filters',
+    AfterFilters: 'after_filters',
     FlagServiceCallPercentage: 'flag_service_call_percentage',
     Event: 'event',
     EventReceived: 'event_received',
@@ -2834,6 +2838,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2898,6 +2904,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2929,7 +2937,18 @@ export interface ExperimentHealthCheckRuleApi {
  */
 export type ExperimentHealthCheckResultApiValues = { [key: string]: string | number | boolean | null }
 
-export type ExperimentHealthCheckResultApiRowsItem = { [key: string]: string | number | boolean | null }
+export type ExperimentHealthCheckResultApiRowsItem = {
+    [key: string]:
+        | string
+        | number
+        | boolean
+        | {
+              groups: { [key: string]: unknown }[]
+              /** @nullable */
+              aggregation_group_type_index: number | null
+          }
+        | null
+}
 
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -2980,7 +2999,7 @@ export interface ExperimentHealthCheckResultApi {
     values: ExperimentHealthCheckResultApiValues
     /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
     rule: ExperimentHealthCheckRuleApi | null
-    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
     rows: ExperimentHealthCheckResultApiRowsItem[]
 }
 

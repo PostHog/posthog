@@ -19,7 +19,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         super().setUp()
         self.admin = OAuthApplicationAdmin(OAuthApplication, AdminSite())
 
-    def _provisioning_form(self, app: OAuthApplication, **fields):
+    def _change_form(self, app: OAuthApplication, **fields):
         form_class = self.admin.get_form(RequestFactory().get("/"), app, change=True)
         data = {
             "name": app.name,
@@ -33,150 +33,36 @@ class TestOAuthApplicationAdmin(BaseTest):
         }
         return form_class(data=data, instance=app)
 
-    def test_admin_grants_a_capability_into_the_config(self):
-        # Granting a capability is the admin's whole job here, and it writes into a JSONB blob
-        # rather than a column, so a form that silently dropped it would look like it worked.
-        app = OAuthApplication.objects.create(
-            name="Capability App",
-            client_id="capability_client_id",
-            client_secret="secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-        )
-        assert app.provisioning.can_issue_deep_links is False
-
-        form = self._provisioning_form(app, provisioning_can_issue_deep_links="on")
-        assert form.is_valid(), form.errors
-        form.save()
-
-        app.refresh_from_db()
-        granted = app.provisioning
-        assert granted.can_issue_deep_links is True
-        # Unticked boxes stay off rather than picking up a default.
-        assert granted.skip_existing_user_consent is False
-
-    def _rate_limit_app(self) -> OAuthApplication:
-        return OAuthApplication.objects.create(
-            name="Rate Limit App",
-            client_id="rate_limit_client_id",
-            client_secret="secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-        )
-
-    def test_admin_rate_limit_override_is_stored_per_endpoint(self):
-        app = self._rate_limit_app()
-
-        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="250")
-        assert form.is_valid(), form.errors
-        form.save()
-
-        app.refresh_from_db()
-        assert app.provisioning.rate_limits == {"account_requests": 250}
-
-    def test_admin_rate_limit_zero_is_rejected_and_minus_one_means_unlimited(self):
-        # 0 used to mean unlimited; an operator typing it must get an error, not infinity.
-        app = self._rate_limit_app()
-
-        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="0")
-        assert not form.is_valid()
-        assert "provisioning_rate_limit_account_requests" in form.errors
-
-        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="-1")
-        assert form.is_valid(), form.errors
-        form.save()
-        app.refresh_from_db()
-        assert app.provisioning.rate_limits == {"account_requests": -1}
-
     @parameterized.expand(
         [
-            ("public_partner_pays", OAuthApplication.CLIENT_PUBLIC, None, True, {}, "pays_for_customers", True),
-            (
-                "client_secret_partner_pays",
-                OAuthApplication.CLIENT_CONFIDENTIAL,
-                None,
-                True,
-                {},
-                "pays_for_customers",
-                True,
-            ),
-            (
-                "public_partner_creates_accounts",
-                OAuthApplication.CLIENT_PUBLIC,
-                None,
-                True,
-                {},
-                "can_create_accounts",
-                True,
-            ),
-            (
-                "private_key_jwt_partner",
-                OAuthApplication.CLIENT_CONFIDENTIAL,
-                "https://example.com/.well-known/jwks.json",
-                True,
-                {},
-                "pays_for_customers",
-                False,
-            ),
+            ("signing_partner_made_public", {"can_create_accounts": True}, True, {"client_type": "public"}, True),
+            ("signing_partner_drops_its_key", {"pays_for_customers": True}, True, {"jwks_uri": ""}, True),
+            ("partner_without_signing_capabilities", {"can_provision_resources": True}, True, {"jwks_uri": ""}, False),
             # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
-            (
-                "not_a_provisioning_partner",
-                OAuthApplication.CLIENT_CONFIDENTIAL,
-                None,
-                False,
-                {},
-                "pays_for_customers",
-                False,
-            ),
-            # Already refused at runtime, like a CIMD partner whose metadata dropped its key. Staff must
-            # still be able to save it, for example to switch it off.
-            (
-                "already_paying_without_a_key",
-                OAuthApplication.CLIENT_PUBLIC,
-                None,
-                True,
-                {"pays_for_customers": True},
-                "pays_for_customers",
-                False,
-            ),
+            ("not_a_provisioning_partner", {"pays_for_customers": True}, False, {"jwks_uri": ""}, False),
+            ("unrelated_edit", {"can_create_accounts": True}, True, {"name": "Renamed"}, False),
         ]
     )
-    def test_partner_that_must_sign_needs_a_private_key(
-        self,
-        name: str,
-        client_type: str,
-        jwks_uri: str | None,
-        is_partner: bool,
-        stored_config: dict,
-        ticked_capability: str,
-        expects_error: bool,
+    def test_an_edit_cannot_leave_a_signing_partner_without_a_key(
+        self, name: str, config: dict, is_partner: bool, changes: dict, expects_error: bool
     ) -> None:
         app = OAuthApplication.objects.create(
             name=f"Signing App {name}",
             client_id=f"signing_client_id_{name}",
             client_secret="secret",
-            client_type=client_type,
-            jwks_uri=jwks_uri,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri="https://example.com/.well-known/jwks.json",
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
             is_provisioning_partner=is_partner,
-            _provisioning_config=stored_config,
+            _provisioning_config=config,
         )
-        fields = {f"provisioning_{ticked_capability}": "on"}
-        if is_partner:
-            fields["is_provisioning_partner"] = "on"
-        if jwks_uri:
-            fields["jwks_uri"] = jwks_uri
 
-        form = self._provisioning_form(app, **fields)
+        form = self._change_form(app, **{"jwks_uri": app.jwks_uri, **changes})
 
         assert form.is_valid() is not expects_error, form.errors
-        assert (f"provisioning_{ticked_capability}" in form.errors) is expects_error
+        assert ("client_type" in form.errors) is expects_error
 
     @parameterized.expand(
         [

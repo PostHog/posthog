@@ -21,6 +21,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.test.id_jag import id_jag_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutRun
@@ -101,7 +102,14 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Create ---
 
-    def test_create_skill_succeeds(self):
+    @parameterized.expand([("session",), ("id_jag",)])
+    def test_create_skill_succeeds(self, credential: str):
+        if credential == "id_jag":
+            self.client.logout()
+            self.client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {id_jag_access_token(self.user, self.organization, 'llm_skill:write')}"
+            )
+
         response = self.client.post(
             self._url(),
             data={
@@ -1370,6 +1378,27 @@ class TestLLMSkillAPI(APIBaseTest):
         versions = resolve.json()["versions"]
         assert versions[0]["version_description"] == "Tightened the steps."
         assert versions[1]["version_description"] is None
+
+    @parameterized.expand(
+        [
+            ("note", {"version_description": "  Ported from a repo skill.  "}, "Ported from a repo skill."),
+            ("blank", {"version_description": "   "}, None),
+            ("absent", {}, None),
+        ]
+    )
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_create_stores_version_description_on_version_one(self, _label, extra, expected, mock_report):
+        response = self.client.post(
+            self._url(),
+            data={"name": "origin-skill", "description": "Has an origin.", "body": "# V1", **extra},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["version_description"] == expected
+        versions = self.client.get(self._url("resolve/name/origin-skill")).json()["versions"]
+        assert [v["version_description"] for v in versions] == [expected]
+        assert mock_report.call_args.args[2]["version_description_set"] is (expected is not None)
 
     def test_publish_carries_forward_unchanged_fields(self):
         self.create_skill(
