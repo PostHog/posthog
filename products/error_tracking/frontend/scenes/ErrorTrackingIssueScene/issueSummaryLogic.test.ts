@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
-import { errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
+import { errorTrackingIssuesSummarizeCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
 import type {
     ErrorTrackingStoredIssueSummaryApi,
     ErrorTrackingIssueSummaryResponseApi,
@@ -33,8 +35,13 @@ const AI_NOT_APPROVED: ErrorTrackingIssueSummaryResponseApi = {
 }
 const RESTRICTED: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'restricted' }
 
+function refusal(status: number, code: string): ApiError {
+    return new ApiError('Request failed', status, undefined, { code, detail: 'No summary was written.' })
+}
+
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
+    const summarize = jest.mocked(errorTrackingIssuesSummarizeCreate)
     let logic: ReturnType<typeof issueSummaryLogic.build>
 
     beforeEach(() => {
@@ -72,8 +79,76 @@ describe('issueSummaryLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view })
             await advance(60_000)
             expect(retrieve).toHaveBeenCalledTimes(1)
+            expect(summarize).not.toHaveBeenCalled()
         }
     )
+
+    it.each([
+        ['the summary is written', () => summarize.mockResolvedValue(READY), 'ready'],
+        [
+            'the organization is out of AI credits',
+            () => summarize.mockRejectedValue(refusal(402, 'out_of_credits')),
+            'out_of_credits',
+        ],
+        [
+            'the project asked too often',
+            () => summarize.mockRejectedValue(refusal(429, 'rate_limited')),
+            'rate_limited',
+        ],
+        [
+            'another request is writing it',
+            () => summarize.mockRejectedValue(refusal(409, 'in_progress')),
+            'in_progress',
+        ],
+        [
+            'summaries are off for the project',
+            () => summarize.mockRejectedValue(refusal(403, 'setting_off')),
+            'setting_off',
+        ],
+        ['the model call fails', () => summarize.mockRejectedValue(refusal(503, 'failed')), 'summarize_failed'],
+        [
+            'the token lacks the write scope',
+            () => summarize.mockRejectedValue(refusal(403, 'permission_denied')),
+            'summarize_failed',
+        ],
+        ['the network fails', () => summarize.mockRejectedValue(new Error('offline')), 'summarize_failed'],
+    ])('shows the outcome of a summarize click when %s', async (_name, arrange, view) => {
+        retrieve.mockResolvedValue(NOT_GENERATED)
+        arrange()
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: 'not_generated' })
+
+        logic.actions.summarize()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess']).toMatchValues({ view })
+        expect(summarize).toHaveBeenCalledTimes(1)
+    })
+
+    it('holds the button in a loading state until the summary arrives, and reports the request and the view', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        retrieve.mockResolvedValue(NOT_GENERATED)
+        let resolveSummarize: (response: ErrorTrackingIssueSummaryResponseApi) => void = () => {}
+        summarize.mockReturnValue(new Promise((resolve) => (resolveSummarize = resolve)))
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+
+        logic.actions.summarize()
+        expect(logic.values.summaryResponseLoading).toBe(true)
+        expect(capture).toHaveBeenCalledWith('error_tracking_issue_summary_requested', { issue_id: ISSUE_ID })
+
+        resolveSummarize(READY)
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess']).toMatchValues({
+            view: 'ready',
+            summaryResponseLoading: false,
+        })
+        expect(capture).toHaveBeenCalledWith(
+            'error_tracking_issue_summary_viewed',
+            expect.objectContaining({ issue_id: ISSUE_ID, generated_at: SUMMARY.generated_at })
+        )
+    })
 
     it('shows nothing when the first read fails, and recovers on retry', async () => {
         retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)

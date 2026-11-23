@@ -36,6 +36,7 @@ function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wid
                 loading={false}
                 onToggle={noop}
                 onRetry={noop}
+                onSummarize={noop}
                 onFeedback={noop}
                 {...props}
             />
@@ -80,5 +81,45 @@ export const AiNotApprovedForMember: Story = {
 
 export const Restricted: Story = {
     render: () => render({ view: 'restricted', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const Summarizing: Story = {
+    render: () => render({ view: 'not_generated', summary: null, loading: true }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const SummarizeFailed: Story = {
+    render: () => render({ view: 'summarize_failed', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const RateLimited: Story = {
+    render: () => render({ view: 'rate_limited', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const InProgress: Story = {
+    render: () => render({ view: 'in_progress', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const SettingOff: Story = {
+    render: () => render({ view: 'setting_off', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const OutOfCredits: Story = {
+    render: () => render({ view: 'out_of_credits', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const OutOfCreditsForMember: Story = {
+    render: () => render({ view: 'out_of_credits', summary: null, canManageAiSettings: false }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const NoException: Story = {
+    render: () => render({ view: 'no_exception', summary: null }),
     parameters: NO_SNAPSHOT,
 }

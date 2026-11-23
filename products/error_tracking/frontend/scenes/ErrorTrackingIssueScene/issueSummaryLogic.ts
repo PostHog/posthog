@@ -2,13 +2,15 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
-import type {
-    ErrorTrackingStoredIssueSummaryApi,
-    ErrorTrackingIssueSummaryResponseApi,
+import { errorTrackingIssuesSummarizeCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
+import {
+    type ErrorTrackingIssueSummaryResponseApi,
+    type ErrorTrackingStoredIssueSummaryApi,
+    IssueSummarizeOutcomeEnumApi,
 } from '../../generated/api.schemas'
 import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
 
@@ -27,6 +29,35 @@ export type IssueSummaryView =
     | 'not_generated'
     | 'ai_not_approved'
     | 'restricted'
+    | 'setting_off'
+    | 'out_of_credits'
+    | 'rate_limited'
+    | 'in_progress'
+    | 'no_exception'
+    | 'summarize_failed'
+
+// Why a summarize request wrote no summary. Any failure without one of these codes counts as `failed`.
+export type IssueSummarizeRefusal = Exclude<IssueSummarizeOutcomeEnumApi, 'ready' | 'disabled' | 'issue_missing'>
+
+const REFUSAL_VIEWS: Record<IssueSummarizeRefusal, IssueSummaryView> = {
+    restricted: 'restricted',
+    ai_not_approved: 'ai_not_approved',
+    setting_off: 'setting_off',
+    out_of_credits: 'out_of_credits',
+    rate_limited: 'rate_limited',
+    in_progress: 'in_progress',
+    no_exception: 'no_exception',
+    failed: 'summarize_failed',
+}
+
+function isSummarizeRefusal(code: string | null): code is IssueSummarizeRefusal {
+    return code !== null && Object.keys(REFUSAL_VIEWS).includes(code)
+}
+
+function summarizeRefusal(error: unknown): IssueSummarizeRefusal {
+    const code = error instanceof ApiError ? error.code : null
+    return isSummarizeRefusal(code) ? code : IssueSummarizeOutcomeEnumApi.Failed
+}
 
 // The issue-created workflow writes the summary soon after the first exception. Until this much time has passed, a
 // missing summary is most likely still being written, not skipped.
@@ -37,6 +68,7 @@ export interface issueSummaryLogicValues {
     summaryOpen: boolean // issuePaneSectionsLogic
     feedback: IssueSummaryFeedback | null
     loadFailed: boolean
+    refusal: IssueSummarizeRefusal | null
     summary: ErrorTrackingStoredIssueSummaryApi | null
     summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
     summaryResponseLoading: boolean
@@ -63,8 +95,26 @@ export interface issueSummaryLogicActions {
     markLoadFailed: () => {
         value: true
     }
+    markSummarizeRefused: (refusal: IssueSummarizeRefusal) => {
+        refusal: IssueSummarizeRefusal
+    }
     sendFeedback: (feedback: IssueSummaryFeedback) => {
         feedback: IssueSummaryFeedback
+    }
+    summarize: () => any
+    summarizeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    summarizeSuccess: (
+        summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
+        payload?: any
+    ) => {
+        summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
+        payload?: any
     }
 }
 
@@ -78,6 +128,7 @@ export interface issueSummaryLogicMeta {
         view: (
             summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
             loadFailed: boolean,
+            refusal: IssueSummarizeRefusal | null,
             firstSeen: string | null
         ) => IssueSummaryView
     }
@@ -97,6 +148,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
     connect(() => ({ values: [issuePaneSectionsLogic, ['summaryOpen']] })),
     actions({
         markLoadFailed: true,
+        markSummarizeRefused: (refusal: IssueSummarizeRefusal) => ({ refusal }),
         sendFeedback: (feedback: IssueSummaryFeedback) => ({ feedback }),
     }),
     loaders(({ props, actions, values }) => ({
@@ -113,6 +165,17 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                         return values.summaryResponse
                     }
                 },
+                // Each call can use AI credits, so only a person's click dispatches this.
+                summarize: async (): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
+                    try {
+                        return await errorTrackingIssuesSummarizeCreate(getCurrentTeamId().toString(), props.issueId)
+                    } catch (error) {
+                        // The section shows each refusal itself, so a refusal must not also raise the loader toast.
+                        console.error('Failed to summarize the issue:', error)
+                        actions.markSummarizeRefused(summarizeRefusal(error))
+                        return values.summaryResponse
+                    }
+                },
             },
         ],
     })),
@@ -123,6 +186,14 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 // The loader dispatches `markLoadFailed` before its own success action, so reset on the request.
                 loadSummary: () => false,
                 markLoadFailed: () => true,
+            },
+        ],
+        refusal: [
+            null as IssueSummarizeRefusal | null,
+            {
+                loadSummary: () => null,
+                summarize: () => null,
+                markSummarizeRefused: (_, { refusal }) => refusal,
             },
         ],
         feedback: [
@@ -139,10 +210,11 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 summaryResponse?.summary ?? null,
         ],
         view: [
-            (s, p) => [s.summaryResponse, s.loadFailed, p.firstSeen],
+            (s, p) => [s.summaryResponse, s.loadFailed, s.refusal, p.firstSeen],
             (
                 summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
                 loadFailed: boolean,
+                refusal: IssueSummarizeRefusal | null,
                 firstSeen: string | null
             ): IssueSummaryView => {
                 if (summaryResponse?.summary) {
@@ -152,6 +224,9 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     // Only the backend knows whether summaries are on for the project. Until an answer says they are,
                     // a failure shows nothing, so a project without them never sees a summary row.
                     return summaryResponse !== null && summaryResponse.reason !== 'disabled' ? 'failed' : 'hidden'
+                }
+                if (refusal) {
+                    return REFUSAL_VIEWS[refusal]
                 }
                 if (summaryResponse?.status === 'not_generated') {
                     const isNew =
@@ -168,8 +243,8 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             },
         ],
     }),
-    listeners(({ values, cache, props }) => ({
-        loadSummarySuccess: () => {
+    listeners(({ values, cache, props }) => {
+        const captureViewed = (): void => {
             const summary = values.summary
             if (summary && cache.viewedGeneratedAt !== summary.generated_at) {
                 cache.viewedGeneratedAt = summary.generated_at
@@ -181,16 +256,24 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     generated_at: summary.generated_at,
                 })
             }
-        },
-        sendFeedback: ({ feedback }) => {
-            posthog.capture('error_tracking_issue_summary_feedback', {
-                issue_id: props.issueId,
-                feedback,
-                model: values.summary?.model ?? null,
-                generated_at: values.summary?.generated_at ?? null,
-            })
-        },
-    })),
+        }
+        return {
+            loadSummarySuccess: captureViewed,
+            summarizeSuccess: captureViewed,
+            summarize: () => {
+                // The backend reports how each request ended. This event says which person asked.
+                posthog.capture('error_tracking_issue_summary_requested', { issue_id: props.issueId })
+            },
+            sendFeedback: ({ feedback }) => {
+                posthog.capture('error_tracking_issue_summary_feedback', {
+                    issue_id: props.issueId,
+                    feedback,
+                    model: values.summary?.model ?? null,
+                    generated_at: values.summary?.generated_at ?? null,
+                })
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadSummary()
     }),
