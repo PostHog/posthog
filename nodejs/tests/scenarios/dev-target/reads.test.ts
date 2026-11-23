@@ -148,6 +148,8 @@ describe('dev reads', () => {
             state.receipts.splice(RECEIPT_ROWS - 1)
             clock = 2 * QUERY_EVERY_MS
             expect(await truth.head()).toBe(RECEIPT_ROWS - 1)
+            clock = 2 * QUERY_EVERY_MS + 1
+            expect(await truth.head()).toBe(RECEIPT_ROWS - 1)
         } finally {
             await dev.close()
         }
