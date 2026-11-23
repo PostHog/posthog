@@ -420,6 +420,29 @@ class TestPublishIdempotency(BaseTest):
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.automatic_reviewed_head_sha is None
 
+    @patch(_PUBLISH)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_stacked_pr_skips_publish_when_base_branch_changed_mid_review(self, _auth, mock_publish) -> None:
+        report_id = self._report()
+        snapshot = PRSnapshotArtefact(
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1").model_copy(update={"base_branch": "layer-1", "default_branch": "master"}),
+            pr_comments=[],
+            pr_files=[],
+        )
+        with (
+            patch(f"{_ACTIVITIES}.load_pr_snapshot", return_value=snapshot),
+            patch(f"{_ACTIVITIES}._pr_live_state_and_base_on_github", return_value=("open", "master")),
+        ):
+            result = _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source="automatic"))
+
+        assert result.posted is False
+        mock_publish.assert_not_called()
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_head_sha is None
+        assert report.automatic_reviewed_head_sha is None
+        assert report.status == ReviewReport.Status.IDLE
+
 
 @pytest.mark.asyncio
 async def test_publish_waits_for_the_rate_limit_reset_github_names() -> None:

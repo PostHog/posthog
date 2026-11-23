@@ -17,6 +17,10 @@ class PRMetadata(BaseModel):
     author_association: str = "NONE"
     base_branch: str
     head_branch: str
+    # The repository's default branch and the exact base commit SHA at fetch time. Optional so
+    # pre-field persisted snapshots still parse.
+    default_branch: str | None = None
+    base_sha: str | None = None
     # True when the PR head lives in a different repo than the base (a fork). Forks carry
     # attacker-influenced head refs and their branch isn't on the base origin, so the review refuses
     # them. Defaults false so a pre-field cached pr_meta.json still parses (treated as non-fork).

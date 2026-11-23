@@ -139,6 +139,10 @@ _SANDBOX_TIMEOUT = timedelta(minutes=60)
 _SANDBOX_HEARTBEAT = timedelta(minutes=5)
 _QUICK_TIMEOUT = timedelta(minutes=2)
 _FETCH_TIMEOUT = timedelta(minutes=5)
+# A Graphite / stacked-PR restack pushes branches over ~10-60s, so a transient stale-base race clears
+# quickly. Re-check briefly before giving up so the child PR still gets reviewed once its base catches up.
+STALE_BASE_RECHECK_DELAY = timedelta(seconds=60)
+STALE_BASE_RECHECK_ATTEMPTS = 2
 _RETRY = RetryPolicy(maximum_attempts=2)
 # The validate activity's final-attempt fallback keys off the same constant — don't let them drift.
 _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
@@ -492,25 +496,45 @@ class ReviewPRWorkflow:
         )
 
         workflow.logger.info("STAGE 1/7 · Fetch PR data")
+        fetch_input = FetchPRDataInput(
+            team_id=inputs.team_id,
+            user_id=inputs.user_id,
+            repository=repository,
+            owner=inputs.owner,
+            repo=inputs.repo,
+            pr_number=inputs.pr_number,
+            pr_url=inputs.pr_url,
+            head_branch=inputs.head_branch,
+            signal_report_id=inputs.signal_report_id,
+            trigger_source=inputs.trigger_source,
+            signal_priority=inputs.signal_priority,
+            review_mode=inputs.review_mode,
+        )
         meta: ReviewMeta = await workflow.execute_activity(
             fetch_pr_data_activity,
-            FetchPRDataInput(
-                team_id=inputs.team_id,
-                user_id=inputs.user_id,
-                repository=repository,
-                owner=inputs.owner,
-                repo=inputs.repo,
-                pr_number=inputs.pr_number,
-                pr_url=inputs.pr_url,
-                head_branch=inputs.head_branch,
-                signal_report_id=inputs.signal_report_id,
-                trigger_source=inputs.trigger_source,
-                signal_priority=inputs.signal_priority,
-                review_mode=inputs.review_mode,
-            ),
+            fetch_input,
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
         )
+        # Stacked-PR restack guard: if an automatic turn caught a stale base mid-restack, wait briefly
+        # for the base branch push to land and re-fetch before skipping. The patch preserves older
+        # histories' command sequences on replay.
+        stale_base_guarded = workflow.patched("reviewhog-stale-base-guard-2026-11")
+        if stale_base_guarded and inputs.trigger_source == TRIGGER_AUTOMATIC and meta.stale_base_skip:
+            for attempt in range(1, STALE_BASE_RECHECK_ATTEMPTS + 1):
+                workflow.logger.info(
+                    f"Stacked PR base is stale ({meta.stale_base_reason}); waiting {int(STALE_BASE_RECHECK_DELAY.total_seconds())}s "
+                    f"before re-check {attempt}/{STALE_BASE_RECHECK_ATTEMPTS}"
+                )
+                await workflow.sleep(STALE_BASE_RECHECK_DELAY)
+                meta = await workflow.execute_activity(
+                    fetch_pr_data_activity,
+                    fetch_input,
+                    start_to_close_timeout=_FETCH_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+                if not meta.stale_base_skip:
+                    break
         report_id, head_sha, branch = meta.report_id, meta.head_sha, meta.branch
         workflow.logger.info(
             "Captured point-in-time diff snapshot" if meta.snapshotted else "No new diff snapshot this turn"
@@ -552,6 +576,9 @@ class ReviewPRWorkflow:
         # The patch keeps a history written before the label check on its old command sequence.
         if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
             workflow.logger.info("Automatic review skipped: the PR has the skip-agent-review label")
+            return report_id
+        if stale_base_guarded and meta.stale_base_skip:
+            workflow.logger.info(f"Automatic review skipped: stacked PR base stayed stale ({meta.stale_base_reason})")
             return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit

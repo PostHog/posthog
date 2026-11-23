@@ -16,6 +16,7 @@ from products.review_hog.backend.ownership import OwnedRepositoryPrefilter, Repo
 # Authors and automation apply this label to opt a pull request out of automatic reviews.
 SKIP_AGENT_REVIEW_LABEL = "skip-agent-review"
 AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review"})
+BASE_EDITED_ACTION = "edited"
 REVIEW_REQUESTED_ACTION = "review_requested"
 REVIEW_TEAM_SLUG = "posthog-review"
 
@@ -143,6 +144,11 @@ def _accept_review_team_request(event: PullRequestEvent, payload: Mapping[str, o
     )
 
 
+def _base_branch_edited(payload: Mapping[str, object]) -> bool:
+    """True when an `edited` delivery retargeted the pull request's base branch (not a title/body edit)."""
+    return "base" in _mapping(payload.get("changes"))
+
+
 def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     event = PullRequestEvent.from_payload(payload)
     if event is None:
@@ -150,7 +156,8 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     if event.action == REVIEW_REQUESTED_ACTION:
         _accept_review_team_request(event, payload)
         return
-    if event.action not in AUTOMATIC_REVIEW_ACTIONS:
+    is_base_retarget = event.action == BASE_EDITED_ACTION and _base_branch_edited(payload)
+    if event.action not in AUTOMATIC_REVIEW_ACTIONS and not is_base_retarget:
         return
     if not OwnedRepositoryPrefilter.may_be_owned(event.ref):
         return

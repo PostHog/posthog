@@ -601,6 +601,32 @@ class TestFetchPrData:
         with pytest.raises(GitHubAPIError):
             fetcher.fetch_pr_data()
 
+    def test_fetch_pr_data_captures_default_branch_base_sha_and_behind_by(
+        self, mock_request: Mock, mock_paginated: Mock
+    ) -> None:
+        pr = _pr_json(number=456, head_sha="h" * 40)
+        pr["base"]["ref"] = "layer-1"
+        pr["base"]["sha"] = "b" * 40
+        pr["base"]["repo"]["default_branch"] = "master"
+
+        def request_side_effect(method: str, path: str, **kwargs: Any) -> Mock:
+            resp = Mock()
+            if "/compare/" in path:
+                resp.json.return_value = {"merge_base_commit": {"sha": "m" * 40}, "behind_by": 3}
+            else:
+                resp.json.return_value = pr
+            return resp
+
+        mock_request.side_effect = request_side_effect
+        mock_paginated.side_effect = lambda path, **kwargs: iter([])
+
+        fetched = PRFetcher("owner", "repo", 456, token="test-token").fetch_pr_data(with_merge_base=True)
+
+        assert fetched.pr_metadata.default_branch == "master"
+        assert fetched.pr_metadata.base_sha == "b" * 40
+        assert fetched.merge_base_sha == "m" * 40
+        assert fetched.base_behind_by == 3
+
 
 @pytest.mark.parametrize(
     "file, omitted",

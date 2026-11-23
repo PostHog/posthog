@@ -268,6 +268,8 @@ class FetchedPR:
     diff: str
     # The commit GitHub computes the diff against. None when it was not asked for or GitHub did not return it.
     merge_base_sha: str | None = None
+    # Commits `base_branch` has ahead of `merge_base_sha` (from the same compare call). None when unknown.
+    base_behind_by: int | None = None
     skipped_paths: tuple[str, ...] = ()
 
 
@@ -397,6 +399,7 @@ def fetch_branch_compare(
         author="",
         base_branch=base_branch,
         head_branch=head_branch,
+        default_branch=base_branch,
         is_fork=False,
         head_sha=head_sha,
         commits=comparison["total_commits"],
@@ -430,7 +433,10 @@ class PRFetcher:
         """Build the metadata from the PR's REST payload (``GET /repos/{owner}/{repo}/pulls/{n}``)."""
         # A missing head repo (deleted fork) counts as a fork — we can't trust/reach the head ref.
         head_repo = pr["head"]["repo"]["full_name"] if pr["head"].get("repo") else None
-        base_repo = pr["base"]["repo"]["full_name"] if pr["base"].get("repo") else None
+        base_repo_obj = pr["base"].get("repo") or {}
+        base_repo = base_repo_obj.get("full_name") if base_repo_obj else None
+        default_branch = base_repo_obj.get("default_branch") if isinstance(base_repo_obj.get("default_branch"), str) else None
+        base_sha = pr["base"].get("sha") if isinstance(pr["base"].get("sha"), str) else None
         is_fork = head_repo is None or head_repo != base_repo
         return PRMetadata(
             number=pr["number"],
@@ -444,6 +450,8 @@ class PRFetcher:
             author_association=pr.get("author_association", "NONE"),
             base_branch=pr["base"]["ref"],
             head_branch=pr["head"]["ref"],
+            default_branch=default_branch,
+            base_sha=base_sha,
             is_fork=is_fork,
             head_sha=pr["head"]["sha"],
             mergeable_state=pr.get("mergeable_state"),
@@ -523,11 +531,8 @@ class PRFetcher:
         except (GitHubAPIError, GitHubRateLimitError) as e:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
 
-    def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
-        """The commit GitHub computes the PR's diff against, or None when the compare call fails.
-
-        Best-effort, because only a review that cannot show its whole diff reads it.
-        """
+    def _fetch_base_comparison(self, *, base_branch: str, head_sha: str) -> tuple[str | None, int | None]:
+        """The merge base and `behind_by` count of `base_branch...head_sha`, or `(None, None)` on error."""
         try:
             comparison = github_api_request(
                 "GET",
@@ -535,13 +540,25 @@ class PRFetcher:
                 token=self._token,
                 installation_id=self._installation_id,
                 endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-                # Only the merge base is needed, so ask for the smallest page of commits.
+                # Only the merge base and behind_by are needed, so ask for the smallest page of commits.
                 params={"per_page": 1},
             ).json()
         except (GitHubAPIError, GitHubRateLimitError, requests.RequestException) as error:
             logger.warning("Could not read the merge base of PR #%s: %s", self.pr_number, type(error).__name__)
-            return None
-        return _merge_base_sha(comparison)
+            return None, None
+        behind_by = comparison.get("behind_by")
+        return (
+            _merge_base_sha(comparison),
+            int(behind_by) if isinstance(behind_by, int) and not isinstance(behind_by, bool) else None,
+        )
+
+    def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
+        """The commit GitHub computes the PR's diff against, or None when the compare call fails.
+
+        Best-effort, because only a review that cannot show its whole diff reads it.
+        """
+        merge_base_sha, _behind_by = self._fetch_base_comparison(base_branch=base_branch, head_sha=head_sha)
+        return merge_base_sha
 
     def fetch_pr_data(self, *, review_tests_and_text: bool = False, with_merge_base: bool = False) -> FetchedPR:
         """Fetch PR data from the GitHub API, returning everything in-process (no files).
@@ -562,10 +579,10 @@ class PRFetcher:
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr_filter)
         files = self.fetch_pr_files(pr_filter, pr_parser)
-        merge_base_sha = (
-            self.fetch_merge_base_sha(base_branch=pr_metadata.base_branch, head_sha=pr_metadata.head_sha)
+        merge_base_sha, base_behind_by = (
+            self._fetch_base_comparison(base_branch=pr_metadata.base_branch, head_sha=pr_metadata.head_sha)
             if with_merge_base and pr_metadata.head_sha
-            else None
+            else (None, None)
         )
         logger.info("PR data fetched successfully")
         return FetchedPR(
@@ -574,5 +591,6 @@ class PRFetcher:
             pr_files=files.pr_files,
             diff=files.diff,
             merge_base_sha=merge_base_sha,
+            base_behind_by=base_behind_by,
             skipped_paths=files.skipped_paths,
         )

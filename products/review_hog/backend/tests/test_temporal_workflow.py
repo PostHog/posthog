@@ -171,6 +171,7 @@ async def _run_full_review_pr_workflow(
     gate_delta_review: bool = False,
     automatic_reviewed_head_sha: str | None = None,
     skip_agent_review: bool = False,
+    stale_base_skips: tuple[bool, ...] = (),
     gate_skips: bool = False,
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
@@ -234,8 +235,13 @@ async def _run_full_review_pr_workflow(
     async def validate_integration(input) -> None:
         return None
 
+    fetch_calls = 0
+
     @activity.defn(name="fetch_pr_data_activity")
     async def fetch(input: FetchPRDataInput) -> ReviewMeta:
+        nonlocal fetch_calls
+        stale_skip = stale_base_skips[fetch_calls] if fetch_calls < len(stale_base_skips) else False
+        fetch_calls += 1
         _saw_mode("fetch", input.review_mode)
         return ReviewMeta(
             report_id="rep-1",
@@ -243,7 +249,7 @@ async def _run_full_review_pr_workflow(
             branch="feat",
             repository="o/r",
             run_index=run_index,
-            snapshotted=not already_published,
+            snapshotted=not already_published and not stale_skip,
             already_published=already_published,
             new_comment_count=0,
             author_login="octocat",
@@ -261,6 +267,8 @@ async def _run_full_review_pr_workflow(
             delta_band=delta_band,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
             skip_agent_review=skip_agent_review,
+            stale_base_reason="base_behind_default" if stale_skip else None,
+            stale_base_skip=stale_skip,
         )
 
     gate_calls: list[str] = []
@@ -606,6 +614,7 @@ async def _run_full_review_pr_workflow(
     return {
         "result": result,
         "failed": failed,
+        "fetch_calls": fetch_calls,
         "split": split_calls,
         "review": review_calls,
         "validate": validate_calls,
@@ -1504,3 +1513,35 @@ async def test_resolve_pr_workflow_runs_the_failure_cleanup_on_a_dead_resolution
                 )
 
     assert cleanup_calls == [7]
+
+
+@pytest.mark.asyncio
+async def test_stale_base_rechecks_and_runs_once_restack_clears():
+    # First fetch catches a mid-restack stale base; re-check after backoff sees a clean stack and runs.
+    result = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="automatic",
+        review_mode="flash",
+        review_design="single_agent",
+        review_authored_prs=True,
+        stale_base_skips=(True, False),
+    )
+    assert result["fetch_calls"] == 2
+    assert len(result["single_agent"]) == 1
+    assert len(result["publish"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_base_skips_after_exhausting_rechecks():
+    # Base stays stale across initial fetch + 2 re-checks: skip cleanly with zero sandbox or publish work.
+    result = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="automatic",
+        review_mode="flash",
+        review_design="single_agent",
+        review_authored_prs=True,
+        stale_base_skips=(True, True, True),
+    )
+    assert result["fetch_calls"] == 3
+    assert result["single_agent"] == []
+    assert result["publish"] == []

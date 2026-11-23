@@ -33,6 +33,7 @@ AuthoredPRReviewOutcome = Literal[
     "follow_up_skipped",
     "draft_skipped",
     "label_skipped",
+    "stale_base_skipped",
     "started",
 ]
 

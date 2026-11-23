@@ -198,6 +198,19 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-23: stale-base guard for stacked pull requests
+
+- **What.**
+  - New pure checker `reviewer/stale_base.py` (`StaleBaseChecker`) runs on automatic PR turns whose `base_branch != default_branch` (zero extra API calls on default-branch PRs).
+  - Detects two exact Git-graph contamination modes and fails open (`unavailable`) on any GitHub/network error:
+    - `base_behind_default`: `M_head = merge_base(default_branch, head_sha)` has `compare(base_ref...M_head).ahead_by > 0`, proving `default_branch` commits are leaking into `base...head` (mid-restack push race).
+    - `base_rewritten`: `merge_base(base_ref, head_sha) == M_head` with `base_behind_by > 0` AND at least one non-merge, non-trivial commit subject from `default_branch...base_ref` reappearing in `base_ref...head_sha` (force-pushed/amended base PR without flagging independent PRs targeting long-lived release branches).
+  - `ReviewPRWorkflow` (behind `reviewhog-stale-base-guard-2026-11`) backs off 60s and re-fetches up to twice when `stale_base_skip` triggers so transient Graphite/stack restacks recover automatically; if still stale, skips without persisting contaminated snapshots or burning sandboxes.
+  - `pull_request_events.py` accepts `pull_request.edited` only when `"base"` is in `changes` (title/body edits stay ignored), so deferred stacked PRs get reviewed once their base retargets to `master` (while already-reviewed heads still no-op via `already_completed`).
+  - `_publish` checks live PR `(state, base.ref)` on automatic stacked-PR turns (fail-open) and skips posting stale comments without watermarking `published_head_sha` or `automatic_reviewed_head_sha` if the PR closed or its base changed mid-review.
+- **Why.** Offline audit of 614 reasoned rejections on `PostHog/posthog` (1–22 Nov 2026) showed 96 (15.6%) came from stacked PRs and stale base diffs — 61 from mid-restack `master`-commit contamination alone, plus 9 from rewritten base PRs. By contrast, per-user runtime memory suppression failed base-rate precision/recall bars (`0%` recall at safe precision over a 1-week horizon), making deterministic stale-base gating the highest-ROI noise reduction with zero false-suppression risk.
+- **Not covered.** PRs opened directly against `master` (`base_branch == default_branch`) while still carrying unmerged commits from a lower PR in the stack cannot be separated from the PR's own commits via GitHub's Git graph alone. Human-triggered reviews are never gated.
+
 ### ✅ BUILT 2026-11-19: each repository picks its review cadence
 
 - **What.** Two repository switches set when automatic reviews run (`review_cadence.py`): `review_drafts` (a review when a draft opens) and `review_pushes` (reviews of later pushes, through the push gate).

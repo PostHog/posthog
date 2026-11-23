@@ -172,6 +172,12 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.stale_base import (
+    StaleBaseChecker,
+    StaleBaseDecision,
+    StaleBaseReason,
+    is_pr_stale_for_publish,
+)
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
     ensure_status_comment,
@@ -355,6 +361,10 @@ class ReviewMeta:
     automatic_reviewed_head_sha: str | None = None
     # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
     skip_agent_review: bool = False
+    # An automatic turn on a stacked PR whose base branch is behind default or rewritten. Older histories
+    # decode as not stale.
+    stale_base_reason: StaleBaseReason | None = None
+    stale_base_skip: bool = False
     # Recorded here so every stage of the turn runs the same arms. Older histories decode as the control set.
     arm_set: str = CONTROL_ARM_SET
 
@@ -979,15 +989,6 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             report.last_seen_comment_id,
             max_comment_id,
         )
-    snapshotted = persist_commit_snapshot(
-        team_id=input.team_id,
-        report_id=report_id,
-        repository=input.repository,
-        pr_metadata=fetched.pr_metadata,
-        pr_comments=fetched.pr_comments,
-        diff=fetched.diff,
-    )
-    lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
     # delivery, so the webhook payload can miss the label.
     skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
@@ -999,6 +1000,50 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         input.trigger_source == TRIGGER_AUTOMATIC
         and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
     )
+    stale_base_decision: StaleBaseDecision | None = None
+    if (
+        not turn_skipped
+        and pr_number is not None
+        and input.trigger_source == TRIGGER_AUTOMATIC
+        and fetched.pr_metadata.default_branch
+        and fetched.pr_metadata.base_branch != fetched.pr_metadata.default_branch
+    ):
+        stale_base_decision = StaleBaseChecker(
+            repository=input.repository, token=token, installation_id=installation_id
+        ).check(
+            default_branch=fetched.pr_metadata.default_branch,
+            base_branch=fetched.pr_metadata.base_branch,
+            head_sha=head_sha,
+            base_sha=fetched.pr_metadata.base_sha,
+            merge_base_sha=fetched.merge_base_sha,
+            base_behind_by=fetched.base_behind_by,
+        )
+        if stale_base_decision.stale:
+            _track_stale_base_detected(
+                report=report,
+                head_sha=head_sha,
+                base_branch=fetched.pr_metadata.base_branch,
+                default_branch=fetched.pr_metadata.default_branch,
+                run_index=run_index,
+                decision=stale_base_decision,
+            )
+            if stale_base_decision.skip:
+                observe_dispatch("stale_base_skipped")
+                turn_skipped = True
+    stale_base_skip = stale_base_decision is not None and stale_base_decision.skip
+    stale_base_reason = stale_base_decision.reason if stale_base_decision is not None and stale_base_decision.stale else None
+    if not stale_base_skip:
+        snapshotted = persist_commit_snapshot(
+            team_id=input.team_id,
+            report_id=report_id,
+            repository=input.repository,
+            pr_metadata=fetched.pr_metadata,
+            pr_comments=fetched.pr_comments,
+            diff=fetched.diff,
+        )
+    else:
+        snapshotted = False
+    lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent and not stale_base_skip else None
     if turn_skipped:
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
@@ -1017,18 +1062,19 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         if devex_owned_files and pr_number is not None and devex_lens_on(input.repository, pr_number)
         else []
     )
-    persist_pr_snapshot(
-        team_id=input.team_id,
-        report_id=report_id,
-        head_sha=head_sha,
-        pr_metadata=fetched.pr_metadata,
-        pr_comments=fetched.pr_comments,
-        pr_files=fetched.pr_files,
-        review_design=design_choice.design,
-        merge_base_sha=fetched.merge_base_sha,
-        skipped_paths=fetched.skipped_paths,
-        devex_lens_files=devex_lens_files,
-    )
+    if not stale_base_skip:
+        persist_pr_snapshot(
+            team_id=input.team_id,
+            report_id=report_id,
+            head_sha=head_sha,
+            pr_metadata=fetched.pr_metadata,
+            pr_comments=fetched.pr_comments,
+            pr_files=fetched.pr_files,
+            review_design=design_choice.design,
+            merge_base_sha=fetched.merge_base_sha,
+            skipped_paths=fetched.skipped_paths,
+            devex_lens_files=devex_lens_files,
+        )
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
@@ -1062,6 +1108,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         and delta_reviews_low_risk_follow_ups(input.repository, pr_number),
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
         skip_agent_review=skip_agent_review,
+        stale_base_reason=stale_base_reason,
+        stale_base_skip=stale_base_skip,
         # The coordinator runs every sub-agent on one arm, so a coordinated PR stays on the control set.
         arm_set=(
             single_agent_arm_set(input.repository, pr_number)
@@ -1097,6 +1145,64 @@ def _pr_draft_on_github(repository: str, pr_number: int, *, token: str, installa
         logger.warning("Could not re-read the draft state of %s#%s", repository, pr_number)
         return None
     return response.json().get("draft") is True
+
+
+def _pr_live_state_and_base_on_github(
+    repository: str, pr_number: int, *, token: str, installation_id: str | None
+) -> tuple[str | None, str | None] | None:
+    """The PR's current `(state, base_branch)` on GitHub, or None when the read fails."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read live PR state/base of %s#%s before publish", repository, pr_number)
+        return None
+    payload = response.json()
+    state = payload.get("state") if isinstance(payload.get("state"), str) else None
+    base_ref = (payload.get("base") or {}).get("ref")
+    base_branch = base_ref if isinstance(base_ref, str) else None
+    return state, base_branch
+
+
+def _track_stale_base_detected(
+    *,
+    report: ReviewReport,
+    head_sha: str,
+    base_branch: str,
+    default_branch: str,
+    run_index: int,
+    decision: StaleBaseDecision,
+) -> None:
+    try:
+        loaded = ReviewReport.objects.for_team(report.team_id).select_related("acting_user", "team").get(id=report.id)
+        posthoganalytics.capture(
+            distinct_id=_review_event_identity(loaded),
+            event="reviewhog_stale_base_detected",
+            uuid=str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"reviewhog_stale_base_detected:{report.id}:{head_sha}:{base_branch}:{decision.reason}",
+                )
+            ),
+            properties={
+                **_turn_event_properties(loaded, run_index=run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
+                "head_sha": head_sha,
+                "base_branch": base_branch,
+                "default_branch": default_branch,
+                "reason": decision.reason,
+                "skipped": decision.skip,
+                "default_commits_in_diff": decision.default_commits_in_diff,
+                "overlapping_base_commits": decision.overlapping_base_commits,
+            },
+            groups=groups(team=loaded.team),
+        )
+    except Exception:
+        logger.exception("Failed to capture reviewhog_stale_base_detected for report %s; continuing", report.id)
 
 
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
@@ -2326,7 +2432,39 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 
 def _publish(input: PublishInput) -> PublishResult:
-    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    repository = f"{input.owner}/{input.repo}"
+    token, installation_id = _installation_auth(input.team_id, repository)
+    snapshot: PRSnapshotArtefact | None = None
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+        if (
+            snapshot is not None
+            and snapshot.pr_metadata.default_branch
+            and snapshot.pr_metadata.base_branch != snapshot.pr_metadata.default_branch
+        ):
+            live = _pr_live_state_and_base_on_github(
+                repository, input.pr_number, token=token, installation_id=installation_id
+            )
+            if live is not None:
+                stale_reason = is_pr_stale_for_publish(
+                    live_state=live[0],
+                    live_base_branch=live[1],
+                    reviewed_base_branch=snapshot.pr_metadata.base_branch,
+                )
+                if stale_reason is not None:
+                    logger.info(
+                        "Skipping publish for stacked PR %s#%s at %s (%s: reviewed base=%s, live=%s)",
+                        repository,
+                        input.pr_number,
+                        input.head_sha[:12],
+                        stale_reason,
+                        snapshot.pr_metadata.base_branch,
+                        live,
+                    )
+                    ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
+                        status=ReviewReport.Status.IDLE if live[0] == "open" else ReviewReport.Status.CLOSED
+                    )
+                    return PublishResult(posted=False)
     commands_on = comment_commands_enabled(input.team_id)
     # Only an automatic turn ends with a note about the next automatic review: a comment or UI review runs for
     # authors without automatic reviews too. Only an automatic turn is held to the finding budget, too.
@@ -2338,7 +2476,7 @@ def _publish(input: PublishInput) -> PublishResult:
         draft_notice = draft_review_notice(comment_commands_on)
         cadence = ReviewCadence.load(
             input.team_id,
-            f"{input.owner}/{input.repo}",
+            repository,
             installation_id=input.installation_id,
             github_repo_id=input.github_repo_id,
         )
@@ -2368,7 +2506,6 @@ def _publish(input: PublishInput) -> PublishResult:
         comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
-        snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
             automatic_reviewed_head_sha=input.head_sha, automatic_reviewed_draft=_pr_draft(snapshot)
         )

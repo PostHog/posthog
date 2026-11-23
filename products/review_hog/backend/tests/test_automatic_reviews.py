@@ -186,6 +186,24 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             action=action,
         )
 
+    @patch(_QUEUE)
+    def test_base_retarget_edited_event_enqueues_automatic_review(self, enqueue: MagicMock) -> None:
+        payload = {**_payload(action="edited"), "changes": {"base": {"ref": {"from": "layer-1"}}}}
+
+        assert self._post(json.dumps(payload).encode()).status_code == 202
+
+        enqueue.assert_called_once_with(
+            installation_id=_INSTALLATION_ID,
+            repository="PostHog/posthog",
+            author_login="octocat",
+            pr_number=42,
+            head_sha=_HEAD_SHA,
+            github_repo_id=_REPO_ID,
+            draft=False,
+            skip_agent_review=False,
+            action="edited",
+        )
+
     @parameterized.expand(
         [
             ("not_a_pr_event", "issues", None, False, False, 202),
