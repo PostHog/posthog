@@ -28,7 +28,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_SECURITY.value: "#alerts-security",
     JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
-    JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
+    JobOwners.TEAM_ANALYTICS.value: "#alerts-web-analytics",
 }
 
 JOB_ALERT_RUNBOOK_URLS = {
@@ -110,7 +110,7 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
 # run tags carry no owner, so ownership has to come from the failed step names instead. First
 # matching prefix wins; assets whose names don't start with one of these fall back to the run tag.
 ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
-    ("web_", JobOwners.TEAM_WEB_ANALYTICS),
+    ("web_", JobOwners.TEAM_ANALYTICS),
     ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_ranking_", JobOwners.TEAM_SELF_DRIVING),

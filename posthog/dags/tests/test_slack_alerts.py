@@ -73,7 +73,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     def test_asset_job_with_mixed_steps_routes_to_web_analytics(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
@@ -84,7 +84,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     @parameterized.expand(
         [

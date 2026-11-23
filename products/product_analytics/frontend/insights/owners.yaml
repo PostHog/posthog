@@ -1,0 +1,6 @@
+version: 1
+owners: []
+rules:
+    # The chart components move to the dashboards and charts team. The insight logic and editors stay with analytics.
+    - match: ['*Chart/', '/chartAlternatives/', '/explainChart/']
+      owners: team-dashboards-and-charts
