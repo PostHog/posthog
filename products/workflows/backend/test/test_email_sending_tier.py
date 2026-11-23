@@ -687,6 +687,9 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("complaints that fed the last demotion", timedelta(hours=-1), 4, "tier_not_used_enough"),
+            # Rows merged within an hour keep any one of their timestamps, so this row can hold
+            # complaints from before the demotion.
+            ("complaints stamped later in the demotion's hour", timedelta(minutes=30), 4, "tier_not_used_enough"),
             ("complaints later on the demotion day", timedelta(hours=1), 3, "rates_above_threshold"),
             ("complaints days after the demotion", timedelta(days=2), 3, "rates_above_threshold"),
         ]
@@ -694,7 +697,6 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
     def test_one_incident_demotes_once_when_the_cooldown_ends(
         self, _name: str, complaints_after_demotion: timedelta, expected_tier: int, expected_reason: str
     ) -> None:
-        # Hour-aligned timestamps, as app_metrics2 stores them.
         demoted_at = datetime(2026, 1, 10, 6, 15, tzinfo=UTC)
         demotion_hour = demoted_at.replace(minute=0)
         TeamWorkflowsConfig.objects.update_or_create(

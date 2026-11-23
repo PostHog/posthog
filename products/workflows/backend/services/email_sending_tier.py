@@ -388,13 +388,15 @@ def build_sending_history_windows(
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window.
 
-    The demotion window gets its own query so it starts at `recent_after` itself rather than at the
-    start of that day. The demotion cooldown relies on that: with the cooldown at least as long as
-    the window, the metrics behind the last demotion are older than `recent_after` once it ends,
-    while metrics recorded after the demotion still count.
+    The demotion window gets its own query, starting at the first whole hour after `recent_after`.
+    app_metrics2 merges rows by hour and a merged row keeps any one of their timestamps, so only an
+    hour boundary splits the data cleanly. The demotion cooldown relies on that: with the cooldown
+    at least as long as the window, the hour of the last demotion is out of the window once it ends,
+    while later hours still count.
     """
+    recent_start = recent_after.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     window = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
-    recent = _fetch_daily_metrics(after=recent_after, before=before, team_ids=team_ids)
+    recent = _fetch_daily_metrics(after=recent_start, before=before, team_ids=team_ids)
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in window.items()},
         recent={team_id: _history_from_daily(team_id, days) for team_id, days in recent.items()},
