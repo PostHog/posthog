@@ -223,6 +223,11 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
 
     @property
+    def is_self_registered(self) -> bool:
+        """Registered by the client itself through DCR or CIMD, not created by a person or by staff."""
+        return self.is_dcr_client or self.is_cimd_client
+
+    @property
     def required_scopes(self) -> list[str]:
         # Everything in the explicit ceiling is required and locked at consent; optional_scopes
         # are additive declinable extras. An empty `scopes` is a broad/deferred request

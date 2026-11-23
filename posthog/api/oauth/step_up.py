@@ -138,7 +138,11 @@ def _clamp_to_ceiling(application: OAuthApplication, scopes: Iterable[str]) -> s
     # The ceiling may have shrunk since an older grant. Clamp as `validate_scopes` does, so the
     # screen never promises a scope the new grant cannot carry.
     return set(
-        clamp_scopes_to_ceiling(set(scopes), application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True)
+        clamp_scopes_to_ceiling(
+            set(scopes),
+            application.ceiling_scopes,
+            allow_wildcard_under_empty_ceiling=not application.is_self_registered,
+        )
     )
 
 

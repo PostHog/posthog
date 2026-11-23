@@ -53,7 +53,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
-from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
 from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -4077,15 +4077,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("metrics:read", wildcard_reads)
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
-    def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
-        # Existing clients (the PostHog Desktop CLI today) still send scope=*
-        # against apps that have no explicit ceiling. Until wildcard retirement
-        # (#60342) lands, those broad-default apps keep accepting it.
+    @parameterized.expand(
+        [
+            # Existing clients (the PostHog Desktop CLI today) still send scope=*
+            # against apps that have no explicit ceiling. Until wildcard retirement
+            # (#60342) lands, those broad-default apps keep accepting it.
+            ("manual", None, {"*"}),
+            ("dcr", "is_dcr_client", set(UNPRIVILEGED_SCOPES)),
+            ("cimd", "is_cimd_client", set(UNPRIVILEGED_SCOPES)),
+        ]
+    )
+    def test_authorize_wildcard_under_empty_app_ceiling(self, _name, registration_field, expected_scopes):
+        if registration_field:
+            setattr(self.confidential_application, registration_field, True)
+            self.confidential_application.save()
+
         response = self._authorize_post("*")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        code = parse_qs(urlparse(redirect_to).query)["code"][0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.content)
+        self.assertEqual(set(token_response.json()["scope"].split()), expected_scopes)
 
     # --- Required vs. optional scopes (OAuthApplication.optional_scopes) ---
 

@@ -859,7 +859,9 @@ class OAuthValidator(OAuth2Validator):
           the ceiling rather than staying a wildcard.
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
-        Desktop CLI) but never on the provisioning paths — see the flag.
+        Desktop CLI) but never for a self-registered (DCR or CIMD) client, where it
+        resolves to the `UNPRIVILEGED_SCOPES` default, and never on the provisioning
+        paths. See the flag.
 
         An EMA setup request (`ema_issuer:manage` alone or with identity scopes, see
         `requests_ema_issuer`) is the one exception to clamping, and the only case that
@@ -881,10 +883,12 @@ class OAuthValidator(OAuth2Validator):
                 return False
             request.scopes = [EMA_ISSUER_MANAGE_SCOPE]
             return True
+        application = client or getattr(request, "client", None)
+        grandfathers_wildcard = isinstance(application, OAuthApplication) and not application.is_self_registered
         request.scopes = resolve_requested_scopes(
             list(scopes or []),
-            getattr(client, "ceiling_scopes", None) or [],
-            allow_wildcard_under_empty_ceiling=True,
+            getattr(application, "ceiling_scopes", None) or [],
+            allow_wildcard_under_empty_ceiling=grandfathers_wildcard,
         )
         return True
 
@@ -1643,7 +1647,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         dropped_scopes = [
             scope
             for scope in scopes_outside_ceiling(
-                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+                submitted,
+                application.ceiling_scopes,
+                allow_wildcard_under_empty_ceiling=not application.is_self_registered,
             )
             if scope != "*"
         ]
@@ -1651,7 +1657,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return
 
         granted = clamp_scopes_to_ceiling(
-            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            submitted,
+            application.ceiling_scopes,
+            allow_wildcard_under_empty_ceiling=not application.is_self_registered,
         )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1741,8 +1749,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
-        # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
-        if "*" in requested_scope_tokens and resolve_ceiling(application.ceiling_scopes) is not None:
+        # (when the ceiling is seeded or the app registered itself); track that volume so `*` can be
+        # retired once it drains.
+        wildcard_is_narrowed = resolve_ceiling(application.ceiling_scopes) is not None or application.is_self_registered
+        if "*" in requested_scope_tokens and wildcard_is_narrowed:
             posthoganalytics.capture(
                 distinct_id=str(request.user.distinct_id),
                 event="oauth_wildcard_scopes_narrowed",
