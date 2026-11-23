@@ -1,16 +1,19 @@
 import os
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade.contracts import TaskRunLogFilter, TaskRunLogPageDTO
 from products.tasks.backend.logic.log_slice import (
     LogPart,
     log_entries,
     log_part,
-    slice_log_from,
+    page_log_entries,
+    page_log_parts,
     slice_log_parts_tail,
     slice_log_tail,
     summarize_log_part,
@@ -196,20 +199,91 @@ class TestSliceLogTail(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("every_entry_from_the_start", 10, 10**9, 10**9, 10, 0),
-            ("latest_turns_when_too_large", 2, 1000, 500, 10, 0),
-            ("from_the_start_when_the_latest_turns_begin_earlier", 18, 10**9, 10, 18, 0),
+            ("every_entry_from_the_start", 1, None, TaskRunLogFilter(), 10**9, 1, 4, [1, 2, 3]),
+            ("at_most_limit_entries_across_runs", 1, 2, TaskRunLogFilter(), 10**9, 1, 4, [1, 2]),
+            ("nothing_past_the_end", 9, 2, TaskRunLogFilter(), 10**9, 4, 4, []),
+            ("first_entry_past_the_byte_cap", 0, 4, TaskRunLogFilter(), 1, 0, 4, [0]),
+            ("no_byte_cap_without_a_limit", 0, None, TaskRunLogFilter(), 1, 0, 4, [0, 1, 2, 3]),
+            (
+                "indexes_count_matching_entries",
+                1,
+                1,
+                TaskRunLogFilter(event_types=frozenset({"agent_message"})),
+                10**9,
+                1,
+                2,
+                [3],
+            ),
+            (
+                "after_and_excluded_types",
+                0,
+                None,
+                TaskRunLogFilter(after=datetime(2026, 1, 1, 10, 0, tzinfo=UTC), exclude_types=frozenset({"tool_call"})),
+                10**9,
+                0,
+                2,
+                [2, 3],
+            ),
         ]
     )
-    def test_reads_from_a_start_index(
-        self, _name: str, start: int, tail_bytes: int, max_bytes: int, offset: int, preamble: int
+    def test_pages_entries_from_a_start_index(
+        self,
+        _name: str,
+        start: int,
+        limit: int | None,
+        log_filter: TaskRunLogFilter,
+        max_bytes: int,
+        offset: int,
+        count: int,
+        indexes: list[int],
     ) -> None:
-        lines = [*_turn("first", 4, 100), *_turn("second", 4, 100)]
+        kinds = ["user_message", "tool_call", "agent_message", "agent_message"]
+        lines = [
+            json.dumps(
+                {
+                    "timestamp": f"2026-01-01T10:0{minute}:00Z",
+                    "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": kind}}},
+                }
+            )
+            for minute, kind in enumerate(kinds)
+        ]
+        expected = TaskRunLogPageDTO(
+            content=_log([lines[index] for index in indexes]), offset=offset, count=count, origin="run"
+        )
 
-        sliced = slice_log_from(_log(lines), start, tail_bytes, max_bytes)
+        page = page_log_entries(
+            lines, start=start, limit=limit, log_filter=log_filter, origin="run", max_bytes=max_bytes
+        )
 
-        self.assertEqual((sliced.offset, sliced.preamble, sliced.count), (offset, preamble, len(lines)))
-        self.assertEqual(sliced.content.splitlines()[sliced.preamble :], lines[offset:])
+        self.assertEqual(page, expected)
+        if log_filter == TaskRunLogFilter():
+            parts = [log_part(lines[:2]), log_part(lines[2:])]
+            self.assertEqual(
+                page_log_parts(parts, start=start, limit=limit, origin="run", max_bytes=max_bytes), expected
+            )
+
+    @parameterized.expand(
+        [
+            ("byte_cap_reached_in_the_first_run", 0, 1, [0]),
+            ("window_inside_the_second_run", 2, 10**9, [1]),
+        ]
+    )
+    def test_pages_load_only_the_runs_they_return(
+        self, _name: str, start: int, max_bytes: int, expected_reads: list[int]
+    ) -> None:
+        runs = [[_user("older"), _user("old")], [_user("new"), _user("newer")]]
+        reads: list[int] = []
+
+        def part(index: int) -> LogPart:
+            def read() -> list[str]:
+                reads.append(index)
+                return runs[index]
+
+            return LogPart(summary=summarize_log_part(runs[index]), entries=read)
+
+        page_log_parts([part(0), part(1)], start=start, limit=4, origin="run", max_bytes=max_bytes)
+
+        self.assertEqual(reads, expected_reads)
 
     def test_cuts_a_turn_past_the_cap_before_a_tool_call(self) -> None:
         lines = _turn("only", 40, 1000)

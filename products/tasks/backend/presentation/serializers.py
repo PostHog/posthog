@@ -3748,7 +3748,30 @@ class TaskRunLogsView(models.TextChoices):
     THREAD = "thread", "thread"
 
 
-class TaskRunLogsQuerySerializer(serializers.Serializer):
+class TaskRunLogsOutput(models.TextChoices):
+    JSONL = "jsonl", "jsonl"
+    JSON = "json", "json"
+
+
+TASK_RUN_LOG_PAGE_FIELDS = ("limit", "after", "event_types", "exclude_types")
+
+
+class TaskRunLogFilterQuerySerializer(serializers.Serializer):
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return events after this ISO8601 timestamp",
+    )
+    event_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to include",
+    )
+    exclude_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to exclude",
+    )
+
+
+class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
     """Query parameters for reading part of a task run log"""
 
     view = serializers.ChoiceField(
@@ -3759,6 +3782,16 @@ class TaskRunLogsQuerySerializer(serializers.Serializer):
             "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in "
             "_meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that "
             "render the conversation. It applies to the full log and to every slice."
+        ),
+    )
+    output = serializers.ChoiceField(
+        choices=TaskRunLogsOutput.choices,
+        default=TaskRunLogsOutput.JSONL,
+        required=False,
+        help_text=(
+            "'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, "
+            "offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an "
+            "object with its text in unparseable_line. Cannot be combined with tail_bytes or before."
         ),
     )
 
@@ -3785,20 +3818,49 @@ class TaskRunLogsQuerySerializer(serializers.Serializer):
         required=False,
         min_value=0,
         help_text=(
-            "With tail_bytes, return every entry from this index to the end, with no preamble, so a client that "
-            "holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. "
-            "When those entries are too large, the response holds the latest turns as tail_bytes alone returns "
-            "them, and X-Log-Offset is greater than start."
+            "Return every entry from this index to the end, with no preamble, so a client that holds the entries "
+            "before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, "
+            "when those entries are too large, the response holds the latest turns as tail_bytes alone returns "
+            "them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index "
+            "counts only the matching entries."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=5000,
+        help_text=(
+            "Return at most this many entries from start, which defaults to 0. A page also stops before it "
+            "passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and "
+            "X-Log-Count is the number of entries, counting only the matching entries when a filter is given. "
+            "More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. "
+            "Cannot be combined with tail_bytes or before."
         ),
     )
 
     def validate(self, attrs: dict) -> dict:
-        for field in ("before", "start"):
-            if field in attrs and "tail_bytes" not in attrs:
-                raise serializers.ValidationError(f"Use {field} together with tail_bytes.")
+        if "before" in attrs and "tail_bytes" not in attrs:
+            raise serializers.ValidationError("Use before together with tail_bytes.")
         if "before" in attrs and "start" in attrs:
             raise serializers.ValidationError("Use before or start, not both.")
+        if "tail_bytes" in attrs:
+            for field in TASK_RUN_LOG_PAGE_FIELDS:
+                if field in attrs:
+                    raise serializers.ValidationError(f"Use {field} or tail_bytes, not both.")
+            if attrs.get("output") == TaskRunLogsOutput.JSON:
+                raise serializers.ValidationError("Use output=json or tail_bytes, not both.")
         return attrs
+
+
+class TaskRunLogPageResponseSerializer(serializers.Serializer):
+    entries = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="The log entries of the page, oldest first. An entry that is not valid JSON is unparseable_line.",
+    )
+    offset = serializers.IntegerField(help_text="The index of the first returned entry.")
+    count = serializers.IntegerField(
+        help_text="The number of entries in the log, counting only the matching entries when a filter is given."
+    )
 
 
 class StreamReadTokenQuerySerializer(serializers.Serializer):
@@ -5005,21 +5067,9 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
+class TaskRunSessionLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
     """Query parameters for filtering task run log events"""
 
-    after = serializers.DateTimeField(
-        required=False,
-        help_text="Only return events after this ISO8601 timestamp",
-    )
-    event_types = serializers.CharField(
-        required=False,
-        help_text="Comma-separated list of event types to include",
-    )
-    exclude_types = serializers.CharField(
-        required=False,
-        help_text="Comma-separated list of event types to exclude",
-    )
     limit = serializers.IntegerField(
         required=False,
         default=1000,
