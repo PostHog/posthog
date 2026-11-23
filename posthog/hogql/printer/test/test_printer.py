@@ -4874,6 +4874,19 @@ class TestPrinter(BaseTest):
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
         assert "in(p1.id, tuple(1, 2, 3))" not in printed
 
+    def test_inline_persons_filter_reads_an_unqualified_persons_field(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id
+                         and p.id in JSONExtract(properties, 'allowed_ids', 'Array(UUID)')
+            where e.event = '$pageview'
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        persons_subselect = printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+        assert "in(id, JSONExtract(person.properties" in persons_subselect
+
     def test_inline_persons_subquery_that_reads_an_outer_cte(self):
         printed = self._print(
             """

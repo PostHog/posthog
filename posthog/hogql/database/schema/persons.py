@@ -500,10 +500,26 @@ class PersonsTable(LazyTable):
         # A RIGHT or FULL join keeps the persons rows that its ON clause rejects, and a filter inside the subselect drops them.
         if any(kind in (join.join_type or "") for kind in ("RIGHT", "FULL")):
             return self
+        promotable = [
+            i for i, expr in enumerate(join.constraint.expr.exprs) if PersonsTable._is_promotable_expr(expr, join.alias)
+        ]
+        if not promotable:
+            return self
+        # An unqualified field resolves against the persons table alone when the predicate sits inside the subselect,
+        # and against every table of the join when it stays in the join. Moving the predicate keeps the first meaning.
+        moved_indexes = {
+            i
+            for i in promotable
+            if PersonsTable._reads_unqualified_field(cast(CompareOperation, join.constraint.expr.exprs[i]).right)
+        }
+        moved: list[Expr] = []
+        for i in sorted(moved_indexes):
+            expr = cast(CompareOperation, join.constraint.expr.exprs[i])
+            expr.left = Field(chain=["id"])
+            moved.append(expr)
+        join.constraint.expr.exprs = [e for i, e in enumerate(join.constraint.expr.exprs) if i not in moved_indexes]
         conjuncts = join.constraint.expr.exprs
         positions = tuple(i for i, expr in enumerate(conjuncts) if PersonsTable._is_promotable_expr(expr, join.alias))
-        if not positions:
-            return self
         filter_copies: list[Expr] = [
             CompareOperation(
                 op=CompareOperationOp.In,
@@ -512,11 +528,32 @@ class PersonsTable(LazyTable):
             )
             for i in positions
         ]
+        all_filters = [*filter_copies, *moved]
         p = self.model_copy()
-        p.filter = filter_copies[0] if len(filter_copies) == 1 else And(exprs=filter_copies)
+        p.filter = all_filters[0] if len(all_filters) == 1 else And(exprs=all_filters)
         p.filter_positions = positions
         p.filter_source_length = len(conjuncts)
         return p
+
+    @staticmethod
+    def _reads_unqualified_field(expr: Expr) -> bool:
+        """Whether the expression names a field without a table, outside any subquery that has a scope of its own."""
+        found = False
+
+        class _Finder(TraversingVisitor):
+            def visit_select_query(self, node):
+                pass
+
+            def visit_select_set_query(self, node):
+                pass
+
+            def visit_field(self, node):
+                nonlocal found
+                if len(node.chain) == 1:
+                    found = True
+
+        _Finder().visit(expr)
+        return found
 
     def held_join_conjuncts(self, join: JoinExpr) -> list[Expr]:
         if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
