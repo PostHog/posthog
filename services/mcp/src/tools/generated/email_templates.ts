@@ -317,9 +317,6 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.to !== undefined) {
             body['to'] = params.to
         }
-        if (params.category !== undefined) {
-            body['category'] = params.category
-        }
         if (params.template_key !== undefined) {
             body['template_key'] = params.template_key
         }
@@ -347,6 +344,9 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
         if (params.from !== undefined) {
             body['from'] = params.from
         }
@@ -362,7 +362,6 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
 const WorkflowsSendEmailTemplateSchema = () => {
     const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
     return MessagingSendEmailCreateBody.omit({
-        category: true,
         template_key: true,
         subject: true,
         html: true,
@@ -375,6 +374,7 @@ const WorkflowsSendEmailTemplateSchema = () => {
         tracking: true,
         scheduled_at: true,
         sensitive: true,
+        category: true,
         from: true,
     }).extend({
         template_id: MessagingSendEmailCreateBody.shape['template_id']

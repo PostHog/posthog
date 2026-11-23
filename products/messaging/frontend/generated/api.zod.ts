@@ -68,10 +68,6 @@ export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
  * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` in its body, and can't have `cc` or `bcc`. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
-export const messagingSendEmailCreateBodyCategoryTwoKeyMax = 64
-
-export const messagingSendEmailCreateBodyCategoryTwoNameMax = 128
-
 export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
@@ -92,6 +88,12 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 
+export const messagingSendEmailCreateBodyCategoryTwoKeyMax = 64
+
+export const messagingSendEmailCreateBodyCategoryTwoNameMax = 128
+
+export const messagingSendEmailCreateBodyCategoryTwoDescriptionMax = 1000
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
@@ -101,38 +103,6 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
-        ),
-    category: zod
-        .union([
-            zod.enum(['transactional']),
-            zod.object({
-                key: zod
-                    .string()
-                    .max(messagingSendEmailCreateBodyCategoryTwoKeyMax)
-                    .describe(
-                        "The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it."
-                    ),
-                type: zod
-                    .enum(['marketing', 'transactional'])
-                    .describe(
-                        '`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.'
-                    ),
-                name: zod
-                    .string()
-                    .max(messagingSendEmailCreateBodyCategoryTwoNameMax)
-                    .describe(
-                        "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
-                    ),
-                description: zod
-                    .string()
-                    .optional()
-                    .describe("Notes about which emails belong to the category. Recipients don't see it."),
-            }),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            "Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own."
         ),
     template_id: zod
         .uuid()
@@ -261,6 +231,40 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
+        ),
+    category: zod
+        .union([
+            zod.enum(['transactional']),
+            zod.object({
+                key: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyCategoryTwoKeyMax)
+                    .describe(
+                        "The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it."
+                    ),
+                type: zod
+                    .enum(['marketing', 'transactional'])
+                    .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
+                    .describe(
+                        '`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional'
+                    ),
+                name: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyCategoryTwoNameMax)
+                    .describe(
+                        "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
+                    ),
+                description: zod
+                    .string()
+                    .max(messagingSendEmailCreateBodyCategoryTwoDescriptionMax)
+                    .optional()
+                    .describe("Notes about which emails belong to the category. Recipients don't see it."),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own."
         ),
     from: zod
         .string()
@@ -2033,10 +2037,6 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
  * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
-export const messagingTemplatesSendCreateBodyCategoryTwoKeyMax = 64
-
-export const messagingTemplatesSendCreateBodyCategoryTwoNameMax = 128
-
 export const messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax = 400
 
 export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
@@ -2046,38 +2046,6 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
-        ),
-    category: zod
-        .union([
-            zod.enum(['transactional']),
-            zod.object({
-                key: zod
-                    .string()
-                    .max(messagingTemplatesSendCreateBodyCategoryTwoKeyMax)
-                    .describe(
-                        "The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it."
-                    ),
-                type: zod
-                    .enum(['marketing', 'transactional'])
-                    .describe(
-                        '`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.'
-                    ),
-                name: zod
-                    .string()
-                    .max(messagingTemplatesSendCreateBodyCategoryTwoNameMax)
-                    .describe(
-                        "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
-                    ),
-                description: zod
-                    .string()
-                    .optional()
-                    .describe("Notes about which emails belong to the category. Recipients don't see it."),
-            }),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            "Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own."
         ),
     identifiers: zod
         .object({

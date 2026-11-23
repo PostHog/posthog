@@ -17,6 +17,7 @@
                     "properties": {
                         "description": {
                             "description": "Notes about which emails belong to the category. Recipients don't see it.",
+                            "maxLength": 1000,
                             "type": "string"
                         },
                         "key": {
@@ -30,7 +31,7 @@
                             "type": "string"
                         },
                         "type": {
-                            "description": "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.",
+                            "description": "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.\n\n* `marketing` - Marketing\n* `transactional` - Transactional",
                             "enum": ["marketing", "transactional"],
                             "type": "string"
                         }

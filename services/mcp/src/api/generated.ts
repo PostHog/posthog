@@ -42707,7 +42707,7 @@ export namespace Schemas {
       /** When the email reached its current status. */
       status_at: string;
       /**
-         * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+         * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended`, `frequency_capped`, `unsubscribe_link_required` or `copies_not_allowed`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
          * @nullable
          */
       reason: string | null;
@@ -118254,6 +118254,29 @@ export namespace Schemas {
       readonly batch_jobs: readonly SendCalendarBatchJob[];
     }
 
+    export interface SendCategoryDefinition {
+      /**
+         * The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it.
+         * @maxLength 64
+         */
+      key: string;
+      /** `marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs.
+       *
+       * * `marketing` - Marketing
+       * * `transactional` - Transactional */
+      type: MessageCategoryTypeEnum;
+      /**
+         * The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * Notes about which emails belong to the category. Recipients don't see it.
+         * @maxLength 1000
+         */
+      description?: string;
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
@@ -118335,6 +118358,8 @@ export namespace Schemas {
       scheduled_at?: string | null;
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
+      /** Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own. */
+      category?: 'transactional' | SendCategoryDefinition | null;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
          * @maxLength 1024
