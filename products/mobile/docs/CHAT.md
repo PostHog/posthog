@@ -131,7 +131,8 @@ Picked files are not part of a draft. They stay in memory and go when the sheet 
 ## Message formatting
 
 Sent messages display pasted web URLs and labeled links copied from Slack in the theme's accent color, with medium-weight text and an underline.
-Slack links decode escaped ampersands and angle brackets in both the label and the destination.
+Slack links show their destination host beside a custom label and decode escaped ampersands and angle brackets.
+URLs containing a username or password appear as plain text.
 Tap a link to open its destination in the browser. Copy keeps the original message text.
 
 Sent messages have an icon-only copy button in both chat versions and report discussions. For AI replies, Copy appears below the last message of each turn.

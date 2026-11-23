@@ -39,15 +39,19 @@ export function splitUserMessageLinks(text: string): (string | UserMessageLink)[
     for (const match of text.matchAll(WEB_LINK)) {
         const [matched, wrappedUrl, label, bareUrl = ''] = match
         const url = wrappedUrl ? decodeSlackEntities(wrappedUrl) : trimBareUrl(bareUrl)
+        let destination: URL
         try {
-            if (!new URL(url).hostname) continue
+            destination = new URL(url)
         } catch {
             continue
         }
 
+        if (!destination.hostname || destination.username || destination.password) continue
+
+        const caption = decodeSlackEntities(label ?? '').trim()
         const offset = match.index
         if (offset > end) parts.push(text.slice(end, offset))
-        parts.push({ offset, label: label?.trim() ? decodeSlackEntities(label.trim()) : url, url })
+        parts.push({ offset, label: caption && caption !== url ? `${caption} (${destination.host})` : url, url })
         end = offset + (wrappedUrl ? matched.length : url.length)
     }
     if (end < text.length) parts.push(text.slice(end))
