@@ -39,6 +39,8 @@ import {
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
 import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
+import { BODY_MAX_LENGTH } from '../helpers/clickable-links'
+import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
@@ -742,11 +744,6 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachments: [{ sha256: 'a'.repeat(64), filename: 'invoice.pdf', content_type: 'application/pdf' }],
             }),
         ],
-        ['a marketing category', () => ({ message_category: { id: new UUIDT().toString(), type: 'marketing' } })],
-        [
-            'a transactional category',
-            () => ({ message_category: { id: new UUIDT().toString(), type: 'transactional' } }),
-        ],
     ])('refuses a send with %s instead of dropping it', async (_desc, fields) => {
         const res = await sendFromCode(request(sandboxSend(fields(sandboxSenderId))))
 
@@ -840,5 +837,167 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         )
         expect(retried.body).not.toHaveProperty('sender_kind')
         expect(queued).toHaveLength(1)
+    })
+
+    describe('with a message category', () => {
+        const marketingContent = {
+            subject: 'Monthly news',
+            html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            text: 'News. Unsubscribe: {{ unsubscribe_url }}',
+        }
+
+        const optOutMember = (identifier: string, categoryId: string) =>
+            world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagerecipientpreference
+                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                [world.team.id, identifier, JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+                'test:sandbox-code-send-opt-out'
+            )
+
+        const tokenOwner = (url: string): string | null => {
+            const token = new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? ''
+            const validated = new RecipientTokensService(
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            ).validatePreferencesToken(token)
+            return validated.valid && validated.team_id === world.team.id ? validated.identifier : null
+        }
+
+        it('delivers a marketing code send with filled unsubscribe links and headers', async () => {
+            const mixedMember = `Member-${new UUIDT().toString()}@Example.com`
+            await world.addMember(mixedMember)
+            const category = { id: new UUIDT().toString(), type: 'marketing' }
+
+            const res = await sendFromCode(
+                request(sandboxSend({ content: marketingContent, message_category: category }), {
+                    to: mixedMember.toLowerCase(),
+                    distinct_id: mixedMember.toLowerCase(),
+                })
+            )
+
+            expect(res.status).toEqual(202)
+            expect(res.body.sender_kind).toEqual('email_sandbox')
+
+            await deliver()
+
+            expect(world.ses.delivered).toHaveLength(1)
+            const [delivered] = world.ses.delivered
+            expect(delivered.to).toEqual([{ name: '', address: mixedMember }])
+            expect(delivered.html).not.toContain('{{ unsubscribe_url }}')
+            expect(delivered.text).not.toContain('{{ unsubscribe_url }}')
+
+            const htmlHref = delivered.html!.match(/href="([^"]+)"/)![1].replace(/&amp;/g, '&')
+            const textUrl = delivered.text!.match(/https?:\/\/\S+/)![0]
+            const headerUrl = delivered.headers['List-Unsubscribe']?.match(/^<([^>]+)>$/)?.[1]
+            expect(tokenOwner(htmlHref)).toEqual(mixedMember)
+            expect(tokenOwner(textUrl)).toEqual(mixedMember)
+            expect(headerUrl).toMatch(/\?one_click_unsubscribe=1$/)
+            expect(tokenOwner(headerUrl!)).toEqual(mixedMember)
+            expect(delivered.headers['List-Unsubscribe-Post']).toEqual('List-Unsubscribe=One-Click')
+            expect(deliveryStatuses(res.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
+        })
+
+        it('delivers a transactional code send to an opted-out org member without unsubscribe headers', async () => {
+            await optOutMember(member, '$all')
+            const category = { id: new UUIDT().toString(), type: 'transactional' }
+
+            const res = await sendFromCode(request(sandboxSend({ message_category: category })))
+
+            expect(res.status).toEqual(202)
+            expect(res.body.sender_kind).toEqual('email_sandbox')
+
+            await deliver()
+
+            expect(world.ses.delivered).toHaveLength(1)
+            expect(world.ses.delivered[0].headers['List-Unsubscribe']).toBeUndefined()
+            expect(world.ses.delivered[0].headers['List-Unsubscribe-Post']).toBeUndefined()
+            expect(deliveryStatuses(res.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
+        })
+
+        it.each([
+            ['the category', (categoryId: string) => categoryId],
+            ['all marketing', () => '$all'],
+        ])('refuses a marketing code send when the org member opted out of %s', async (_scope, targetCategory) => {
+            const categoryId = new UUIDT().toString()
+            await optOutMember(member.toUpperCase(), targetCategory(categoryId))
+
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({ content: marketingContent, message_category: { id: categoryId, type: 'marketing' } })
+                )
+            )
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: 'recipient_opted_out' })
+            expect(queued).toEqual([])
+            expect(
+                recordsAtKafka<{ recipient: string; status: string; reason: string }>(KAFKA_EMAIL_STATUS)
+                    .filter((row) => row.recipient === member)
+                    .map(({ status, reason }) => ({ status, reason }))
+            ).toEqual([
+                { status: 'queued', reason: '' },
+                { status: 'failed', reason: 'recipient_opted_out' },
+            ])
+        })
+
+        it('skips a marketing code send at delivery when the org member opts out after accept', async () => {
+            const categoryId = new UUIDT().toString()
+
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({ content: marketingContent, message_category: { id: categoryId, type: 'marketing' } })
+                )
+            )
+            expect(res.status).toEqual(202)
+            await optOutMember(member, categoryId)
+
+            const results = await deliver()
+
+            expect(world.ses.delivered).toEqual([])
+            expect(results.at(-1)).toMatchObject({ finished: true })
+            expect(metricNames(results)).toContain('email_sandbox_blocked')
+            expect(deliveryStatuses(res.body.invocation_id)).toEqual([
+                { status: 'failed', reason: 'recipient_opted_out' },
+            ])
+        })
+
+        it('refuses a marketing code send without a clickable unsubscribe link', async () => {
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({
+                        content: { subject: 'Monthly news', html: '<p>News</p>', text: 'News' },
+                        message_category: { id: new UUIDT().toString(), type: 'marketing' },
+                    })
+                )
+            )
+
+            expect(res.status).toEqual(400)
+            expect(res.body).toEqual({ error: 'unsubscribe_link_required' })
+            expect(queued).toEqual([])
+        })
+
+        it('skips a marketing code send at delivery when filling the unsubscribe link pushes the body past the size limit', async () => {
+            const paddedHtml = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x')
+
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({
+                        content: { subject: 'Monthly news', html: paddedHtml },
+                        message_category: { id: new UUIDT().toString(), type: 'marketing' },
+                    })
+                )
+            )
+            expect(res.status).toEqual(202)
+
+            const results = await deliver()
+
+            expect(world.ses.delivered).toEqual([])
+            expect(results.at(-1)).toMatchObject({ finished: true })
+            expect(deliveryStatuses(res.body.invocation_id)).toEqual([
+                { status: 'failed', reason: 'content_too_large' },
+            ])
+        })
     })
 })

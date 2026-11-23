@@ -34,12 +34,14 @@ export function buildSandboxMessage({
     organizationName,
     fromAddress,
     recipient,
+    headers = [],
 }: {
     email: SandboxRenderedEmail
     organizationId: string
     organizationName: string
     fromAddress: string
     recipient: string
+    headers?: { name: string; value: string }[]
 }): SandboxMessage {
     const senderName = `${cleanDisplayName(organizationName)} via PostHog`
     const recipientName = cleanDisplayName(email.to.name ?? '')
@@ -52,7 +54,7 @@ export function buildSandboxMessage({
         ...(email.html
             ? { html: appendHtmlFooter(maybeAddPreheaderToEmail(email.html, email.preheader), footer) }
             : {}),
-        headers: [{ name: 'X-PostHog-Organization-Id', value: organizationId }],
+        headers: [{ name: 'X-PostHog-Organization-Id', value: organizationId }, ...headers],
     }
 }
 

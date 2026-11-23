@@ -28,7 +28,7 @@ import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
-import { DeliveredAddressReader, deliveredAddressReader } from './sandbox-render'
+import { DeliveredAddressReader, SandboxRecipientUnavailableError, deliveredAddressReader } from './sandbox-render'
 import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
 import { SandboxSesClient } from './sandbox-ses-client'
 
@@ -128,6 +128,7 @@ describe('SandboxEmailSendStep', () => {
             deliveredAddress,
             siteUrl: 'http://localhost:8000',
             recipientPreferences: recipientPreferences(),
+            recipientTokensService: tokens,
             events,
             teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
             sesBucket,
@@ -684,5 +685,170 @@ describe('SandboxEmailSendStep', () => {
         expect(delaysMs[0]).toBeLessThanOrEqual(30_000)
         expect(Math.max(...delaysMs)).toBeLessThanOrEqual(15 * 60_000)
         expect(segments.slice(0, -1).every((segment) => segment.invocation.queue === 'emailsandbox')).toBe(true)
+    })
+
+    describe('categorized code sends', () => {
+        const buildCodeSendFlow = (): HogFlow => {
+            const flow = new FixtureHogFlowBuilder()
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'api' } },
+                        email: {
+                            type: 'function_email',
+                            output_variable: { key: 'email_result' },
+                            config: {
+                                template_id: 'template-email',
+                                inputs: {},
+                                message_category_type: 'transactional',
+                            },
+                        },
+                        wait: { type: 'delay', config: { delay_duration: '1h' } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email', type: 'continue' },
+                        { from: 'email', to: 'wait', type: 'continue' },
+                        { from: 'wait', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            flow.team_id = world.team.id
+            flow.version = 3
+            return flow
+        }
+
+        const codeSendInvocation = ({
+            flow,
+            email,
+            personId,
+            category,
+            content,
+        }: {
+            flow: HogFlow
+            email: string
+            personId?: string
+            category: { id: string; type: 'marketing' | 'transactional' }
+            content: { subject: string; html?: string; text?: string }
+        }): CyclotronJobInvocationHogFlow => {
+            const invocation = createExampleHogFlowInvocation(
+                flow,
+                {
+                    currentAction: { id: 'email', startedAtTimestamp: Date.now() },
+                    senderKind: 'email_sandbox',
+                    messageCategory: category,
+                    send: { content, tracking: { captureEngagement: true } },
+                    event: {
+                        uuid: 'event-1',
+                        event: '$transactional_email',
+                        distinct_id: email,
+                        timestamp: DateTime.now().toISO(),
+                        url: '',
+                        properties: { to: email },
+                        elements_chain: '',
+                    },
+                },
+                { ...(personId ? { id: personId } : {}), properties: { email, name: 'Mem' } }
+            )
+            invocation.queue = 'hogflow'
+            return invocation
+        }
+
+        const marketingContent = {
+            subject: 'News',
+            html: '<p>Hello</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            text: 'Hello. Unsubscribe: {{ unsubscribe_url }}',
+        }
+
+        it('does not hit or spend the marketing frequency cap on a categorized marketing code send', async () => {
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                     marketing_frequency_cap_window_days)
+                 VALUES ($1, false, 'off', '', 1, 7)`,
+                [world.team.id],
+                'test:cap-one-marketing-email-a-week'
+            )
+            const flow = buildCodeSendFlow()
+            const personId = '00000000-0000-0000-0000-000000000042'
+            const category = { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' as const }
+            const roomy = { team: 100, recipient: 100 }
+            const executor = buildExecutor(roomy)
+
+            const runOne = async (): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                const routed = await executor.execute(
+                    codeSendInvocation({ flow, email: member(), personId, category, content: marketingContent })
+                )
+                const segments = await runSandboxQueue(executor, routed.invocation)
+                return executor.execute(nextDequeue(segments.at(-1)!.invocation))
+            }
+
+            const first = await runOne()
+            const second = await runOne()
+            const workflowInvocation = runFor(member())
+            workflowInvocation.person!.id = personId
+            const workflowRouted = await executor.execute(workflowInvocation)
+            const workflowSegments = await runSandboxQueue(executor, workflowRouted.invocation)
+            const workflowFinished = await executor.execute(nextDequeue(workflowSegments.at(-1)!.invocation))
+
+            expect(world.ses.delivered).toHaveLength(3)
+            expect(first.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
+            expect(second.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-2' })
+            expect(workflowFinished.invocation.state.variables?.email_result).toEqual({
+                status: 'accepted',
+                message_id: 'ses-3',
+            })
+        })
+
+        it('skips a marketing code send at delivery when its HTML has no clickable unsubscribe link', async () => {
+            const flow = buildCodeSendFlow()
+            const executor = buildExecutor({ team: 100, recipient: 100 })
+            const routed = await executor.execute(
+                codeSendInvocation({
+                    flow,
+                    email: member(),
+                    category: { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' },
+                    content: {
+                        subject: 'News',
+                        html: '<p>Hello</p><!-- <a href="{{ unsubscribe_url }}">Unsubscribe</a> -->',
+                    },
+                })
+            )
+            const segments = await runSandboxQueue(executor, routed.invocation)
+            const finished = await executor.execute(nextDequeue(segments.at(-1)!.invocation))
+
+            expect(world.ses.delivered).toEqual([])
+            expect(finished.invocation.state.variables?.email_result).toEqual({
+                status: 'skipped',
+                reason: 'unsubscribe_link_required',
+            })
+        })
+
+        it('retries a marketing code send without calling SES when the delivered address lookup is unavailable', async () => {
+            const flow = buildCodeSendFlow()
+            const unavailable: DeliveredAddressReader = () =>
+                Promise.reject(new SandboxRecipientUnavailableError('database unavailable'))
+            const unavailableExecutor = buildExecutor(caps, unavailable)
+            const routed = await unavailableExecutor.execute(
+                codeSendInvocation({
+                    flow,
+                    email: member().toLowerCase(),
+                    category: { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' },
+                    content: marketingContent,
+                })
+            )
+
+            const stalled = await unavailableExecutor.execute(nextDequeue(routed.invocation))
+
+            expect(world.ses.attempts).toBe(0)
+            expect(stalled.invocation.queue).toBe('emailsandbox')
+            expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+
+            await runSandboxQueue(buildExecutor(), stalled.invocation)
+            expect(world.ses.delivered).toHaveLength(1)
+            expect(unsubscribedIdentifier(world.ses.delivered[0])).toEqual(member())
+        })
     })
 })

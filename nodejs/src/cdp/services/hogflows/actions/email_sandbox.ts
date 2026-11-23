@@ -149,7 +149,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
             messageId: invocation.id,
             status: outcome === 'accepted' ? 'sent' : 'failed',
             // The PostHog test sender adds no open or click tracking, so every email it sends is untracked.
-            reason: outcome === 'accepted' ? 'untracked' : reason,
+            reason: outcome === 'accepted' ? 'untracked' : sandboxStatusReason(outcome, reason),
             messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
     }
@@ -169,6 +169,10 @@ const FAILURE_MESSAGES: Record<string, string> = {
 
 function failureMessage(reason: string | undefined): string {
     return (reason && FAILURE_MESSAGES[reason]) ?? `The PostHog test sender didn't send the email: ${reason}`
+}
+
+function sandboxStatusReason(outcome: SandboxEmailOutcome['outcome'], reason: string | undefined): string | undefined {
+    return outcome === 'skipped' && reason === 'opted_out' ? 'recipient_opted_out' : reason
 }
 
 function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): SandboxEmailStepResult {

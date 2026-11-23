@@ -23,7 +23,7 @@ import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
@@ -51,7 +51,12 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { BODY_MAX_LENGTH, UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from './helpers/clickable-links'
+import {
+    BODY_MAX_LENGTH,
+    UNSUBSCRIBE_TOKENS_CHECKED,
+    filledUnsubscribeLength,
+    replaceUnsubscribePlaceholder,
+} from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -74,11 +79,7 @@ import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBefor
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { PreferenceLookupError, RecipientPreferencesService } from './recipient-preferences.service'
-import {
-    PreferencesTokenSource,
-    RecipientTokensService,
-    preferencesTokenSourceForInvocation,
-} from './recipient-tokens.service'
+import { RecipientTokensService, preferencesTokenSourceForInvocation } from './recipient-tokens.service'
 
 const emailEngagementSettingReadFailuresTotal = new Counter({
     name: 'cdp_email_engagement_setting_read_failures_total',
@@ -104,7 +105,6 @@ const sesThrottleResponsesTotal = new Counter({
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
-const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -219,7 +219,7 @@ const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
-export const UNSUBSCRIBE_TOKENS_CHECKED = 50
+export { UNSUBSCRIBE_TOKENS_CHECKED }
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 class EmailSendDeadlineError extends Error {
@@ -1783,11 +1783,13 @@ export class EmailService {
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders(
-                      { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                      preferencesTokenSourceForInvocation(result.invocation)
-                  )
+            const unsubscribeHeaders: MessageHeader[] = !isTransactionalEmail
+                ? this.recipientTokensService
+                      .generateUnsubscribeHeaders(
+                          { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                          preferencesTokenSourceForInvocation(result.invocation)
+                      )
+                      .map(({ name, value }) => ({ Name: name, Value: value }))
                 : []
             sendEmailParams.Content.Simple.Headers = [
                 ...unsubscribeHeaders,
@@ -1900,7 +1902,10 @@ export class EmailService {
                   )
                 : undefined
         const htmlUrl = url && escapeHtml(url)
-        if (filledLength(params.html, htmlUrl) > BODY_MAX_LENGTH || filledLength(params.text, url) > BODY_MAX_LENGTH) {
+        if (
+            filledUnsubscribeLength(params.html, htmlUrl) > BODY_MAX_LENGTH ||
+            filledUnsubscribeLength(params.text, url) > BODY_MAX_LENGTH
+        ) {
             return { refused: 'content_too_large' }
         }
         const filled =
@@ -1911,71 +1916,10 @@ export class EmailService {
                       text: params.text && replaceUnsubscribePlaceholder(params.text, url),
                   }
                 : params
-        return this.lacksMarketingUnsubscribeLink(invocation, filled)
-            ? { refused: 'unsubscribe_link_required' }
-            : { params: filled }
+        return this.recipientTokensService.hasValidUnsubscribeLink(filled, invocation.teamId, filled.to?.email)
+            ? { params: filled }
+            : { refused: 'unsubscribe_link_required' }
     }
-
-    private lacksMarketingUnsubscribeLink(
-        invocation: CyclotronJobInvocationHogFunction,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): boolean {
-        const recipient = params.to?.email && unquoteMailbox(params.to.email)
-        const preferencesPage = `${this.siteUrl}/messaging-preferences/`
-        const paths = params.html
-            ? clickableHrefs(params.html).flatMap((href) => {
-                  const page = URL.canParse(href) ? new URL(href) : undefined
-                  const path = page ? `${page.origin}${page.pathname}` : ''
-                  return path.startsWith(preferencesPage) ? [path.slice(preferencesPage.length)] : []
-              })
-            : (params.text ?? '')
-                  .split(preferencesPage)
-                  .slice(1)
-                  .flatMap((rest) => rest.match(/^[^\s/?#]+\//) ?? [])
-        const tokens = new Set(
-            paths.flatMap((path) => {
-                const page = path.split(/[?#]/)[0]
-                return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
-            })
-        )
-        return ![...tokens].slice(0, UNSUBSCRIBE_TOKENS_CHECKED).some((token) => {
-            const owner = this.recipientTokensService.validatePreferencesToken(token)
-            return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient
-        })
-    }
-
-    private generateUnsubscribeHeaders(
-        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
-        source: PreferencesTokenSource | undefined
-    ): MessageHeader[] {
-        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
-            `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
-        let listUnsubscribeValue = listUnsubscribe(source)
-        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
-            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
-        }
-        return [
-            {
-                Name: 'List-Unsubscribe',
-                Value: listUnsubscribeValue,
-            },
-            {
-                Name: 'List-Unsubscribe-Post',
-                Value: 'List-Unsubscribe=One-Click',
-            },
-        ]
-    }
-}
-
-const filledLength = (body: string | undefined, url: string | undefined): number => {
-    if (!body || !url) {
-        return body?.length ?? 0
-    }
-    let length = body.length
-    for (const placeholder of body.matchAll(UNSUBSCRIBE_PLACEHOLDER)) {
-        length += url.length - placeholder[0].length
-    }
-    return length
 }
 
 const MARKETING_SKIP_MESSAGES: Record<'content_too_large' | 'unsubscribe_link_required', string> = {
@@ -1983,6 +1927,3 @@ const MARKETING_SKIP_MESSAGES: Record<'content_too_large' | 'unsubscribe_link_re
     unsubscribe_link_required:
         'Skipping send: this marketing email has no unsubscribe link that readers can click after rendering.',
 }
-
-const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
-    body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)

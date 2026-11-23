@@ -120,6 +120,12 @@ describe('checkSandboxRecipient', () => {
         expect(await check()).toEqual({ ok: true })
     })
 
+    it('picks up an opt-out written after an earlier admitted check', async () => {
+        expect(await check()).toEqual({ ok: true })
+        await storePreferences({ newsletter: 'OPTED_OUT' })
+        expect(await check()).toEqual({ ok: false, reason: 'opted_out' })
+    })
+
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>, string]>([
         ['a suppressed address', () => suppressionList.recordComplaints(teamId, [address], 'abuse'), {}, 'suppressed'],
         [

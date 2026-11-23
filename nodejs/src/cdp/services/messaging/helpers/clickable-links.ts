@@ -27,6 +27,7 @@ const TEXT_MODES = new Map<string, Tokenizer['state']>([
 const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'frameset'])
 
 export const BODY_MAX_LENGTH = 1_500_000
+export const UNSUBSCRIBE_TOKENS_CHECKED = 50
 export const TREE_MAX_DEPTH = 128
 export const TREE_MAX_ELEMENTS = 200_000
 export const TREE_MAX_SCANS = 4_000_000
@@ -175,3 +176,39 @@ export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string
 
 export const clickableHrefs = (body: string): string[] =>
     body.length > BODY_MAX_LENGTH ? [] : (scannedHrefs(body) ?? treeHrefs(body))
+
+export const filledUnsubscribeLength = (body: string | undefined, url: string | undefined): number => {
+    if (!body || !url) {
+        return body?.length ?? 0
+    }
+    let length = body.length
+    for (const placeholder of body.matchAll(UNSUBSCRIBE_PLACEHOLDER)) {
+        length += url.length - placeholder[0].length
+    }
+    return length
+}
+
+export const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
+    body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)
+
+export const preferencesTokensInBody = (body: { html?: string; text?: string }, siteUrl: string): string[] => {
+    const preferencesPage = `${siteUrl}/messaging-preferences/`
+    const paths = body.html
+        ? clickableHrefs(body.html).flatMap((href) => {
+              const page = URL.canParse(href) ? new URL(href) : undefined
+              const path = page ? `${page.origin}${page.pathname}` : ''
+              return path.startsWith(preferencesPage) ? [path.slice(preferencesPage.length)] : []
+          })
+        : (body.text ?? '')
+              .split(preferencesPage)
+              .slice(1)
+              .flatMap((rest) => rest.match(/^[^\s/?#]+\//) ?? [])
+    return [
+        ...new Set(
+            paths.flatMap((path) => {
+                const page = path.split(/[?#]/)[0]
+                return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
+            })
+        ),
+    ].slice(0, UNSUBSCRIBE_TOKENS_CHECKED)
+}

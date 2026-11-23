@@ -271,8 +271,7 @@ export class TransactionalSends {
         const scheduledAt =
             stored?.scheduledAt ??
             (requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
-        const sender =
-            !stored && send ? senderOfCodeSend(teamId, send, await senderLookup, request.message_category) : undefined
+        const sender = !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
         const senderKind = stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined
         return {
             outcome: 'replayed',

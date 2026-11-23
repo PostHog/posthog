@@ -3368,6 +3368,7 @@ describe('Hogflow Executor', () => {
                             deliveredAddress: () => Promise.resolve('member@example.com'),
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
+                            recipientTokensService: new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
                             events: { capture: () => Promise.resolve() },
                             teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                             sesBucket: {

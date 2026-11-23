@@ -7,13 +7,14 @@ import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailSendDecision, SandboxEmailStep, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
+import { RecipientTokensService } from '../recipient-tokens.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
 import {
     DeliveredAddressReader,
     SandboxRecipientUnavailableError,
-    acceptedSandboxEmail,
     logRenderFailure,
+    prepareSandboxCodeSend,
     renderSandboxEmail,
 } from './sandbox-render'
 import { SandboxSesBucket, claimSesSlot } from './sandbox-ses-bucket'
@@ -34,6 +35,10 @@ export type SandboxEmailSendStepDeps = {
     deliveredAddress: DeliveredAddressReader
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
+    recipientTokensService: Pick<
+        RecipientTokensService,
+        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'hasValidUnsubscribeLink'
+    >
     events: Pick<SandboxEmailEvents, 'capture'>
     teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
     sesBucket: SandboxSesBucket
@@ -72,17 +77,29 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             }
         }
         let email: unknown
+        let headers: { name: string; value: string }[] | undefined
         try {
-            email =
-                action.type === 'email_sandbox'
-                    ? await renderSandboxEmail(
-                          this.deps.hogInputsService,
-                          invocation,
-                          action,
-                          this.deps.siteUrl,
-                          this.deps.deliveredAddress
-                      )
-                    : acceptedSandboxEmail(invocation)
+            if (action.type === 'email_sandbox') {
+                email = await renderSandboxEmail(
+                    this.deps.hogInputsService,
+                    invocation,
+                    action,
+                    this.deps.siteUrl,
+                    this.deps.deliveredAddress
+                )
+            } else {
+                const prepared = await prepareSandboxCodeSend(
+                    invocation,
+                    action,
+                    this.deps.deliveredAddress,
+                    this.deps.recipientTokensService
+                )
+                if ('skipped' in prepared) {
+                    return { status: 'skipped', reason: prepared.skipped }
+                }
+                email = prepared.email
+                headers = prepared.headers
+            }
         } catch (error) {
             if (error instanceof SandboxRecipientUnavailableError) {
                 return { status: 'retry', reason: 'authorization_unavailable' }
@@ -90,6 +107,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             logRenderFailure(options, error)
             return { status: 'failed', reason: 'render_failed' }
         }
+        const messageCategory = invocation.state.messageCategory
         return this.deps.service.send({
             teamId: invocation.teamId,
             hogFlowId: invocation.hogFlow.id,
@@ -100,17 +118,20 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             workflowEmailPaused: Boolean(invocation.hogFlow.email_sending_paused_at),
             parentRunId: invocation.parentRunId ?? undefined,
             email,
-            categoryId: action.config.message_category_id,
-            categoryType: action.config.message_category_type,
+            headers,
+            categoryId: messageCategory?.id ?? action.config.message_category_id,
+            categoryType: messageCategory?.type ?? action.config.message_category_type,
             optOuts: invocation.state.messageOptOuts,
             capClaimId: `${stepVisitKey(invocation, action)}/${uncertainSends(invocation)}`,
             claimSesSlot: () => claimSesSlot(this.deps.sesBucket),
-            frequencyCap: () =>
-                this.deps.recipientPreferences.checkMarketingFrequencyCap({
-                    teamId: invocation.teamId,
-                    resolvePersonId: () => Promise.resolve(invocation.person?.id),
-                    dispatchKey: stepVisitKey(invocation, action),
-                }),
+            frequencyCap: messageCategory
+                ? undefined
+                : () =>
+                      this.deps.recipientPreferences.checkMarketingFrequencyCap({
+                          teamId: invocation.teamId,
+                          resolvePersonId: () => Promise.resolve(invocation.person?.id),
+                          dispatchKey: stepVisitKey(invocation, action),
+                      }),
         })
     }
 

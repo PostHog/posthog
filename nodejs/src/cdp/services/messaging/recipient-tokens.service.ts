@@ -3,6 +3,8 @@ import { logger } from '~/common/utils/logger'
 import type { CyclotronJobInvocationHogFunction } from '../../types'
 import { JWT, PosthogJwtAudience } from '../../utils/jwt-utils'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
+import { preferencesTokensInBody } from './helpers/clickable-links'
+import { unquoteMailbox } from './helpers/suppressed-recipients'
 
 type PreferencesRecipient = Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
 
@@ -32,6 +34,7 @@ export type ValidatedPreferencesToken =
 
 // CAN-SPAM requires an opt-out link to work for at least 30 days after the email is sent.
 const PREFERENCES_TOKEN_MAX_AGE = '60d'
+const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 export function preferencesTokenSourceForInvocation(
     invocation: Pick<CyclotronJobInvocationHogFunction, 'id' | 'functionId' | 'parentRunId' | 'state'>
@@ -121,5 +124,36 @@ export class RecipientTokensService {
 
     public generateOneClickUnsubscribeUrl(recipient: PreferencesRecipient, source?: PreferencesTokenSource): string {
         return `${this.generatePreferencesUrl(recipient, source)}?one_click_unsubscribe=1`
+    }
+
+    public generateUnsubscribeHeaders(
+        recipient: PreferencesRecipient,
+        source?: PreferencesTokenSource
+    ): { name: string; value: string }[] {
+        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
+            `<${this.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
+        let listUnsubscribeValue = listUnsubscribe(source)
+        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
+        }
+        return [
+            { name: 'List-Unsubscribe', value: listUnsubscribeValue },
+            { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
+        ]
+    }
+
+    public hasValidUnsubscribeLink(
+        body: { html?: string; text?: string },
+        teamId: number,
+        recipient: string | undefined
+    ): boolean {
+        if (!recipient) {
+            return false
+        }
+        const expected = unquoteMailbox(recipient)
+        return preferencesTokensInBody(body, this.siteUrl).some((token) => {
+            const owner = this.validatePreferencesToken(token)
+            return owner.valid && owner.team_id === teamId && unquoteMailbox(owner.identifier) === expected
+        })
     }
 }

@@ -44,6 +44,7 @@ export type SandboxSendRequest = {
     workflowEmailPaused: boolean
     parentRunId?: string
     email: unknown
+    headers?: { name: string; value: string }[]
     categoryId?: string
     categoryType?: 'marketing' | 'transactional'
     optOuts?: MessageOptOutRecord[]
@@ -177,6 +178,7 @@ export class SandboxEmailService {
             organizationName: authorization.organizationName,
             fromAddress: this.deps.fromAddress,
             recipient: authorization.storedAddress,
+            headers: request.headers,
         })
         const { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest, parentRunId } = request
         const sent = await this.deps.ses.send(message, {

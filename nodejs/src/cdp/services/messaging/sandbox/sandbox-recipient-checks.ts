@@ -14,7 +14,8 @@ type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<F
 
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
-    recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+    recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'> &
+        Partial<Pick<RecipientsManagerService, 'markForRefresh'>>
     frequencyCapBeforeDeadline: FrequencyCapRunner
 }
 
@@ -153,6 +154,7 @@ async function isOptedOut(
     ) {
         return true
     }
+    recipients.markForRefresh?.({ teamId, identifier: address, anyCase: true })
     const recipient = await recipients.get({ teamId, identifier: address, anyCase: true })
     return (
         !!recipient &&

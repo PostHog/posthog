@@ -7,6 +7,9 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
+import { BODY_MAX_LENGTH, filledUnsubscribeLength, replaceUnsubscribePlaceholder } from '../helpers/clickable-links'
+import { escapeHtml } from '../helpers/escape-html'
+import { PreferencesTokenSource, RecipientTokensService } from '../recipient-tokens.service'
 import { AUTHORIZATION_TIMEOUT_MS, readSandboxAuthorization } from './sandbox-authorization'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
 import { canonicalRecipient } from './sandbox-recipient-checks'
@@ -73,6 +76,54 @@ export function acceptedSandboxEmail(invocation: CyclotronJobInvocationHogFlow):
         throw new SandboxRenderError('The email sent from code has no recipient or content')
     }
     return { to: { email: recipient }, subject: content.subject, html: content.html, text: content.text }
+}
+
+export type PreparedSandboxCodeSend =
+    | { email: SandboxRenderedEmail; headers?: { name: string; value: string }[] }
+    | { skipped: 'content_too_large' | 'unsubscribe_link_required' }
+
+export async function prepareSandboxCodeSend(
+    invocation: CyclotronJobInvocationHogFlow,
+    action: Extract<SandboxSenderAction, { type: 'function_email' }>,
+    deliveredAddress: DeliveredAddressReader,
+    recipientTokensService: Pick<
+        RecipientTokensService,
+        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'hasValidUnsubscribeLink'
+    >
+): Promise<PreparedSandboxCodeSend> {
+    const email = acceptedSandboxEmail(invocation)
+    if (invocation.state.messageCategory?.type !== 'marketing') {
+        return { email }
+    }
+    const recipient = await deliveredAddress(invocation.teamId, email.to.email)
+    const source: PreferencesTokenSource = {
+        appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
+        instanceId: action.id,
+        workflowId: invocation.hogFlow.id,
+        invocationId: invocation.id,
+        workflowVersion: invocation.hogFlow.version,
+    }
+    const tokenRecipient = { team_id: invocation.teamId, identifier: recipient }
+    const url = recipientTokensService.generatePreferencesUrl(tokenRecipient, source)
+    const htmlUrl = escapeHtml(url)
+    if (
+        filledUnsubscribeLength(email.html, htmlUrl) > BODY_MAX_LENGTH ||
+        filledUnsubscribeLength(email.text, url) > BODY_MAX_LENGTH
+    ) {
+        return { skipped: 'content_too_large' }
+    }
+    const filled: SandboxRenderedEmail = {
+        ...email,
+        ...(email.html ? { html: replaceUnsubscribePlaceholder(email.html, htmlUrl) } : {}),
+        ...(email.text ? { text: replaceUnsubscribePlaceholder(email.text, url) } : {}),
+    }
+    if (!recipientTokensService.hasValidUnsubscribeLink(filled, invocation.teamId, recipient)) {
+        return { skipped: 'unsubscribe_link_required' }
+    }
+    return {
+        email: filled,
+        headers: recipientTokensService.generateUnsubscribeHeaders(tokenRecipient, source),
+    }
 }
 
 export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxSenderAction>, error: unknown): void {
