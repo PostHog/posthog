@@ -135,6 +135,38 @@ class TestAppearanceAlerts(BaseTest):
         assert [group.grouping_key for group in outcome.groups] == ["fresh"]
         assert len(deliveries) == 1
 
+    def test_a_read_cut_at_its_limit_leaves_the_rest_of_the_window_to_the_next_check(self) -> None:
+        # The first rows the read returns are filtered out, and the one the alert wants comes after them.
+        self.sightings = [
+            _seen("web-1", T0 + timedelta(minutes=10), service="web"),
+            _seen("web-2", T0 + timedelta(minutes=11), service="web"),
+            _seen("fresh", T0 + timedelta(minutes=12)),
+        ]
+        self._register(T0 + timedelta(minutes=20))
+
+        with patch("products.alerts_platform.backend.logic.appearance.MAX_OCCURRENCES_READ", 2):
+            outcomes = [self._tick(T0 + timedelta(minutes=minute))[0] for minute in (21, 22)]
+
+        assert [group.grouping_key for outcome in outcomes for group in outcome.groups] == ["fresh"]
+        assert not any(outcome.overflow_is_lower_bound for outcome in outcomes)
+
+    @parameterized.expand(
+        [
+            ("registrar_stopped_advancing", True),
+            ("registrar_never_ran", False),
+        ]
+    )
+    def test_a_stalled_registrar_fails_the_check_instead_of_reporting_nothing_new(
+        self, _name: str, registered: bool
+    ) -> None:
+        if registered:
+            self._register(T0 + timedelta(minutes=5))
+
+        outcome, _ = self._tick(T0 + timedelta(minutes=21))
+
+        assert outcome.failure is not None
+        assert outcome.error_message is not None and "not being recorded" in outcome.error_message
+
     def test_a_source_s_own_alert_readers_and_caps_leave_its_appearance_alerts_out(self) -> None:
         # A source's API presents these as its own alerts, and an appearance config has no condition to present.
         assert platform_reads.native_configuration_keys(team_id=self.team.id, source_kind=SOURCE.value) == ()
@@ -159,6 +191,7 @@ class TestAppearanceAlerts(BaseTest):
     def test_a_pushed_fact_is_announced_once_even_when_it_arrives_after_its_window(self) -> None:
         late = T0 + timedelta(minutes=12)
         # Pushed at 12:21 about something that occurred at 12:12, after the check at 12:20 read up to 12:15.
+        self._register(T0 + timedelta(minutes=20))
         self._tick(T0 + timedelta(minutes=20))
         with time_machine.travel(T0 + timedelta(minutes=21), tick=False):
             for _ in range(2):
@@ -172,8 +205,8 @@ class TestAppearanceAlerts(BaseTest):
                     labels={"service_name": "api"},
                 )
 
-        outcome, deliveries = self._tick(T0 + timedelta(minutes=30))
-        again, _ = self._tick(T0 + timedelta(minutes=40))
+        outcome, deliveries = self._record_then_tick(T0 + timedelta(minutes=29))
+        again, _ = self._record_then_tick(T0 + timedelta(minutes=39))
 
         (group,) = outcome.groups
         assert (group.grouping_key, group.source_detail[APPEARANCE_DETAIL_KEY]) == ("issue-1", "reappeared")
@@ -191,7 +224,7 @@ class TestAppearanceAlerts(BaseTest):
             first_seen_at=T0 - timedelta(days=3),
             labels={"service_name": "api"},
         )
-        assert self._tick(T0 + timedelta(minutes=50))[0].groups == ()
+        assert self._record_then_tick(T0 + timedelta(minutes=49))[0].groups == ()
         # A project with no appearance alert on a source records nothing for it.
         assert not record_occurrence(
             SourceKind.INSIGHT,

@@ -44,11 +44,18 @@ MIN_STEP: Final = timedelta(microseconds=1)
 # A fact is visible once its transaction commits, a moment after `recorded_at` is set. A check reads
 # only up to this long ago, so it never passes a fact that is about to become visible.
 RECORD_ALLOWANCE: Final = timedelta(seconds=10)
+# A feed's registry whose cursor has not moved for this long is stalled, and its checks fail rather
+# than read an empty window as nothing new. The registrar runs every minute.
+REGISTRAR_STALL: Final = timedelta(minutes=15)
 # Bounds on one pushed fact's write, well below a caller's own deadline, so a stalled write ends.
 WRITE_LOCK_TIMEOUT_MS: Final = 5_000
 WRITE_STATEMENT_TIMEOUT_MS: Final = 10_000
 
 _feeds: dict[SourceKind, OccurrenceFeed] = {}
+
+
+class RegistrarStalled(Exception):
+    """The registrar has stopped recording a project's feed, so its registry is not complete."""
 
 
 def has_enabled_alert(source: SourceKind, *, team_id: int) -> bool:
@@ -80,8 +87,37 @@ class RegistryStore:
 
     def ready_until(self, *, team_id: int, now: datetime) -> datetime:
         """How far a check may read. A feed's sightings are read by when the registrar recorded them,
-        so a check never waits on the feed itself."""
+        so a check never waits on the feed itself. Raises when the registrar has stalled on the project,
+        so its alerts fail and error rather than report that nothing appeared."""
+        if self.feed is not None:
+            self._raise_if_stalled(team_id, now)
         return now - RECORD_ALLOWANCE
+
+    def _raise_if_stalled(self, team_id: int, now: datetime) -> None:
+        stalled_before = now - REGISTRAR_STALL
+        advanced_at = (
+            PlatformOccurrenceCursor.objects.for_team(team_id)
+            .filter(source_kind=self.source.value)
+            .values_list("advanced_at", flat=True)
+            .first()
+        )
+        if advanced_at is None:
+            # No cursor yet: stalled only once an alert has waited longer than a run takes to make one.
+            waited = (
+                PlatformAlertConfiguration.objects.for_team(team_id)
+                .filter(
+                    source_kind=self.source.value,
+                    alert_kind=PlatformAlertKind.APPEARANCE,
+                    enabled=True,
+                    created_at__lt=stalled_before,
+                )
+                .exists()
+            )
+            if not waited:
+                return
+        elif advanced_at >= stalled_before:
+            return
+        raise RegistrarStalled(f"The {self.source.value} registry has not advanced since {advanced_at}.")
 
     def appeared(self, *, team_id: int, since: datetime, until: datetime, limit: int) -> OccurrenceWindow:
         rows = list(
@@ -89,8 +125,18 @@ class RegistryStore:
             .filter(source_kind=self.source.value, recorded_at__gte=since, recorded_at__lt=until)
             .order_by("recorded_at", "id")[: limit + 1]
         )
+        if len(rows) <= limit:
+            return OccurrenceWindow(occurrences=tuple(_occurrence(row) for row in rows))
+        cut = rows[limit].recorded_at
+        if cut > since:
+            # Stop before the first row left unread, so the next check reads every row at that instant.
+            return OccurrenceWindow(
+                occurrences=tuple(_occurrence(row) for row in rows if row.recorded_at < cut), read_until=cut
+            )
+        # One instant holds more rows than a read. Keep those read and move just past that instant,
+        # so a check never stalls on it. The rows left there are lost, which the overflow note says.
         return OccurrenceWindow(
-            occurrences=tuple(_occurrence(row) for row in rows[:limit]), truncated=len(rows) > limit
+            occurrences=tuple(_occurrence(row) for row in rows[:limit]), truncated=True, read_until=since + MIN_STEP
         )
 
     def catch_up(self, *, team_id: int, now: datetime, budget: timedelta) -> datetime:
@@ -138,7 +184,8 @@ class RegistryStore:
             _record_sightings(self.source, team_id, seen)
             locked.registered_until = until
             locked.read_span = min(span * 2, MAX_READ_SPAN)
-            locked.save(update_fields=["registered_until", "read_span"])
+            locked.advanced_at = timezone.now()
+            locked.save(update_fields=["registered_until", "read_span", "advanced_at"])
         return until
 
 
@@ -291,7 +338,9 @@ def _record_reappearance(
 def _insert_new(
     source: SourceKind, team_id: int, facts: Sequence[tuple[str, datetime, dict[str, str], dict[str, Any]]]
 ) -> None:
-    # A conflict is an identity the registry already knows, which is not new.
+    # A conflict is an identity the registry already knows, which is not new. Each row gets its own
+    # microsecond, so a check whose read stops inside a batch can resume exactly where it stopped.
+    recorded_at = timezone.now()
     PlatformOccurrence.objects.for_team(team_id).bulk_create(
         [
             PlatformOccurrence(
@@ -301,8 +350,9 @@ def _insert_new(
                 first_seen_at=first_seen_at,
                 labels=_storable(labels),
                 detail=_storable(detail),
+                recorded_at=recorded_at + index * MIN_STEP,
             )
-            for key, first_seen_at, labels, detail in facts
+            for index, (key, first_seen_at, labels, detail) in enumerate(facts)
         ],
         ignore_conflicts=True,
         batch_size=500,
