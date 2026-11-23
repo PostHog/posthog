@@ -158,8 +158,9 @@ class RecordedHistory:
 
     # The settings before the first run that changed the organization.
     before: FlagEvaluationsConfig
-    # The settings after the last run that changed it.
-    after: FlagEvaluationsConfig
+    # Every setting that a record of the organization started or ended at. A run writes its records before its chunk
+    # commits, so the organization can hold any of them, not only the last record's "after".
+    reached: frozenset[FlagEvaluationsConfig]
     # False when a record starts from settings that no earlier record of the organization started or ended at.
     # Something outside the runs then changed the organization between two of them.
     unbroken: bool
@@ -173,18 +174,21 @@ def collapse_recorded_changes(changes: Iterable[RecordedChange]) -> dict[UUID, R
     chunk writes its lines before it commits, so a chunk that never committed leaves records that the rerun repeats.
     A restore between two runs on the same file also returns the organization to settings an earlier record holds.
     """
-    histories: dict[UUID, RecordedHistory] = {}
+    befores: dict[UUID, FlagEvaluationsConfig] = {}
     reached: dict[UUID, set[FlagEvaluationsConfig]] = {}
+    unbroken: dict[UUID, bool] = {}
     for change in changes:
-        previous = histories.get(change.organization_id)
-        seen = reached.setdefault(change.organization_id, {change.before})
-        histories[change.organization_id] = RecordedHistory(
-            before=change.before if previous is None else previous.before,
-            after=change.after,
-            unbroken=(previous is None or previous.unbroken) and change.before in seen,
-        )
+        organization_id = change.organization_id
+        befores.setdefault(organization_id, change.before)
+        seen = reached.setdefault(organization_id, {change.before})
+        unbroken[organization_id] = unbroken.get(organization_id, True) and change.before in seen
         seen.add(change.after)
-    return histories
+    return {
+        organization_id: RecordedHistory(
+            before=before, reached=frozenset(reached[organization_id]), unbroken=unbroken[organization_id]
+        )
+        for organization_id, before in befores.items()
+    }
 
 
 class RestoreOutcome(StrEnum):
@@ -292,7 +296,7 @@ def restore_organizations_flag_evaluations_configs(
 ) -> list[OrganizationRestore]:
     """Put each organization back to the settings it had before the recorded runs, in the order given.
 
-    The restore writes an organization only while the organization has the settings the last run left it with, and
+    The restore writes an organization only while the organization has settings that one of its records reached, and
     each of its records starts from settings that an earlier record of it reached (`RecordedHistory.unbroken`). It
     keeps the settings of any other organization, which changed outside the runs. It leaves an organization that
     already has its settings from before the runs alone, so a restore that runs again changes nothing more.
@@ -309,7 +313,7 @@ def restore_organizations_flag_evaluations_configs(
             return RestoreOutcome.ALREADY_RESTORED
         # A run wrote a row for every organization it recorded. A missing row means something outside the runs
         # deleted it.
-        if stored is not None and history.unbroken and stored == history.after:
+        if stored is not None and history.unbroken and stored in history.reached:
             return RestoreOutcome.RESTORED
         return RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS
 
@@ -346,12 +350,16 @@ def _upsert_modes(
     *,
     keep_writing_flag_calls_to_events: bool,
     allow_downgrade: bool,
+    ids_without_row: Collection[UUID] = (),
 ) -> set[UUID]:
     """Write the mode in one statement and return the ids of the rows it changed.
 
     The WHERE clause compares against the stored mode at write time. Without allow_downgrade, a
     concurrent write that raised an organization above `mode` after the caller read it is kept. A row already at
     `mode` changes only when its kept events writes differ.
+
+    `ids_without_row` lists the organizations that had no row when the caller read their configs. The statement only
+    inserts their rows, so it keeps a row that a concurrent writer inserted after the read.
     """
     if not organization_ids:
         return set()
@@ -363,9 +371,10 @@ def _upsert_modes(
         ON CONFLICT (organization_id) DO UPDATE
            SET flag_evaluations_mode = EXCLUDED.flag_evaluations_mode,
                keep_writing_flag_calls_to_events = EXCLUDED.keep_writing_flag_calls_to_events
-         WHERE {table}.flag_evaluations_mode {comparison} EXCLUDED.flag_evaluations_mode
-            OR ({table}.flag_evaluations_mode = EXCLUDED.flag_evaluations_mode
-                AND {table}.keep_writing_flag_calls_to_events <> EXCLUDED.keep_writing_flag_calls_to_events)
+         WHERE ({table}.flag_evaluations_mode {comparison} EXCLUDED.flag_evaluations_mode
+                OR ({table}.flag_evaluations_mode = EXCLUDED.flag_evaluations_mode
+                    AND {table}.keep_writing_flag_calls_to_events <> EXCLUDED.keep_writing_flag_calls_to_events))
+           AND {table}.organization_id <> ALL(%s::uuid[])
         RETURNING organization_id
     """
     # The statement locks existing rows in the order of the array, so every writer sorts the ids to lock
@@ -377,6 +386,7 @@ def _upsert_modes(
                 [str(organization_id) for organization_id in sorted(organization_ids)],
                 int(mode),
                 keep_writing_flag_calls_to_events,
+                [str(organization_id) for organization_id in ids_without_row],
             ],
         )
         return {row[0] for row in cursor.fetchall()}
@@ -435,7 +445,11 @@ def set_organizations_flag_evaluations_mode(
         moving_ids
         if dry_run
         else _upsert_modes(
-            moving_ids, mode, keep_writing_flag_calls_to_events=keeps_events_writes, allow_downgrade=allow_downgrade
+            moving_ids,
+            mode,
+            keep_writing_flag_calls_to_events=keeps_events_writes,
+            allow_downgrade=allow_downgrade,
+            ids_without_row=moving_ids - stored_configs.keys(),
         )
     )
     return [

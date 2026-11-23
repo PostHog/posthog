@@ -250,8 +250,16 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)
 
-    def test_a_raise_after_the_read_is_not_overwritten(self) -> None:
-        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+    @parameterized.expand(
+        [
+            ("above_the_target", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("below_the_target", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_a_row_inserted_after_the_read_is_not_overwritten(
+        self, _name: str, inserted_mode: FlagEvaluationsMode, target_mode: FlagEvaluationsMode
+    ) -> None:
+        self._store_mode(self.organization, inserted_mode)
 
         # A read that finds no row stands in for a staff write that inserts the row between the helper's read and its
         # write. The read's lock covers only rows that exist.
@@ -260,11 +268,11 @@ class TestSetFlagEvaluationsMode(BaseTest):
             return_value={},
         ):
             [change] = set_organizations_flag_evaluations_mode(
-                [self.organization], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, allow_downgrade=False, dry_run=False
+                [self.organization], target_mode, allow_downgrade=False, dry_run=False
             )
 
         self.assertFalse(change.changed)
-        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.assertEqual(self._stored_mode(self.organization), inserted_mode)
 
     @parameterized.expand(
         [
@@ -530,6 +538,13 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 "restores_an_organization_whose_record_starts_from_an_earlier_record",
                 ["0 0 1 0", "1 0 2 0", "1 0 2 0"],
                 (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                (FlagEvaluationsMode.EVENTS, False),
+                "Restored 1 organization(s).",
+            ),
+            (
+                "restores_an_organization_whose_last_record_never_committed",
+                ["0 0 1 0", "1 0 2 0"],
+                (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
                 (FlagEvaluationsMode.EVENTS, False),
                 "Restored 1 organization(s).",
             ),
@@ -818,7 +833,8 @@ class TestSetFlagEvaluationsMode(BaseTest):
             )
 
         [upsert] = [query["sql"] for query in queries if "unnest" in query["sql"]]
-        sent_ids = re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", upsert)
+        unnested_array = upsert.split("unnest(", 1)[1].split("]", 1)[0]
+        sent_ids = re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", unnested_array)
         self.assertEqual(sent_ids, sorted(str(organization.id) for organization in organizations))
 
     def test_a_chunk_takes_the_same_number_of_queries_for_any_number_of_organizations(self) -> None:
