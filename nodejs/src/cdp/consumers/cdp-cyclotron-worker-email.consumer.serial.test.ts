@@ -44,7 +44,11 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
-import { CdpCyclotronWorkerEmail, RESULT_WRITE_MARGIN_MS } from './cdp-cyclotron-worker-email.consumer'
+import {
+    CdpCyclotronWorkerEmail,
+    RESULT_WRITE_MARGIN_MS,
+    SLOTS_STALLED_AFTER_MS,
+} from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(60_000)
 
@@ -1041,5 +1045,41 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await Promise.all(withFiles.map((id) => ended(id, 20_000)))).toEqual(['completed', 'completed'])
         expect(delivered()).toEqual([[], ['invoice.pdf'], ['invoice.pdf']])
         expect(await metric('cdp_email_attachments_deferral_tokens_total')).toBe(deferredBefore)
+    })
+
+    it('fails its health check once every slot for sends with files stays taken past the stall bound, and recovers once one frees', async () => {
+        bucket.answer = 'hold'
+        const [withFiles] = await enqueue(transactionalSend([invoice.metadata]))
+        const worker = await startWorker({ ...roomFor(1), maxInFlight: 1 }, undefined, undefined, {
+            CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: true,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+        jest.useFakeTimers({
+            advanceTimers: true,
+            doNotFake: [
+                'hrtime',
+                'nextTick',
+                'performance',
+                'queueMicrotask',
+                'setImmediate',
+                'clearImmediate',
+                'setInterval',
+                'clearInterval',
+                'setTimeout',
+                'clearTimeout',
+            ],
+        })
+        backToRealClock = () => jest.useRealTimers()
+        expect(worker.isHealthy().status).toBe('ok')
+
+        const dueOnTheDatabaseClock = DateTime.now()
+        jest.setSystemTime(Date.now() + SLOTS_STALLED_AFTER_MS)
+        const [plain] = await enqueue(transactionalSend(null, { queueScheduledAt: dueOnTheDatabaseClock }))
+        expect(await ended(plain)).toBe('completed')
+        expect(worker.isHealthy().status).toBe('error')
+
+        bucket.release()
+        expect(await ended(withFiles)).toBe('completed')
+        await waitForExpect(() => expect(worker.isHealthy().status).toBe('ok'))
     })
 })

@@ -32,7 +32,7 @@ const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
 const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
 // A slot also covers the workflow lookups, the job write and the monitoring flush, which have no deadline of their own,
 // so this bound sits far past the send deadline. Every slot held this long means calls that never settle.
-const SLOTS_STALLED_AFTER_MS = 5 * 60_000
+export const SLOTS_STALLED_AFTER_MS = 5 * 60_000
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
