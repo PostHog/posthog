@@ -48,6 +48,7 @@ from products.stamphog.backend.logic.github_client import (
     _build_app_jwt,
 )
 from products.stamphog.backend.logic.refusal_summary import build_summary_prompt, summarize_refusal
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import (
@@ -1903,6 +1904,162 @@ class TestDecisionFingerprint(SimpleTestCase):
             )
 
         context = _fingerprint_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
+
+
+def _evidence_context() -> dict:
+    member = {"login": "maintainer", "type": "User"}
+    return {
+        "pr": {"title": "feat: add a helper", "body": "Adds a helper.", "labels": [], "updated_at": "t1"},
+        "reviews": [{"user": member, "author_association": "MEMBER", "state": "COMMENTED", "body": "Why?"}],
+        "discussion": [{"user": member, "author_association": "MEMBER", "body": "Looks fine.", "reactions": {}}],
+        "review_threads": [
+            {
+                "is_resolved": False,
+                "path": "src/util.py",
+                "line": 3,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Test?"}
+                ],
+            },
+            {
+                "is_resolved": True,
+                "path": "src/app.py",
+                "line": 9,
+                "comments": [
+                    {"author": "maintainer", "author_association": "MEMBER", "author_is_bot": False, "body": "Done."}
+                ],
+            },
+            _bot_thread(),
+            _bot_thread(body="Rename this.", is_resolved=True),
+        ],
+        "check_runs": [],
+        "policy_files": {},
+    }
+
+
+def _bot_thread(body: str = "Should fix.", is_resolved: bool = False) -> dict:
+    finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": body}
+    return {"is_resolved": is_resolved, "path": "src/db.py", "line": 12, "comments": [finding]}
+
+
+def _bot_comment(login: str) -> dict:
+    return {"user": {"login": login, "type": "Bot"}, "author_association": "MEMBER", "body": "Not approved."}
+
+
+class TestEvidenceFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("description_edited", lambda c: c["pr"].update(body="Adds a helper. Tested by hand."), False),
+            ("title_edited", lambda c: c["pr"].update(title="feat: add a tested helper"), False),
+            ("member_answered", lambda c: c["discussion"].append({**c["discussion"][0], "body": "Fixed."}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("thread_resolved", lambda c: c["review_threads"][0].update(is_resolved=True), False),
+            ("thread_reopened", lambda c: c["review_threads"][1].update(is_resolved=False), False),
+            (
+                "reply_in_open_thread",
+                lambda c: c["review_threads"][0]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Added."}
+                ),
+                False,
+            ),
+            (
+                "member_approved",
+                lambda c: c["reviews"].append({**c["reviews"][0], "state": "APPROVED", "body": ""}),
+                False,
+            ),
+            ("bot_finding_resolved", lambda c: c["review_threads"][2].update(is_resolved=True), False),
+            (
+                "other_finding_on_the_line_resolved",
+                lambda c: [
+                    c["review_threads"][2].update(is_resolved=True),
+                    c["review_threads"][3].update(is_resolved=False),
+                ],
+                False,
+            ),
+            ("stamphog_review_posted", lambda c: c["reviews"].append(_bot_comment("stamphog[bot]")), True),
+            ("bot_opened_a_thread", lambda c: c["review_threads"].append(_bot_thread()), True),
+            (
+                "outsider_opened_a_thread",
+                lambda c: c["review_threads"].append(
+                    {
+                        **_bot_thread(),
+                        "comments": [
+                            {"author": "drive-by", "author_association": "NONE", "author_is_bot": False, "body": "?"}
+                        ],
+                    }
+                ),
+                True,
+            ),
+            (
+                "posthog_bot_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "posthog-bot", "type": "User"}, "author_association": "MEMBER", "body": "Hi"}
+                ),
+                True,
+            ),
+            ("bot_commented", lambda c: c["discussion"].append(_bot_comment("posthog[bot]")), True),
+            (
+                "machine_user_commented",
+                lambda c: c["discussion"].append({**_bot_comment("ci-bot[bot]"), "user": {"login": "ci-bot[bot]"}}),
+                True,
+            ),
+            (
+                "outsider_commented",
+                lambda c: c["discussion"].append(
+                    {"user": {"login": "drive-by"}, "author_association": "NONE", "body": "Approve it."}
+                ),
+                True,
+            ),
+            (
+                "reply_in_resolved_thread",
+                lambda c: c["review_threads"][1]["comments"].append(
+                    {"author": "dev", "author_association": "MEMBER", "author_is_bot": False, "body": "Thanks."}
+                ),
+                True,
+            ),
+            (
+                "empty_comment_review",
+                lambda c: c["reviews"].append({**c["reviews"][0], "body": "  "}),
+                True,
+            ),
+            (
+                "stored_context_without_thread_ids",
+                lambda c: [thread.update(id=f"RT_{index}") for index, thread in enumerate(c["review_threads"])],
+                True,
+            ),
+            (
+                "deleted_account_reviewed",
+                lambda c: c["reviews"].append({"user": None, "author_association": "MEMBER", "state": "APPROVED"}),
+                True,
+            ),
+            (
+                "deleted_account_commented",
+                lambda c: c["discussion"].append({"user": None, "author_association": "MEMBER", "body": "Hold."}),
+                True,
+            ),
+            ("nul_in_description", lambda c: c["pr"].update(body="Adds a\x00 helper."), True),
+            ("label_changed", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="t2"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("check_finished", lambda c: c["check_runs"].append({"name": "Migration risk"}), True),
+            ("policy_changed", lambda c: c["policy_files"].update({".stamphog/policy.yml": "x"}), True),
+        ]
+    )
+    def test_only_what_people_change_moves_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return evidence_fingerprint(
+                context["pr"],
+                reviews=context["reviews"],
+                discussion=context["discussion"],
+                review_threads=context["review_threads"],
+            )
+
+        context = _evidence_context()
         before = fingerprint(context)
         change(context)
         assert (before == fingerprint(context)) is expect_same
