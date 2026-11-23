@@ -338,13 +338,9 @@ export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sour
 }
 
 // The create can commit the source and still lose its response, and a retry then hits the duplicate-source
-// error. A 502 or 504 comes from the gateway, so the create may still have run behind it.
+// error. A gateway 502 or 504 is left out: the worker may have stopped before it created the sync schedules.
 function createResponseWasLost(error: unknown): boolean {
-    if (error instanceof NetworkError || error instanceof ResponseBodyReadError) {
-        return true
-    }
-    const status = (error as { status?: unknown } | null)?.status
-    return status === 502 || status === 504
+    return error instanceof NetworkError || error instanceof ResponseBodyReadError
 }
 
 interface LostCreateLookup {

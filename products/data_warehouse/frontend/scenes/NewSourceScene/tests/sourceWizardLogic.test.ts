@@ -2269,10 +2269,10 @@ describe('sourceWizardLogic', () => {
                 expected: adopted,
             },
             {
-                name: 'adopts the source behind a gateway timeout',
-                error: { status: 504, message: 'Gateway Timeout' },
+                name: 'does not adopt a source after a gateway error',
+                error: { status: 502, message: 'Bad Gateway' },
                 after: [created],
-                expected: adopted,
+                expected: { sourceId: null, currentStep: 1, connectError: expect.any(String) },
             },
             {
                 name: 'adopts the source when it appears only on a later lookup',
