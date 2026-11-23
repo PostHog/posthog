@@ -1,7 +1,7 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import type { Team } from '~/types'
 
-import { SecretKeyTeams } from './secret-key-teams'
+import { SecretKeyTeams, loggableToken } from './secret-key-teams'
 
 describe('SecretKeyTeams', () => {
     const team = { id: 7, api_token: 'phc_example' } as Team
@@ -22,5 +22,13 @@ describe('SecretKeyTeams', () => {
         })
 
         expect(await teams.getTeam(exampleKeyHash)).toEqual(expected)
+    })
+
+    it.each([
+        [exampleKeyHash, 'sha256$e39f0789'],
+        [' phs_unhashed_key', 'phs_'],
+        ['phc_example', 'phc_example'],
+    ])('logs only the safe part of %s', (token, logged) => {
+        expect(loggableToken(token)).toEqual(logged)
     })
 })
