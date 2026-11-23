@@ -7,7 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -642,6 +642,142 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+# A slice that holds invalid UTF-8 is halved until its strings fit in this many bytes, and only
+# then decoded in Python. The decode holds the slice as bytes and as str objects at once, so this
+# bounds that memory. A single value is decoded whole, so its memory scales with one value that
+# ClickHouse already returned.
+UTF8_REPAIR_MAX_BYTES = 1024 * 1024
+
+
+def _is_valid_utf8(array: pa.Array | pa.RecordBatch) -> bool:
+    try:
+        array.validate(full=True)
+    except pa.ArrowInvalid as error:
+        if "Invalid UTF8 sequence" not in str(error):
+            raise
+        return False
+    return True
+
+
+def _collect_repaired_strings(array: pa.Array, pieces: list[pa.Array]) -> None:
+    if _is_valid_utf8(array):
+        pieces.append(array)
+        return
+    string_bytes = pc.sum(pc.binary_length(typing.cast(pa.StringArray, array))).as_py() or 0
+    if len(array) > 1 and string_bytes > UTF8_REPAIR_MAX_BYTES:
+        middle = len(array) // 2
+        _collect_repaired_strings(array.slice(0, middle), pieces)
+        _collect_repaired_strings(array.slice(middle), pieces)
+        return
+    binary_type = pa.large_binary() if pa.types.is_large_string(array.type) else pa.binary()
+    raw = typing.cast(list[bytes | None], array.cast(binary_type).to_pylist())
+    pieces.append(
+        pa.array([None if value is None else value.decode("utf-8", errors="replace") for value in raw], type=array.type)
+    )
+
+
+def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+    pieces: list[pa.Array] = []
+    _collect_repaired_strings(array, pieces)
+    return pa.concat_arrays(pieces)
+
+
+def _utf8_repaired(array: pa.Array) -> pa.Array:
+    if _is_valid_utf8(array):
+        return array
+
+    arrow_type = array.type
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return _replace_invalid_utf8_in_strings(array)
+
+    # pyarrow cannot rebuild a sliced nested array with a null mask, so the rebuild starts from an
+    # unsliced copy. This copy happens only for a column that holds invalid UTF-8.
+    array = pa.concat_arrays([array])
+    if pa.types.is_large_list(arrow_type):
+        large_list = typing.cast(pa.LargeListArray, array)
+        return pa.LargeListArray.from_arrays(
+            large_list.offsets, _utf8_repaired(large_list.values), type=arrow_type, mask=large_list.is_null()
+        )
+    if pa.types.is_list(arrow_type):
+        list_array = typing.cast(pa.ListArray, array)
+        return pa.ListArray.from_arrays(
+            list_array.offsets, _utf8_repaired(list_array.values), type=arrow_type, mask=list_array.is_null()
+        )
+    if pa.types.is_struct(arrow_type):
+        struct_array = typing.cast(pa.StructArray, array)
+        return pa.StructArray.from_arrays(
+            [_utf8_repaired(struct_array.field(index)) for index in range(arrow_type.num_fields)],
+            fields=list(arrow_type),
+            mask=struct_array.is_null(),
+        )
+    if pa.types.is_map(arrow_type):
+        map_array = typing.cast(pa.MapArray, array)
+        # The stubs accept a type only with an entries struct, a form pyarrow itself rejects.
+        return pa.MapArray.from_arrays(  # type: ignore[call-overload]
+            map_array.offsets,
+            _utf8_repaired(map_array.keys),
+            _utf8_repaired(map_array.items),
+            type=arrow_type,
+            mask=map_array.is_null(),
+        )
+    return array
+
+
+class InvalidUtf8KeyError(NonReportableApplicationError):
+    """An incremental or unique key column holds text that is not valid UTF-8.
+
+    The replacement character can turn two different keys into one, and deltalite refuses to
+    upsert the raw bytes, so the run fails before it writes anything.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Key column "{column}" has text that is not valid UTF-8, so a materialized table cannot use it as a '
+            f"key. To key on its hex form, write hex({column}) AS {column} in the query.",
+            type="InvalidUtf8KeyError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+def _replace_invalid_utf8(batch: pa.RecordBatch, key_columns: Collection[str] = ()) -> pa.RecordBatch:
+    """Replace byte sequences that are not valid UTF-8 in string values, at any depth, with U+FFFD.
+
+    A ClickHouse String holds arbitrary bytes, and the Arrow stream sends it as an Arrow string
+    without a check. Parquet stores the bytes as they are, but deltalake, DuckDB and Trino then
+    refuse to read the file. The column keeps its string type so that the table schema does not
+    depend on the data in one batch.
+
+    A key column with invalid UTF-8 fails the run instead. The replacement can turn two different
+    keys into the same string, which would merge two rows on a unique key, or move an incremental
+    watermark past rows that the next run must still read.
+    """
+    if _is_valid_utf8(batch):
+        return batch
+    for column in key_columns:
+        if column in batch.schema.names and not _is_valid_utf8(batch.column(column)):
+            raise InvalidUtf8KeyError(column)
+    repaired: list[pa.Array] = []
+    for field, array in zip(batch.schema, batch.columns):
+        repaired_array = _utf8_repaired(array)
+        # The repair returns a type it does not rebuild, such as a dictionary of strings, unchanged.
+        # Writing it would store a file that Delta readers refuse.
+        if not _is_valid_utf8(repaired_array):
+            raise ApplicationError(
+                f'Column "{field.name}" of type {field.type} still has invalid UTF-8 after the repair.',
+                type="UnrepairedUtf8Error",
+                non_retryable=True,
+            )
+        repaired.append(repaired_array)
+    return pa.RecordBatch.from_arrays(repaired, schema=batch.schema)
+
+
+def _key_columns(plan: WritePlan) -> frozenset[str]:
+    if plan.config is None:
+        return frozenset()
+    return frozenset((plan.config.incremental_key, *plan.config.unique_key))
+
+
 _SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
 
 
@@ -1196,9 +1332,11 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
+    key_columns = _key_columns(plan)
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1299,10 +1437,12 @@ async def _materialize_incrementally(
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
     batch_index = 0
+    key_columns = _key_columns(plan)
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
