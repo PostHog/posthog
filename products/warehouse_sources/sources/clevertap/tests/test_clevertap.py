@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -239,36 +238,19 @@ def test_message_reports_request_the_whole_range_and_rename_the_message_id() -> 
     ]
 
 
-@pytest.mark.parametrize(
-    ("inputs", "updated_from"),
-    [
-        ({}, None),
-        (
-            {
-                "incremental_field": "updatedAt",
-                "db_incremental_field_last_value": datetime(2024, 3, 10, 8, 15, tzinfo=UTC),
-            },
-            "2024-03-10T08:15:00.000Z",
-        ),
-    ],
-)
 @time_machine.travel("2024-04-04T12:00:00Z", tick=False)
-def test_content_blocks_page_until_the_total_and_filter_by_update_time(
-    inputs: dict[str, Any], updated_from: str | None
-) -> None:
+def test_content_blocks_page_until_the_total() -> None:
     result = driver().run(
         "content_blocks",
         [
             ScriptedResponse(json={"status": "success", "contentBlocks": [{"id": 1}], "total": 101}),
             ScriptedResponse(json={"status": "success", "contentBlocks": [{"id": 2}], "total": 101}),
         ],
-        **inputs,
     )
     assert result.raised is None
     assert [request.method for request in result.requests] == ["GET", "GET"]
     assert result.params("pageNumber") == ["1", "2"]
     assert result.params("pageSize") == ["100", "100"]
-    assert result.params("updatedFrom") == [updated_from, updated_from]
     assert result.rows == [{"id": 1}, {"id": 2}]
     assert result.committed_states == [
         ClevertapResumeConfig(cursor=None, page=2),

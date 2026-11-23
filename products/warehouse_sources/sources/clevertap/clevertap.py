@@ -32,7 +32,6 @@ from products.warehouse_sources.sources.sdk import (
     SourceInputs,
     SourceResponse,
     create_response_hooks,
-    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -93,10 +92,16 @@ def campaign_window_end(start: date, end: date) -> date:
     return min(start + timedelta(days=CAMPAIGN_WINDOW_DAYS - 1), end)
 
 
-def campaign_windows(start: date, end: date) -> Iterator[tuple[date, date]]:
+@frozen
+class CampaignWindow:
+    start: date
+    end: date
+
+
+def campaign_windows(start: date, end: date) -> Iterator[CampaignWindow]:
     while start <= end:
         window_end = campaign_window_end(start, end)
-        yield start, window_end
+        yield CampaignWindow(start=start, end=window_end)
         start = window_end + timedelta(days=1)
 
 
@@ -159,9 +164,7 @@ def _yesterday() -> date:
     return datetime.now(UTC).date() - timedelta(days=1)
 
 
-def _endpoint_config(
-    config: ClevertapSourceConfig, endpoint: str, start: date, *, probe: bool, updated_from: str | None
-) -> Endpoint:
+def _endpoint_config(config: ClevertapSourceConfig, endpoint: str, start: date, *, probe: bool) -> Endpoint:
     end = _yesterday()
     if endpoint in EXPORT_ENDPOINTS:
         if endpoint == "events" and config.event_name in EXCLUDED_EVENTS:
@@ -197,12 +200,10 @@ def _endpoint_config(
             "response_actions": REPORT_RESPONSE_ACTIONS,
         }
     if endpoint == "content_blocks":
-        params: dict[str, Any] = {"pageSize": 1 if probe else CONTENT_BLOCK_PAGE_SIZE}
-        if updated_from is not None:
-            params["updatedFrom"] = updated_from
+        # Full refresh: page-number paging over an updatedFrom filter can skip a block that moves between pages.
         return {
             "path": ENDPOINTS[endpoint].path,
-            "params": params,
+            "params": {"pageSize": 1 if probe else CONTENT_BLOCK_PAGE_SIZE},
             "data_selector": "contentBlocks",
             "paginator": SinglePagePaginator() if probe else ContentBlockPaginator(),
             "response_actions": REPORT_RESPONSE_ACTIONS,
@@ -228,18 +229,15 @@ def _client_config(config: ClevertapSourceConfig) -> ClientConfig:
     }
 
 
-def build_rest_config(
-    config: ClevertapSourceConfig, endpoint: str, *, probe: bool = False, updated_from: str | None = None
-) -> RESTAPIConfig:
+def build_rest_config(config: ClevertapSourceConfig, endpoint: str, *, probe: bool = False) -> RESTAPIConfig:
     schema_for_resource(ENDPOINTS, endpoint)
     start = validate_configuration(config)
-    incremental = updated_from is not None
     resource: EndpointResource = {
         "name": endpoint,
         "table_name": endpoint,
         "table_format": "delta",
-        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
-        "endpoint": _endpoint_config(config, endpoint, start, probe=probe, updated_from=updated_from),
+        "write_disposition": "replace",
+        "endpoint": _endpoint_config(config, endpoint, start, probe=probe),
     }
     return {"client": _client_config(config), "resources": [resource]}
 
@@ -284,16 +282,16 @@ def iter_campaign_reports(
     report_hooks = create_response_hooks(CAMPAIGN_REPORT_RESPONSE_ACTIONS, "campaign_reports")
     client = _report_client(config)
     try:
-        for window_start, window_end in campaign_windows(start, _yesterday()):
+        for window in campaign_windows(start, _yesterday()):
             manager.save_state(
-                ClevertapResumeConfig(cursor=None, window_from=window_start.isoformat(), campaign_id=last_done)
+                ClevertapResumeConfig(cursor=None, window_from=window.start.isoformat(), campaign_id=last_done)
             )
             campaigns = [
                 campaign
                 for page in client.paginate(
                     path=CAMPAIGNS_PATH,
                     method="POST",
-                    json=campaign_window_body(window_start, window_end),
+                    json=campaign_window_body(window.start, window.end),
                     data_selector="targets",
                     hooks=list_hooks,
                 )
@@ -324,7 +322,7 @@ def iter_campaign_reports(
                     if isinstance(result, dict)
                 ]
                 manager.save_state(
-                    ClevertapResumeConfig(cursor=None, window_from=window_start.isoformat(), campaign_id=campaign["id"])
+                    ClevertapResumeConfig(cursor=None, window_from=window.start.isoformat(), campaign_id=campaign["id"])
                 )
                 if rows:
                     yield rows
@@ -364,10 +362,7 @@ def clevertap_source(
             sort_mode=None,
         )
 
-    updated_from = None
-    if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
-        updated_from = format_datetime(inputs.db_incremental_field_last_value, "iso_z_millis")
-    rest_config = build_rest_config(config, endpoint, updated_from=updated_from)
+    rest_config = build_rest_config(config, endpoint)
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is None:

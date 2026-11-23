@@ -1,4 +1,4 @@
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, ResponseAction, frozen
+from products.warehouse_sources.sources.sdk import IncrementalField, ResponseAction, frozen
 
 REGIONS = {
     "eu1": "https://api.clevertap.com",
@@ -50,7 +50,10 @@ ENDPOINTS = {
     ),
     "message_reports": ClevertapEndpoint(
         path="/1/message/report.json",
-        description="Messages that started within the configured date range, with channel, status, and delivery metrics.",
+        description=(
+            "Messages that started within the configured date range, with channel, status, and delivery metrics. "
+            "Some CleverTap accounts allow one message report request each hour, so use an hourly or slower schedule."
+        ),
         primary_keys=("message_id",),
     ),
     "campaigns": ClevertapEndpoint(
@@ -72,14 +75,6 @@ ENDPOINTS = {
 }
 # Date filtering and ordering have no live verification. Profiles have no update timestamp filter.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in ENDPOINTS}
-INCREMENTAL_FIELDS["content_blocks"] = [
-    IncrementalField(
-        label="updatedAt",
-        type=IncrementalFieldType.DateTime,
-        field="updatedAt",
-        field_type=IncrementalFieldType.DateTime,
-    )
-]
 
 ACCESS_ACTIONS: list[ResponseAction] = [
     {"status_code": 401, "action": "raise", "message": AUTH_ERROR},
