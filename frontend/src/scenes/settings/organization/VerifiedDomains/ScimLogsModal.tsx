@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -13,6 +14,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 
 import { SCIMRequestLogApi } from '~/generated/core/api.schemas'
 
+import { QuillScimLogsModal } from './QuillScimLogsModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 function statusTagType(status: number): LemonTagType {
@@ -66,6 +68,18 @@ export function ScimLogsModal({
         useValues(verifiedDomainsLogic)
     const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch, setScimLogsPage, reloadScimLogs } =
         useActions(verifiedDomainsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const emptyText =
+        scimLogsStatusFilter !== 'all' || scimLogsSearch
+            ? 'No SCIM requests match the current filters.'
+            : `No SCIM requests logged yet for this ${emptyStateScope}.`
+
+    const handleClose = (): void => setScimLogsModalId(null)
+
+    if (todayRailNav) {
+        return <QuillScimLogsModal emptyText={emptyText} onClose={handleClose} />
+    }
 
     const columns: LemonTableColumns<SCIMRequestLogApi> = [
         {
@@ -113,8 +127,6 @@ export function ScimLogsModal({
           }
         : undefined
 
-    const handleClose = (): void => setScimLogsModalId(null)
-
     return (
         <LemonModal onClose={handleClose} isOpen={!!scimLogsModalId} title="SCIM request logs" width={960}>
             <div className="space-y-4">
@@ -159,11 +171,7 @@ export function ScimLogsModal({
                     expandable={{
                         expandedRowRender: (log) => <LogDetailExpanded log={log} />,
                     }}
-                    emptyState={
-                        scimLogsStatusFilter !== 'all' || scimLogsSearch
-                            ? 'No SCIM requests match the current filters.'
-                            : `No SCIM requests logged yet for this ${emptyStateScope}.`
-                    }
+                    emptyState={emptyText}
                 />
             </div>
         </LemonModal>

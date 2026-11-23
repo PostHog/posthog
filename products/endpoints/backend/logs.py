@@ -3,6 +3,7 @@ from typing import Optional
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
@@ -15,6 +16,18 @@ logger = structlog.get_logger(__name__)
 _TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
 
 
+@frozen
+class RunRequestShape:
+    """How the caller asked for a run. It holds the number of variables, never their values."""
+
+    refresh: Optional[str] = None
+    access: Optional[str] = None
+    variables: int = 0
+    filters_override: bool = False
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+
+
 def build_execution_message(
     *,
     succeeded: bool,
@@ -24,6 +37,7 @@ def build_execution_message(
     rows: Optional[int] = None,
     version: Optional[int] = None,
     error: Optional[str] = None,
+    request: Optional[RunRequestShape] = None,
 ) -> str:
     """One human-readable line carrying the extra data as searchable `key=value` tokens.
 
@@ -39,6 +53,17 @@ def build_execution_message(
         "version": version,
         "error": error,
     }
+    if request is not None:
+        tokens.update(
+            {
+                "refresh": request.refresh,
+                "access": request.access,
+                "variables": request.variables or None,
+                "filters_override": "true" if request.filters_override else None,
+                "limit": request.limit,
+                "offset": request.offset,
+            }
+        )
     token_str = " ".join(f"{key}={value}" for key, value in tokens.items() if value is not None)
     return f"{prefix} · {token_str}" if token_str else prefix
 

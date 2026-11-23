@@ -4,5 +4,5 @@
   "typesPath": "./frontend/src",
   "writePaths": true,
   "inline": true,
-  "compiler": "native"
+  "compiler": "go"
 }

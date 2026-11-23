@@ -1728,7 +1728,7 @@ def social_email_verified_by_provider(
         # The GitHub backend picks the primary address from /user/emails without its `verified` flag,
         # and GitHub lets an unverified address be primary.
         is_verified = not email or _github_email_is_verified(backend, response.get("access_token", ""), email)
-    elif backend.name == "google-oauth2":
+    elif backend.name in ("google-oauth2", "chatgpt"):
         is_verified = response.get("email_verified") is True
     else:
         is_verified = response.get("email_verified") is not False

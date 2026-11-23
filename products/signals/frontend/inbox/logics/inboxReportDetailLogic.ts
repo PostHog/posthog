@@ -128,8 +128,15 @@ export type GitHubLoadError = {
 }
 
 export const GITHUB_REPOSITORY_INACCESSIBLE_CODE = 'github_repository_inaccessible'
+export const GITHUB_INSTALLATION_UNAVAILABLE_CODE = 'github_installation_unavailable'
 // Errors a project admin fixes in the GitHub integration settings, so the server sends a link there.
-const GITHUB_REMEDIABLE_ERROR_CODES = ['github_checks_permission_missing', GITHUB_REPOSITORY_INACCESSIBLE_CODE]
+const GITHUB_REMEDIABLE_ERROR_CODES = [
+    'github_checks_permission_missing',
+    GITHUB_REPOSITORY_INACCESSIBLE_CODE,
+    GITHUB_INSTALLATION_UNAVAILABLE_CODE,
+]
+// Polling can't fix these. Only an admin can.
+const GITHUB_POLL_STOPPING_ERROR_CODES = [GITHUB_REPOSITORY_INACCESSIBLE_CODE, GITHUB_INSTALLATION_UNAVAILABLE_CODE]
 
 function githubLoadErrorFrom(error: unknown, fallbackMessage: string): GitHubLoadError {
     if (error instanceof ApiError && error.code && GITHUB_REMEDIABLE_ERROR_CODES.includes(error.code)) {
@@ -1214,7 +1221,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prChecks: [
             null as readonly PullRequestCheckApi[] | null,
             {
-                loadPrChecks: async (_: void, breakpoint) => {
+                loadPrChecks: async (_: void, breakpoint): Promise<readonly PullRequestCheckApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -1230,6 +1237,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (values.selectedPullRequest.url !== pr.url) {
                         return null
                     }
+                    if (!Array.isArray(response?.checks)) {
+                        throw new Error('Invalid PR checks response')
+                    }
                     // A backend from before this field omits it, and kea rejects an undefined reducer value.
                     actions.setPrConflictReported(response.has_conflict === true)
                     return response.checks
@@ -1240,7 +1250,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prComments: [
             null as readonly PullRequestCommentApi[] | null,
             {
-                loadPrComments: async (_: void, breakpoint) => {
+                loadPrComments: async (_: void, breakpoint): Promise<readonly PullRequestCommentApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -1255,6 +1265,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     breakpoint()
                     if (values.selectedPullRequest.url !== pr.url) {
                         return null
+                    }
+                    if (!Array.isArray(response?.comments)) {
+                        throw new Error('Invalid PR comments response')
                     }
                     return response.comments
                 },
@@ -2574,8 +2587,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             let tick = 0
             const interval = setInterval(() => {
                 tick += 1
-                // Polling can't fix a repository the GitHub connection can't reach. Only an admin can.
-                if (!values.hasImplementationPr || values.prChecksError?.code === GITHUB_REPOSITORY_INACCESSIBLE_CODE) {
+                const errorCode = values.prChecksError?.code
+                if (
+                    !values.hasImplementationPr ||
+                    (errorCode && GITHUB_POLL_STOPPING_ERROR_CODES.includes(errorCode))
+                ) {
                     return
                 }
                 // While backed off, only every Nth tick retries — enough for a transient GitHub

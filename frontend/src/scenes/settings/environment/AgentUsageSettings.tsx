@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { AGENT_SPEND_WINDOW_DAYS, agentUsageLogic } from './agentUsageLogic'
+import { QuillAgentUsageSettings } from './QuillAgentUsageSettings'
 
 function SpendStat({ label, value }: { label: string; value: number }): JSX.Element {
     return (
@@ -21,6 +23,11 @@ function SpendStat({ label, value }: { label: string; value: number }): JSX.Elem
 export function AgentUsageSettings(): JSX.Element {
     const { totals, topModels, spendLoading, spendFailed } = useValues(agentUsageLogic)
     const { loadSpend } = useActions(agentUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillAgentUsageSettings />
+    }
 
     if (spendFailed) {
         return (

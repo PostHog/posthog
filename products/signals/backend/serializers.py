@@ -3798,6 +3798,14 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
+    plan = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as "
+            "`plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other "
+            "filters still apply. A report with no steps returns an empty page."
+        ),
+    )
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
@@ -4984,6 +4992,21 @@ class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
         read_only=True, help_text="Stable code for a repository no GitHub integration can access."
     )
     error = serializers.CharField(read_only=True, help_text="Which repository GitHub can't access, and who can fix it.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
+class GitHubInstallationUnavailableErrorSerializer(serializers.Serializer):
+    """Response when the team's GitHub App installation is suspended or uninstalled."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a suspended or uninstalled GitHub App installation."
+    )
+    error = serializers.CharField(
+        read_only=True, help_text="What happened to the GitHub connection, and who can fix it."
+    )
     remediation_url = serializers.CharField(
         read_only=True,
         help_text="Project integrations settings where a project admin can reconnect GitHub.",

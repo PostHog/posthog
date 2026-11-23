@@ -88,10 +88,14 @@ Run separately for each model. Available models: `'text-embedding-3-small-1536'`
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
-For a named business or operational measure, look it up in the data catalog (`system.information_schema.metrics`) before any schema discovery.
+For a named business or operational measure, look it up in the data catalog with `metric-list` before any schema discovery.
+Do not query `system.information_schema.metrics` with SQL for this lookup.
+Use `metric-describe` to read a candidate's full definition.
 Run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
 Every other outcome means there is no canonical definition to reuse — no match, a drifted match, or a match that is not approved: derive the measure with the schema workflow below and label the result noncanonical.
-A project without the data catalog has neither that table nor that tool, so an unknown-table error is that case too, and it holds for the rest of the session: stop checking.
+If these tools are not available, this connection cannot check the catalog, because of a missing `data_catalog:read` scope or a client filter.
+That does not mean the project has no catalog.
+Tell the user once that you could not check the catalog, then treat it as the no-match case for the rest of the session.
 Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
@@ -107,7 +111,7 @@ Don't guess table or column names — they differ per entity and drift over time
 
 The two surfaces differ in what else a NULL means. On `tables`, `certification` reads NULL for a table nobody marked. On `relationships`, `confidence` and `reasoning` hold the review evidence of an accepted relationship proposal. Only a data warehouse join that still matches its proposal carries that evidence. Every built-in join and every field traverser reads NULL for both fields, even on a project with full catalog access. A NULL there means no review evidence, not a broken join: read `source_column` and `target_column`, and use the join.
 
-The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it.
+The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it. To find or read metrics, use `metric-list` and `metric-describe`, not SQL over `metrics`.
 
 A direct connection queried with `connectionId` is the runtime that drops surfaces. It serves `tables`, `columns`, and `data_types` only, and its `tables` has no `certification`. Leave `certification` out of a `connectionId` query. Do not read `relationships` there before a join, because the surface is absent and the query fails on an unknown table.
 

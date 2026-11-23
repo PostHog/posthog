@@ -196,6 +196,7 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
 A missing column reports that column's error even when the query contains placeholders.
+When a field name matches multiple sources, the SQL editor highlights the field and lists the qualified names you can use. Give unnamed subqueries an alias to qualify their fields.
 
 The query API and `execute-sql` translate ClickHouse failures using the numeric driver code.
 For a query that a caller can correct, set `ErrorCodeMeta.user_safe` in `posthog/errors.py` to an explanation and a concrete SQL change.
