@@ -337,7 +337,7 @@ class ProjectRepositories:
             raise AdminOnlyChangeError("Only project admins can turn off push reviews.")
         if old_deep_review_gated_prs and not new_deep_review_gated_prs:
             raise AdminOnlyChangeError(
-                "Only project admins can turn off Deep reviews of large or sensitive pull requests."
+                "Only project admins can turn off Deep reviews for pull requests that need human review."
             )
 
     @staticmethod
@@ -356,8 +356,7 @@ class ProjectRepositories:
             raise RepositorySettingsError("Include the repository in this project before you turn on push reviews.")
         if deep_review_gated_prs:
             raise RepositorySettingsError(
-                "Include the repository in this project before you turn on Deep reviews of large or sensitive "
-                "pull requests."
+                "Include the repository in this project before you turn on automatic Deep reviews for pull requests."
             )
 
     def save_repository(

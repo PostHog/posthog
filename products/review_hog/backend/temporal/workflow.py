@@ -122,6 +122,7 @@ from products.review_hog.backend.temporal.scheduling import (
     request_silent_stamphog,
 )
 from products.review_hog.backend.temporal.types import (
+    HUMAN_REVIEW_VERDICT,
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
@@ -507,11 +508,14 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 signal_priority=inputs.signal_priority,
                 review_mode=inputs.review_mode,
+                refused_head_sha=inputs.requested_head_sha if inputs.trigger_action == HUMAN_REVIEW_VERDICT else None,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
         )
         report_id, head_sha, branch = meta.report_id, meta.head_sha, meta.branch
+        if meta.skip_verdict_review:
+            return report_id
         workflow.logger.info(
             "Captured point-in-time diff snapshot" if meta.snapshotted else "No new diff snapshot this turn"
         )
@@ -609,6 +613,7 @@ class ReviewPRWorkflow:
             workflow.patched("reviewhog-push-gate-2026-10")
             and inputs.trigger_source == TRIGGER_AUTOMATIC
             and meta.automatic_reviewed_head_sha is not None
+            and inputs.trigger_action != HUMAN_REVIEW_VERDICT
         ):
             try:
                 gate = await workflow.execute_activity(

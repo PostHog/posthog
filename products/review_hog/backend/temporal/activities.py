@@ -43,7 +43,7 @@ from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
-from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewRepository, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
@@ -145,6 +145,7 @@ from products.review_hog.backend.reviewer.progress import (
     live_turn_markers,
     record_run_outcome,
     turn_markers,
+    turn_recorded_in_mode,
 )
 from products.review_hog.backend.reviewer.push_gate import (
     PRChange,
@@ -299,6 +300,7 @@ class FetchPRDataInput:
     # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
     # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
     review_mode: str = REVIEW_MODE_FULL
+    refused_head_sha: str | None = None
 
 
 @dataclass(frozen=False)
@@ -330,6 +332,7 @@ class ReviewMeta:
     # self-skips the turn before any sandbox spend.
     empty_diff: bool = False
     already_completed: bool = False
+    skip_verdict_review: bool = False
     pr_open: bool = True
     # Only forwarded to the acting-user re-check; the workflow does not branch on it.
     draft: bool = False
@@ -962,6 +965,24 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
     already_published = review_already_published(report, head_sha, input.review_mode)
     already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
+    skip_verdict_review = False
+    if input.refused_head_sha is not None:
+        # A published Standard review on this head is exactly what can lead to a human verdict.
+        already_completed = False
+        skip_verdict_review = (
+            input.refused_head_sha != head_sha
+            or fetched.pr_metadata.draft
+            or not ReviewRepository.objects.for_team(input.team_id)
+            .filter(full_name__iexact=input.repository, deep_review_gated_prs=True)
+            .exists()
+        )
+    if input.trigger_source == TRIGGER_AUTOMATIC and input.review_mode == REVIEW_MODE_FULL:
+        # The PR queue serializes turns. Two triggers can both arrive before either sees a Deep marker.
+        already_completed = (
+            already_completed
+            or full_review_published(report)
+            or turn_recorded_in_mode(input.team_id, str(report_id), REVIEW_MODE_FULL)
+        )
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
@@ -997,7 +1018,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         observe_dispatch("label_skipped")
     turn_skipped = already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC
-        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
+        and (already_completed or skip_verdict_review or skip_agent_review or fetched.pr_metadata.state != "open")
     )
     if turn_skipped:
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
@@ -1046,6 +1067,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_url=pr_url,
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
+        skip_verdict_review=skip_verdict_review,
         pr_open=fetched.pr_metadata.state == "open",
         draft=fetched.pr_metadata.draft,
         review_design=design_choice.design,

@@ -606,10 +606,10 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     project rule (`ReviewProjectSettings.flash_for`). `review_drafts` lets draft pull requests get
     their automatic review when they open, and one more when they are marked ready. `review_pushes`
     lets later pushes get an automatic review too, as the push gate allows. `deep_review_gated_prs` makes
-    the automatic review a Deep review when stamphog's size, restricted-path or tier gates send the pull
-    request to a person. A row that is not selected, has no exception and turns no switch on has no
-    meaning and is deleted. A repository has at most one row across all projects, so it belongs to one
-    project only.
+    a ready pull request eligible for one automatic Deep review when stamphog requires a person,
+    either at its pre-check or in a published verdict. A row that is not selected, has no exception
+    and turns no switch on has no meaning and is deleted. A repository has at most one row across
+    all projects, so it belongs to one project only.
     """
 
     activity_logging_on_delete = True

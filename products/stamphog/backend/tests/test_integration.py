@@ -3009,6 +3009,7 @@ def test_silent_review_posts_nothing_but_an_approval(
     assert (run.verdict_posted_at is not None) is approved
     summarize.assert_not_called()
     # FALLBACK routing hears every outcome, withheld ones included, because the head waits for this run.
+    assert not handoff.call_args.args[0].published_human_verdict
     assert routing_delay.call_args.kwargs["outcome"] == (
         "gated" if expect_status == ReviewRunStatus.GATED else expect_verdict.value
     )
@@ -3367,9 +3368,7 @@ def test_refused_verdict_strips_trigger_label(
     (review,) = [w for w in writes if w["kind"] == "comment_review"]
     assert "Add the `stamphog` label to request another review once you have addressed this." in review["body"]["body"]
 
-    # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
-    # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
-    # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
+    # The unconditional Inbox handoff is reserved for self-driving PRs.
     assert _external_review_requests(handoff) == []
 
 
@@ -3389,7 +3388,7 @@ def test_refused_verdict_strips_trigger_label(
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
+def test_published_refusals_notify_reviewhog_and_only_inbox_prs_request_an_unconditional_review(
     team,
     stamphog_chain: StamphogChain,
     handoff: MagicMock,
@@ -3398,10 +3397,6 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     expect_handoff: bool,
     expect_strip: bool,
 ) -> None:
-    # A self-driving PR has no author to read the refusal, so ReviewHog's deeper review is the next
-    # step; a human PR's author decides that for themselves. Inbox provenance outranks the repo's
-    # review mode both ways, which is why the mode is crossed with it here: an ALL-mode repo must
-    # still hand off its self-driving PRs, and must not hand off the human ones it reviews by default.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -3426,6 +3421,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
     requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
+    assert handoff.call_args.args[0].published_human_verdict
     assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
     assert bool([w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_label"]) is expect_strip
 

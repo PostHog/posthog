@@ -22,6 +22,7 @@ TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
 TRIGGER_REVIEW_REQUEST = "review_request"
 TRIGGER_AUTOMATIC = "automatic"
+HUMAN_REVIEW_VERDICT = "human_review_verdict"
 # The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
 # Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
 REQUESTED_TRIGGERS = frozenset(
@@ -80,8 +81,7 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
-    # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
-    # automatic review of `requested_head_sha`. None for every other trigger.
+    # The GitHub action or Stamphog verdict that asked for an automatic review of this head.
     trigger_action: str | None = None
     # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
     # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.

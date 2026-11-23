@@ -35,6 +35,8 @@ class FinishedReviewRun:
     head_branch: str
     # Not read off `verdict`, because a gate-blocked refusal stores WAIT.
     request_external_review: bool
+    # A visible refusal or escalation on a ready PR. The subscriber owns the repository opt-in.
+    published_human_verdict: bool = False
 
 
 FinishedReviewHook = Callable[[FinishedReviewRun], None]

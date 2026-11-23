@@ -167,7 +167,7 @@ export const CodeReviewRepositoriesCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value."
+            'True runs one automatic Deep review per eligible, ready pull request when an auto-approval rule requires a person or when auto-approval publishes a verdict requiring human review. False keeps automatic reviews Standard. Omit to keep the current value.'
         ),
     review_pushes: zod
         .boolean()

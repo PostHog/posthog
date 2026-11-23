@@ -340,7 +340,7 @@ export interface ReviewRepositoryApi {
     readonly review_drafts: boolean
     /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False gives each pull request its reviews only when it opens or is marked ready. */
     readonly review_pushes: boolean
-    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    /** Whether auto-approval requiring a human review triggers one automatic Deep review per ready pull request. */
     readonly deep_review_gated_prs: boolean
     /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
     readonly people: readonly ReviewRepositoryPersonApi[]
@@ -376,7 +376,7 @@ export interface ReviewRepositoryWriteApi {
     flash_for?: AutomaticFlashForEnumApi | null
     /** True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value. */
     review_drafts?: boolean
-    /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+    /** True runs one automatic Deep review per eligible, ready pull request when an auto-approval rule requires a person or when auto-approval publishes a verdict requiring human review. False keeps automatic reviews Standard. Omit to keep the current value. */
     deep_review_gated_prs?: boolean
     /** True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value. */
     review_pushes?: boolean
@@ -566,9 +566,9 @@ export interface ReviewRepositoryOverviewEntryApi {
     review_drafts: boolean
     /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. */
     review_pushes: boolean
-    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    /** Whether auto-approval requiring a human review triggers one automatic Deep review per ready pull request. */
     deep_review_gated_prs: boolean
-    /** Whether auto-approval reviews this repository in this project. Only then can its size, restricted-path and tier rules make an automatic review a Deep review. */
+    /** Whether auto-approval reviews this repository in this project. */
     auto_approval: boolean
     /** The requesting user's own choice for this repository: 'flash', 'off', or null.
      *

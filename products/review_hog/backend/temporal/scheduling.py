@@ -12,6 +12,7 @@ from posthog.temporal.common.client import async_connect
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.temporal.types import (
+    HUMAN_REVIEW_VERDICT,
     TRIGGER_AUTOMATIC,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
@@ -64,6 +65,9 @@ class ReviewRequestQueue:
                 and request.publish == self.active.publish
                 and request.acting_user_id == self.active.acting_user_id
                 and request.resolve_comments == self.active.resolve_comments
+                and (
+                    request.trigger_action != HUMAN_REVIEW_VERDICT or self.active.trigger_action == HUMAN_REVIEW_VERDICT
+                )
                 and (request.trigger_source == TRIGGER_AUTOMATIC) == (self.active.trigger_source == TRIGGER_AUTOMATIC)
             ):
                 # The running turn reviews this head, but its own request can predate the PR being ready.
@@ -71,6 +75,9 @@ class ReviewRequestQueue:
                     self.active = replace(self.active, marks_ready=True)
                 return
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
+        if request.trigger_action == HUMAN_REVIEW_VERDICT:
+            # A delayed verdict for an older commit must not replace the one for the live head.
+            key = f"{HUMAN_REVIEW_VERDICT}:{request.requested_head_sha}"
         waiting = self.pending.get(key)
         # A later request for the same head replaces the waiting one, but the PR stays ready for review.
         if waiting is not None and waiting.requested_head_sha == request.requested_head_sha and waiting.marks_ready:
@@ -97,7 +104,9 @@ class ReviewRequestQueue:
 
     def take(self) -> ReviewPRWorkflowInputs:
         # Explicit requests take precedence over another automatic follow-up.
-        key = next(key for key in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH, TRIGGER_AUTOMATIC) if key in self.pending)
+        # Verdicts for distinct commits keep delivery order. Each turn checks the live head.
+        priorities = {REVIEW_MODE_FULL: 0, REVIEW_MODE_FLASH: 1, TRIGGER_AUTOMATIC: 3}
+        key = min(self.pending, key=lambda key: priorities.get(key, 2))
         self.active = self.pending.pop(key)
         return self.active
 

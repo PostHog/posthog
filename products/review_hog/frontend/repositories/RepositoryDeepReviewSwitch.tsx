@@ -7,7 +7,6 @@ import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/front
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
-/** Whether a large or sensitive pull request, by the repository's auto-approval rules, gets a Deep automatic review. */
 export function RepositoryDeepReviewSwitch({ entry }: { entry: ReviewRepositoryOverviewEntryApi }): JSX.Element | null {
     const { canEdit } = useValues(reviewHogProjectSettingsLogic)
     const { busyRepositories } = useValues(reviewHogRepositoriesLogic)
@@ -27,12 +26,12 @@ export function RepositoryDeepReviewSwitch({ entry }: { entry: ReviewRepositoryO
 
     return (
         <span className="flex items-center gap-1.5">
-            <span className="text-xs whitespace-nowrap text-secondary">Deep review for large or sensitive PRs</span>
+            <span className="text-xs text-secondary">Deep review when human review is required</span>
             <LemonSwitch
-                aria-label={`Deep review for large or sensitive pull requests in ${entry.full_name}`}
+                aria-label={`Deep review when human review is required in ${entry.full_name}`}
                 checked={entry.deep_review_gated_prs}
                 onChange={(checked) => setRepositoryDeepReviews(entry, checked)}
-                tooltip="Large or sensitive means the pull request breaks this repository's auto-approval rules for size, restricted paths or tier. Its automatic review is then a Deep review, once per pull request."
+                tooltip="Run Deep once per ready pull request when an auto-approval rule requires a person or Stamphog asks for human review after Standard."
                 disabledReason={disabledReason}
                 data-attr="review-hog-repository-deep-review"
             />

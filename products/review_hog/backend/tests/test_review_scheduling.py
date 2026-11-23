@@ -14,6 +14,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
+    HUMAN_REVIEW_VERDICT,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
@@ -281,3 +282,22 @@ def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
     queue.add(same_head_push)
 
     assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}
+
+
+def test_repeated_human_verdict_survives_a_push_while_standard_finishes() -> None:
+    standard = ReviewPRWorkflowInputs(
+        team_id=1, user_id=1, pr_number=7, review_mode="flash", trigger_source="automatic", requested_head_sha="a"
+    )
+    verdict = replace(standard, review_mode="full", trigger_action=HUMAN_REVIEW_VERDICT)
+    push = replace(standard, requested_head_sha="b", trigger_action="synchronize")
+    queue = ReviewRequestQueue(active=standard)
+    queue.add(verdict)
+    queue.add(push)
+    older_verdict = replace(verdict, requested_head_sha="older")
+    queue.add(older_verdict)
+    queue.add(verdict)
+
+    assert queue.take() == verdict
+    assert queue.take() == older_verdict
+    assert queue.take() == push
+    assert not queue.pending

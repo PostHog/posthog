@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.ownership.paths import PathOwnership
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewRepository
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
     DEFAULT_REVIEW_ARM,
@@ -44,6 +44,55 @@ def _pr_metadata() -> PRMetadata:
 
 
 class TestFetchDecidesTheTier(BaseTest):
+    @parameterized.expand(
+        [
+            ("after_standard", "sha1", False, True, None, False),
+            ("new_head", "older", False, True, None, True),
+            ("returned_to_draft", "sha1", True, True, None, True),
+            ("switch_turned_off", "sha1", False, False, None, True),
+            ("previous_deep", "sha1", False, True, "earlier", True),
+        ]
+    )
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_deep_review_after_standard_on_the_refused_head(
+        self,
+        _name: str,
+        refused_head: str,
+        draft: bool,
+        enabled: bool,
+        prior_deep: str | None,
+        skip: bool,
+        fetcher: MagicMock,
+        _auth: MagicMock,
+    ) -> None:
+        fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata().model_copy(update={"draft": draft}), pr_comments=[], pr_files=[], diff=""
+        )
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, full_name="o/r", installation_id="1", selected=True, deep_review_gated_prs=enabled
+        )
+        request = FetchPRDataInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            repository="o/r",
+            owner="o",
+            repo="r",
+            pr_number=9,
+            trigger_source="automatic",
+            review_mode=REVIEW_MODE_FLASH,
+        )
+        first = _fetch_and_persist(request)
+        published = {"flash": "sha1"}
+        if prior_deep:
+            published["full"] = prior_deep
+        ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
+            automatic_reviewed_head_sha="sha1", published_heads_by_mode=published, published_head_sha="sha1"
+        )
+
+        meta = _fetch_and_persist(replace(request, review_mode=REVIEW_MODE_FULL, refused_head_sha=refused_head))
+        assert (meta.already_completed or meta.skip_verdict_review or meta.already_published) is skip
+
     @parameterized.expand(
         [
             (None, "open", [], False, False),

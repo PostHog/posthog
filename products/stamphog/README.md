@@ -294,6 +294,7 @@ A dismissed approval is also hidden on the PR timeline as outdated, so supersede
 PostHog Review can ask for the gate result of one PR head (`check_approval_gates` in `backend/facade/api.py`) to choose how deep its automatic review goes.
 The check reads the PR from GitHub and runs the same gate pre-check, with no LLM call.
 It never starts a review, creates no run, and writes nothing to GitHub.
+When the repository opts in, a published refusal or escalation also asks PostHog Review for a Deep review of that commit. The PR queue allows one automatic Deep review per pull request.
 When the pre-check cannot settle the result, the check gives no answer, and PostHog Review keeps its default depth.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.

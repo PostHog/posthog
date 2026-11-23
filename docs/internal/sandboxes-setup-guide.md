@@ -344,7 +344,9 @@ Project admins choose which repositories the project reviews, and who gets autom
 Any project member can turn a repository on through `code_review/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
 Turning a repository down or removing it stays with admins.
 
-The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Under **Review settings → Standard reviews**, enable **Deep review when human review is required** for a repository covered by auto-approval.
+An eligible, ready PR gets one automatic Deep review when its size, paths, or tier require a person, or when Stamphog later publishes a verdict requiring human review.
+The latter can trigger Deep on a commit that already received a Standard review.
 Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
 **Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
 The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.

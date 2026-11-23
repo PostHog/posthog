@@ -148,14 +148,9 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         "push gate allows."
     )
     deep_review_gated_prs = serializers.BooleanField(
-        help_text="Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person "
-        "gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also "
-        "added to auto-approval."
+        help_text="Whether auto-approval requiring a human review triggers one automatic Deep review per ready pull request."
     )
-    auto_approval = serializers.BooleanField(
-        help_text="Whether auto-approval reviews this repository in this project. Only then can its size, "
-        "restricted-path and tier rules make an automatic review a Deep review."
-    )
+    auto_approval = serializers.BooleanField(help_text="Whether auto-approval reviews this repository in this project.")
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
         allow_null=True,

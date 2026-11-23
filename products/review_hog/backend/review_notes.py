@@ -34,7 +34,7 @@ def draft_review_notice(comment_commands_on: bool) -> str:
 def last_review_notice(comment_commands_on: bool) -> str:
     """The note an automatic review with findings ends with when the repository does not review later pushes."""
     return (
-        "This is the last automatic review of this pull request. "
+        "New pushes to this pull request won't start an automatic review. "
         f"{_review_trigger(comment_commands_on)} to review new changes."
     )
 

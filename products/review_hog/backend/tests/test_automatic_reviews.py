@@ -1,6 +1,7 @@
 import hmac
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -775,6 +776,46 @@ class TestStamphogHandoffTask(BaseTest):
             queue_stamphog_handoff(self._finished("octocat", request_external_review=False))
 
         enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("enabled", True, True, "flash", True),
+            ("switch_off", False, True, "flash", False),
+            ("other_project", True, False, "flash", False),
+            ("author_opted_out", True, True, "off", False),
+        ]
+    )
+    def test_published_human_verdict_obeys_repository_and_author_settings(
+        self, _name: str, enabled: bool, same_project: bool, preference: str, starts: bool
+    ) -> None:
+        self.repository.deep_review_gated_prs = enabled
+        self.repository.save()
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": preference}
+        )
+        verdict = replace(
+            self._finished("octocat", request_external_review=False),
+            team_id=self.team.id if same_project else self.team.id + 1,
+            published_human_verdict=True,
+        )
+        with patch(_HANDOFF_QUEUE, side_effect=process_stamphog_handoff.run):
+            queue_stamphog_handoff(verdict)
+        if starts:
+            self.start.assert_called_once_with(
+                pr_url="https://github.com/PostHog/posthog/pull/42",
+                team_id=self.team.id,
+                user_id=self.user.id,
+                acting_user_id=self.user.id,
+                publish=True,
+                resolve_comments=False,
+                review_mode="full",
+                trigger_source="automatic",
+                trigger_action="human_review_verdict",
+                requested_head_sha=_HEAD_SHA,
+                installation_id=_INSTALLATION_ID,
+            )
+        else:
+            self.start.assert_not_called()
 
     def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
         # A Standard request after a published Deep review is dropped, so the handoff would do nothing.
