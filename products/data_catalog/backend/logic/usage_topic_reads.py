@@ -60,7 +60,6 @@ _SAVED_FILTER_FUNCTIONS = frozenset({"matchesAction", "inCohort", "notInCohort"}
 _COHORT_OPERATORS = frozenset({ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort})
 # Activity log entries that can change what a saved filter reads. A created row cannot have run before it existed.
 _CHANGE_ACTIVITIES = ("updated", "deleted")
-# HogQL identifiers can start with `$`, and saved expression names can too.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 # `sql_tables` adds this to the tables of a query that selects `*`, because `*` expands the saved expressions of
 # the table. `call_tables` replaces it with the tables that those expressions read.
