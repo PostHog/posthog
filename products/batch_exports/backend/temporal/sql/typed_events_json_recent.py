@@ -8,6 +8,9 @@ parsing every row again. The subquery:
 
 - casts `properties`, `person_properties` and `temporary_properties` to the JSON types of `events_json`, from
   `posthog/models/event/sql.py` and `posthog/clickhouse/events_json.py`.
+- stores each top-level object or array as a string of its JSON text before the cast, as the cleaner of `events_json`
+  does. HogQL reads a nested property by parsing its top-level member as text, which the stored documents keep as an
+  object.
 - keeps the stored text of each document in a `_stored_*` column, so the export still sends the document as stored.
 - skips the temporary properties in the typed `properties`, following `is_temporary_event_property` in
   `posthog/clickhouse/events_json.py`. `events_json` keeps them in `temporary_properties` only.
@@ -26,7 +29,9 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 
 from posthog.clickhouse.events_json import (
     EVENTS_JSON_RECENT_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     PERMANENT_SDK_DEBUG_PROPERTIES,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_JSON_TYPE,
@@ -104,6 +109,23 @@ def _build_temporary_property_skip_clauses() -> str:
     return ", ".join([*roots, f"SKIP REGEXP {escape_clickhouse_string(prefix_pattern)}"])
 
 
+def _stringify_container_members_sql(document_sql: str, declared_types: dict[str, str]) -> str:
+    """`document_sql` with each top-level object or array member replaced by a string of its JSON text.
+
+    A declared path that is not a string, such as the `$feature_flags` map, keeps its value, because the cast needs a
+    value of the declared type there.
+    """
+    kept_paths = [
+        path
+        for path, declared_type in declared_types.items()
+        if declared_type not in ("String", "LowCardinality(String)")
+    ]
+    is_kept = f"kv.1 in ({', '.join(escape_clickhouse_string(path) for path in kept_paths)}) or " if kept_paths else ""
+    value = f"if({is_kept}JSONType(kv.2) not in ('Object', 'Array'), kv.2, toJSONString(kv.2))"
+    members = f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), JSONExtractKeysAndValuesRaw({document_sql}))"
+    return f"concat('{{', arrayStringConcat({members}, ','), '}}')"
+
+
 _EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE = (
     f"{EVENTS_PROPERTIES_JSON_TYPE().removesuffix(')')}, {_build_temporary_property_skip_clauses()})"
 )
@@ -122,9 +144,17 @@ def build_typed_events_json_recent_source() -> str:
     return f"""(
     SELECT
         * REPLACE (
-            CAST(properties, {escape_clickhouse_string(_EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE)}) AS properties,
-            CAST(person_properties, '{PERSON_PROPERTIES_JSON_TYPE()}') AS person_properties,
-            CAST(temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties
+            CAST(
+                {_stringify_container_members_sql("properties", EVENTS_PROPERTIES_JSON_SUBCOLUMNS)},
+                {escape_clickhouse_string(_EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE)}
+            ) AS properties,
+            CAST(
+                {_stringify_container_members_sql("person_properties", PERSON_PROPERTIES_JSON_SUBCOLUMNS)},
+                '{PERSON_PROPERTIES_JSON_TYPE()}'
+            ) AS person_properties,
+            CAST(
+                {_stringify_container_members_sql("temporary_properties", {})}, '{TEMPORARY_PROPERTIES_JSON_TYPE}'
+            ) AS temporary_properties
         ),
         {EVENTS_JSON_RECENT_TABLE}.properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["properties"]},
         {EVENTS_JSON_RECENT_TABLE}.person_properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["person_properties"]},
