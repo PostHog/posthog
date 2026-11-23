@@ -18,7 +18,7 @@ from ..db import WRITER_DB
 from ..facade.contracts import TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
-from . import errors, run_queries
+from . import commit_status, errors, run_queries
 from .run_queries import SnapshotKey
 
 
@@ -118,6 +118,8 @@ def mark_snapshot_as_tolerated(
         .count()
     )
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
+
+    commit_status.publish_for_run(run)
 
     return snapshot
 

@@ -179,3 +179,141 @@ def test_a_refused_ancestry_read_propagates_and_commit_contains_answers_false(re
         with pytest.raises(type(refusal)):
             github_api.commit_ancestry(repo, "merge-base", "seed")
         assert github_api.commit_contains(repo, "merge-base", "seed") is False
+
+
+def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
+    def respond(method, path, *, params=None, **kwargs):
+        response = MagicMock(status_code=200)
+        if path.endswith("/pulls"):
+            first = (params["page"] - 1) * params["per_page"]
+            count = max(0, min(params["per_page"], 101 - first))
+            in_repo = {"full_name": "org/repo"}
+            head_repos = {98: {"full_name": "someone/repo"}, 99: None}
+            response.json.return_value = [
+                {
+                    "number": first + i,
+                    "head": {"sha": f"pr-head-{first + i}", "repo": head_repos.get(first + i, in_repo)},
+                    "base": {"repo": in_repo, "ref": "feat-parent" if first + i == 97 else "master"},
+                }
+                for i in range(count)
+            ]
+        else:
+            # The refs endpoint ignores paging and answers with every matching ref.
+            response.json.return_value = [
+                {"ref": f"refs/heads/trunk-merge/pr-{n}/abc", "object": {"sha": f"queue-head-{n}"}}
+                if n % 100 == 0
+                else {"ref": f"refs/heads/trunk-merge-notes-{n}", "object": {"sha": "other"}}
+                for n in range(101)
+            ]
+        return response
+
+    github = MagicMock()
+    github.api_request.side_effect = respond
+    repo = Repo(repo_full_name="org/repo")
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        pull_requests = github_api.open_pull_request_heads(repo)
+        merge_queue = github_api.merge_queue_branch_heads(repo)
+
+    assert pull_requests is not None and len(pull_requests) == 101
+    assert pull_requests[-1] == github_api.BranchHead(commit_sha="pr-head-100", pr_number=100, base_ref="master")
+    assert pull_requests[97].base_ref == "feat-parent"
+    pull_request_reads = [call for call in github.api_request.call_args_list if call.args[1].endswith("/pulls")]
+    assert all("base" not in call.kwargs["params"] for call in pull_request_reads)
+    assert [head.pr_number for head in pull_requests if head.from_fork] == [98, 99]
+    assert merge_queue == [
+        github_api.BranchHead(commit_sha="queue-head-0", pr_number=0),
+        github_api.BranchHead(commit_sha="queue-head-100", pr_number=100),
+    ]
+    ref_reads = [call for call in github.api_request.call_args_list if "matching-refs" in call.args[1]]
+    assert len(ref_reads) == 1
+
+
+def test_recheck_setup_job_evidence_counts_only_github_actions_check_runs() -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "check_runs": [
+            {"conclusion": "success", "completed_at": "2026-11-20T10:00:00Z", "app": {"slug": "github-actions"}},
+            {"conclusion": "skipped", "app": {"slug": "another-app"}},
+            {"conclusion": "skipped"},
+        ]
+    }
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        check_runs = github_api.actions_check_runs(Repo(repo_full_name="org/repo"), "sha", "Create run")
+
+    assert check_runs == [
+        github_api.CheckRun(conclusion="success", completed_at=datetime(2026, 11, 20, 10, tzinfo=UTC))
+    ]
+
+
+def test_recheck_reads_the_newest_status_of_each_context_from_every_page() -> None:
+    def respond(method, path, *, params=None, **kwargs):
+        page: list[dict[str, object]] = [
+            {"context": f"other-{params['page']}-{i}", "state": "success"} for i in range(100)
+        ]
+        if params["page"] == 2:
+            page = [
+                {"context": "gate", "state": "failure", "description": "Changed", "creator": {"login": "app[bot]"}},
+                {"context": "gate", "state": "success", "description": "Older", "creator": {"login": "app[bot]"}},
+            ]
+        response = MagicMock(status_code=200)
+        response.json.return_value = page
+        return response
+
+    github = MagicMock()
+    github.api_request.side_effect = respond
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        statuses = github_api.commit_statuses(Repo(repo_full_name="org/repo"), "sha")
+
+    assert statuses is not None
+    assert statuses["gate"] == github_api.PostedStatus(state="failure", description="Changed", creator="app[bot]")
+
+
+def test_a_base_change_counts_a_manual_and_an_automatic_retarget() -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = [
+        {"event": "base_ref_changed", "created_at": "2026-11-20T10:00:00Z"},
+        {"event": "automatic_base_change_succeeded", "created_at": "2026-11-21T10:00:00Z"},
+        {"event": "automatic_base_change_failed", "created_at": "2026-11-22T10:00:00Z"},
+        {"event": "committed"},
+    ]
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        changed_at = github_api.pull_request_base_changes(Repo(repo_full_name="org/repo"), 7)
+
+    assert changed_at == [datetime(2026, 11, 20, 10, tzinfo=UTC), datetime(2026, 11, 21, 10, tzinfo=UTC)]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected"),
+    [
+        pytest.param(
+            200,
+            {
+                "commit": {
+                    "author": {"date": "2026-01-01T10:00:00Z"},
+                    "committer": {"date": "2026-11-20T10:00:00Z"},
+                }
+            },
+            datetime(2026, 11, 20, 10, tzinfo=UTC),
+            id="committer_not_author",
+        ),
+        pytest.param(404, {}, None, id="not_found"),
+    ],
+)
+def test_commit_committer_date(status_code: int, body: dict, expected: datetime | None) -> None:
+    response = MagicMock(status_code=status_code)
+    response.json.return_value = body
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        committed_at = github_api.commit_committer_date(Repo(repo_full_name="org/repo"), "sha")
+
+    assert committed_at == expected
