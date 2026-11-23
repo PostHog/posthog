@@ -583,8 +583,8 @@ def pause_batch_export_of_teams(export_id: str, *, team_ids: Collection[int], no
     )
     if team_id is None:
         return False
-    pause_batch_export(team_id, UUID(export_id), note=note)
-    return True
+    with _map_schedule_errors():
+        return service.pause_batch_export(sync_connect(), export_id, note=note, team_id=team_id)
 
 
 def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:

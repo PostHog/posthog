@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -9,8 +9,9 @@ from unittest.mock import patch
 from django.test import Client, SimpleTestCase
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
-from posthog.admin.console.organization_shutdown import PAUSE_NOTE, find_background_work
+from posthog.admin.console.organization_shutdown import AUDIT_EVENT, PAUSE_NOTE, find_background_work
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, Team, User
 
@@ -19,6 +20,7 @@ from products.batch_exports.backend.facade.testing import create_batch_export
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade import api as subscriptions_facade
 from products.subscriptions.backend.facade.testing import create_subscription
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -142,7 +144,9 @@ def start_background_work(team: Team, user: User) -> dict[str, str]:
         ),
         "Legacy plugins": str(PluginConfig.objects.create(plugin=plugin, team=team, enabled=True, order=0).id),
         "Subscriptions": str(create_subscription(team_id=team.id, insight_id=insight.id)),
-        "Alerts": str(AlertConfiguration.objects.create(team=team, insight=insight, enabled=True, created_by=user).id),
+        "Insight alerts": str(
+            AlertConfiguration.objects.create(team=team, insight=insight, enabled=True, created_by=user).id
+        ),
     }
 
 
@@ -184,9 +188,12 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         token = self._confirm_token(self._preview(organization_ids, reason, custom_reason, stop_background_work))
         return self.client.post(TOOL_URL, {"confirm_token": token})
 
-    def _shut_down(self, organization_ids: str, temporal: FakeTemporal) -> str:
-        with temporal_boundary(temporal):
-            response = self._deactivate(organization_ids, SECURITY_VIOLATION, stop_background_work=True)
+    def _shut_down(
+        self, organization_ids: str, temporal: FakeTemporal, during_confirm: AbstractContextManager | None = None
+    ) -> str:
+        token = self._confirm_token(self._preview(organization_ids, SECURITY_VIOLATION, stop_background_work=True))
+        with temporal_boundary(temporal), during_confirm or nullcontext():
+            response = self.client.post(TOOL_URL, {"confirm_token": token})
         assert response.status_code == 302
         return self.client.get(response["Location"]).content.decode()
 
@@ -204,7 +211,7 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         assert str(self.organization.id) in content
         assert str(missing_id) in content
         assert "Destinations: 1, Workflows: 1, Batch exports: 1, Warehouse syncs: 1" in content
-        assert "Legacy plugins: 1, Subscriptions: 1, Alerts: 1" in content
+        assert "Legacy plugins: 1, Subscriptions: 1, Insight alerts: 1" in content
         assert running_work(self.team) == running
 
     def test_confirm_shuts_down_the_organization_and_leaves_other_organizations_running(self) -> None:
@@ -215,7 +222,8 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         other_running = running_work(other_team)
         temporal = FakeTemporal()
 
-        result = self._shut_down(str(self.organization.id), temporal)
+        with capture_logs() as logs:
+            result = self._shut_down(str(self.organization.id), temporal)
 
         self.organization.refresh_from_db()
         assert (self.organization.is_active, self.organization.is_not_active_reason) == (False, SECURITY_VIOLATION)
@@ -226,17 +234,26 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         )
         for resource_id in stopped.values():
             assert resource_id in result
+        [audit] = [log for log in logs if log["event"] == AUDIT_EVENT]
+        assert audit["stopped"] == {label: [resource_id] for label, resource_id in stopped.items()}
 
-    def test_a_failed_stop_is_reported_and_the_rest_still_stop(self) -> None:
+    @parameterized.expand([("an_item_fails_to_stop", "Batch exports"), ("a_kind_fails_to_list", "Subscriptions")])
+    def test_a_failure_is_reported_and_the_rest_still_stop(self, _name: str, failing_kind: str) -> None:
         stopped = start_background_work(self.team, self.user)
-        failing_export = stopped["Batch exports"]
+        failing_id = stopped[failing_kind]
+        temporal = FakeTemporal(failing=frozenset({failing_id}) if failing_kind == "Batch exports" else frozenset())
 
-        result = self._shut_down(str(self.organization.id), FakeTemporal(failing=frozenset({failing_export})))
+        listing_fails = (
+            patch.object(subscriptions_facade, "enabled_subscription_ids", side_effect=RuntimeError("Database down"))
+            if failing_kind == "Subscriptions"
+            else nullcontext()
+        )
 
-        assert running_work(self.team) == {"Batch exports": (failing_export,)}
-        assert "Did not stop" in result
-        assert failing_export in result
-        assert "BatchExportScheduleError" in result
+        result = self._shut_down(str(self.organization.id), temporal, during_confirm=listing_fails)
+
+        assert running_work(self.team) == {failing_kind: (failing_id,)}
+        assert "A failure can come after the change was saved" in result
+        assert ("BatchExportScheduleError" if failing_kind == "Batch exports" else "Could not list them") in result
 
     def test_confirm_stops_the_work_of_an_organization_that_is_already_inactive(self) -> None:
         Organization.objects.filter(id=self.organization.id).update(

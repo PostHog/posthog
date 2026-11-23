@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -7,11 +8,17 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertState
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade import api, contracts
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
+from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import enabled_native_configurations
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -210,3 +217,22 @@ class TestDisableAlert(BaseTest):
         assert api.disable_alert(mine, team_ids=[self.team.pk]) is False
         assert api.disable_alert(theirs, team_ids=[self.team.pk]) is False
         assert api.enabled_alert_ids([self.team.pk, other_team.pk]) == [theirs]
+
+    def test_disabling_an_alert_the_platform_owns_switches_off_the_copy_its_scheduler_checks(self) -> None:
+        alert = create_insight_alert(self.team, next_check_at=datetime.now(UTC) + timedelta(minutes=3))
+        [cutover] = cut_over_team(self.team.id, now=datetime.now(UTC))
+        assert cutover.skipped is None
+
+        def scheduled() -> list[UUID]:
+            configurations = enabled_native_configurations(
+                team_ids=[self.team.pk], source_kind=SourceKind.INSIGHT, owned_copies=True
+            )
+            return [configuration.id for configuration in configurations]
+
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(alert.id).id
+        assert scheduled() == [copy_id]
+
+        assert api.disable_alert(str(alert.id), team_ids=[self.team.pk]) is True
+
+        assert scheduled() == []

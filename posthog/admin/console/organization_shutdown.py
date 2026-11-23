@@ -85,7 +85,7 @@ class OrganizationShutdownForm(forms.Form):
         initial=True,
         help_text=(
             "Disables destinations, transformations, site apps, webhook sources, legacy plugins, subscriptions and "
-            "alerts, moves active workflows to draft, and pauses batch exports and warehouse syncs. "
+            "insight alerts, moves active workflows to draft, and pauses batch exports and warehouse syncs. "
             "This also runs for an organization that is already inactive, which keeps its reason."
         ),
     )
@@ -123,9 +123,8 @@ class BackgroundWork:
     stop: Callable[[str], bool]
 
 
-def find_background_work(team_ids: Collection[int]) -> list[BackgroundWork]:
-    """Every kind of work the teams run without anyone signed in, with at least one item running."""
-    found = [
+def _hog_function_work(team_ids: Collection[int]) -> list[BackgroundWork]:
+    return [
         BackgroundWork(
             label=_hog_function_label(function_type),
             ids=tuple(ids),
@@ -133,22 +132,40 @@ def find_background_work(team_ids: Collection[int]) -> list[BackgroundWork]:
         )
         for function_type, ids in cdp.enabled_hog_function_ids_by_type(team_ids).items()
     ]
-    found += [
-        BackgroundWork(label=label, ids=tuple(find(team_ids)), stop=partial(stop, team_ids=team_ids))
-        for label, find, stop in (
-            ("Workflows", workflows.active_workflow_ids, workflows.move_workflow_to_draft),
-            (
-                "Batch exports",
-                batch_exports.unpaused_batch_export_ids,
-                partial(batch_exports.pause_batch_export_of_teams, note=PAUSE_NOTE),
-            ),
-            ("Warehouse syncs", warehouse.syncing_schema_ids_for_staff, warehouse.stop_schema_syncing_for_staff),
-            ("Legacy plugins", cdp.enabled_plugin_config_ids, cdp.disable_plugin_config),
-            ("Subscriptions", subscriptions.enabled_subscription_ids, subscriptions.disable_subscription),
-            ("Alerts", alerts.enabled_alert_ids, alerts.disable_alert),
-        )
+
+
+def _work_of_one_kind(
+    label: str,
+    find: Callable[[Collection[int]], list[str]],
+    stop: Callable[..., bool],
+    team_ids: Collection[int],
+) -> list[BackgroundWork]:
+    return [BackgroundWork(label=label, ids=tuple(find(team_ids)), stop=partial(stop, team_ids=team_ids))]
+
+
+def _finders(team_ids: Collection[int]) -> list[tuple[str, Callable[[], list[BackgroundWork]]]]:
+    """How to list each kind of work, by the name staff see when the listing itself fails."""
+    kinds: tuple[tuple[str, Callable[[Collection[int]], list[str]], Callable[..., bool]], ...] = (
+        ("Workflows", workflows.active_workflow_ids, workflows.move_workflow_to_draft),
+        (
+            "Batch exports",
+            batch_exports.unpaused_batch_export_ids,
+            partial(batch_exports.pause_batch_export_of_teams, note=PAUSE_NOTE),
+        ),
+        ("Warehouse syncs", warehouse.syncing_schema_ids_for_staff, warehouse.stop_schema_syncing_for_staff),
+        ("Legacy plugins", cdp.enabled_plugin_config_ids, cdp.disable_plugin_config),
+        ("Subscriptions", subscriptions.enabled_subscription_ids, subscriptions.disable_subscription),
+        ("Insight alerts", alerts.enabled_alert_ids, alerts.disable_alert),
+    )
+    return [
+        ("Hog functions", partial(_hog_function_work, team_ids)),
+        *((label, partial(_work_of_one_kind, label, find, stop, team_ids)) for label, find, stop in kinds),
     ]
-    return [work for work in found if work.ids]
+
+
+def find_background_work(team_ids: Collection[int]) -> list[BackgroundWork]:
+    """Every kind of work the teams run without anyone signed in, with at least one item running."""
+    return [work for _, find in _finders(team_ids) for work in find() if work.ids]
 
 
 @frozen
@@ -218,26 +235,43 @@ def _deactivate(organization_ids: Sequence[UUID], reason: str) -> set[UUID]:
 def _stop_background_work(organization: Organization) -> tuple[list[StoppedWork], list[StopFailure]]:
     stopped: list[StoppedWork] = []
     failures: list[StopFailure] = []
-    for work in find_background_work(list(organization.teams.values_list("id", flat=True))):
-        stopped_ids: list[str] = []
-        for resource_id in work.ids:
-            # Each item stops on its own, so one that fails, such as a Temporal schedule that refuses to pause,
-            # leaves the rest to stop and shows on the result page.
-            try:
-                if work.stop(resource_id):
-                    stopped_ids.append(resource_id)
-            except Exception as error:
-                logger.exception(
-                    "organization_shutdown_stop_failed",
-                    organization_id=str(organization.id),
-                    kind=work.label,
-                    resource_id=resource_id,
-                )
-                capture_exception(error)
-                failures.append(StopFailure(label=work.label, resource_id=resource_id, error=_describe(error)))
-        if stopped_ids:
-            stopped.append(StoppedWork(label=work.label, ids=tuple(stopped_ids)))
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    # Each kind is listed, and each item stopped, on its own, so one that fails, such as a Temporal schedule that
+    # refuses to pause, leaves the rest to stop and shows on the result page.
+    for kind, find in _finders(team_ids):
+        try:
+            found = find()
+        except Exception as error:
+            failures.append(_failure(organization, StopFailure(label=kind, resource_id="", error=_describe(error))))
+            capture_exception(error)
+            continue
+        for work in found:
+            stopped_ids: list[str] = []
+            for resource_id in work.ids:
+                try:
+                    if work.stop(resource_id):
+                        stopped_ids.append(resource_id)
+                except Exception as error:
+                    failures.append(
+                        _failure(
+                            organization, StopFailure(label=work.label, resource_id=resource_id, error=_describe(error))
+                        )
+                    )
+                    capture_exception(error)
+            if stopped_ids:
+                stopped.append(StoppedWork(label=work.label, ids=tuple(stopped_ids)))
     return stopped, failures
+
+
+def _failure(organization: Organization, failure: StopFailure) -> StopFailure:
+    logger.warning(
+        "organization_shutdown_stop_failed",
+        organization_id=str(organization.id),
+        kind=failure.label,
+        resource_id=failure.resource_id,
+        error=failure.error,
+    )
+    return failure
 
 
 def _describe(error: Exception) -> str:
@@ -336,22 +370,23 @@ def result_page(results: Sequence[ShutdownResult], notices: Sequence[Notice] = (
         blocks.append(
             Notice(
                 text=(
-                    f"{pluralize(len(failures), 'item')} did not stop. Run the shutdown again for the organization "
-                    "to retry them, or ask the team that owns them."
+                    f"{pluralize(len(failures), 'item')} failed. A failure can come after the change was saved, so "
+                    "check each one. Run the shutdown again to retry the ones still running, or ask the team that "
+                    "owns them."
                 ),
                 tone=Tone.WARNING,
             )
         )
         blocks.append(
             Table(
-                title="Did not stop",
+                title="Failed",
                 columns=("Organization", "Kind", "ID", "Error"),
                 rows=tuple(
                     Row(
                         cells=(
                             Cell(text=result.name),
                             Cell(text=failure.label),
-                            Cell(text=failure.resource_id, mono=True),
+                            Cell(text=failure.resource_id or "Could not list them", mono=bool(failure.resource_id)),
                             Cell(text=failure.error),
                         )
                     )
