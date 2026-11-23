@@ -14,6 +14,7 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -678,10 +679,16 @@ def validate_label_prefix(raw: Any) -> str | None:
 def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User | None = None) -> int:
     """Delete the personal API keys ``app`` minted for ``team_id``, for one user or for all of them.
 
+    Keys ``app`` minted that no longer carry any project restriction count as minted for
+    every project.
+
     Deletes key by key so the activity log records each deletion. Keys the user created
     themselves carry no ``provisioned_by``, so they are never matched.
     """
-    keys = PersonalAPIKey.objects.filter(provisioned_by=app, scoped_teams__contains=[team_id])
+    # A key whose owner removed its project restriction still reaches the project, so it goes too.
+    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(
+        Q(scoped_teams__contains=[team_id]) | Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
+    )
     if user is not None:
         keys = keys.filter(user=user)
 
@@ -700,6 +707,7 @@ def maybe_create_provisioned_pat(
     granted_scope: str | None,
     label_prefix: str | None = None,
     *,
+    access_token: OAuthAccessToken | None = None,
     replace_existing: bool = False,
 ) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
@@ -721,6 +729,11 @@ def maybe_create_provisioned_pat(
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
 
+    ``access_token`` is the bearer token of the request. The mint locks its row and mints
+    nothing when the row is gone, so a mint that races a session revocation cannot leave a
+    working key behind. Both revoke functions in ``posthog/models/oauth.py`` delete the
+    token rows before the keys, so the two sides take their row locks in the same order.
+
     ``replace_existing`` first deletes the keys ``app`` minted earlier for this user and
     team, in the same transaction as the mint. It deletes them even when no new key is
     minted, so a rotation always ends the earlier keys.
@@ -729,6 +742,9 @@ def maybe_create_provisioned_pat(
         return None
 
     with transaction.atomic():
+        if access_token is not None and not _lock_live_access_token(access_token):
+            return None
+
         if replace_existing:
             delete_provisioned_pats(app, team_id=team.id, user=user)
 
@@ -737,6 +753,11 @@ def maybe_create_provisioned_pat(
             return None
 
         return _mint_provisioned_pat(user, team, app, pat_scopes, label_prefix)
+
+
+def _lock_live_access_token(access_token: OAuthAccessToken) -> bool:
+    locked = OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk).values_list("pk", flat=True)
+    return locked.first() is not None
 
 
 def _provisioned_pat_scopes(team: Team, app: OAuthApplication, granted_scope: str | None) -> list[str] | None:

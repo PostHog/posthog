@@ -50,6 +50,7 @@ def _access_configuration_response(
             access_token.application,
             access_token.scope,
             label_prefix=label_prefix,
+            access_token=access_token,
             replace_existing=replace_existing_pats,
         )
     ):

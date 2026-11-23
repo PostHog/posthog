@@ -761,6 +761,10 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             scoped_teams=[self.team.id, 99999],
         )
         assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
+        assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
+        unrestricted_key = PersonalAPIKey.objects.filter(provisioned_by=access_token.application).first()
+        assert unrestricted_key is not None
+        PersonalAPIKey.objects.filter(id=unrestricted_key.id).update(scoped_teams=[])
         own_key = mint_personal_api_key(
             sibling_user,
             label=self.team.name,
@@ -850,6 +854,18 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         assert pat is not None
         assert len(pat.label) == 40
         assert pat.label.startswith("LongPartnerName - ")
+
+    def test_no_pat_when_bearer_token_is_gone(self):
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        OAuthAccessToken.objects.filter(pk=access_token.pk).delete()
+
+        api_key = maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", access_token=access_token
+        )
+
+        assert api_key is None
+        assert not PersonalAPIKey.objects.filter(user=self.user, provisioned_by=self.partner).exists()
 
     def test_no_pat_when_ceiling_unseeded(self):
         # A flag-on app without a scope ceiling must not fall back to ["*"] or

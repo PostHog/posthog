@@ -5,6 +5,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
 
+from ee.partners.stripe.api.provisioning.core import maybe_create_provisioned_pat
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
@@ -45,6 +46,17 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         assert rotated_pat.label.startswith("Rotated - ")
         assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
+    def test_mint_skips_a_bearer_token_that_is_gone(self):
+        access_token = OAuthAccessToken.objects.get(token=self._get_bearer_token())
+        OAuthAccessToken.objects.filter(pk=access_token.pk).delete()
+
+        api_key = maybe_create_provisioned_pat(
+            self.user, self.team, self.stripe_app, "query:read", access_token=access_token
+        )
+
+        assert api_key is None
+        assert not PersonalAPIKey.objects.filter(provisioned_by=self.stripe_app).exists()
+
     def test_rotate_rejects_invalid_label_prefix_with_resource_id(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -84,12 +96,16 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
 
         provisioned_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
         own_key = self._mint_own_key(self.user, provisioned_pat)
+        unrestricted_api_key = maybe_create_provisioned_pat(self.user, self.team, self.stripe_app, "query:read")
+        assert unrestricted_api_key
+        unrestricted_pat = PersonalAPIKey.objects.filter(provisioned_by=self.stripe_app).latest("created_at")
+        PersonalAPIKey.objects.filter(id=unrestricted_pat.id).update(scoped_teams=[])
 
         res = self._post_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}/remove", token=token)
         assert res.status_code == 200
         assert res.json() == {"status": "removed", "id": str(self.team.id)}
         assert not TeamProvisioningConfig.objects.filter(team=self.team).exists()
-        assert not PersonalAPIKey.objects.filter(id=provisioned_pat.id).exists()
+        assert not PersonalAPIKey.objects.filter(id__in=[provisioned_pat.id, unrestricted_pat.id]).exists()
         assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
         # The team left the token's scope; since it was the only scoped team the

@@ -729,7 +729,12 @@ class ResourcesCreateView(StripeResourceAPIView):
             "host": host,
         }
         if personal_api_key := maybe_create_provisioned_pat(
-            user, team, access_token.application, access_token.scope, label_prefix=label_prefix
+            user,
+            team,
+            access_token.application,
+            access_token.scope,
+            label_prefix=label_prefix,
+            access_token=access_token,
         ):
             access_configuration["personal_api_key"] = personal_api_key
 
@@ -821,6 +826,7 @@ class RotateCredentialsView(StripeResourceAPIView):
             access_token.application,
             access_token.scope,
             label_prefix=label_prefix,
+            access_token=access_token,
             replace_existing=True,
         ):
             access_configuration["personal_api_key"] = personal_api_key
