@@ -12299,6 +12299,9 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         created_via?: (ExternalDataSourceCreatedViaEnum | NullEnum) | undefined;
+        /**
+         * Sync status rolled up from the enabled tables: Failed, Billing limits, Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is disabled. Disabled tables never count. `system.data_warehouse_sources.status` applies the same rule.
+         */
         status: string;
         client_secret: string;
         account_id: string;
@@ -12306,6 +12309,9 @@ export namespace Schemas {
          * The source type (e.g. 'Postgres', 'Stripe').
          */
         source_type: string;
+        /**
+         * The newest error among the source's enabled tables, with secrets redacted. Null when none has one.
+         */
         latest_error: string | null;
         /**
          * Mixin for serializers to add user access control fields
