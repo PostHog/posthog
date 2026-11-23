@@ -20,7 +20,14 @@ def _event(row_id: int) -> ChangeEvent:
         table_name="app.orders",
         position_serialized="",
         timestamp=dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
-        columns={"id": row_id, "amount": decimal.Decimal("1.50"), "raw": b"\x00\x01"},
+        columns={
+            "id": row_id,
+            "amount": decimal.Decimal("1.50"),
+            "raw": b"\x00\x01",
+            "paid_at": dt.datetime(2026, 1, 2, 3, 4, 5, 6),
+            "duration": dt.timedelta(hours=-1, microseconds=7),
+            "name": None,
+        },
     )
 
 

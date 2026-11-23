@@ -228,8 +228,8 @@ class MySQLCDCStreamReader:
         with transaction.atomic():
             # Locked and re-read, so a concurrent write of another `cdc_*` key survives this one.
             # The manager joins related rows, which Postgres can't lock on their nullable side.
-            locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=self._source.pk)
-            self._source.job_inputs = locked.job_inputs
+            ExternalDataSource.objects.select_for_update(of=("self",)).filter(pk=self._source.pk).exists()
+            self._source.refresh_from_db(fields=["job_inputs"])
             SourceInputsStore.update_runtime(self._source, {POSITION_KEY: position.serialize()}, extra_update_fields=())
 
     def current_position(self) -> str | None:
