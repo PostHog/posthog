@@ -1,6 +1,6 @@
 ---
 name: migrating-from-email-providers
-description: 'Move a team from an email API provider such as Resend, Postmark or SendGrid to PostHog: import the suppression list, unsubscribes, topics, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend, Postmark or SendGrid to PostHog, "switch to PostHog", or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
+description: 'Move a team from an email API provider such as Resend, Postmark, SendGrid, Mailgun or Mailchimp to PostHog: import the suppression list, unsubscribes, topics, mailing lists, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend, Postmark, SendGrid, Mailgun or Mailchimp to PostHog, "switch to PostHog", or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
 ---
 
 # Moving from another email provider
@@ -9,19 +9,19 @@ PostHog copies a team's data in one background import. The team then sets up DNS
 
 Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If the team's tool isn't listed, the import isn't turned on for this project, so stop and say so.
 
-The sections below use Resend as the example. For Postmark, also read [Postmark](#postmark), and for SendGrid, [SendGrid](#sendgrid).
+The sections below use Resend as the example. For Postmark, also read [Postmark](#postmark), for SendGrid, [SendGrid](#sendgrid), for Mailgun, [Mailgun](#mailgun), and for Mailchimp, [Mailchimp](#mailchimp).
 
 ## What moves
 
-| Data                     | In PostHog                                      | What the team does                                  |
-| ------------------------ | ----------------------------------------------- | --------------------------------------------------- |
-| Suppression list         | Suppression list                                | Reads the summary                                   |
-| Contacts                 | People, matched by email, and one static cohort | Checks the people and the cohort                    |
-| Unsubscribed contacts    | Opted out of all marketing email                | Nothing                                             |
-| Topics and topic choices | Marketing categories and opt-outs               | Checks topics that only send to people who opted in |
-| Templates                | Library templates, keyed by alias               | Fixes what the notes mention, then sends a test     |
-| Automations              | Draft workflows                                 | Sends trigger events to PostHog, reviews, enables   |
-| Domains                  | A list only                                     | Adds each domain and publishes new DNS records      |
+| Data                     | In PostHog                                                | What the team does                                  |
+| ------------------------ | --------------------------------------------------------- | --------------------------------------------------- |
+| Suppression list         | Suppression list                                          | Reads the summary                                   |
+| Contacts and segments    | People, matched by email, and a static cohort per segment | Checks the people and cohorts                       |
+| Unsubscribed contacts    | Opted out of all marketing email                          | Nothing                                             |
+| Topics and topic choices | Marketing categories and opt-outs                         | Checks topics that only send to people who opted in |
+| Templates                | Library templates, keyed by alias                         | Fixes what the notes mention, then sends a test     |
+| Automations              | Draft workflows                                           | Sends trigger events to PostHog, reviews, enables   |
+| Domains                  | A list only                                               | Adds each domain and publishes new DNS records      |
 
 API keys, webhooks, send history and stats stay with the old provider. The `contacts` step fills in what the person whose email matches each contact lacks, without changing values PostHog already has, and `new_people` creates a person for each contact no one matches, with the email as the ID. Resend's `contact_properties` copies custom contact properties the same way. Each person written counts as one billable event.
 
@@ -91,3 +91,50 @@ Postmark has no automations and no contact list, so the steps are `streams`, `su
 3. **Templates.** The key is the alias, with characters PostHog doesn't allow replaced by `-`, or `postmark-<id>` when there is no alias. When two servers share an alias, the later one gets `<alias>-<server id>`. Postmark's `TemplateModel` becomes `message_data` values read as `variables.<name>`. A template doesn't name a sender in Postmark, so choose one on each.
 4. **Rendering.** Layouts are copied into each template. Postmark copies style-block CSS onto elements when it sends and PostHog doesn't, and PostHog prints `true` where Postmark prints `True`, so send a test and check it.
 5. **Code.** Change the app's Postmark calls to PostHog's send API with the `sending-transactional-emails` skill. PostHog has no SMTP service, so an app sending over SMTP has to change to the API too.
+
+## Mailgun
+
+Follow the same steps, with these differences.
+
+**Region.** Ask which region the domains are in: `us`, `eu` or `both`, passed as `settings: {"region": "..."}`. Mailgun keeps data in each region apart, and PostHog only sends the key to the region chosen. If the domains step warns that a region has no domains, the user picked the wrong one.
+
+**Key.** An account API key, created in Mailgun under Account settings, API keys. A domain sending key can't read anything. On a plan with key roles, use Support: it's the smallest role that can read suppressions, though Mailgun lets it make changes too. An Analyst key can't read bounces, complaints or unsubscribes, so the start is refused unless those steps are left out.
+
+**Versions.** The active version imports by default. Pass `template_versions: "all"` only if the app names a version when it sends.
+
+| Mailgun                   | In PostHog                                    | What the team does                               |
+| ------------------------- | --------------------------------------------- | ------------------------------------------------ |
+| Bounces, every domain     | Suppression list, blocks all email            | Reads the summary                                |
+| Complaints, every domain  | Suppression list, blocks marketing email only | Knows these people still get transactional email |
+| Unsubscribes for all mail | Opted out of all marketing email              | Nothing                                          |
+| Unsubscribes for a tag    | Opted out of a new category named after it    | Puts the matching templates in that category     |
+| Allowlists                | A list only                                   | Removes test addresses meant to bounce           |
+| Mailing lists             | A category, and opt-outs for who left         | Builds the audience from its own data            |
+| Templates                 | Library templates in Liquid                   | Fixes the notes, passes variables, sends a test  |
+| Domains and DNS records   | A list only                                   | Adds each domain and publishes new records       |
+
+Mailgun's API documents no automations, so nothing becomes a workflow. Routes, webhooks, tracking settings, send history and stats stay behind, and Mailjet is a separate product.
+
+Mailgun scopes suppressions by domain and PostHog by project. An address blocked on one Mailgun domain is blocked for the whole project here. Say this plainly if the team sends unrelated brands from one account.
+
+**Template keys.** An account template keeps its name as the key, with any character a key can't hold replaced and a short hash added. In the EU region it starts with `eu-`. A domain template starts with its domain and a short hash, and a subaccount template also carries the subaccount id. Every key except a plain account template name ends in another short hash, so no two templates share a key. Always read the key from the template when changing the app's code. Pass the values Mailgun took from `t:variables` and `recipient-variables` as `variables`.
+
+## Mailchimp
+
+Follow the same steps, with these differences.
+
+**Key.** A Marketing API key, created in Mailchimp under Profile, Extras, API keys. It ends in the account's data center, such as `-us21`, and PostHog sends the key only to that data center. Every Mailchimp key can read and change the whole account, so ask the user to delete it once the import ends. Mailchimp Transactional (Mandrill) keys don't work here.
+
+**Campaigns.** Drafts, paused and scheduled campaigns import by default. Pass `campaigns: "recent"` to add campaigns sent in the last 90 days, or `"all"` for every campaign. Each becomes a draft template, so ask before importing years of sent campaigns.
+
+| Mailchimp                                               | In PostHog                                                    | What the team does                               |
+| ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
+| Audiences                                               | A category each, and opt-outs for who left                    | Builds the audience from its own data            |
+| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups          | Nothing                                          |
+| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left    | Puts the matching templates in that category     |
+| Cleaned contacts                                        | Suppression list, blocks all email                            | Reads the summary                                |
+| Abuse reports                                           | Suppression list, blocks marketing email only                 | Knows these people still get transactional email |
+| Saved templates                                         | Library templates in Liquid, when Mailchimp shares their HTML | Exports the rest as HTML from Mailchimp          |
+| Campaigns                                               | Library templates in Liquid                                   | Fixes the notes and sends a test                 |
+
+`*|FNAME|*`, `*|LNAME|*` and `*|EMAIL|*` read the person properties `first_name`, `last_name` and `email`. Other merge tags read the person property of the same name, such as `*|COMPANY|*` reading `COMPANY`, so the team sends those properties to PostHog for its people. Simple `*|IF:|*` conditions convert to Liquid. Any tag PostHog can't convert stays as written and is named in the template's notes. Hidden groups, customer journeys, classic automations, segments, tags, signup forms and reports stay behind.

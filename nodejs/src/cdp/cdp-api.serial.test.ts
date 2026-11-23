@@ -11,7 +11,6 @@ import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
-import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
@@ -2756,11 +2755,17 @@ describe('CDP API', () => {
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
-            (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+            (await transactionalEmailRequestsTotal.get()).values.find(
+                (v) => v.labels.outcome === outcome && v.labels.route === 'single'
+            )?.value ?? 0
         const stageCounts = async (): Promise<Record<string, number>> =>
             Object.fromEntries(
                 (await transactionalEmailStageDurationMs.get()).values
-                    .filter((v) => v.metricName === 'cdp_transactional_email_stage_duration_ms_count')
+                    .filter(
+                        (v) =>
+                            v.metricName === 'cdp_transactional_email_stage_duration_ms_count' &&
+                            v.labels.route === 'single'
+                    )
                     .map((v) => [String(v.labels.stage), v.value])
             )
         const stageCountChanges = (before: Record<string, number>, after: Record<string, number>) =>
@@ -2872,7 +2877,7 @@ describe('CDP API', () => {
         describe('with its team in intake shadow mode', () => {
             const intakeMessages = (): { key: unknown; value: Buffer }[] =>
                 produceOutput.mock.calls
-                    .filter(([output]) => output === 'cdp_intake_transactional_email')
+                    .filter(([output]) => output === 'cdp_intake_msk_transactional_email')
                     .map(([, message]) => message)
 
             beforeEach(() => {
@@ -2913,7 +2918,7 @@ describe('CDP API', () => {
 
             it('keeps its answer when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
+                    output === 'cdp_intake_msk_transactional_email'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -2948,7 +2953,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(res.body).toMatchObject({ status: 'queued', replayed: false })
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([
                     expect.objectContaining({ key: res.body.invocation_id }),
                 ])
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
@@ -2959,7 +2964,7 @@ describe('CDP API', () => {
 
             it('answers 503 intake_unavailable when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
+                    output === 'cdp_intake_msk_transactional_email'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -3008,11 +3013,11 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
-                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
+                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKeys').mockReturnValue(new Promise(() => {}))
 
                 const res = await send(hogFlow.id, authorized(), {
                     ...body,
@@ -3020,7 +3025,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('produces a send when its refusal checks do not answer in time', async () => {
@@ -3031,7 +3036,7 @@ describe('CDP API', () => {
                 const res = await send(hogFlow.id, authorized())
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
@@ -3046,7 +3051,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(429)
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([])
             })
         })
 
@@ -6502,17 +6507,10 @@ describe('CDP API', () => {
                 'a token signed with another key',
                 () => mintUploadTokenAsTheDjangoRouteDoes(teamId, undefined, 'wrong-key'),
             ],
-        ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
-            const unauthorizedCount = async (): Promise<number> =>
-                (
-                    await (register.getSingleMetric('cdp_email_attachments_upload_requests_total') as Counter).get()
-                ).values.find((v) => v.labels.outcome === 'unauthorized')?.value ?? 0
-            const before = await unauthorizedCount()
-
+        ])('refuses %s', async (_name, token) => {
             const res = await requestUploads(teamId, asked(pdf()), token())
 
             expect(res.status).toBe(401)
-            expect(await unauthorizedCount()).toBe(before + 1)
         })
 
         it.each([

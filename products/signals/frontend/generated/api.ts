@@ -126,6 +126,8 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportPlanStepAddRequestApi,
+    SignalReportPlanStepDependenciesRequestApi,
     SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
@@ -176,6 +178,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
+    SignalsReportsPlanStepsDestroyParams,
     SignalsReportsPrCiStatusesParams,
     SignalsReportsSearchParams,
     SignalsReportsSectionCountsRetrieveParams,
@@ -836,6 +839,89 @@ export const signalsReportsMergeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportMergeRequestApi),
+    })
+}
+
+export const getSignalsReportsPlanStepsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/plan_steps/`
+}
+
+/**
+ * Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it gets its first step. The step goes last in plan order. When the step is already resolved or archived and every other step is too, the plan closes the same way a plan closes when its last step does.
+ * @summary Add a step to this plan
+ */
+export const signalsReportsPlanStepsCreate = async (
+    projectId: string,
+    id: string,
+    signalReportPlanStepAddRequestApi: SignalReportPlanStepAddRequestApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPlanStepAddRequestApi),
+    })
+}
+
+export const getSignalsReportsPlanStepsDestroyUrl = (
+    projectId: string,
+    id: string,
+    stepId: string,
+    params?: SignalsReportsPlanStepsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/`
+}
+
+/**
+ * Remove the step's `part_of` link to this plan, and every `depends_on` link between the step and the plan's other steps. The step report keeps its status, pull requests and claim. A note on the step and on the plan records the removal. When every step left is resolved or archived, the plan closes.
+ * @summary Remove a step from this plan
+ */
+export const signalsReportsPlanStepsDestroy = async (
+    projectId: string,
+    id: string,
+    stepId: string,
+    params?: SignalsReportsPlanStepsDestroyParams,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsDestroyUrl(projectId, id, stepId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsPlanStepsDependsOnUpdateUrl = (projectId: string, id: string, stepId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/depends_on/`
+}
+
+/**
+ * Replace the step's `depends_on` links to the other steps of this plan with the given set. The step's links to reports outside the plan are unchanged. A note on the step records removed links.
+ * @summary Replace what a plan step builds on
+ */
+export const signalsReportsPlanStepsDependsOnUpdate = async (
+    projectId: string,
+    id: string,
+    stepId: string,
+    signalReportPlanStepDependenciesRequestApi: SignalReportPlanStepDependenciesRequestApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsDependsOnUpdateUrl(projectId, id, stepId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPlanStepDependenciesRequestApi),
     })
 }
 
@@ -2227,6 +2313,25 @@ export const signalsScoutConfigRun = async (
     })
 }
 
+export const getSignalsScoutConfigStopUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/stop/`
+}
+
+/**
+ * Stop the run of this scout that is in progress now. The run is cancelled the same way as a task run cancel: the agent is interrupted, the sandbox is torn down, and the run is marked cancelled, so the scout can run again. Idempotent: a run that already finished is returned unchanged. Returns 404 when the scout has no run in progress.
+ * @summary Stop a scout's run
+ */
+export const signalsScoutConfigStop = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutConfigStopUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsScoutConfigTrialUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/${id}/trial/`
 }
@@ -3351,7 +3456,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
@@ -3370,7 +3475,7 @@ export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRemember = async (

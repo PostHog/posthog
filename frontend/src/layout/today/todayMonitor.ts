@@ -1,18 +1,17 @@
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemImport } from '~/queries/schema/schema-general'
 
-interface MonitorProductSpec {
-    href: string
-    /** A path whose pages belong to the product even though no row links to them, such as AI observability's traces. */
-    section?: string
-}
+import {
+    TodayPaneProduct,
+    TodayPaneProductSpec,
+    paneProductForPath,
+    paneProductsFor,
+    shownPaneProducts,
+} from './todayPaneProducts'
 
-function monitorToolSpecs(): MonitorProductSpec[] {
+function monitorToolSpecs(): TodayPaneProductSpec[] {
     return [
         { href: urls.errorTracking() },
         { href: urls.logs() },
@@ -22,7 +21,7 @@ function monitorToolSpecs(): MonitorProductSpec[] {
     ]
 }
 
-function monitorAiProductSpecs(): MonitorProductSpec[] {
+function monitorAiProductSpecs(): TodayPaneProductSpec[] {
     return [
         { href: urls.aiObservabilityDashboard(), section: '/ai-observability' },
         { href: urls.aiObservabilityEvaluations(), section: '/ai-evals' },
@@ -33,58 +32,27 @@ function monitorAiProductSpecs(): MonitorProductSpec[] {
     ]
 }
 
-export interface MonitorProduct {
-    // pinned: part of the row's `data-attr`, so it keeps the product's sidebar `iconType`.
-    key: string
-    label: string
-    href: string
-    item: FileSystemImport
-    matchPaths: string[]
-}
-
 export interface MonitorProducts {
-    tools: MonitorProduct[]
-    products: MonitorProduct[]
-}
-
-function monitorProductsFor(pages: FileSystemImport[], specs: MonitorProductSpec[]): MonitorProduct[] {
-    return specs.flatMap(({ href, section }) => {
-        const item = pages.find((page) => page.href === href)
-        if (!item) {
-            return []
-        }
-        const matchPaths = [href.split(/[?#]/)[0], ...(section ? [section] : [])]
-        const label = item.displayLabel || splitPath(item.path).at(-1) || item.path
-        return [{ key: item.iconType ?? href, label, href, item, matchPaths }]
-    })
+    tools: TodayPaneProduct[]
+    products: TodayPaneProduct[]
 }
 
 export function monitorProducts(): MonitorProducts {
     const pages = getNavProductPages()
     return {
-        tools: monitorProductsFor(pages, monitorToolSpecs()),
-        products: monitorProductsFor(pages, monitorAiProductSpecs()),
+        tools: paneProductsFor(pages, monitorToolSpecs()),
+        products: paneProductsFor(pages, monitorAiProductSpecs()),
     }
 }
 
 export function monitorItems(featureFlags: FeatureFlagsSet): MonitorProducts {
     const { tools, products } = monitorProducts()
-    const shown = (product: MonitorProduct): boolean => isFileSystemImportShown(product.item, featureFlags)
-    return { tools: tools.filter(shown), products: products.filter(shown) }
+    return { tools: shownPaneProducts(tools, featureFlags), products: shownPaneProducts(products, featureFlags) }
 }
 
-export function monitorProductForPath(path: string): MonitorProduct | undefined {
+export function monitorProductForPath(path: string): TodayPaneProduct | undefined {
     const { tools, products } = monitorProducts()
-    let match: { product: MonitorProduct; matchPath: string } | undefined
-    for (const product of [...tools, ...products]) {
-        for (const matchPath of product.matchPaths) {
-            const matches = path === matchPath || path.startsWith(`${matchPath}/`)
-            if (matches && (!match || matchPath.length > match.matchPath.length)) {
-                match = { product, matchPath }
-            }
-        }
-    }
-    return match?.product
+    return paneProductForPath([...tools, ...products], path)
 }
 
 export function isErrorTrackingIssuePath(path: string): boolean {

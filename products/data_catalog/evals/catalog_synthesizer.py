@@ -296,6 +296,103 @@ ACTIVATION_FUNNEL_METRIC = CatalogMetric(
     unit="percent",
 )
 
+# The seeder leaves this metric proposed, so an answer from it must say so and must not show the approved badge.
+# The noise catalog only has the share of all active users who downloaded, so no approved metric fits new users.
+NEW_USER_DOWNLOAD_ADOPTION_METRIC = CatalogMetric(
+    name="new_user_download_adoption",
+    display_name="New user download adoption",
+    description=(
+        "Share of each week's new signups who downloaded a file within 7 days of signing up, over the trailing "
+        "eight weeks."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT toStartOfWeek(signup_at) AS week,\n"
+            "    count() AS signups,\n"
+            "    countIf(arrayExists(d -> d >= signup_at AND d <= signup_at + INTERVAL 7 DAY, downloads)) AS adopters,\n"
+            "    round(100 * adopters / signups, 1) AS adoption_pct\n"
+            "FROM (\n"
+            "    SELECT person_id,\n"
+            "        minIf(timestamp, event = 'signed_up') AS signup_at,\n"
+            "        groupArrayIf(timestamp, event = 'downloaded_file') AS downloads\n"
+            "    FROM events\n"
+            "    WHERE event IN ('signed_up', 'downloaded_file') AND timestamp >= now() - INTERVAL 8 WEEK\n"
+            "    GROUP BY person_id\n"
+            "    HAVING countIf(event = 'signed_up') > 0\n"
+            ")\n"
+            "GROUP BY week\n"
+            "ORDER BY week"
+        ),
+    },
+    unit="percent",
+)
+
+# Hedgebox has no deletions in recent weeks, so downloads lead this mix by a wide margin.
+FILES_PAGE_ACTIONS_METRIC = CatalogMetric(
+    name="files_page_actions_30d",
+    display_name="Files page actions",
+    description=(
+        "Actions taken on the files list page (/files/) over the trailing 30 days: file downloads, uploads and "
+        "deletions, with the number of people behind each. File detail and shared-file pages are not included."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT event AS action, count() AS actions, count(DISTINCT person_id) AS people\n"
+            "FROM events\n"
+            "WHERE event IN ('downloaded_file', 'uploaded_file', 'deleted_file')\n"
+            "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "  AND properties.$pathname = '/files/'\n"
+            "GROUP BY action\n"
+            "ORDER BY actions DESC"
+        ),
+    },
+)
+
+POWER_DOWNLOADERS_METRIC = CatalogMetric(
+    name="power_downloaders_30d",
+    display_name="Power downloaders",
+    description=(
+        "People with 20 or more file downloads in the trailing 30 days. This is the team's definition of a power user."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT count() AS power_downloaders\n"
+            "FROM (\n"
+            "    SELECT person_id FROM events\n"
+            "    WHERE event = 'downloaded_file' AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "    GROUP BY person_id\n"
+            "    HAVING count() >= 20\n"
+            ")"
+        ),
+    },
+)
+
+TOOL_FAILURE_RATE_METRIC = CatalogMetric(
+    name="agent_tool_failure_rate",
+    display_name="Agent tool failure rate",
+    description=(
+        "Share of agent tool calls that failed, per day over the trailing 7 days. A failure is a $mcp_tool_call "
+        "event whose $mcp_is_error is true."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT toStartOfDay(timestamp) AS day,\n"
+            "    count() AS calls,\n"
+            "    round(100 * countIf(toBool(properties.$mcp_is_error)) / count(), 2) AS failure_pct\n"
+            "FROM events\n"
+            "WHERE event = '$mcp_tool_call'\n"
+            "  AND timestamp >= now() - INTERVAL 7 DAY\n"
+            "GROUP BY day\n"
+            "ORDER BY day"
+        ),
+    },
+    unit="percent",
+)
+
 # Both churn branches read Hedgebox events, so the markdown cases need no warehouse table.
 CHURN_RISK_DOWNGRADE_BRANCH = "downgraded_plan"
 CHURN_RISK_DELETION_BRANCH = "deleted_file"

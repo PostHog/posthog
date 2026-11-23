@@ -34,6 +34,10 @@ class HarvestEndpointConfig:
     description: Optional[str] = None
     # Set for sub-resources that Harvest only lists per parent object (e.g. an invoice's payments).
     fanout: Optional[DependentEndpointConfig] = None
+    # False for endpoints that return one unpaginated response and document no `per_page`.
+    paginated: bool = True
+    # Nested objects whose `id` is copied to a top-level `<key>_id` column, for primary keys.
+    nested_id_keys: tuple[str, ...] = ()
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -68,6 +72,23 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         data_key="estimate_item_categories",
         description="Categories available for estimate line items.",
     ),
+    "estimate_messages": HarvestEndpointConfig(
+        name="estimate_messages",
+        path="estimates/{estimate_id}/messages",
+        data_key="estimate_messages",
+        primary_keys=["estimate_id", "id"],
+        partition_key="created_at",
+        fanout=DependentEndpointConfig(
+            parent_name="estimates",
+            resolve_param="estimate_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "estimate_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Messages sent for each estimate, such as sends, acceptances and declines. Needs an "
+        "administrator or a manager who can edit estimates.",
+    ),
     "estimates": HarvestEndpointConfig(
         name="estimates",
         path="estimates",
@@ -95,6 +116,23 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         data_key="invoice_item_categories",
         description="Categories available for invoice line items.",
     ),
+    "invoice_messages": HarvestEndpointConfig(
+        name="invoice_messages",
+        path="invoices/{invoice_id}/messages",
+        data_key="invoice_messages",
+        primary_keys=["invoice_id", "id"],
+        partition_key="created_at",
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "invoice_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Messages sent for each invoice, including payment reminders and thank-you notes. Needs "
+        "an administrator or a manager who can edit invoices.",
+    ),
     "invoice_payments": HarvestEndpointConfig(
         name="invoice_payments",
         path="invoices/{invoice_id}/payments",
@@ -119,6 +157,28 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         page_size=100,
         partition_key="created_at",
         description="Invoices issued to clients, including their line items.",
+    ),
+    "pto_balances": HarvestEndpointConfig(
+        name="pto_balances",
+        # Harvest returns balances for one user per request, so the user id goes in the query string.
+        path="pto/balances?user_id={user_id}",
+        data_key="balances",
+        primary_keys=["user_id", "year", "pto_type_id"],
+        supports_updated_since=False,
+        paginated=False,
+        nested_id_keys=("pto_type",),
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            # The child takes no page size, so the users listing gets its page size here.
+            parent_params={"per_page": 1000},
+            parent_field_renames={"id": "user_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Each user's time off balance per policy for the current year, as of the sync date. Full "
+        "refresh only - balances are a point-in-time calculation. Needs an administrator.",
     ),
     "pto_requests": HarvestEndpointConfig(
         name="pto_requests",
@@ -174,6 +234,24 @@ HARVEST_ENDPOINTS: dict[str, HarvestEndpointConfig] = {
         path="user_assignments",
         data_key="user_assignments",
         description="Users assigned to projects, with their rate and budget.",
+    ),
+    "user_billable_rates": HarvestEndpointConfig(
+        name="user_billable_rates",
+        path="users/{user_id}/billable_rates",
+        data_key="billable_rates",
+        primary_keys=["user_id", "id"],
+        supports_updated_since=False,
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+            child_response_actions=_MISSING_PARENT_IGNORE,
+        ),
+        description="Each user's billable rate history, with the dates each rate was in effect. Full refresh "
+        "only - the endpoint has no server-side modified-since filter. Needs an administrator or a manager "
+        "who can edit billable rates.",
     ),
     "user_cost_rates": HarvestEndpointConfig(
         name="user_cost_rates",

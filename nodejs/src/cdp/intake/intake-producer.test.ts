@@ -10,9 +10,6 @@ import {
     CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
     CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
-    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT,
-    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
 } from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
@@ -39,11 +36,8 @@ describe('IntakeProducer', () => {
             checkTopicExists: () => Promise.resolve(),
         })
         return new IngestionOutputs({
-            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
-            [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT),
             [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
-            [CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT),
             [CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT),
         })
     }
@@ -71,8 +65,8 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
-        ['workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, undefined],
+        ['transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
+        ['workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, undefined],
     ] as const)('produces a %s run to its topic, keyed by its run id', async (kind, output, fingerprint) => {
         const run = invocation({ acceptedAt: '2026-11-12T10:00:00.000Z' })
 
@@ -95,19 +89,12 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['b-1:9094', '7', 'shadow', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
-        ['b-1:9094', '*', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
-        ['b-1:9094', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
-        ['', '*', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
-        ['b-1:9094', '*', 'async', 'transactional-push', CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT, 'msk'],
-        ['', '*', 'async', 'transactional-push', CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT, 'warpstream'],
+        ['shadow', 'transactional-email', 'msk-broker:9094', 'msk'],
+        ['async', 'workflow-webhook', '', 'warpstream'],
+        ['async', 'transactional-push', 'msk-broker:9094', 'msk'],
     ] as const)(
-        'with MSK brokers %p and MSK teams %p, routes a %s %s run of team 7 to %s',
-        async (brokers, mskTeams, mode, kind, output, cluster) => {
-            const clusterOf = intakeClusterOf({
-                KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers,
-                CDP_INTAKE_MSK_TEAMS: mskTeams,
-            })
+        'counts an acked %s %s run with brokers %p under the %s cluster label',
+        async (mode, kind, brokers, cluster) => {
             const acked = async (): Promise<number> => {
                 const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
                 return metric.values
@@ -122,12 +109,13 @@ describe('IntakeProducer', () => {
             }
             const before = await acked()
 
-            await new IntakeProducer(outputs(), undefined, undefined, clusterOf).produce(
-                { kind, invocation: invocation() },
-                mode
-            )
+            await new IntakeProducer(
+                outputs(),
+                undefined,
+                undefined,
+                intakeClusterOf({ KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers })
+            ).produce({ kind, invocation: invocation() }, mode)
 
-            expect(produced.map((p) => p.output)).toEqual([output])
             expect((await acked()) - before).toBe(1)
         }
     )

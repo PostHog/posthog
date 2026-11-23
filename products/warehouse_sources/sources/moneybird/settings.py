@@ -35,6 +35,9 @@ class MoneybirdEndpoint:
     # all of them are joined.
     sync_filters: tuple[str, ...] = ()
     partition_key: str | None = "created_at"
+    primary_key: tuple[str, ...] = ("id",)
+    # The key that holds the rows when the endpoint returns an object, not a list.
+    data_selector: str | None = None
 
 
 ENDPOINTS: dict[str, MoneybirdEndpoint] = {
@@ -81,6 +84,11 @@ ENDPOINTS: dict[str, MoneybirdEndpoint] = {
         base_filter="state:all",
         supports_updated_after=True,
     ),
+    "typeless_documents": MoneybirdEndpoint(
+        path="documents/typeless_documents",
+        base_filter="state:all",
+        supports_updated_after=True,
+    ),
     "financial_accounts": MoneybirdEndpoint(path="financial_accounts", fetch_mode="single"),
     # The list endpoint answers 400 when more than 100 mutations match, so only the
     # synchronization endpoints can read every mutation.
@@ -89,7 +97,24 @@ ENDPOINTS: dict[str, MoneybirdEndpoint] = {
         fetch_mode="synchronization",
         sync_filters=("state:all",),
     ),
+    # Any filter replaces the `unbatched:true` default, so `state:all` also returns the batched transactions.
+    "purchase_transactions": MoneybirdEndpoint(path="purchase_transactions", base_filter="state:all"),
     "ledger_accounts": MoneybirdEndpoint(path="ledger_accounts", fetch_mode="single"),
+    # `active=false` also returns the disposed and fully depreciated assets.
+    "assets": MoneybirdEndpoint(path="assets", params={"active": "false"}, partition_key=None),
+    # The aging reports hold one row per contact with an open balance, as of the current month.
+    "debtors_aging": MoneybirdEndpoint(
+        path="reports/debtors_aging",
+        data_selector="debtors",
+        primary_key=("contact_id",),
+        partition_key=None,
+    ),
+    "creditors_aging": MoneybirdEndpoint(
+        path="reports/creditors_aging",
+        data_selector="creditors",
+        primary_key=("contact_id",),
+        partition_key=None,
+    ),
     "tax_rates": MoneybirdEndpoint(path="tax_rates"),
     # `active=false` also returns the deactivated products.
     "products": MoneybirdEndpoint(path="products", params={"active": "false"}),

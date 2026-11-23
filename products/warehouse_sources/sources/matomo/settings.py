@@ -40,6 +40,7 @@ class MatomoEndpointConfig:
     # Extra request parameters sent alongside the method, e.g. `flat` for hierarchical reports.
     params: dict[str, Any] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    row_key_fields: tuple[str, ...] = ()
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Delta partitioning for this endpoint. Left unset (None) means the table is written
     # unpartitioned — correct for the tiny per-day report tables. `visits` sets a datetime
@@ -230,6 +231,96 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         name="campaign_mediums",
         kind="report",
         method="MarketingCampaignsReporting.getMedium",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # Ecommerce product reports. Sites without ecommerce return an empty list.
+    "product_skus": MatomoEndpointConfig(
+        name="product_skus",
+        kind="report",
+        method="Goals.getItemsSku",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "product_names": MatomoEndpointConfig(
+        name="product_names",
+        kind="report",
+        method="Goals.getItemsName",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "product_categories": MatomoEndpointConfig(
+        name="product_categories",
+        kind="report",
+        method="Goals.getItemsCategory",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # Matomo groups these reports by codes; two region codes can share one label.
+    "regions": MatomoEndpointConfig(
+        name="regions",
+        kind="report",
+        method="UserCountry.getRegion",
+        primary_keys=["_date", "_row_key"],
+        row_key_fields=("country", "region"),
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "cities": MatomoEndpointConfig(
+        name="cities",
+        kind="report",
+        method="UserCountry.getCity",
+        primary_keys=["_date", "_row_key"],
+        row_key_fields=("country", "region", "city_name"),
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # A site with a page title category delimiter nests titles under category rows, like page URLs.
+    "page_titles": MatomoEndpointConfig(
+        name="page_titles",
+        kind="report",
+        method="Actions.getPageTitles",
+        params={"flat": 1},
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "site_search_keywords": MatomoEndpointConfig(
+        name="site_search_keywords",
+        kind="report",
+        method="Actions.getSiteSearchKeywords",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "visit_frequency": MatomoEndpointConfig(
+        name="visit_frequency",
+        kind="report",
+        method="VisitFrequency.get",
+        primary_keys=["_date"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "visits_by_duration": MatomoEndpointConfig(
+        name="visits_by_duration",
+        kind="report",
+        method="VisitorInterest.getNumberOfVisitsPerVisitDuration",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "visits_by_page_count": MatomoEndpointConfig(
+        name="visits_by_page_count",
+        kind="report",
+        method="VisitorInterest.getNumberOfVisitsPerPage",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "visits_by_visit_number": MatomoEndpointConfig(
+        name="visits_by_visit_number",
+        kind="report",
+        method="VisitorInterest.getNumberOfVisitsByVisitCount",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "visits_by_days_since_last": MatomoEndpointConfig(
+        name="visits_by_days_since_last",
+        kind="report",
+        method="VisitorInterest.getNumberOfVisitsByDaysSinceLast",
         primary_keys=["_date", "label"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),

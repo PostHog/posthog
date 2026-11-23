@@ -2,19 +2,26 @@ import { useValues } from 'kea'
 
 import { LemonTable } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { GatewayKeySpendRow, gatewayKeySpendLogic } from './gatewayKeySpendLogic'
 import { GATEWAY_SPEND_WINDOW_DAYS } from './gatewayKeySpendQuery'
+import { QuillGatewayKeySpend } from './QuillGatewayKeySpend'
 
 export function GatewayKeySpend(): JSX.Element | null {
     const { hasGatewayKeys, summary, spend, spendLoading, spendFailed } = useValues(gatewayKeySpendLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!hasGatewayKeys) {
         return null
     }
 
     const loading = spendLoading || spend === null
+
+    if (todayRailNav) {
+        return <QuillGatewayKeySpend summary={summary} loading={loading} spendFailed={spendFailed} />
+    }
 
     return (
         <div className="mt-6">

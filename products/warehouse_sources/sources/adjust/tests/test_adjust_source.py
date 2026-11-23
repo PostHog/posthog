@@ -37,6 +37,8 @@ class TestAdjustSource:
             "HTTPSConnectionPool(host='automate.adjust.com', port=443): Max retries exceeded with "
             'url: /reports-service/report?dimensions=day (Caused by ReadTimeoutError("HTTPSConnectionPool'
             "(host='automate.adjust.com', port=443): Read timed out. (read timeout=300)\"))",
+            "HTTPSConnectionPool(host='api.adjust.com', port=443): Max retries exceeded with "
+            "url: /public/v2/partners (Caused by NewConnectionError('Failed to establish a new connection'))",
             # `AdjustRetryableError`, raised once a 429/5xx response survives those same retries.
             "Adjust API error (retryable): status=429, url=https://automate.adjust.com/reports-service/report",
         ],

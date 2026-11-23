@@ -2,14 +2,45 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { CustomRecipeItem, parserRecipesLogic } from './parserRecipesLogic'
+import { CustomRecipeItem, RecipeEditorState, parserRecipesLogic } from './parserRecipesLogic'
+import { QuillParserRecipesSettings } from './QuillParserRecipesSettings'
+
+export function confirmDeleteRecipe(item: CustomRecipeItem, deleteItem: (item: CustomRecipeItem) => void): void {
+    LemonDialog.open({
+        title: 'Delete recipe?',
+        description: `This permanently deletes "${item.name}". This cannot be undone.`,
+        primaryButton: {
+            children: 'Delete',
+            status: 'danger',
+            onClick: () => deleteItem(item),
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
+}
+
+export function recipeSaveDisabledReason(
+    editor: RecipeEditorState | null,
+    editorCompileError: string | null
+): string | undefined {
+    return !editor?.name.trim()
+        ? 'Recipe name is required'
+        : editorCompileError
+          ? 'Recipe YAML does not compile'
+          : undefined
+}
 
 export function ParserRecipesSettings(): JSX.Element {
     const { customItems, storedRecipesLoading } = useValues(parserRecipesLogic)
     const { openEditorForNew } = useActions(parserRecipesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillParserRecipesSettings />
+    }
 
     if (storedRecipesLoading) {
         return <Spinner />
@@ -51,18 +82,7 @@ function RecipeRow({ item }: { item: CustomRecipeItem }): JSX.Element {
                 size="small"
                 type="secondary"
                 status="danger"
-                onClick={() =>
-                    LemonDialog.open({
-                        title: 'Delete recipe?',
-                        description: `This permanently deletes "${item.name}". This cannot be undone.`,
-                        primaryButton: {
-                            children: 'Delete',
-                            status: 'danger',
-                            onClick: () => deleteItem(item),
-                        },
-                        secondaryButton: { children: 'Cancel' },
-                    })
-                }
+                onClick={() => confirmDeleteRecipe(item, deleteItem)}
             >
                 Delete
             </LemonButton>
@@ -73,8 +93,6 @@ function RecipeRow({ item }: { item: CustomRecipeItem }): JSX.Element {
 function RecipeEditorModal(): JSX.Element {
     const { editor, savingEditor, editorCompileError } = useValues(parserRecipesLogic)
     const { closeEditor, setEditorName, setEditorSource, submitEditor } = useActions(parserRecipesLogic)
-
-    const nameMissing = !editor?.name.trim()
 
     return (
         <LemonModal
@@ -91,13 +109,7 @@ function RecipeEditorModal(): JSX.Element {
                         type="primary"
                         onClick={submitEditor}
                         loading={savingEditor}
-                        disabledReason={
-                            nameMissing
-                                ? 'Recipe name is required'
-                                : editorCompileError
-                                  ? 'Recipe YAML does not compile'
-                                  : undefined
-                        }
+                        disabledReason={recipeSaveDisabledReason(editor, editorCompileError)}
                     >
                         Save
                     </LemonButton>

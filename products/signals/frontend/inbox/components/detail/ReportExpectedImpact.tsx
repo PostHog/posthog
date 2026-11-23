@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
@@ -62,13 +63,15 @@ export function ReportExpectedImpact({
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     if (!monitoringEnabled) {
         return null
     }
     const measurements = buildReportCheckRows(
         reportChecks ?? [],
         latestCheckExplanations(reportArtefacts ?? []),
-        report.status
+        report.status,
+        scoutNamesBySkill
     )
         .filter(({ check }) => check.status !== 'cancelled')
         .flatMap((row) => {
