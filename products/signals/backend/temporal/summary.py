@@ -97,7 +97,12 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
+from products.signals.backend.temporal.report_safety_judge import (
+    ResearchProseSafetyJudgeInput,
+    SafetyJudgeInput,
+    report_safety_judge_activity,
+    research_prose_safety_judge_activity,
+)
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
@@ -734,6 +739,43 @@ class SignalReportSummaryWorkflow:
                     tags=agentic_result.tags,
                     pending_reason="agent_requested",
                 )
+                # Research reads untrusted material after the input judge ran, so the prose it wrote
+                # gets its own judge before it can reach READY, pending input, or autostart.
+                if decision.choice != ActionabilityChoice.NOT_ACTIONABLE and workflow.patched(
+                    "signals-research-prose-safety-judge"
+                ):
+                    prose_safety = await workflow.execute_activity(
+                        research_prose_safety_judge_activity,
+                        ResearchProseSafetyJudgeInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            signal_id=inputs.signal_id,
+                            title=decision.title,
+                            summary=decision.summary,
+                            checks_summary=decision.checks_summary,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    if not prose_safety.safe:
+                        log.warning(
+                            "Research-written report content failed safety review",
+                            explanation=prose_safety.explanation,
+                        )
+                        await workflow.execute_activity(
+                            mark_report_failed_activity,
+                            MarkReportFailedInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                error=f"Research output failed safety review: {prose_safety.explanation}",
+                                failure_reason="research_safety_judge_rejected",
+                                signal_count=signal_count,
+                                source_products=source_products,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        return False
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
                     "Report deemed not actionable",

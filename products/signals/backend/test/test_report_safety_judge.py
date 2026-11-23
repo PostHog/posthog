@@ -15,14 +15,20 @@ from fakeredis import FakeRedis
 from temporalio.exceptions import ApplicationError
 
 from posthog.llm.gateway_client import private_scout_gateway
+from posthog.sync import database_sync_to_async
 
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionResult, NoulAnswer
-from products.signals.backend.temporal.llm import SAFETY_MODEL
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.temporal.llm import SAFETY_MODEL, LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import (
     JEV_REPORT_STATE_MAX_BYTES,
     JEV_REPORT_TIMEOUT_SECONDS,
+    SAFETY_REFUSAL_EXPLANATION,
+    ResearchProseSafetyJudgeInput,
+    SafetyJudgeOutput,
     SafetyJudgeResponse,
     judge_report_safety,
+    research_prose_safety_judge_activity,
 )
 from products.signals.backend.temporal.types import SignalData
 
@@ -278,3 +284,57 @@ async def test_private_report_judge_keeps_the_trial_gateway_without_rollout_capt
     client.return_value.messages.create.assert_awaited_once()
     decide.assert_not_called()
     capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "verdict,explanation",
+    [
+        (LLMRefusalError(), SAFETY_REFUSAL_EXPLANATION),
+        (
+            SafetyJudgeResponse(choice=False, explanation="Instruction override in the summary."),
+            "Instruction override in the summary.",
+        ),
+    ],
+)
+async def test_research_prose_judge_fails_closed_and_records_the_verdict(ateam, verdict, explanation) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, total_weight=1.0, signal_count=1
+    )
+    calls: list[tuple[str, object]] = []
+
+    async def fake_call_llm(
+        *, user_prompt: str, properties: dict[str, object], **_kwargs: object
+    ) -> SafetyJudgeResponse:
+        calls.append((user_prompt, properties["source_product"]))
+        if isinstance(verdict, Exception):
+            raise verdict
+        return verdict
+
+    with patch(f"{MODULE_PATH}.call_llm", new=fake_call_llm):
+        result = await research_prose_safety_judge_activity(
+            ResearchProseSafetyJudgeInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Fix the checkout crash",
+                summary="Research summary.",
+                checks_summary="Reconciled summary.",
+            )
+        )
+
+    assert result == SafetyJudgeOutput(safe=False, explanation=explanation)
+    ((prompt, source_product),) = calls
+    assert "Research summary." in prompt
+    assert "Reconciled summary." in prompt
+    assert source_product == "report_research"
+    stored = await database_sync_to_async(
+        lambda: (
+            SignalReportArtefact.objects.filter(
+                report_id=report.id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+            )
+            .values_list("content", flat=True)
+            .get()
+        )
+    )()
+    assert json.loads(stored) == {"choice": False, "explanation": explanation}

@@ -32,7 +32,11 @@ from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportOutput,
 )
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
+from products.signals.backend.temporal.report_safety_judge import (
+    ResearchProseSafetyJudgeInput,
+    SafetyJudgeInput,
+    SafetyJudgeOutput,
+)
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
@@ -218,6 +222,8 @@ class _Recorder:
         self.failure_reasons: list[str | None] = []
         self.marks_in_progress = 0
         self.safety_checks = 0
+        self.prose_safe = True
+        self.prose_safety_inputs: list[ResearchProseSafetyJudgeInput] = []
         self.repo_selections = 0
         self.researches = 0
         self.spend_publications = 0
@@ -307,6 +313,11 @@ async def _run_summary_workflow(recorder: _Recorder, *, operator_rerun: bool = F
         recorder.safety_checks += 1
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
+    @activity.defn(name="research_prose_safety_judge_activity")
+    async def fake_prose_safety(input: ResearchProseSafetyJudgeInput) -> SafetyJudgeOutput:
+        recorder.prose_safety_inputs.append(input)
+        return SafetyJudgeOutput(safe=recorder.prose_safe, explanation=None if recorder.prose_safe else "unsafe")
+
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.repo_selections += 1
@@ -394,6 +405,7 @@ async def _run_summary_workflow(recorder: _Recorder, *, operator_rerun: bool = F
                 fake_mark_in_progress,
                 fake_spend_owner,
                 fake_safety,
+                fake_prose_safety,
                 fake_select_repo,
                 fake_research,
                 fake_mark_pending,
@@ -558,6 +570,25 @@ async def test_metric_payload_reaches_the_report_transition(choice, target, chec
     if target == "ready":
         assert recorder.ready_inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
     assert inputs[0].checks_error == checks_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "choice", [ActionabilityChoice.REQUIRES_HUMAN_INPUT, ActionabilityChoice.IMMEDIATELY_ACTIONABLE]
+)
+async def test_unsafe_research_prose_fails_the_report_before_it_surfaces(choice):
+    recorder = _Recorder(research_choice=choice)
+    recorder.checks_summary = "Reconciled summary."
+    recorder.prose_safe = False
+
+    await _run_summary_workflow(recorder)
+
+    assert [(i.title, i.summary, i.checks_summary) for i in recorder.prose_safety_inputs] == [
+        ("t", "s", "Reconciled summary.")
+    ]
+    assert recorder.pending_inputs == []
+    assert recorder.ready_inputs == []
+    assert recorder.failure_reasons == ["research_safety_judge_rejected"]
 
 
 @pytest.mark.asyncio
