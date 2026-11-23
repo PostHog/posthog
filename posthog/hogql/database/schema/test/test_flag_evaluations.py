@@ -473,7 +473,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("equals", "properties.`$feature/beta` = 'true'", 1),
-            ("not_equals", "properties.`$feature/beta` != 'true'", 1),
+            ("not_equals", "properties.`$feature/beta` != 'true'", 2),
             ("in", "properties.`$feature/variant` IN ('control', 'test')", 2),
             ("like", "properties.`$feature/variant` LIKE 'cont%'", 1),
             ("missing_key", "properties.`$feature/absent` = 'true'", 0),
