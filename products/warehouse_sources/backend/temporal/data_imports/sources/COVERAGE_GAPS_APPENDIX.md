@@ -10604,18 +10604,18 @@ Note: Diffed against Okta's published management OpenAPI (485 paths). Deliberate
 
 ## Omni — gaps
 
-Today (10): `Connections`, `DocumentPermissions`, `Documents`, `Folders`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroups`, `Users`
+Today (15): `AiConversations`, `Connections`, `DocumentPermissions`, `Documents`, `FolderPermissions`, `Folders`, `Labels`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroupModelRoles`, `UserGroups`, `UserModelRoles`, `Users`
 
 Diffed against: <https://docs.omni.co/sitemap.xml>
 
 - [x] `models (GET /api/v1/models — list-models, list-model-schemas)` — Lookup resolving the model id carried by documents, queries and schedules; nothing in the current tables identifies which data model content sits on (high)
 - [x] `schedule-recipients (list-schedule-recipients)` — Junction between the Schedules table we already sync and the users/groups actually receiving each delivery (high)
 - [x] `document-permissions (get-document-permissions, all-users-and-groups-with-document-access)` — Who can see which dashboard — the access-audit join across Documents, Users and UserGroups (high)
-- [ ] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
-- [ ] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
-- [ ] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
+- [x] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
+- [x] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
+- [x] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
 - [x] `user-attributes (list-user-attributes)` — Lookup for the attribute keys used in row-level access controls referenced on users (medium)
-- [ ] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
+- [x] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
 - [ ] `document-favorites (list-document-favoriters)` — Per-document favorite counts and favoriters — an engagement signal on content (medium)
 - [ ] `embed users and email-only users (list-embed-users, list-email-only-users)` — Two user populations excluded from the main Users table, so seat and delivery counts are understated (medium)
 - [ ] `document drafts (list-document-drafts)` — Unpublished drafts per document, useful for content lifecycle and staleness analysis (low)
