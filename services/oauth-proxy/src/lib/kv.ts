@@ -13,10 +13,13 @@ const CLIENT_PREFIX = 'client:'
 const REGION_PREFIX = 'region:'
 const CALLBACK_PREFIX = 'callback:'
 const PENDING_CALLBACK_PREFIX = 'pending_callback:'
+const CODE_ROUTE_PREFIX = 'code_route:'
 
 const REGION_SELECTION_TTL = 3600
 const CALLBACK_TTL = 3600
 const PENDING_CALLBACK_TTL = 3600
+// Regional servers expire authorization codes after 5 minutes (AUTHORIZATION_CODE_EXPIRE_SECONDS).
+const CODE_ROUTE_TTL = 600
 
 // Cloudflare KV caps key names at 512 bytes. Callers may pass opaque values
 // (notably the OAuth `state` parameter) that exceed that limit, so we derive
@@ -62,6 +65,7 @@ export async function getCallbackRedirectUri(kv: KVNamespace, key: string): Prom
 export interface PendingCallback {
     redirect_uri: string
     state: string | null
+    region?: Region
 }
 
 export async function putPendingCallback(kv: KVNamespace, nonce: string, record: PendingCallback): Promise<void> {
@@ -101,4 +105,31 @@ export function resolveMappingRewrite(
     }
 
     return { regionalClientId, clientSecretRewrite }
+}
+
+/**
+ * Where one authorization code was issued, recorded when the proxy forwards the callback.
+ *
+ * The region selection keyed by `client_id` is shared by every user of a client, so with a
+ * client that many users share (one registration per integration rather than per user) a
+ * second user's authorize overwrites the first user's region before their code is exchanged.
+ * Keying by the code itself routes each exchange to the region that issued it.
+ */
+export interface CodeRoute {
+    region: Region
+    redirect_uri: string
+}
+
+export async function putCodeRoute(kv: KVNamespace, code: string, route: CodeRoute): Promise<void> {
+    await kv.put(`${CODE_ROUTE_PREFIX}${await hashKey(code)}`, JSON.stringify(route), {
+        expirationTtl: CODE_ROUTE_TTL,
+    })
+}
+
+export async function getCodeRoute(kv: KVNamespace, code: string): Promise<CodeRoute | null> {
+    const data = (await kv.get(`${CODE_ROUTE_PREFIX}${await hashKey(code)}`, 'json')) as CodeRoute | null
+    if (data && (data.region === 'us' || data.region === 'eu') && typeof data.redirect_uri === 'string') {
+        return data
+    }
+    return null
 }

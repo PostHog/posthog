@@ -180,6 +180,7 @@ describe('handleAuthorize', () => {
         expect(JSON.parse(pendingByNonce![1] as string)).toEqual({
             redirect_uri: 'http://localhost:3000/callback',
             state: 'abc123',
+            region: 'eu',
         })
 
         const stateHash = await hashKey('abc123')

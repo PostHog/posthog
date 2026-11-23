@@ -1,4 +1,4 @@
-import { deletePendingCallback, getPendingCallback } from '@/lib/kv'
+import { deletePendingCallback, getPendingCallback, putCodeRoute } from '@/lib/kv'
 
 /**
  * OAuth Callback Interception — proxy receives the regional server's callback
@@ -25,6 +25,15 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
         await deletePendingCallback(kv, state)
     } catch {
         console.warn(JSON.stringify({ handler: 'callback', error: 'pending_callback_delete_failed' }))
+    }
+
+    const code = url.searchParams.get('code')
+    if (code && record.region) {
+        try {
+            await putCodeRoute(kv, code, { region: record.region, redirect_uri: record.redirect_uri })
+        } catch {
+            console.warn(JSON.stringify({ handler: 'callback', error: 'code_route_put_failed' }))
+        }
     }
 
     const clientUrl = new URL(record.redirect_uri)

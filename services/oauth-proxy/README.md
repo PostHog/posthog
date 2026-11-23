@@ -61,9 +61,18 @@ Clients registered directly against a region keep their own `redirect_uri` and f
 
 ### Region resolution at the token endpoint
 
-- A KV hit on `client_id` is the fast path.
+- An `authorization_code` grant is routed by its code first. When the proxy forwards a callback
+  (step 3), it records which region issued that code, keyed by the code's hash, for 10 minutes.
+  A region selection keyed by `client_id` can't do this on its own: an integration that registers once and
+  shares the `client_id` across its users would have a later user's authorize overwrite an
+  earlier user's region before their code is exchanged.
+- Otherwise a KV hit on `client_id` is the fast path.
 - `authorization_code` grants with no stored region are rejected rather than replayed against both regions, because sending an auth code to the wrong server would leak it.
-- `refresh_token` grants fall back to trying each region with the correctly rewritten `client_id`, then re-store the winner so later refreshes take the fast path.
+- `refresh_token` grants treat a `client_id` selection as a first guess, since another user of
+  the same client may have set it. A rejection is retried in the other region, which is safe
+  because a refresh token means nothing to the region that didn't issue it. With no selection they
+  try each region with the correctly rewritten `client_id`. Either way the winner is re-stored so
+  the next refresh tries it first.
 - When both regions reject a request, the 4xx is forwarded in preference to the 5xx: a 4xx carries the OAuth error code the client acts on, while a 5xx only means one region was unhealthy.
 
 ## ID tokens
