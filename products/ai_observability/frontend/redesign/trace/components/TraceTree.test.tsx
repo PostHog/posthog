@@ -78,6 +78,13 @@ describe('TraceTree', () => {
                     .join(' ')
             )
         ).toEqual(['treeitem 1 1 1 false', 'treeitem 2 1 3 true', 'treeitem 2 2 3 false', 'treeitem 2 3 3 false'])
+
+        const [root, ...children] = rows(container)
+        const group = container.querySelector('[role="group"]')
+        expect(root).toHaveAttribute('aria-expanded', 'true')
+        expect(root.getAttribute('aria-owns')).toBe(group?.id)
+        expect(children.every((row) => group?.contains(row))).toBe(true)
+        expect(children.some((row) => row.hasAttribute('aria-expanded') || row.hasAttribute('aria-owns'))).toBe(false)
     })
 
     it.each([

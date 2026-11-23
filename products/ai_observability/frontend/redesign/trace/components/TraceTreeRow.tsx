@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -27,6 +29,11 @@ export interface TraceTreeRowProps {
     matchingNodeIds?: ReadonlySet<string> | null
 }
 
+// A step with children owns their group, which sits beside the row and not inside it. The tree has no collapsed steps.
+function parentAttributes(groupId: string, hasChildren: boolean): { 'aria-owns'?: string; 'aria-expanded'?: true } {
+    return hasChildren ? { 'aria-owns': groupId, 'aria-expanded': true } : {}
+}
+
 export function TraceTreeRow({
     node,
     depth,
@@ -41,6 +48,8 @@ export function TraceTreeRow({
     matchingNodeIds = null,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    const groupId = useId()
+    const hasChildren = node.children.length > 0
     const evalOutcome = evalOutcomes.get(node.id) ?? null
     const feedbackCount = stepFeedback?.get(node.id)?.total ?? 0
     return (
@@ -52,6 +61,7 @@ export function TraceTreeRow({
                 aria-level={depth + 1}
                 aria-posinset={positionInSet}
                 aria-setsize={setSize}
+                {...parentAttributes(groupId, hasChildren)}
                 tabIndex={node.id === tabStopId ? 0 : -1}
                 onClick={() => onSelectNode(node.id)}
                 onMouseEnter={() => onPrefetchNode(node.id)}
@@ -81,8 +91,8 @@ export function TraceTreeRow({
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
             </button>
-            {node.children.length > 0 ? (
-                <ul role="group" className="m-0 list-none p-0">
+            {hasChildren ? (
+                <ul id={groupId} role="group" className="m-0 list-none p-0">
                     {node.children.map((child, index) => (
                         <TraceTreeRow
                             key={child.id}
