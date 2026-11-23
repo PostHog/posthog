@@ -94,5 +94,7 @@ operations = [
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_logs34_avro_mv", node_roles=[_logs_ingest_role]),
-    run_sql_with_exceptions(KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[_logs_ingest_role]),
+    run_sql_with_exceptions(
+        KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", source_partition=False), node_roles=[_logs_ingest_role]
+    ),
 ]
