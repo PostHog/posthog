@@ -60,11 +60,9 @@ Access rules can also be changed with MCP write tools. Read the current rule fir
 - **Creators** have full access to the objects they created, and only those. A member with `viewer` on
   dashboards can still edit the dashboard they created, and cannot edit the others.
 - **Precedence.** For the project, a tool or an object, the most specific subject with a rule decides: the member's own rule, then the highest of the rules of their roles, then the default.
-  A less specific rule never overrides a more specific one, also when it grants more.
   A rule on an object comes before a rule on its tool, with one exception: an object's default rule gives nothing to a member whose access to the tool is `none`.
-  The server already applied this to every level the tools return.
-  So **trust `effective_access_level` and never recompute it from the stored rules.**
-  If the user asks why, explain from `inherited_access`.
+  `effective_access_level` is the result of this order, so read the enforced level from it.
+  `inherited_access` says where that level comes from.
 
 ## Available tools
 
@@ -108,10 +106,11 @@ All access control tools take an optional project id and default to the active p
       `default-objects-list`, and pick out the rows for this object. Tell the user how many roles you
       would walk and ask before doing it for a member in many roles.
    4. No rule on the object: the tool-level answer from step 2 applies.
-5. **Several rules on one object.** No tool returns the enforced level on an object for another member, so apply the precedence above to the rows from step 4.
+5. **Step 4 found more than one rule on the object.** For example, the member has `viewer` on a dashboard, one of their roles has `editor`, and the default is `none`.
+   The object tools list these stored rules. They do not say which one the member ends up with, so work it out with the precedence above.
    The member's own rule decides. Without one, the highest rule among their roles decides. Without one, the default rule decides.
    When only the default rule applies and the member's `effective_access_level` for the tool is `none`, the member has no access to the object.
-   Report the rule that decides with its subject, then the other rules you found.
+   Tell the user which rule decides and whose it is, then list the other rules you found.
    Property questions work like step 4 with the properties tools, minus the creator check, since properties have no creator.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
    `resources.<tool>.effective_access_level`. The response is every member times every tool and has no
