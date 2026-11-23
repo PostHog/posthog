@@ -61,7 +61,8 @@ export function InstrumentationRow({
                     data-attr="home-instrumentation-toggle"
                 >
                     <span className="font-semibold">
-                        Instrumentation {checklist.passing} of {checklist.total}
+                        Instrumentation <span translate="no">{checklist.passing}</span> of{' '}
+                        <span translate="no">{checklist.total}</span>
                     </span>
                 </LemonButton>
                 {checklist.agent_prompt !== null ? (
