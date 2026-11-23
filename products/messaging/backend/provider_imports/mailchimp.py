@@ -122,7 +122,6 @@ class MailchimpImportProvider(ImportProvider):
     key = ImportProviderKey.MAILCHIMP.value
     label = ImportProviderKey.MAILCHIMP.label
     retains_credentials = False
-    resumes_after_failure = True
     feature_flag = "workflows-mailchimp-import"
     api_key_label = "Mailchimp API key"
     api_key_help = (
@@ -449,17 +448,28 @@ def _audience_category(audience: Mapping[str, Any]) -> ImportedCategory:
     )
 
 
-def _is_empty(audience: Mapping[str, Any]) -> bool:
+def _is_empty(client: MailchimpClient, audience: Mapping[str, Any]) -> bool:
     stats = _as_dict(audience.get("stats"))
     counts = ("total_contacts", "member_count", "unsubscribe_count", "cleaned_count")
-    return not any(int(stats.get(count) or 0) for count in counts)
+    if any(int(stats.get(count) or 0) for count in counts):
+        return False
+    # The audience stats leave out pending and archived contacts, so an audience of only those looks empty.
+    path = f"/lists/{quoted(str(audience['id']))}/members"
+    try:
+        return not any(
+            client.page(path, "members", 0, {"status": status, "fields": "total_items"}).total
+            for status in ("pending", "archived")
+        )
+    except MailchimpNotFound:
+        return True
 
 
 def _fetch_audiences(
     client: MailchimpClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
     audiences = _audiences(client)
-    empty = [audience for audience in audiences if _is_empty(audience)]
+    empty_ids = {str(audience["id"]) for audience in audiences if _is_empty(client, audience)}
+    empty = [audience for audience in audiences if str(audience["id"]) in empty_ids]
     if empty and not checkpoint:
         names = ", ".join(_audience_name(audience) for audience in empty[:_MAX_NOTED_ITEMS])
         yield ImportPage(
@@ -481,7 +491,7 @@ def _fetch_audiences(
     targets = [
         _member_target(audience, status, first=status == statuses[0])
         for audience in audiences
-        if not _is_empty(audience)
+        if str(audience["id"]) not in empty_ids
         for status in statuses
     ]
     yield from _read_targets(client, targets, checkpoint, partial(_save_left_members, context))
@@ -580,12 +590,20 @@ def _fetch_groups(
 ) -> Iterator[ImportPage]:
     targets: list[_Target] = []
     hidden = 0
+    statuses = sorted({*LEFT_STATUSES, "subscribed"})
     for audience in _audiences(client):
         groups, audience_hidden = _groups(client, audience)
         hidden += audience_hidden
         if groups:
-            targets.append(
-                _member_target(audience, "subscribed", "members.email_address,members.interests", groups=tuple(groups))
+            targets.extend(
+                _member_target(
+                    audience,
+                    status,
+                    "members.email_address,members.interests" if status == "subscribed" else "",
+                    groups=tuple(groups),
+                    first=status == statuses[0],
+                )
+                for status in statuses
             )
     if hidden and not checkpoint:
         yield ImportPage(
@@ -598,6 +616,7 @@ def _fetch_groups(
 
 def _save_group_members(context: ImportContext, target: _Target, items: list[dict[str, Any]], first: bool) -> SavedPage:
     groups: tuple[_Group, ...] = target.details["groups"]
+    left = target.details["status"] in LEFT_STATUSES
     result = import_categories(context.team_id, [group.category for group in groups], context.created_by_id)
     opt_outs: dict[str, list[str]] = {}
     invalid = 0
@@ -608,11 +627,12 @@ def _save_group_members(context: ImportContext, target: _Target, items: list[dic
             continue
         interests = _as_dict(item.get("interests"))
         # Mailchimp sends a campaign for a group only to contacts who chose it, so the rest opt out of its category.
-        # A group missing from the contact's answers says nothing, so it leaves them as they are.
+        # A group missing from the contact's answers says nothing, so it leaves them as they are. A contact who left
+        # the audience gets none of its campaigns, so they opt out of every group.
         opt_outs[email] = [
             result.ids_by_key[group.category.key]
             for group in groups
-            if interests.get(group.id) is False and group.category.key in result.ids_by_key
+            if (left or interests.get(group.id) is False) and group.category.key in result.ids_by_key
         ]
     changed = import_opt_outs(context.team_id, opt_outs, context.created_by_id)
     _carry_to_every_spelling(context, [email for email, categories in opt_outs.items() if categories])
@@ -622,7 +642,7 @@ def _save_group_members(context: ImportContext, target: _Target, items: list[dic
         "invalid": invalid,
     }
     items_out: tuple[ImportItem, ...] = ()
-    if first:
+    if first and target.details.get("first"):
         counts |= {"created": result.created, "already_present": result.already_present}
         audience = _audience_name(target.details["audience"])
         names = ", ".join(group.name for group in groups[:_MAX_NOTED_ITEMS])
@@ -830,19 +850,23 @@ def _fetch_campaigns(
     client: MailchimpClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
     choice = context.settings.get(CAMPAIGNS_SETTING) or UNSENT_CAMPAIGNS
-    campaigns = client.all(
-        "/campaigns",
-        "campaigns",
-        {
-            "fields": (
-                "campaigns.id,campaigns.type,campaigns.status,campaigns.create_time,campaigns.send_time,"
-                "campaigns.settings,campaigns.variate_settings.subject_lines,campaigns.recipients.list_id,total_items"
-            ),
-            "sort_field": "create_time",
-            "sort_dir": "ASC",
-        },
-    )
     now = datetime.now(UTC)
+    params = {
+        "fields": (
+            "campaigns.id,campaigns.type,campaigns.status,campaigns.create_time,campaigns.send_time,"
+            "campaigns.settings,campaigns.variate_settings.subject_lines,campaigns.recipients.list_id,total_items"
+        ),
+        "sort_field": "create_time",
+        "sort_dir": "ASC",
+    }
+    # Mailchimp filters by one status at a time, so a years-long archive of sent campaigns isn't read for nothing.
+    filters: list[dict[str, str]] = [{}]
+    if choice != ALL_CAMPAIGNS:
+        filters = [{"status": status} for status in sorted(UNSENT_STATUSES)]
+    if choice == RECENT_CAMPAIGNS:
+        since = (now - timedelta(days=RECENT_DAYS)).isoformat()
+        filters.append({"status": "sent", "since_send_time": since})
+    campaigns = [campaign for extra in filters for campaign in client.all("/campaigns", "campaigns", params | extra)]
     by_key = {
         f"{_clean(campaign.get('create_time'))}/{campaign['id']}": campaign
         for campaign in campaigns

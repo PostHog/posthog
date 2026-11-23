@@ -71,16 +71,17 @@ class TestMailchimpImport(BaseTest):
             "Product updates",
             "Weekly newsletter",
         ]
+        weekly_groups = {"Product updates", "Event invitations 🎉"}
         assert self._opt_outs() == {
             "ada@example.com": {"Event invitations 🎉"},
             "Grace.Hopper@example.com": {"Product updates", "Event invitations 🎉"},
             "grace.hopper@example.com": {"Product updates", "Event invitations 🎉"},
-            "Left.Person@example.com": {"Weekly newsletter", "Novedades del producto ñ"},
-            "left.person@example.com": {"Weekly newsletter", "Novedades del producto ñ"},
-            "jürgen.müller@example.com": {"Weekly newsletter"},
-            "pending@example.com": {"Weekly newsletter"},
-            "receipt-only@example.com": {"Weekly newsletter"},
-            "archived@example.com": {"Weekly newsletter"},
+            "Left.Person@example.com": {"Weekly newsletter", "Novedades del producto ñ", *weekly_groups},
+            "left.person@example.com": {"Weekly newsletter", "Novedades del producto ñ", *weekly_groups},
+            "jürgen.müller@example.com": {"Weekly newsletter", *weekly_groups},
+            "pending@example.com": {"Weekly newsletter", *weekly_groups},
+            "receipt-only@example.com": {"Weekly newsletter", *weekly_groups},
+            "archived@example.com": {"Weekly newsletter", *weekly_groups},
         }
         assert sorted(MessageSuppression.objects.for_team(self.team.id).values_list("identifier", "source")) == [
             ("angry@example.com", SuppressionSource.COMPLAINT),
@@ -156,12 +157,14 @@ class TestMailchimpImport(BaseTest):
 
     @parameterized.expand(
         [
-            ("unsent", {"camp001", "camp002", "camp005"}),
-            ("recent", {"camp001", "camp002", "camp003", "camp005"}),
-            ("all", {"camp001", "camp002", "camp003", "camp004", "camp005"}),
+            ("unsent", {"camp001", "camp002", "camp005"}, {"paused", "save", "schedule"}),
+            ("recent", {"camp001", "camp002", "camp003", "camp005"}, {"paused", "save", "schedule", "sent"}),
+            ("all", {"camp001", "camp002", "camp003", "camp004", "camp005"}, {None}),
         ]
     )
-    def test_campaigns_setting_picks_which_campaigns_import(self, choice: str, expected: set[str]) -> None:
+    def test_campaigns_setting_picks_which_campaigns_import(
+        self, choice: str, expected: set[str], statuses_read: set[str | None]
+    ) -> None:
         campaigns = {campaign["id"]: campaign for campaign in self.mailchimp.data["campaigns"]}
         campaigns["camp003"]["send_time"] = (datetime.now(UTC) - timedelta(days=21)).isoformat()
         campaigns["camp004"]["send_time"] = (datetime.now(UTC) - timedelta(days=200)).isoformat()
@@ -173,6 +176,9 @@ class TestMailchimpImport(BaseTest):
             for row in MessageTemplate.objects.filter(team_id=self.team.id)
         }
         assert set(templates) == expected
+        assert {call["query"].get("status") for call in self.mailchimp.calls if call["route"] == "campaigns"} == (
+            statuses_read
+        )
         if "camp003" in templates:
             html = templates["camp003"].content["email"]["html"]
             assert html == (
@@ -195,7 +201,7 @@ class TestMailchimpImport(BaseTest):
         retried = [
             (call["query"]["status"], call["query"]["offset"])
             for call in self.mailchimp.calls[calls_before_retry:]
-            if call["route"] == "members"
+            if call["route"] == "members" and call["query"].get("fields") != "total_items"
         ]
         assert retried[0] == ("unsubscribed", "0")
         assert {"Left.Person@example.com", "jürgen.müller@example.com"} <= set(self._opt_outs())
@@ -224,6 +230,15 @@ class TestMailchimpImport(BaseTest):
 
         assert set(added) <= set(self._opt_outs())
         assert run.progress["audiences"]["counts"]["unsubscribed"] == 3 + len(added)
+
+    def test_an_audience_of_only_pending_contacts_imports(self) -> None:
+        old_audience = self.mailchimp.data["lists"][2]
+        old_audience["members"].append({"email_address": "unconfirmed@example.com", "status": "pending"})
+
+        run = self._run(["audiences"])
+
+        assert self._opt_outs()["unconfirmed@example.com"] == {"Old audience"}
+        assert "empty_audiences" not in run.progress["audiences"]["counts"]
 
     def test_an_audience_deleted_after_its_first_list_is_reported_once(self) -> None:
         self.mailchimp.failures.append(Failure(route="members", status=404, times=100, status_filter="pending"))

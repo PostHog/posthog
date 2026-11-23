@@ -130,7 +130,7 @@ Follow the same steps, with these differences.
 | Mailchimp                                               | In PostHog                                                    | What the team does                               |
 | ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
 | Audiences                                               | A category each, and opt-outs for who left                    | Builds the audience from its own data            |
-| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category                         | Nothing                                          |
+| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups          | Nothing                                          |
 | Groups contacts can choose                              | A category each, with opt-outs for who didn't choose it       | Puts the matching templates in that category     |
 | Cleaned contacts                                        | Suppression list, blocks all email                            | Reads the summary                                |
 | Abuse reports                                           | Suppression list, blocks marketing email only                 | Knows these people still get transactional email |

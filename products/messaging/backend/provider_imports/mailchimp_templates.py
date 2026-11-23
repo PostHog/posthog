@@ -16,7 +16,7 @@ from dataclasses import field
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.provider_imports.html_context import HtmlContext
+from products.messaging.backend.provider_imports.html_context import HtmlContext, Place
 
 _MAX_NOTED_TAGS = 5
 # Liquid can't parse a longer template.
@@ -27,6 +27,7 @@ _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,49}")
 # An HTML entity inside a tag means the editor encoded what the sender typed, so the value PostHog would compare
 # against isn't the one Mailchimp compares against.
 _ENTITY = re.compile(r"&(?:[A-Za-z]+|#\d+|#[xX][0-9a-fA-F]+);")
+_NUMBER = re.compile(r"\s*-?\d+(?:\.\d+)?\s*")
 _CONDITION = re.compile(r"([A-Za-z][A-Za-z0-9_]{0,49})(?:\s*(!=|=)\s*([^\"'{}%\\&<>]*))?")
 _CONDITION_KEYWORDS = ("IF", "IFNOT", "ELSEIF", "ELSE", "END")
 # Tags Mailchimp fills itself, which look like merge fields but aren't values from the audience member.
@@ -98,6 +99,8 @@ class _Replacement:
     # Output that holds a value from the person, so the HTML around it decides whether it's safe.
     value: bool = False
     raw: bool = False
+    # The Liquid tag of a condition: if, elsif, else or endif.
+    branch: str = ""
 
 
 def convert_text(text: str | None, *, is_html: bool, fixed: Mapping[str, str | None] | None = None) -> ConvertedText:
@@ -184,15 +187,15 @@ class _Converter:
         self.person_conditions = False
 
     def convert(self) -> ConvertedText:
-        if len(self.text.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS // 2:
-            tags = list(dict.fromkeys(match.group(0) for match in _MERGE_TAG.finditer(self.text)))
-            return ConvertedText(text=_literal(self.text), unsupported=tuple(tags[:_MAX_NOTED_TAGS]), too_large=True)
+        if _length(self.text) > _MAX_OUTPUT_CHARS // 2:
+            return self._too_large()
         matches = list(_MERGE_TAG.finditer(self.text))
         conditions = self._conditions(matches)
         replacements: list[_Replacement] = []
         for match in matches:
             if match.start() in conditions:
-                replacements.append(_swap(match, conditions[match.start()]))
+                liquid = conditions[match.start()]
+                replacements.append(_swap(match, liquid, branch=liquid.split()[1]))
                 continue
             replacement = self._tag(match)
             if replacement is None:
@@ -208,14 +211,23 @@ class _Converter:
             _append(out, replacement.liquid)
             cursor = replacement.end
         _append(out, _literal(self.text[cursor:]))
+        converted = "".join(out)
+        if _length(converted) > _MAX_OUTPUT_CHARS:
+            return self._too_large()
         return ConvertedText(
-            text="".join(out),
+            text=converted,
             merge_fields=tuple(dict.fromkeys(self.merge_fields)),
             unsupported=tuple(dict.fromkeys(self.unsupported)),
             has_values=any(replacement.value for replacement in replacements),
             has_conditions=bool(conditions) and self.person_conditions,
             preferences_link=self.preferences_link,
         )
+
+    def _too_large(self) -> ConvertedText:
+        tags = list(dict.fromkeys(match.group(0) for match in _MERGE_TAG.finditer(self.text)))
+        # Quoting a Liquid opening makes it at most five times longer, so this much of the source fits what sends render.
+        text = _literal(self.text[: _MAX_OUTPUT_CHARS // 5])
+        return ConvertedText(text=text, unsupported=tuple(tags[:_MAX_NOTED_TAGS]), too_large=True)
 
     def _tag(self, match: re.Match[str]) -> _Replacement | None:
         body = match.group(1).strip()
@@ -315,6 +327,9 @@ class _Converter:
         if operator is None:
             # Liquid treats an empty string as true, while Mailchimp treats a blank field as false.
             return f'{path} == nil or {path} == ""' if negate else f'{path} and {path} != ""'
+        if _NUMBER.fullmatch(value):
+            # A number property never equals the quoted value in Liquid, so the condition stays as written.
+            return None
         comparison = "!=" if (operator == "!=") != negate else "=="
         return f'{path} {comparison} "{value.strip()}"'
 
@@ -324,9 +339,16 @@ class _Converter:
         context = HtmlContext()
         cursor = 0
         kept: list[_Replacement] = []
+        # For each open condition: where it started, where each branch ended, and whether it has an ELSE.
+        open_conditions: list[tuple[Place, list[Place], list[bool]]] = []
         for replacement in replacements:
             context.feed(self.text[cursor : replacement.start])
             cursor = replacement.start
+            if replacement.branch:
+                cursor = replacement.end
+                self._follow_branch(context, replacement.branch, open_conditions)
+                kept.append(replacement)
+                continue
             if replacement.value:
                 where = context.where()
                 in_plain_attribute = where == "value" and context.plain_attribute() and not replacement.raw
@@ -338,10 +360,39 @@ class _Converter:
             kept.append(replacement)
         return kept
 
+    @staticmethod
+    def _follow_branch(
+        context: HtmlContext, branch: str, open_conditions: list[tuple[Place, list[Place], list[bool]]]
+    ) -> None:
+        """Reads each branch of a condition from where the condition started. Branches that leave the HTML in
+        different places hide where later values sit, so none of them convert."""
+        if branch == "if":
+            open_conditions.append((context.snapshot(), [], [False]))
+            return
+        start, ends, has_else = open_conditions[-1]
+        ends.append(context.snapshot())
+        if branch != "endif":
+            has_else[0] = has_else[0] or branch == "else"
+            context.restore(start)
+            return
+        open_conditions.pop()
+        if not has_else[0]:
+            ends.append(start)
+        context.restore(ends[0])
+        if any(end != ends[0] for end in ends):
+            context.untrusted = True
 
-def _swap(match: re.Match[str], liquid: str, *, value: bool = False, raw: bool = False) -> _Replacement:
+
+def _length(text: str) -> int:
+    """The length a send's renderer counts, in UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _swap(
+    match: re.Match[str], liquid: str, *, value: bool = False, raw: bool = False, branch: str = ""
+) -> _Replacement:
     return _Replacement(
-        start=match.start(), end=match.end(), source=match.group(0), liquid=liquid, value=value, raw=raw
+        start=match.start(), end=match.end(), source=match.group(0), liquid=liquid, value=value, raw=raw, branch=branch
     )
 
 

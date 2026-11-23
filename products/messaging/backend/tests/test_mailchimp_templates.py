@@ -77,6 +77,19 @@ class TestMailchimpMergeTags(SimpleTestCase):
                 ("*|IF:CITY=S&atilde;o Paulo|*", "*|END:IF|*"),
             ),
             (
+                "number_comparison_stays",
+                "*|IF:AGE=21|*A*|END:IF|*",
+                "*|IF:AGE=21|*A*|END:IF|*",
+                ("*|IF:AGE=21|*", "*|END:IF|*"),
+            ),
+            (
+                "branches_ending_in_different_html_leave_later_values",
+                '*|IF:VIP|*<a title="*|ELSE:|*<a title=*|END:IF|**|FNAME|*>',
+                '{% if person.properties.VIP and person.properties.VIP != "" %}<a title="{% else %}<a title={% endif %}'
+                "*|FNAME|*>",
+                ("*|FNAME|*",),
+            ),
+            (
                 "greater_than_comparison_stays",
                 "*|IF:AGE>20|*A*|END:IF|*",
                 "*|IF:AGE>20|*A*|END:IF|*",
@@ -89,6 +102,13 @@ class TestMailchimpMergeTags(SimpleTestCase):
 
         assert converted.text == expected
         assert converted.unsupported == unsupported
+
+    def test_output_too_large_to_send_keeps_tags_as_written(self) -> None:
+        converted = convert_text("*|FNAME|*" * 110_000, is_html=True)
+
+        assert converted.too_large
+        assert len(converted.text) <= 5_000_000
+        assert "{{ person" not in converted.text
 
     def test_subject_prints_values_without_html_escaping(self) -> None:
         assert convert_text("*|FNAME|*, hi", is_html=False).text == "{{ person.properties.first_name }}, hi"

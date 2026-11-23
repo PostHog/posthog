@@ -13,6 +13,7 @@ import json
 import argparse
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,15 @@ class FakeMailchimp:
                 ({k: v for k, v in row.items() if k != "content"} for row in campaigns),
                 key=lambda row: row["create_time"],
             )
+            if status := query.get("status"):
+                rows = [row for row in rows if row["status"] == status]
+            if since := query.get("since_send_time"):
+                rows = [
+                    row
+                    for row in rows
+                    if row.get("send_time")
+                    and datetime.fromisoformat(row["send_time"]) >= datetime.fromisoformat(since)
+                ]
             return 200, self._page("campaigns", rows, query), {}
         campaign = next((row for row in campaigns if row["id"] == params["campaign"]), None)
         if campaign is None:
