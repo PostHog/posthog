@@ -107,6 +107,7 @@ class MySQLCDCStreamReader:
         return _connect_with_transient_retry({**self._kwargs, **extra}, self._source.team_id)
 
     def _dump_connection(self, **settings: Any) -> pymysql.Connection:
+        assert self._kwargs is not None
         # The library adds its own settings (a cursor class, a database for its control connection) on
         # top of the ones it was given, which already hold the tunnel endpoint and the TLS files.
         return self._open_connection(**{key: value for key, value in settings.items() if key not in self._kwargs})
