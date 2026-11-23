@@ -1134,10 +1134,10 @@ Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asa
 - [x] `status_updates` — project/goal/portfolio status history (color + narrative) over time; the endpoint takes one `parent` gid, so it lands as `project_status_updates`, `goal_status_updates` and `portfolio_status_updates` (medium)
 - [x] `team_memberships` — user-to-team membership lookup joining synced users and teams (medium)
 - [x] `portfolios (+ portfolios/{gid}/items)` — program-level rollup grouping projects we already sync (medium)
-- [ ] `tasks/{task_gid}/dependencies and /dependents` — task dependency graph for blocked-work and critical-path analysis (medium)
-- [ ] `goal_relationships` — resolves goal hierarchy and which projects contribute to which goal (medium)
-- [ ] `time_tracking_categories` — lookup resolving the category ID carried on time tracking entries (medium)
-- [ ] `allocations` — resource allocation of users to projects over date ranges, for capacity reporting (low)
+- [x] `tasks/{task_gid}/dependencies and /dependents` — task dependency graph for blocked-work and critical-path analysis; lands as `task_dependencies` and `task_dependents` (medium)
+- [x] `goal_relationships` — resolves goal hierarchy and which projects contribute to which goal (medium)
+- [x] `time_tracking_categories` — lookup resolving the category ID carried on time tracking entries (medium)
+- [x] `allocations` — resource allocation of users to projects over date ranges, for capacity reporting (low)
 
 Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also present but excluded as plumbing/low value: webhooks, attachments, jobs, organization_exports, typeahead, project/task templates, ooo_entries, audit_log_events. Note /events is a sync-token change feed rather than a table.
 
