@@ -62,6 +62,21 @@ const echoedFilters = (url: string): { branded: string; engine: string | null; t
 const queryResponse = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
     const body = await request.json()
     const sql: string = body?.query?.query ?? ''
+    // The keyword report looks for a Search Console table, then reads each keyword's Google impressions from it.
+    if (body?.query?.kind === 'DatabaseSchemaQuery') {
+        const name = 'googlesearchconsole.search_analytics_by_query'
+        return [200, { tables: { [name]: { type: 'data_warehouse', id: name, name, fields: {} } }, joins: [] }]
+    }
+    if (sql.includes('search_analytics_by_query')) {
+        const results = EXAMPLE_KEYWORD_REPORT.keywords.map(({ keyword }, index) => [
+            keyword,
+            26200 - index * 4300,
+            510 - index * 90,
+            480 - index * 70,
+            6.1 + index,
+        ])
+        return [200, { results, columns: ['keyword', 'impressions', 'clicks', 'searches', 'position'], hogql: sql }]
+    }
     const response = sql.includes('domain(url)')
         ? EXAMPLE_PROMPT_SET_SOURCES_RESPONSE
         : EXAMPLE_PROMPT_SET_CITATION_RESPONSE
