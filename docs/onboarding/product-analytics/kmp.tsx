@@ -32,8 +32,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <Markdown>
                         `1.+` resolves to the latest `1.x` release. Pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately. Kotlin/Wasm support requires
-                        `0.2.0` or higher.
+                        upgrade deliberately.
                     </Markdown>
                 </>
             ),

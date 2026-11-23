@@ -16,9 +16,9 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        Screen views are captured automatically – screen views on Android and iOS, pageviews on the
-                        web. A Compose Multiplatform app usually has one activity or view controller, so capture each
-                        Compose screen yourself from shared code:
+                        Screen views are captured automatically – screen views on Android and iOS, pageviews on the web.
+                        A Compose Multiplatform app usually has one activity or view controller, so capture each Compose
+                        screen yourself from shared code:
                     </Markdown>
                     <CodeBlock
                         blocks={[
