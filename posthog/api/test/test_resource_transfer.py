@@ -309,20 +309,33 @@ class TestResourceTransferTransfer(APIBaseTest):
         [
             (
                 "reserved_key",
-                {"key": "false", "rollout_percentage": 50},
+                {"multivariate": {"variants": [{"key": "control"}, {"key": "false"}]}},
                 'The variant key "false" is reserved. Choose another key.',
             ),
-            ("keyless", {"rollout_percentage": 50}, "multivariate.variants[1].key must be a string."),
+            (
+                "keyless",
+                {"multivariate": {"variants": [{"key": "control"}, {"rollout_percentage": 50}]}},
+                "multivariate.variants[1].key must be a string.",
+            ),
+            (
+                "v2_reserved_string_value",
+                {"version": 2, "return_type": "string", "default_value": "false", "rules": []},
+                'filters.default_value: Must be null or a non-empty string other than "false", "null", "true", '
+                "$false or $true.",
+            ),
+            (
+                "v2_malformed",
+                {"version": 2},
+                "This flag's version 2 configuration is malformed, so it can't be copied.",
+            ),
         ]
     )
     def test_transfer_refuses_a_flag_with_a_variant_a_new_flag_may_not_store(
-        self, _name: str, variant: dict[str, Any], detail: str
+        self, _name: str, filters: dict[str, Any], detail: str
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="split")
         # FeatureFlag.save() refuses a keyless variant, so the stored row is written with QuerySet.update.
-        FeatureFlag.objects.filter(pk=flag.pk).update(
-            filters={"multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}, variant]}}
-        )
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters)
 
         response = self.client.post(
             self._transfer_url(),
