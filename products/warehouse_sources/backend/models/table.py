@@ -1095,8 +1095,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _direct_columns_are_restricted(self) -> bool:
         """Whether a column-picker restriction hides some of this direct table's columns. Reads the
-        same preloaded schema rows as `_direct_columns_are_complete`."""
-        schema_rows = self.__dict__.get("_active_external_data_schemas") or []
+        same preloaded schema rows as `_direct_columns_are_complete`; if they aren't preloaded,
+        returns True (safe: the table prints as a projection of its own fields)."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return True
         return any(row.enabled_columns is not None for row in schema_rows)
 
     def hogql_definition(

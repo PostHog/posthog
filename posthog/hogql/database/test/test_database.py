@@ -52,6 +52,7 @@ from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
@@ -3260,6 +3261,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         loaded_tables = preload_mock.call_args.args[0]
 
         assert [table.id for table in loaded_tables] == [first_table.id]
+
+    @parameterized.expand([("not_preloaded", False, True), ("preloaded_without_hidden_columns", True, False)])
+    def test_direct_table_column_restriction_fails_closed(self, _name: str, preload: bool, expected: bool):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="restriction_source_id",
+            connection_id="restriction_connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name="orders", table=table)
+        if preload:
+            _preload_active_external_data_schemas([table])
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectSQLTable)
+        assert definition.column_restricted is expected
 
     def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
         credentials = DataWarehouseCredential.objects.create(
