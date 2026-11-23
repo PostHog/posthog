@@ -12344,10 +12344,10 @@ Diffed against: <https://developer.rechargepayments.com/2021-11>
 - [x] `events` — Recharge's account event log - subscription state transitions, cancellations and churn reasons over time (high)
 - [x] `credit_accounts and credit_adjustments` — Customer store-credit ledger; adjustments are the transaction-level rows behind each balance (medium)
 - [x] `bundle_selections` — Line-item contents of bundle subscriptions - without it a bundle subscription has no product breakdown (medium)
-- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium)
-- [ ] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
-- [ ] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
-- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low)
+- [ ] `checkouts` — Pre-conversion checkout records, required for abandoned-checkout and funnel analysis (medium). Skipped: the API has no list route for checkouts, only reads by token.
+- [x] `customer_entitlements` — Membership/perk entitlements per customer, a membership-program breakdown dimension (medium)
+- [x] `metafields` — Custom key-value fields attached to customers, subscriptions and addresses that often hold merchant-specific segmentation (low)
+- [ ] `notifications` — Transactional notification history per customer, useful for correlating comms with churn (low). Skipped: the only route sends an email notification; the API has no notification history to list.
 
 Note: No OpenAPI spec is served (openapi.json 404s). The docs are a Nuxt SSR app; I extracted the complete 2021-11 reference nav from the embedded \_\_NUXT\_\_ payload - 24 API sections. PostHog covers 10 of them. Note the repo already carries products/warehouse_sources/.../sources/recharge/api_inventory.md, which may pre-date some of these.
 
