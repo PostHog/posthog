@@ -304,9 +304,6 @@ class UnverifiedEmailDomainError extends Error {
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
-const textPart = (params: CyclotronInvocationQueueParametersEmailType): string =>
-    params.text || (params.html ? plainTextFromHtml(params.html) : '')
-
 const deliveredRecipients = (params: CyclotronInvocationQueueParametersEmailType): string[] => [
     unquoteMailbox(params.to.email),
     ...[...parseMailboxList(params.cc), ...parseMailboxList(params.bcc)].map(({ email }) => email),
@@ -534,6 +531,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
+    textPartTeams?: string
     attachmentSendDeadlineMs?: number
     ownershipCheckTimeoutMs?: number
 }
@@ -644,6 +642,7 @@ export class EmailService {
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
+    private textPartTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -672,6 +671,14 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+        this.textPartTeams = buildIntegerMatcher(this.sesConfig.textPartTeams, true)
+    }
+
+    private textPart(params: CyclotronInvocationQueueParametersEmailType, teamId: number): string {
+        if (params.text || !params.html || !this.textPartTeams(teamId)) {
+            return params.text ?? ''
+        }
+        return plainTextFromHtml(params.html)
     }
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
@@ -1580,7 +1587,7 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
-        const text = textPart(params)
+        const text = this.textPart(params, result.invocation.teamId)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
@@ -1677,7 +1684,7 @@ export class EmailService {
         if (!fitsBesideFiles(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
-        const candidateText = textPart(params)
+        const candidateText = this.textPart(params, result.invocation.teamId)
         const text = fitsBesideFiles(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 

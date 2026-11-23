@@ -280,6 +280,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
     CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: string
     CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
+    // Comma-separated team ids, or "*", whose sends without text get a text/plain part made from their html.
+    CDP_EMAIL_TEXT_PART_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -577,6 +579,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
         CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: '',
         CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',
+        CDP_EMAIL_TEXT_PART_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
         CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',

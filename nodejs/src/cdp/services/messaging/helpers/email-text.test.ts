@@ -25,15 +25,21 @@ describe('plainTextFromHtml', () => {
             'https://example.com/reset (https://example.com/reset?t=1&utm_source=posthog)',
         ],
         [
-            'an image-only link',
+            'an image link with alt text',
             '<a href="https://example.com/app"><img src="logo.png" alt="Logo"></a>',
+            'Logo (https://example.com/app)',
+        ],
+        [
+            'an image link without alt text',
+            '<a href="https://example.com/app"><img src="logo.png"></a>',
             'https://example.com/app',
         ],
+        ['a javascript link', '<a href="JavaScript:void(0)">Click</a>', 'Click'],
         ['a page anchor link', '<a href="#top">Back to top</a>', 'Back to top'],
         [
             'entities',
             '<p>Tom&nbsp;&amp;&nbsp;Jerry&#8217;s &#x1F600; &copy; R&eacute;initialiser &laquo;ok&raquo;</p>',
-            'Tom & Jerry’s 😀 © Réinitialiser «ok»',
+            'Tom\u00a0&\u00a0Jerry’s 😀 © Réinitialiser «ok»',
         ],
         [
             'a greater-than sign inside an attribute value',
@@ -45,7 +51,9 @@ describe('plainTextFromHtml', () => {
             '<body><div style="display: none; max-height: 0">Preview<div>nested</div> &zwnj;&#8204;&#847;</div>Hello</body>',
             'Hello',
         ],
-        ['a hidden void element', '<img src="pixel.gif" style="display:none"><p>Hello</p>', 'Hello'],
+        ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
+        ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
+        ['a code shown as an image', '<p>Your code:</p><img src="code.png" alt="482913">', 'Your code:\n\n482913'],
         [
             'comments and conditional comments',
             '<!--[if mso]><table><tr><td>Outlook only</td></tr></table><![endif]--><p>Hi</p><!-- unterminated',
@@ -54,9 +62,14 @@ describe('plainTextFromHtml', () => {
         ['a literal less-than sign', '<p>1 < 2 and 3 > 2</p>', '1 < 2 and 3 > 2'],
         ['lists and line breaks', '<ul><li>One</li><li>Two</li></ul>Line<br>Next', '- One\n- Two\n\nLine\nNext'],
         ['joiners in visible text', '<p>👩&#8205;💻 می&#8204;خواهم</p>', '👩\u200d💻 می\u200cخواهم'],
-        ['preformatted text', '<pre>export FOO=1\nrun-command</pre><p>Done</p>', 'export FOO=1\nrun-command\n\nDone'],
+        [
+            'preformatted text',
+            '<pre>def run():\n    export(1)\n\n\tend</pre><p>Done</p>',
+            'def run():\n    export(1)\n\n\tend\n\nDone',
+        ],
         ['an image with only joiners beside it', '<img src="banner.png"><p>&#8204;&#8205; </p>', ''],
-        ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total $5'],
+        ['an image-only list item', '<ul><li><img src="banner.png"></li></ul>', ''],
+        ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total\n$5'],
     ])('renders %s', (_case, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)
     })
