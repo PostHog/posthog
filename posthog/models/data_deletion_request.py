@@ -1068,7 +1068,8 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         return _count_via_sync_execute(request.team_id, surviving_rows_sql(read_table, predicate), params)
 
     events = [] if request.delete_all_events else request.events
-    total = 0
+    # A queued uuid holds the request until the drain deletes it, also when its row no longer matches.
+    total = count_pending_hogql_event_removals(request)
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,

@@ -34,6 +34,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    Query,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -638,6 +639,18 @@ def _verify_swept(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
+def _storage_holds_rows(placement: TargetPlacement, predicate: str, params: dict) -> bool:
+    """Whether the target's storage table holds rows that match ``predicate``, read on the cluster that stores it.
+
+    A Distributed proxy reads only the cluster its engine names, so it can read an empty table while
+    the storage table holds the rows.
+    """
+    query = Query(
+        surviving_rows_sql(placement.target.data_table, predicate), params, settings={"max_execution_time": "1800"}
+    )
+    return any(rows and rows[0][0] for rows in placement.cluster.map_one_host_per_shard(query).result().values())
+
+
 def _event_removal_placements(
     cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
 ) -> list[TargetPlacement]:
@@ -648,15 +661,11 @@ def _event_removal_placements(
     with every row in place.
     """
     events = [] if deletion_request.delete_all_events else deletion_request.events
-    # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
-    # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
-    if not deletion_request.hogql_predicate:
-        return placements
-
     swept: list[TargetPlacement] = []
-    for placement in placements:
+    for placement in resolve_placements(cluster):
         target = placement.target
+        if not target.may_hold_any_of(events):
+            continue
         try:
             criteria = event_removal_where(deletion_request, target)
         except DjangoValidationError as error:
@@ -668,10 +677,9 @@ def _event_removal_placements(
                 reason=_hogql_does_not_compile_reason(" ".join(error.messages)),
             )
             continue
-        # A fragment compiled for a table that is not an events table has not run on ClickHouse before
-        # this point. The count runs it there, so a fragment that ClickHouse rejects fails the request
-        # first. A table with no matching rows needs no mutation.
-        if target not in EVENTS_TARGETS and not count_surviving_rows(cluster, target, *criteria):
+        # Mutations serialize per table, so a no-op one would queue in front of real work. The count
+        # also runs the compiled fragment on the table before anything is deleted or queued.
+        if target not in EVENTS_TARGETS and not _storage_holds_rows(placement, *criteria):
             continue
         swept.append(placement)
     return swept
@@ -729,7 +737,6 @@ def _queue_events_for_deferred_deletion(
     # subset of events, so a uuid there may not be in sharded_events once routing moves those
     # events off it.
     placements = [p for p in _event_removal_placements(cluster, deletion_request) if p.target.queue_uuid_candidates]
-    # Compiled once here and not per shard, because a compile builds the HogQL schema graph.
     reads = [(p, event_removal_where(deletion_request, p.target)) for p in placements]
     db = django_settings.CLICKHOUSE_DATABASE
 
@@ -750,10 +757,15 @@ def _queue_events_for_deferred_deletion(
     for placement, where in reads:
         if placement.cluster is not cluster:
             read_table = placement.target.read_table
+            if not count_surviving_rows(cluster, placement.target, *where):
+                raise dagster.Failure(
+                    description=f"Deletion request {deletion_request.request_id}: {read_table} reads none of the "
+                    f"matching rows that {placement.target.data_table} holds on "
+                    f"{placement.cluster.data_cluster_name!r}, so their uuids cannot be queued. See {COVERAGE_DOC}."
+                )
             context.log.info(f"Queueing {read_table} into {ADHOC_EVENTS_DELETION_TABLE}")
             cluster.any_host_by_role(partial(queue_uuids, source_table=read_table, where=where), NodeRole.DATA).result()
 
-    # A table on this cluster is read on each shard, so its uuids do not cross the network.
     local_reads = [(p.target.data_table, where) for p, where in reads if p.cluster is cluster]
     shards = sorted(cluster.shards)
 

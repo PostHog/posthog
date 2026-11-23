@@ -344,11 +344,14 @@ A predicate that needs a join, such as `person_id`, does not compile for this ta
 The request then refuses while the table holds rows that match its other criteria, before it deletes or queues anything.
 To proceed, re-file the request without the predicate, or narrow its events to ones this table never stores.
 
-Before a request with a predicate deletes or queues anything, it counts the rows that the compiled predicate matches on this table.
-That count runs the fragment on ClickHouse, so a fragment that ClickHouse rejects fails the request first.
+Before a request deletes or queues anything, it counts the matching rows on this table's storage table, on the cluster that stores it.
+That count runs the compiled fragment on ClickHouse, so a fragment that ClickHouse rejects fails the request first.
 A table with no matching rows is left out of the sweep.
+The count does not read the Distributed proxy, because a proxy reads only the cluster its engine names and can read an empty table.
+A deferred request that queues this table from another cluster reads the proxy, so it fails when the proxy reads none of the rows that the storage table holds.
 
-Verification counts each table with the predicate compiled for it.
+Verification counts the request's queue rows that the drain has not marked deleted, and each table's rows with the predicate compiled for it.
+The queue rows hold the request until `deletes_job` drains them, including a queued row that a property removal changed so that the predicate no longer matches it.
 When the predicate does not compile for a table, verification counts the rows that match the request's other criteria there, which can only hold the request.
 
 ## Producer prerequisite: person_id parity

@@ -2971,7 +2971,7 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
     from posthog.models.data_deletion_request import verify_queued_request
 
     outcome = verify_queued_request(request)
-    assert outcome.remaining == 1
+    assert outcome.remaining == 2
     assert outcome.promoted is False
 
     cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3064,11 +3064,12 @@ def test_deferred_event_removal_with_a_hogql_predicate_queues_what_each_table_ma
         for queued_uuid in (chrome, earlier_chrome):
             cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), queued_uuid)).result()
             cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, queued_uuid)).result()
-        outcome = verify_queued_request(request)
-        assert outcome.remaining == 1
-        assert outcome.promoted is False
-
         cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, drifted)).result()
+        # Every matching row is gone, so only the queued uuids hold the request until the drain runs.
+        assert verify_queued_request(request).promoted is False
+
+        # Emptying the queue stands in for the drain marking the queued uuids deleted.
+        cluster.any_host(_truncate_adhoc_events_deletion).result()
         assert verify_queued_request(request).promoted is True
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3101,6 +3102,8 @@ def test_deferred_event_removal_with_a_hogql_predicate_queues_flag_rows_without_
         assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome}
         assert verify_queued_request(request).promoted is False
 
+        # Emptying the queue stands in for the drain marking the queued uuids deleted.
+        cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, chrome)).result()
         assert verify_queued_request(request).promoted is True
     finally:
