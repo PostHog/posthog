@@ -99,6 +99,7 @@ CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL = Counter(
 # Non-zero means a DELETE is about to erase data the target still holds. Alert on this; enrichment
 # failing has no other detector.
 CDC_LOAD_LABELS = ["table_mode", "write_mode"]
+CDC_TABLE_MODES = frozenset({"consolidated", "cdc_only", "both"})
 
 # _ph_cdc_timestamp is the source transaction's commit time, so this spans capture, the buffer
 # and the load. The oldest change bounds the latency of every row in the batch.

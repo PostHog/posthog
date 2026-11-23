@@ -112,6 +112,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     CDC_MERGE_DURATION_SECONDS,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
     CDC_TABLE_FILE_COUNT,
+    CDC_TABLE_MODES,
     DELTA_COMPACT_DURING_REBUILD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
@@ -568,8 +569,8 @@ def _file_count_after_write(
     return None
 
 
-def _cdc_freshness_seconds(pa_table: pa.Table) -> float | None:
-    """Seconds since the source committed the batch's oldest change, or None when no row carries a commit time."""
+def _oldest_cdc_commit_time(pa_table: pa.Table) -> datetime | None:
+    """The source commit time of the batch's oldest change, or None when no row carries one."""
     if CDC_TIMESTAMP_COLUMN not in pa_table.column_names:
         return None
     column = pa_table.column(CDC_TIMESTAMP_COLUMN)
@@ -578,30 +579,31 @@ def _cdc_freshness_seconds(pa_table: pa.Table) -> float | None:
     oldest = pc.min(column).as_py()
     if oldest is None:
         return None
-    if oldest.tzinfo is None:
-        oldest = oldest.replace(tzinfo=UTC)
-    # A source clock ahead of ours would read as a negative age.
-    return max(0.0, (datetime.now(UTC) - oldest).total_seconds())
+    return oldest.replace(tzinfo=UTC) if oldest.tzinfo is None else oldest
 
 
 def _record_cdc_load_metrics(
-    pa_table: pa.Table,
     *,
     schema: ExternalDataSchema,
     cdc_write_mode: str | None,
     rows: int,
     write_seconds: float | None,
     file_count: int | None,
+    oldest_commit_time: datetime | None,
 ) -> None:
-    labels = {"table_mode": schema.cdc_table_mode, "write_mode": cdc_write_mode or "none"}
+    # The create payload can store any string as the table mode, so an unknown one must not add series.
+    table_mode = schema.cdc_table_mode if schema.cdc_table_mode in CDC_TABLE_MODES else "unknown"
+    labels = {"table_mode": table_mode, "write_mode": cdc_write_mode or "none"}
     CDC_BATCH_ROWS.labels(**labels).observe(rows)
     if write_seconds is not None:
         CDC_MERGE_DURATION_SECONDS.labels(**labels).observe(write_seconds)
     if file_count is not None:
         CDC_TABLE_FILE_COUNT.labels(**labels).observe(file_count)
-    freshness = _cdc_freshness_seconds(pa_table)
-    if freshness is not None:
-        CDC_FRESHNESS_SECONDS.labels(**labels).observe(freshness)
+    if oldest_commit_time is not None:
+        # A source clock ahead of ours would read as a negative age.
+        CDC_FRESHNESS_SECONDS.labels(**labels).observe(
+            max(0.0, (datetime.now(UTC) - oldest_commit_time).total_seconds())
+        )
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
@@ -1776,6 +1778,9 @@ def _process_message_reported(
         # An incremental history batch holds source rows, not change events, so no CDC row handling applies.
         resolution_enabled = cdc_write_mode is not None and not stages_history(cdc_write_mode, export_signal.sync_type)
 
+        # Resolution keeps one row per key, which can drop the batch's oldest change.
+        oldest_cdc_commit_time = _oldest_cdc_commit_time(pa_table) if export_signal.sync_type == "cdc" else None
+
         with timer.step("cdc_resolve"):
             pa_table = _enrich_cdc_rows(
                 pa_table,
@@ -1938,12 +1943,12 @@ def _process_message_reported(
             # The batch is already committed, so a metric error must not fail its load.
             try:
                 _record_cdc_load_metrics(
-                    pa_table,
                     schema=schema,
                     cdc_write_mode=cdc_write_mode,
                     rows=source_rows,
                     write_seconds=timer.seconds("write"),
                     file_count=file_count,
+                    oldest_commit_time=oldest_cdc_commit_time,
                 )
             except Exception as e:
                 logger.warning(

@@ -56,18 +56,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
     _apply_partitioning,
-    _cdc_freshness_seconds,
     _dedupe_before_write,
     _enrich_cdc_rows,
     _file_count_after_write,
     _finalize_run,
     _get_write_type,
     _mark_job_completed,
+    _oldest_cdc_commit_time,
     _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _record_cdc_load_metrics,
     _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
@@ -853,11 +854,12 @@ class TestCdcLoadMetrics:
 
     @parameterized.expand(
         [
-            ("cdc_batch", "cdc", "incremental_merge", True, [1, 1, 1, 1]),
-            ("cdc_batch_with_string_commit_times", "cdc", "incremental_merge", False, [0, 1, 1, 1]),
-            ("incremental_batch", "incremental", None, True, [0, 0, 0, 0]),
+            ("cdc_batch", "cdc", "incremental_merge", "both", True, [1, 1, 1, 1], "both"),
+            ("cdc_batch_with_unknown_table_mode", "cdc", "incremental_merge", "x" * 200, True, [1, 1, 1, 1], "unknown"),
+            ("cdc_batch_with_string_commit_times", "cdc", "incremental_merge", "both", False, [0, 1, 1, 1], "both"),
+            ("incremental_batch", "incremental", None, "both", True, [0, 0, 0, 0], "both"),
             # An incremental history lane writes in scd2_append mode, but its rows are not changes.
-            ("incremental_history_batch", "incremental", "scd2_append", True, [0, 0, 0, 0]),
+            ("incremental_history_batch", "incremental", "scd2_append", "both", True, [0, 0, 0, 0], "both"),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -875,8 +877,10 @@ class TestCdcLoadMetrics:
         _case: str,
         sync_type: str,
         cdc_write_mode: str | None,
+        stored_table_mode: str,
         timestamp_commit_times: bool,
         expected_observations: list[int],
+        table_mode_label: str,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -887,15 +891,20 @@ class TestCdcLoadMetrics:
         _analytics: MagicMock,
         mock_stage_history: AsyncMock,
     ) -> None:
-        commit_times = [self._NOW - dt.timedelta(seconds=s) for s in (300, 600, 60)]
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        # Key 1 changes twice. Resolution keeps its newer row, but the older one sets the freshness.
+        commit_times = [self._NOW - dt.timedelta(seconds=s) for s in (600, 300, 60)]
         mock_read.return_value = pa.table(
             {
-                "id": pa.array([1, 2, 3], pa.int64()),
+                "id": pa.array([1, 2, 1], pa.int64()),
                 CDC_OP_COLUMN: ["U", "I", "U"],
                 CDC_TIMESTAMP_COLUMN: pa.array(commit_times, pa.timestamp("us", tz="UTC"))
                 if timestamp_commit_times
                 else pa.array([t.isoformat() for t in commit_times]),
             }
+        ).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array([1, 2, 3], pa.int64())
         )
         written = MagicMock()
         written.schema.return_value = pa.schema([_COL_ID])
@@ -909,12 +918,11 @@ class TestCdcLoadMetrics:
         mock_stage_history.return_value = written
         job = MagicMock()
         job.schema.table = None
-        job.schema.cdc_table_mode = "both"
+        job.schema.cdc_table_mode = stored_table_mode
         mock_job_model.objects.prefetch_related.return_value.get.return_value = job
-        labels = {"table_mode": "both", "write_mode": "incremental_merge"}
-        freshness_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) or 0.0
-        file_count_before = REGISTRY.get_sample_value("warehouse_load_cdc_table_file_count_sum", labels) or 0.0
-        rows_before = REGISTRY.get_sample_value("warehouse_load_cdc_batch_rows_sum", labels) or 0.0
+        labels = {"table_mode": table_mode_label, "write_mode": "incremental_merge"}
+        sum_names = ("freshness_seconds", "table_file_count", "batch_rows")
+        sums_before = [REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names]
         histograms = (CDC_FRESHNESS_SECONDS, CDC_MERGE_DURATION_SECONDS, CDC_TABLE_FILE_COUNT, CDC_BATCH_ROWS)
         counts_before = [_observation_count(histogram) for histogram in histograms]
 
@@ -926,37 +934,45 @@ class TestCdcLoadMetrics:
         assert mock_writer_cls.return_value.write.await_count + mock_stage_history.await_count == 1
         assert [after - before for before, after in zip(counts_before, counts_after)] == expected_observations
         if expected_observations == [1, 1, 1, 1]:
-            freshness = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels)
-            file_count = REGISTRY.get_sample_value("warehouse_load_cdc_table_file_count_sum", labels)
-            rows = REGISTRY.get_sample_value("warehouse_load_cdc_batch_rows_sum", labels)
-            assert (freshness, file_count, rows) == (freshness_before + 600, file_count_before + 2, rows_before + 3)
+            sums_after = [
+                REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names
+            ]
+            assert [after - before for before, after in zip(sums_before, sums_after)] == [600, 2, 2]
 
-    @parameterized.expand(
-        [
-            ("source_clock_ahead", "UTC", [dt.timedelta(seconds=-30)], 0.0),
-            ("naive_timestamps_read_as_utc", None, [dt.timedelta(seconds=90), dt.timedelta(seconds=45)], 90.0),
-            ("all_null", "UTC", [None], None),
-        ]
-    )
     @time_machine.travel(_NOW, tick=False)
-    def test_freshness_of_the_oldest_change(
-        self, _case: str, tz: str | None, ages: list[dt.timedelta | None], expected: float | None
-    ) -> None:
-        now = self._NOW if tz else self._NOW.replace(tzinfo=None)
-        table = pa.table(
-            {CDC_TIMESTAMP_COLUMN: pa.array([None if a is None else now - a for a in ages], pa.timestamp("us", tz=tz))}
+    def test_a_source_clock_ahead_of_ours_records_zero_freshness(self) -> None:
+        labels = {"table_mode": "consolidated", "write_mode": "incremental_merge"}
+        sum_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) or 0.0
+        count_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) or 0.0
+
+        _record_cdc_load_metrics(
+            schema=MagicMock(cdc_table_mode="consolidated"),
+            cdc_write_mode="incremental_merge",
+            rows=1,
+            write_seconds=None,
+            file_count=None,
+            oldest_commit_time=self._NOW + dt.timedelta(seconds=30),
         )
 
-        assert _cdc_freshness_seconds(table) == expected
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) == sum_before
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) == count_before + 1
 
     @parameterized.expand(
         [
-            ("no_commit_time_column", pa.table({"id": [1]})),
-            ("string_commit_times", pa.table({CDC_TIMESTAMP_COLUMN: ["2026-11-23T11:50:00+00:00"]})),
+            (
+                "naive_timestamps_read_as_utc",
+                pa.array([dt.datetime(2026, 11, 23, 11, 59), dt.datetime(2026, 11, 23, 11, 58)]),
+                dt.datetime(2026, 11, 23, 11, 58, tzinfo=dt.UTC),
+            ),
+            ("all_null", pa.array([None], pa.timestamp("us", tz="UTC")), None),
+            ("string_commit_times", pa.array(["2026-11-23T11:50:00+00:00"]), None),
         ]
     )
-    def test_a_batch_without_timestamp_commit_times_has_no_freshness(self, _case: str, table: pa.Table) -> None:
-        assert _cdc_freshness_seconds(table) is None
+    def test_oldest_commit_time(self, _case: str, commit_times: pa.Array, expected: dt.datetime | None) -> None:
+        assert _oldest_cdc_commit_time(pa.table({CDC_TIMESTAMP_COLUMN: commit_times})) == expected
+
+    def test_a_batch_without_a_commit_time_column_has_no_oldest_commit_time(self) -> None:
+        assert _oldest_cdc_commit_time(pa.table({"id": [1]})) is None
 
 
 class TestFileCountAfterWrite:
