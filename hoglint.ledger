@@ -834,8 +834,8 @@ facade-no-drf	products.tasks.backend.facade.api	products.tasks.backend.presentat
 facade-no-drf	products.tasks.backend.facade.api	rest_framework.exceptions	1
 facade-no-drf	products.tasks.backend.facade.client_provenance	rest_framework.request	1
 facade-signature	products.access_control.backend.facade.api	redact_restricted_properties	return	typing.Any	1
-facade-signature	products.access_control.backend.facade.resolution_preview	deciding_subject_row	return	builtins.object	1
-facade-signature	products.access_control.backend.facade.resolution_preview	deciding_subject_row	return	products.access_control.backend.models.access_control.AccessControl	1
+facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.deciding_row	return	builtins.object	1
+facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.deciding_row	return	products.access_control.backend.models.access_control.AccessControl	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.preload_access_controls	param:rows	builtins.object	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.preload_access_controls	param:rows	products.access_control.backend.models.access_control.AccessControl	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.seed_narrowed_access_controls	param:rows	builtins.object	1
@@ -2060,7 +2060,6 @@ level:isolated	groups	1
 level:isolated	knowledge_writer	1
 level:isolated	ml_inference	1
 level:isolated	release	1
-level:isolated	review_hog	1
 level:isolated	security	1
 level:isolated	stamphog	1
 level:isolated	streamlit_apps	1
@@ -3606,6 +3605,7 @@ thin-commands	products.logs.backend.management.commands.delete_orphaned_platform
 thin-commands	products.mcp_analytics.backend.management.commands.cluster_mcp_intents	products.mcp_analytics.backend.models	1
 thin-commands	products.review_hog.backend.management.commands.publish_review	products.review_hog.backend.models	1
 thin-commands	products.review_hog.backend.management.commands.reset_review_hog	products.review_hog.backend.models	1
+thin-commands	products.signals.backend.management.commands.backfill_inbox_summary	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_report_pull_requests	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_suggested_reviewer_index	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_task_run_artefacts	products.signals.backend.models	1
