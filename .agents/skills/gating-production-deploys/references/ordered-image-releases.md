@@ -108,7 +108,7 @@ The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers
 | `errorTrackingWorker`               |              16.1% |      16 min |           1.7 h |          14.4 h |       36.3 h |
 | `errorTrackingLifecycleWorker`      |              16.8% |      15 min |           1.6 h |          13.7 h |       36.3 h |
 | `selfDrivingWorker`                 |              22.2% |      11 min |           1.2 h |           9.3 h |       33.1 h |
-| `maxAiWorker`                       |              27.7% |       8 min |          59 min |           7.5 h |       24.4 h |
+| `maxAiWorker`                       |              27.8% |       8 min |          59 min |           7.5 h |       24.4 h |
 
 When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force qualifies a newer build that the publication job evaluates when no row matches. The publisher's frontier, image identity and newer-revision checks still apply, as for any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
 
