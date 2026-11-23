@@ -32,6 +32,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
     cdpCohortMembershipTriggers: true,
+    cdpIntakeTransactionalEmail: true,
+    cdpIntakeWorkflowWebhook: true,
 }
 
 /** Realtime Cohorts - cohort membership persistence */
