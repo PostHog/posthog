@@ -1289,10 +1289,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadExposuresFailure: () => null,
             },
         ],
-        /**
-         * True while an exposure load waits for the latest run to learn its window. That load reads the window when
-         * the run lands, so a reload sent on the same run would replace it.
-         */
+        // True while a load waits for the latest run. The window logic must not replace that load with a reload.
         exposuresAsOfPending: [
             false,
             {
@@ -2799,9 +2796,8 @@ export const experimentLogic = kea<experimentLogicType>([
                      * backend evaluates the window at now.
                      */
                     const metricsLogic = experimentMetricsLogic({ experiment })
-                    // A page load runs this before any component mounts the metrics logic, so the mount here starts
-                    // the fetch of the latest run. Without the wait, the first query ends at now and the next one at
-                    // the run's window. Those are two cache entries with different answers.
+                    // A page load gets here before any component mounts the metrics logic. Without the wait, the first
+                    // query ends at now and later ones at the run's window: two cache entries with different answers.
                     const unmountMetricsLogic = metricsLogic.mount()
                     let asOf: string | null
                     try {

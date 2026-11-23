@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { waitForCondition } from 'kea-waitfor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -595,8 +594,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
             },
         ],
-        // True while the logic waits for its first run, fetched as the latest or created as a first run. Until then
-        // `resultsQueryTo` is null because nothing has loaded, not because there is no run.
+        // Until the first run loads, a null `resultsQueryTo` means "not loaded yet", not "no run".
         resultsQueryToLoading: [
             (s) => [s.recalculationLoading, s.currentRecalculation],
             (recalculationLoading: boolean, currentRecalculation: RecalculationPayload | null): boolean =>
@@ -960,7 +958,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         : {}),
                 })
             },
+            setRecalculationLoading: ({ loading }) => {
+                if (!loading) {
+                    resolveResultsQueryToWaiters(cache)
+                }
+            },
             setCurrentRecalculation: () => {
+                resolveResultsQueryToWaiters(cache)
                 const notice = values.resultConfigurationNotice
                 if (notice && cache.reportedConfigurationNotice !== notice) {
                     cache.reportedConfigurationNotice = notice
@@ -1305,11 +1309,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     }),
 ])
 
-/** Resolves on the first action that can turn `resultsQueryToLoading` false, so keep both on the same actions. */
-export function resultsQueryToLoaded(logic: ReturnType<typeof experimentMetricsLogic.build>): Promise<unknown> {
-    return waitForCondition(
-        ({ type, payload }) =>
-            type === logic.actionTypes.setCurrentRecalculation ||
-            (type === logic.actionTypes.setRecalculationLoading && !payload.loading)
-    )
+function resolveResultsQueryToWaiters(cache: Record<string, any>): void {
+    const waiters: (() => void)[] = cache.resultsQueryToWaiters ?? []
+    cache.resultsQueryToWaiters = []
+    waiters.forEach((resolve) => resolve())
+}
+
+/** Resolves on the next action that can end `resultsQueryToLoading`. Hold a mount until then, or it never resolves. */
+export function resultsQueryToLoaded(logic: ReturnType<typeof experimentMetricsLogic.build>): Promise<void> {
+    return new Promise((resolve) => {
+        logic.cache.resultsQueryToWaiters = [...(logic.cache.resultsQueryToWaiters ?? []), resolve]
+    })
 }

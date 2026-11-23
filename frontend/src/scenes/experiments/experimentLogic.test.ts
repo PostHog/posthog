@@ -353,7 +353,6 @@ describe('experimentLogic', () => {
                     ],
                 },
             })
-            // The window logic connects to the logic keyed by the experiment id.
             const pageLogic = experimentLogic({ experimentId: experiment.id })
             const unmountPageLogic = pageLogic.mount()
             pageLogic.actions.setExperiment(experiment)

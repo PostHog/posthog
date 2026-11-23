@@ -15,7 +15,7 @@ import { AccessControlLevel, Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
-import { experimentMetricsLogic } from './experimentMetricsLogic'
+import { experimentMetricsLogic, resultsQueryToLoaded } from './experimentMetricsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -1533,6 +1533,27 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculationProgress).toEqual({ completed: 0, total: 0 })
             expect(logic.values.lastRefresh).toBeNull()
+        })
+    })
+
+    describe('resultsQueryToLoaded', () => {
+        it.each([
+            ['the fetch of the latest run fails', false],
+            ['a first run is created after a failed fetch', true],
+        ])('resolves when %s', async (_, createsRun) => {
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [500, {}] },
+            })
+            mountLogic()
+            if (createsRun) {
+                await expectLogic(logic).toDispatchActions(['setRecalculationLoading']).toFinishAllListeners()
+                logic.actions.triggerRecalculation('manual')
+            }
+            expect(logic.values.resultsQueryToLoading).toBe(true)
+
+            await resultsQueryToLoaded(logic)
+
+            expect(logic.values.resultsQueryToLoading).toBe(false)
         })
     })
 
