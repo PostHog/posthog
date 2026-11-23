@@ -1086,7 +1086,8 @@ class TestGetInstallationsForSandbox(BaseTest):
         server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
         connection = self._create_installation(user=departing, gateway_server=server, url=server.url)
         self._grant(account, server, user=departing, installation=connection, scope="team")
-        shared = self._create_installation(user=departing, scope="shared", url="https://shared.example.com/mcp")
+        self._create_installation(user=departing, scope="shared", url="https://shared.example.com/mcp")
+        teammates_shared = self._create_installation(scope="shared", url="https://teammate.example.com/mcp")
         other_org_connection = self._create_installation(user=departing, team=other_team)
         credential_owner_id = self.user.id if run_has_owner else None
         assert [result.id for result in self._agent_results(credential_owner_id)] == [str(connection.id)]
@@ -1095,8 +1096,8 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert self._agent_results(credential_owner_id) == []
         assert not MCPServiceAccountServerAccess.objects.unscoped().filter(user=departing).exists()
-        assert set(MCPServerInstallation.objects.filter(user=departing).values_list("id", flat=True)) == {
-            shared.id,
+        assert set(MCPServerInstallation.objects.values_list("id", flat=True)) == {
+            teammates_shared.id,
             other_org_connection.id,
         }
 

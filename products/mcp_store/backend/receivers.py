@@ -1,8 +1,8 @@
 """Removes a member's MCP connections when they leave an organization.
 
 A grant lends its owner's connection to the project's agent runs, and OAuth tokens refresh on use, so a
-departed member's credential would otherwise keep acting in agent runs. Shared connections stay because
-the team uses them.
+departed member's credential would otherwise keep acting in agent runs. Their shared connections go too,
+because a shared connection lends its creator's credential to every teammate.
 """
 
 from typing import Any
@@ -27,7 +27,7 @@ def _remove_member_mcp_connections(
             user_id=instance.user_id, team__organization_id=instance.organization_id
         ).delete()
         connections = MCPServerInstallation.objects.filter(
-            user_id=instance.user_id, team__organization_id=instance.organization_id, scope="personal"
+            user_id=instance.user_id, team__organization_id=instance.organization_id
         )
         deleted_count = connections.count()
         connections.delete()
