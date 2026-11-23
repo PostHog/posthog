@@ -635,7 +635,7 @@ export function createRunner(
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
@@ -645,6 +645,8 @@ export function createRunner(
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const { unread } = judge.evidence()
+                const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,

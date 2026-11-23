@@ -46,6 +46,8 @@ export type StepRates = {
     sent: number
     duplicates: number | null
     duplicateRate: number | null
+    refused: number
+    refusedRate: number | null
 }
 
 export type Ramp = {
@@ -99,9 +101,9 @@ export function stepRatesOf(
     steps: readonly Pick<DrivenStep, 'index' | 'scale'>[],
     evidence: DeliveryEvidence,
     judged: { lost: boolean; duplicates: boolean },
-    { unfinishedJobs }: Pick<Convergence, 'unfinishedJobs'>
+    { unfinishedJobs, unread }: Pick<Convergence, 'unfinishedJobs' | 'unread'>
 ): StepRates[] {
-    const lossSettled = judged.lost && unfinishedJobs === 0
+    const lossSettled = judged.lost && unfinishedJobs === 0 && unread === undefined
     const stepOf = new Map(evidence.journal.map(({ unitId, step }) => [unitId, step]))
     const countBy = <T>(items: readonly T[], step: (item: T) => number | undefined, by: (item: T) => number) => {
         const counts = new Map<number | undefined, number>()
@@ -129,6 +131,16 @@ export function stepRatesOf(
         ({ record }) => stepOf.get(record.unitId),
         ({ accepted }) => accepted - 1
     )
+    const offeredToIntake = countBy(
+        evidence.journal.filter(({ kind }) => kind !== 'event'),
+        ({ step }) => step,
+        () => 1
+    )
+    const refused = countBy(
+        refusalsOf(evidence.journal),
+        ({ step }) => step,
+        () => 1
+    )
     return steps.map(({ index, scale }) => {
         const due = expected.get(index) ?? 0
         const delivered = sent.get(index) ?? 0
@@ -143,6 +155,8 @@ export function stepRatesOf(
             sent: delivered,
             duplicates: extra,
             duplicateRate: rateOf(extra, delivered),
+            refused: refused.get(index) ?? 0,
+            refusedRate: rateOf(refused.get(index) ?? 0, offeredToIntake.get(index) ?? 0),
         }
     })
 }
@@ -523,7 +537,7 @@ export function rampOf(evidence: RampEvidence): Ramp {
     const [hard] = placed.filter(({ broke, hard }) => hard !== undefined || broke.kind === 'harness')
     const { unfinishedJobs, converged } = evidence.convergence
     const backlog =
-        converged || unfinishedJobs === 0
+        converged || !unfinishedJobs
             ? undefined
             : `the backlog did not drain within convergeWithin: ${unfinishedJobs} job${unfinishedJobs === 1 ? '' : 's'} stayed unfinished`
     const ramp = endOf(evidence, placed, unplaced, backlog)

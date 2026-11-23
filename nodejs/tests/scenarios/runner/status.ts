@@ -186,6 +186,8 @@ function interruptionWithoutValve(
     return undefined
 }
 
+const unreadReasonOf = (unread: string): string => `the judge could not read the final state: ${unread}`
+
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
 
@@ -226,15 +228,17 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
         lost: failed('at_least_once'),
         duplicates: failed('duplicate_sends'),
     })
+    const { unread, ...read } = convergence
     const rampJudgesConvergence =
-        convergence.unfinishedJobs > 0 ||
+        unread !== undefined ||
+        (convergence.unfinishedJobs ?? 0) > 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
     const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
             invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
-            convergence: rampJudgesConvergence ? { ...convergence, converged: true } : convergence,
+            convergence: rampJudgesConvergence ? { ...read, converged: true } : read,
         }),
         ramp
     )
@@ -244,7 +248,10 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
             : unramped.status === 'passed'
               ? { status: 'failed' as const, statusReason: `the ramp ran to its last step, but ${recorded.join('; ')}` }
               : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
-    const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    const notJudged = [
+        ...verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
+        ...(unread === undefined ? [] : [unreadReasonOf(unread)]),
+    ]
     if (notJudged.length === 0) {
         return ramped
     }
@@ -302,12 +309,13 @@ function unrampedStatusOf({
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
+        ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
     ]
     const failures = [
         ...(convergence.converged
             ? []
             : [
-                  `not converged: ${convergence.unfinishedJobs} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,
+                  `not converged: ${convergence.unfinishedJobs ?? 'an unread number of'} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,
               ]),
         ...invariants
             .filter(({ passed }) => !passed)

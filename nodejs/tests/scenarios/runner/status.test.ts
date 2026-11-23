@@ -270,6 +270,39 @@ describe('statusOf', () => {
             'the ramp broke: pickup_p99_under broke at the 2x step',
         ],
         [
+            'a ramp whose intake broke mid-ramp and whose judge could not read the final state',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: refused_at_intake broke at the 2x step; the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
+            'a run that held but whose judge could not read the final state',
+            {
+                convergence: {
+                    converged: true,
+                    unfinishedJobs: 0,
+                    unrecorded: [],
+                    tookMs: 1000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+            },
+            'invalid',
+            'the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
             'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
             {
                 invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
@@ -324,6 +357,8 @@ describe('statusOf', () => {
                             sent: 119,
                             duplicates: 1,
                             duplicateRate: 1 / 119,
+                            refused: 0,
+                            refusedRate: 0,
                         },
                         {
                             index: 1,
@@ -334,6 +369,8 @@ describe('statusOf', () => {
                             sent: 238,
                             duplicates: 0,
                             duplicateRate: 0,
+                            refused: 0,
+                            refusedRate: 0,
                         },
                     ],
                 },
@@ -358,6 +395,8 @@ describe('statusOf', () => {
                             sent: 120,
                             duplicates: 1,
                             duplicateRate: 1 / 120,
+                            refused: 0,
+                            refusedRate: 0,
                         },
                     ],
                 },
