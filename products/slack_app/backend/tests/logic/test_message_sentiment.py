@@ -26,6 +26,22 @@ from products.slack_app.backend.logic.message_sentiment import (
 )
 
 
+class TestAllowedGifUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("posthog_cloudinary", "https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif", True),
+            ("plain_http", "http://res.cloudinary.com/dmukukwp6/image/upload/calm.gif", False),
+            ("other_host", "https://attacker.example/scam.gif", False),
+            ("other_cloudinary_account", "https://res.cloudinary.com/someone-else/image/upload/x.gif", False),
+            ("userinfo_trick", "https://res.cloudinary.com@evil.example/dmukukwp6/x.gif", False),
+            ("lookalike_host", "https://res.cloudinary.com.evil.example/dmukukwp6/x.gif", False),
+            ("not_a_string", 3, False),
+        ]
+    )
+    def test_only_posthog_assets_pass(self, _name, url, allowed):
+        assert feature_flags.is_allowed_gif_url(url) is allowed
+
+
 class TestSentimentVerdict(SimpleTestCase):
     @parameterized.expand(
         [
@@ -146,11 +162,11 @@ class TestRespondToSentiment:
             ("happy", "happy", False, None),
             ("confused", "confused", False, None),
             ("not_happy_gets_no_gif", "not_happy", True, None),
-            ("frustrated_gets_a_gif", "frustrated", True, "https://example.com/calm.gif"),
+            ("frustrated_gets_a_gif", "frustrated", True, "https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif"),
         ]
     )
     def test_reaction_and_gif_follow_the_sentiment(self, _name, choice, reacted, gif_url):
-        gifs = ["http://example.com/plain.gif", "https://example.com/calm.gif"]
+        gifs = ["https://example.com/elsewhere.gif", "https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif"]
 
         assert self._respond(_flags(True, gifs), choice) == SentimentResult(sentiment=Sentiment(choice))
 
@@ -177,7 +193,10 @@ class TestRespondToSentiment:
         assert image in DEFAULT_FRUSTRATION_GIF_URLS
 
     def test_flag_off_runs_no_model(self):
-        assert self._respond(_flags(False, ["https://example.com/calm.gif"]), "frustrated") is None
+        assert (
+            self._respond(_flags(False, ["https://res.cloudinary.com/dmukukwp6/image/upload/calm.gif"]), "frustrated")
+            is None
+        )
 
         assert self.model_built is False
         self.slack_client.reactions_add.assert_not_called()

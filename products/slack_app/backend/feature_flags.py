@@ -37,6 +37,7 @@ on a gate that falls back to the workspace as a mix of the two.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 
 import structlog
 import posthoganalytics
@@ -261,9 +262,32 @@ def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, di
     )
 
 
+# The bot shows a payload GIF inside customer workspaces, so a flag edit must not be able to pick any image on the
+# internet. Only PostHog's own Cloudinary account qualifies.
+_ALLOWED_GIF_HOST = "res.cloudinary.com"
+_ALLOWED_GIF_PATH_PREFIX = "/dmukukwp6/"
+
+
+def is_allowed_gif_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.hostname == _ALLOWED_GIF_HOST
+        and parts.port is None
+        and not parts.username
+        and not parts.password
+        and parts.path.startswith(_ALLOWED_GIF_PATH_PREFIX)
+    )
+
+
 def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: str | None) -> tuple[str, ...] | None:
     """The GIFs from the flag payload ``{"gif_urls": [...]}``, or ``None`` when the flag is off. The payload lets the
-    team change the GIFs without a deploy. Only ``https://`` URLs pass, because Slack loads the image from the URL.
+    team change the GIFs without a deploy. Only URLs on PostHog's own asset host pass (``is_allowed_gif_url``).
     A missing or malformed payload gives an empty tuple, and the caller then uses its default GIFs."""
     try:
         result = posthoganalytics.get_feature_flag_result(
@@ -288,7 +312,7 @@ def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: 
     urls = payload.get("gif_urls") if isinstance(payload, dict) else None
     if not isinstance(urls, list):
         return ()
-    return tuple(url for url in urls if isinstance(url, str) and url.startswith("https://"))
+    return tuple(url for url in urls if is_allowed_gif_url(url))
 
 
 def is_slack_app_onboarding_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
