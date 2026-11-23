@@ -336,6 +336,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return await this.manager.findIdempotencyKey(id)
     }
 
+    public async findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        return await this.manager.findIdempotencyKeys(ids)
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 

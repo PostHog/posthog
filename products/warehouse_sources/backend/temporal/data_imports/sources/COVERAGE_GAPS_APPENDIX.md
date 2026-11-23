@@ -10604,18 +10604,18 @@ Note: Diffed against Okta's published management OpenAPI (485 paths). Deliberate
 
 ## Omni — gaps
 
-Today (10): `Connections`, `DocumentPermissions`, `Documents`, `Folders`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroups`, `Users`
+Today (15): `AiConversations`, `Connections`, `DocumentPermissions`, `Documents`, `FolderPermissions`, `Folders`, `Labels`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroupModelRoles`, `UserGroups`, `UserModelRoles`, `Users`
 
 Diffed against: <https://docs.omni.co/sitemap.xml>
 
 - [x] `models (GET /api/v1/models — list-models, list-model-schemas)` — Lookup resolving the model id carried by documents, queries and schedules; nothing in the current tables identifies which data model content sits on (high)
 - [x] `schedule-recipients (list-schedule-recipients)` — Junction between the Schedules table we already sync and the users/groups actually receiving each delivery (high)
 - [x] `document-permissions (get-document-permissions, all-users-and-groups-with-document-access)` — Who can see which dashboard — the access-audit join across Documents, Users and UserGroups (high)
-- [ ] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
-- [ ] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
-- [ ] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
+- [x] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
+- [x] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
+- [x] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
 - [x] `user-attributes (list-user-attributes)` — Lookup for the attribute keys used in row-level access controls referenced on users (medium)
-- [ ] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
+- [x] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
 - [ ] `document-favorites (list-document-favoriters)` — Per-document favorite counts and favoriters — an engagement signal on content (medium)
 - [ ] `embed users and email-only users (list-embed-users, list-email-only-users)` — Two user populations excluded from the main Users table, so seat and delivery counts are understated (medium)
 - [ ] `document drafts (list-document-drafts)` — Unpublished drafts per document, useful for content lifecycle and staleness analysis (low)
@@ -11280,7 +11280,7 @@ Note: Parsed the Particle Cloud API reference served as markdown and listed ever
 
 ## Partnerize — gaps
 
-Today (15): `advertisers`, `campaigns`, `clicks`, `commissions`, `conversion_items`, `conversion_metrics`, `conversion_types`, `conversions`, `countries`, `currencies`, `devices`, `partnership_models`, `timezones`, `traffic_sources`, `user_contexts`
+Today (17): `advertisers`, `campaigns`, `clicks`, `commissions`, `conversion_items`, `conversion_metrics`, `conversion_types`, `conversions`, `countries`, `currencies`, `devices`, `partnership_models`, `selfbills`, `timezones`, `traffic_sources`, `user_contexts`, `voucher_codes`
 
 Diffed against: <https://api-docs.partnerize.com/partner/>
 
@@ -11288,10 +11288,10 @@ Diffed against: <https://api-docs.partnerize.com/partner/>
 - [x] `/reporting/export/export/conversion_item.csv (conversion items)` — basket/line-item detail for conversions we already sync (high). Added as `conversion_items`, read from the JSON conversion report's nested items rather than the CSV export, so it pages and syncs incrementally like `conversions`.
 - [x] `/v2/campaigns/{campaignId}/publishers/{publisherId}/commissions/active (also /default, /campaign, /voucher, /promotion, /tier)` — commission rate card that resolves the campaign IDs carried on conversions (high). Added as `commissions` (fan-out over `campaigns`). The per-type routes skipped: `/active` already returns all of their rows.
 - [x] `/v2/publishers/{publisherId}/discovery/advertisers (brands)` — advertiser/brand lookup resolving the campaign-to-brand relationship on synced campaigns (high). Added as `advertisers`.
-- [ ] `/user/publisher/{publisher_id}/campaign/{campaign_id}/voucher` — voucher-code lookup for attributing conversions to promo codes (medium)
-- [ ] `/user/publisher/{publisher_id}/selfbill` — self-billing invoices, the settlement layer over payable commission (medium)
-- [ ] `/user/publisher/{publisher_id}/payment/summary` — payments summary for reconciling earnings against payouts (medium)
-- [ ] `/user/publisher/{publisher_id}/available_commission` — unpaid/available commission balance (medium)
+- [x] `/user/publisher/{publisher_id}/campaign/{campaign_id}/voucher` — voucher-code lookup for attributing conversions to promo codes (medium). Added as `voucher_codes` (fan-out over `campaigns`).
+- [x] `/user/publisher/{publisher_id}/selfbill` — self-billing invoices, the settlement layer over payable commission (medium). Added as `selfbills` (full refresh: status and payment_date change after creation, and the only date filter is on the creation date).
+- [ ] `/user/publisher/{publisher_id}/payment/summary` — payments summary for reconciling earnings against payouts (medium). Skipped: a current balance snapshot of per-currency totals, not records; the item statuses in `conversion_items` and `selfbills` already hold the same data.
+- [ ] `/user/publisher/{publisher_id}/available_commission` — unpaid/available commission balance (medium). Skipped: one current balance total, not records, and the spec contradicts itself (array schema, single-object example).
 - [ ] `/v3/partner/analytics/impressions/{count,explode,filter,timeseries}` — impressions are the one funnel stage missing next to clicks and conversions (medium)
 - [ ] `/v2/publishers/{publisher_id}/links (tracking links)` — resolves camref/tracking-link IDs appearing on clicks (medium)
 - [ ] `/user/publisher/{publisher_id}/creative` — creative dimension for breaking down clicks and conversions (medium)

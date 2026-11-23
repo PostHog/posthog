@@ -48,6 +48,7 @@ MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
 # `interaction_origin` of eval harness runs; becomes the `x-posthog-mcp-consumer` value "eval".
 EVAL_INTERACTION_ORIGIN = "eval"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
+AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG = "tasks-agent-egress-enrollment"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
