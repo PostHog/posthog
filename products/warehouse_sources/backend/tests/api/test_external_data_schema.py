@@ -1,7 +1,10 @@
+import re
+import json
 import uuid
 import contextlib
 import dataclasses
 from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -96,6 +99,19 @@ from products.warehouse_sources.backend.tests.api.utils import (
     open_orders_schema,
 )
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
+
+TUNING_SKILL_PATH = Path(__file__).parents[3] / "skills" / "tuning-incremental-sync-config" / "SKILL.md"
+
+
+def skill_steps(heading: str) -> list[tuple[str, str]]:
+    section = TUNING_SKILL_PATH.read_text().split(f"\n### {heading}\n", 1)[1].split("\n### ", 1)[0]
+    parsed = []
+    for step in re.split(r"^\d+\. ", section, flags=re.MULTILINE)[1:]:
+        tool = re.match(r"`([a-z-]+)`", step)
+        assert tool, f"step does not start with a tool name: {step!r}"
+        parsed.append((tool.group(1), step))
+    return parsed
+
 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
@@ -2571,6 +2587,59 @@ class TestExternalDataSchema(APIBaseTest):
 
         schema.refresh_from_db()
         assert schema.sync_type_config.get("primary_key_columns") == expected_pk
+
+    def test_skill_incremental_primary_key_change_steps_are_accepted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        table = DataWarehouseTable.objects.create(team=self.team, external_data_source=source)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1,
+                "primary_key_columns": ["id"],
+            },
+            table=table,
+        )
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+        steps = skill_steps("Changing primary keys on an incremental table")
+        new_key: list[str] | None = None
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule"),
+            mock.patch(f"{views}.unpause_external_data_schedule"),
+            mock.patch(f"{views}._trigger_schema_sync"),
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            for tool, text in steps:
+                if tool == "external-data-schemas-delete-data":
+                    response = self.client.delete(f"{url}/delete_data")
+                elif tool == "external-data-schemas-partial-update":
+                    payload_match = re.search(r"`(\{.*?\})`", text, flags=re.DOTALL)
+                    assert payload_match, f"partial-update step has no JSON payload: {text!r}"
+                    payload = json.loads(payload_match.group(1))
+                    new_key = payload["primary_key_columns"]
+                    response = self.client.patch(url, data=payload, content_type="application/json")
+                elif tool == "external-data-schemas-reload":
+                    response = self.client.post(f"{url}/reload/")
+                else:
+                    raise AssertionError(f"unexpected step {tool}")
+                assert response.status_code == 200, (tool, response.content)
+
+        assert [tool for tool, _ in steps][-1] == "external-data-schemas-reload"
+        schema.refresh_from_db()
+        assert new_key is not None and new_key != ["id"]
+        assert schema.primary_key_columns == new_key
+        assert schema.should_sync is True
 
     def test_update_schema_primary_key_columns_not_reset_on_full_refresh(self):
         source = ExternalDataSource.objects.create(
