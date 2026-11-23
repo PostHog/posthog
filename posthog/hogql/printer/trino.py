@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from string import Formatter
 from typing import TYPE_CHECKING, ClassVar, NoReturn
@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    UUIDDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import missing_trino_locator_error_code, resolve_trino_table_locator
@@ -199,6 +204,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
     "extractallgroupsvertical": 1,
     "extractgroups": 1,
     "match": 1,
+    "multimatchanyindex": 1,
     "regexpextract": 1,
     "replaceregexpall": 1,
     "replaceregexpone": 1,
@@ -208,6 +214,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_ANY_HEAVY_CAPACITY = 10
 _SCALAR_ARRAY_ITEM_TYPES = (
     ast.BooleanType,
     ast.DateTimeType,
@@ -229,6 +236,18 @@ def _is_null_constant(expr: ast.Expr) -> bool:
 
 def _splits_into_characters(function_name: str, separator: ast.Expr) -> bool:
     return function_name.lower() == "splitbystring" and isinstance(separator, ast.Constant) and separator.value == ""
+
+
+def _escape_regex_pattern_argument(pattern: ast.Expr) -> ast.Expr:
+    if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
+        escaped = _escape_regex_class_brackets(pattern.value)
+        return pattern if escaped == pattern.value else ast.Constant(value=escaped, type=pattern.type)
+    if isinstance(pattern, ast.Array):
+        escaped_items = [_escape_regex_pattern_argument(item) for item in pattern.exprs]
+        if all(escaped is item for escaped, item in zip(escaped_items, pattern.exprs)):
+            return pattern
+        return ast.Array(exprs=escaped_items, type=pattern.type)
+    return pattern
 
 
 def _escape_regex_class_brackets(pattern: str) -> str:
@@ -299,10 +318,21 @@ class _JoinByTypeFinder(TraversingVisitor):
         super().visit_join_expr(node)
 
 
+def _set_query_branch_types(set_type: ast.SelectSetQueryType) -> list[ast.SelectQueryType]:
+    branches: list[ast.SelectQueryType] = []
+    for branch in set_type.types:
+        if isinstance(branch, ast.SelectSetQueryType):
+            branches.extend(_set_query_branch_types(branch))
+        else:
+            branches.append(branch)
+    return branches
+
+
 class _SelectQueryIndex(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.by_type: dict[int, ast.SelectQuery] = {}
+        self.aliased_expressions: dict[int, ast.Expr] = {}
 
     def visit(self, node: ast.AST | None) -> None:
         if isinstance(node, ast.Type):
@@ -313,6 +343,11 @@ class _SelectQueryIndex(TraversingVisitor):
         if node.type is not None:
             self.by_type[id(node.type)] = node
         super().visit_select_query(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if node.type is not None:
+            self.aliased_expressions[id(node.type)] = node.expr
+        super().visit_alias(node)
 
 
 _FIRST_ARGUMENT_TYPE_AGGREGATES = frozenset(
@@ -655,11 +690,10 @@ class TrinoPrinter(PostgresPrinter):
         pattern_index = _TRINO_REGEX_PATTERN_ARGUMENTS.get(name)
         if pattern_index is not None and pattern_index < len(node.args):
             pattern = node.args[pattern_index]
-            if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
-                escaped = _escape_regex_class_brackets(pattern.value)
-                if escaped != pattern.value:
-                    node = clone_expr(node, clear_types=False)
-                    node.args[pattern_index] = ast.Constant(value=escaped, type=pattern.type)
+            escaped_pattern = _escape_regex_pattern_argument(pattern)
+            if escaped_pattern is not pattern:
+                node = clone_expr(node, clear_types=False)
+                node.args[pattern_index] = escaped_pattern
         if name in TRINO_WINDOW_ONLY_FUNCTIONS:
             self._invalid_function_arguments(node, f"{node.name} requires an OVER clause in Trino mode.")
         if name in TRINO_AGGREGATE_COMBINATORS:
@@ -932,6 +966,10 @@ class TrinoPrinter(PostgresPrinter):
             return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "topk":
             return self._visit_top_k(node)
+        if name in {"anyheavy", "anyheavyif"}:
+            return self._visit_any_heavy(node)
+        if name == "multimatchanyindex":
+            return self._visit_multi_match_any_index(node)
         if name in {"avgweighted", "avgweightedif"}:
             return self._visit_weighted_average(node)
         if name == "tonullablestring":
@@ -1139,12 +1177,7 @@ class TrinoPrinter(PostgresPrinter):
                 and value_expr.args
                 and self._is_numeric(value_expr.args[0])
             ):
-                timestamp = f"from_unixtime(CAST({self.visit(value_expr)} AS DOUBLE))"
-                return (
-                    f"at_timezone({timestamp}, {self.visit(node.args[1])})"
-                    if len(node.args) == 2
-                    else f"CAST({timestamp} AS TIMESTAMP)"
-                )
+                return self._print_unix_timestamp(value_expr, node.args[1] if len(node.args) == 2 else None)
             if isinstance(self._resolve_type(value_expr), ast.StringType) and not isinstance(value_expr, ast.Constant):
                 value = self.visit(value_expr)
                 timestamp = f"coalesce(TRY_CAST({value} AS TIMESTAMP), CAST(TRY(from_iso8601_timestamp({value})) AS TIMESTAMP), CAST(from_unixtime(TRY_CAST({value} AS DOUBLE)) AS TIMESTAMP))"
@@ -1833,24 +1866,41 @@ class TrinoPrinter(PostgresPrinter):
             return bool(select_type.types) and all(
                 self._is_boolean_column(branch, name) for branch in select_type.types
             )
-        if not isinstance(select_type, ast.SelectQueryType) or not self.stack:
-            return False
+        projected = self._projected_expression(select_type, name)
+        return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
+
+    def _projected_expression(self, select_type: ast.SelectQueryType, name: str) -> ast.Expr | None:
+        query = self._select_query_node(select_type)
+        position = self._projection_position(query, name) if query is not None else None
+        if query is None or position is None:
+            return None
+        projection = query.select[position]
+        return projection.expr if isinstance(projection, ast.Alias) else projection
+
+    def _projection_position(self, query: ast.SelectQuery, name: str) -> int | None:
+        for position, projection in enumerate(query.select):
+            if isinstance(projection, ast.Alias) and projection.alias == name:
+                return position
+            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
+                return position
+        return None
+
+    def _select_query_node(self, select_type: ast.SelectQueryType) -> ast.SelectQuery | None:
+        index = self._select_query_index()
+        query = index.by_type.get(id(select_type)) if index is not None else None
+        return query if query is not None and query.type is select_type else None
+
+    def _select_query_index(self) -> _SelectQueryIndex | None:
+        if not self.stack:
+            return None
         root = self.stack[0]
-        cached = self.__dict__.get("_select_query_index")
+        cached = self.__dict__.get("_select_query_index_cache")
         if cached is None or cached[0] is not root:
             index = _SelectQueryIndex()
             index.visit(root)
-            cached = (root, index.by_type)
-            self.__dict__["_select_query_index"] = cached
-        query = cached[1].get(id(select_type))
-        if query is None or query.type is not select_type:
-            return False
-        for projection in query.select:
-            if isinstance(projection, ast.Alias) and projection.alias == name:
-                return isinstance(self._resolve_type(projection.expr), ast.BooleanType)
-            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
-                return isinstance(self._resolve_type(projection), ast.BooleanType)
-        return False
+            cached = (root, index)
+            self.__dict__["_select_query_index_cache"] = cached
+        return cached[1]
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
@@ -2176,8 +2226,18 @@ class TrinoPrinter(PostgresPrinter):
             return self.visit(ast.Constant(value=""))
         return parts[0] if len(parts) == 1 else f"concat({', '.join(parts)})"
 
-    @staticmethod
-    def _known_decimal_scale(node: ast.Expr) -> int | None:
+    def _known_decimal_scale(self, node: ast.Expr) -> int | None:
+        cache: dict[int, tuple[ast.Expr, int | None]] = self.__dict__.setdefault("_decimal_scales", {})
+        cached = cache.get(id(node))
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        scale = self._known_decimal_scale_uncached(node)
+        cache[id(node)] = (node, scale)
+        return scale
+
+    def _known_decimal_scale_uncached(self, node: ast.Expr) -> int | None:
+        if isinstance(node, ast.Alias):
+            return self._known_decimal_scale(node.expr)
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return None
@@ -2185,50 +2245,87 @@ class TrinoPrinter(PostgresPrinter):
                 return 0
             if isinstance(node.value, float):
                 return max(0, len(str(node.value).partition(".")[2]))
+            return None
+        if isinstance(node, ast.Field):
+            return self._field_decimal_scale(node)
         if isinstance(node, ast.Call):
-            if node.name.lower() == "todecimal" and len(node.args) == 2:
-                scale = node.args[1]
-                if (
-                    isinstance(scale, ast.Constant)
-                    and isinstance(scale.value, int)
-                    and not isinstance(scale.value, bool)
-                ):
-                    return scale.value
-            if node.name.lower() == "accuratecastornull" and len(node.args) == 2:
-                target = node.args[1]
-                if isinstance(target, ast.Constant) and isinstance(target.value, str):
-                    match = re.fullmatch(
-                        r"(?:nullable\()?decimal(?:32|64|128|256)\((\d+)\)\)?", target.value, re.IGNORECASE
-                    )
-                    if match is not None:
-                        return int(match.group(1))
+            return self._call_decimal_scale(node)
         return None
+
+    def _call_decimal_scale(self, node: ast.Call) -> int | None:
+        name = node.name.lower()
+        if name == "todecimal" and len(node.args) == 2:
+            return constant_integer(node.args[1])
+        if name == "accuratecastornull" and len(node.args) == 2:
+            target = node.args[1]
+            if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                return clickhouse_decimal_scale(target.value)
+            return None
+        if name in {"multiplydecimal", "dividedecimal"} and len(node.args) in {2, 3}:
+            if len(node.args) == 3:
+                return constant_integer(node.args[2])
+            return self._max_decimal_scale(node.args)
+        if name == "if" and len(node.args) == 3:
+            return self._max_decimal_scale(node.args[1:])
+        if name == "multiif" and len(node.args) % 2 == 1:
+            return self._max_decimal_scale([*node.args[1:-1:2], node.args[-1]])
+        if name in {"coalesce", "ifnull"}:
+            return self._max_decimal_scale(node.args)
+        return None
+
+    def _max_decimal_scale(self, values: Sequence[ast.Expr]) -> int | None:
+        typed_values = [value for value in values if not (isinstance(value, ast.Constant) and value.value is None)]
+        scales = [self._known_decimal_scale(value) for value in typed_values]
+        if not scales or None in scales:
+            return None
+        return max(scale for scale in scales if scale is not None)
+
+    def _field_decimal_scale(self, node: ast.Field) -> int | None:
+        field_type = node.type
+        if isinstance(field_type, ast.FieldAliasType):
+            index = self._select_query_index()
+            aliased = index.aliased_expressions.get(id(field_type)) if index is not None else None
+            return self._known_decimal_scale(aliased) if aliased is not None else None
+        if not isinstance(field_type, ast.FieldType):
+            return None
+        projected = self._derived_column_expressions(field_type)
+        if projected is not None:
+            return self._max_decimal_scale(projected)
+        database_field = field_type.resolve_database_field(self.context)
+        return database_field.scale if isinstance(database_field, DecimalDatabaseField) else None
+
+    def _derived_column_expressions(self, field_type: ast.FieldType) -> list[ast.Expr] | None:
+        table_type: ast.Type = field_type.table_type
+        if isinstance(table_type, ast.CTETableAliasType):
+            table_type = table_type.cte_table_type
+        if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
+            table_type = table_type.select_query_type
+        if isinstance(table_type, ast.SelectQueryType):
+            projected = self._projected_expression(table_type, field_type.name)
+            return [projected] if projected is not None else None
+        if not isinstance(table_type, ast.SelectSetQueryType):
+            return None
+        branches = [self._select_query_node(branch) for branch in _set_query_branch_types(table_type)]
+        if not branches or any(branch is None for branch in branches):
+            return None
+        queries = [branch for branch in branches if branch is not None]
+        position = self._projection_position(queries[0], field_type.name)
+        if position is None or any(len(query.select) <= position for query in queries):
+            return None
+        projections = [query.select[position] for query in queries]
+        return [projection.expr if isinstance(projection, ast.Alias) else projection for projection in projections]
 
     def _visit_multiply_decimal(self, node: ast.Call) -> str:
         if len(node.args) not in {2, 3}:
             self._invalid_function_arguments(node, "multiplyDecimal expects two values and an optional scale.")
-        scale_expr = node.args[2] if len(node.args) == 3 else None
-        if scale_expr is None:
-            operand_scales = [self._known_decimal_scale(arg) for arg in node.args]
-            if any(scale is None for scale in operand_scales):
-                self._unsupported(
-                    "TRINO_DECIMAL_SCALE_UNSUPPORTED",
-                    "multiplyDecimal requires a result scale when operand scales cannot be inferred in Trino mode.",
-                    node,
-                )
-            scale = max(scale for scale in operand_scales if scale is not None)
-        elif (
-            isinstance(scale_expr, ast.Constant)
-            and isinstance(scale_expr.value, int)
-            and not isinstance(scale_expr.value, bool)
-        ):
-            scale = scale_expr.value
-        else:
-            self._unsupported(
-                "TRINO_DECIMAL_SCALE_UNSUPPORTED",
-                "multiplyDecimal requires a constant result scale in Trino mode.",
-                node,
+        scale = self._call_decimal_scale(node)
+        if scale is None:
+            message = (
+                "multiplyDecimal requires a constant result scale in Trino mode."
+                if len(node.args) == 3
+                else "multiplyDecimal requires a result scale when operand scales cannot be inferred in Trino mode."
             )
+            self._unsupported("TRINO_DECIMAL_SCALE_UNSUPPORTED", message, node)
         if not 0 <= scale <= 38:
             self._unsupported(
                 "TRINO_DECIMAL_SCALE_UNSUPPORTED",
@@ -2387,19 +2484,18 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         target = self._trino_json_type(type_arg.value, node)
-        path_members: list[str | int] = []
-        for key in node.args[1:-1]:
-            if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+        keys = node.args[1:-1]
+        for key in keys:
+            if isinstance(key, ast.Constant) and not isinstance(key.value, (str, int)):
                 self._unsupported(
                     "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
-                    "JSONExtract requires a constant key path in Trino mode.",
+                    "JSONExtract requires string or integer keys in Trino mode.",
                     node,
                 )
-            path_members.append(key.value)
         source = self.visit(node.args[0])
-        has_array_index = any(self._is_json_array_index(key) for key in node.args[1:-1])
-        path = None if has_array_index else self._json_path(path_members)
-        extracted = self._visit_json_path(source, node.args[1:-1]) if has_array_index else None
+        walks_path = any(self._is_json_array_index(key) or not isinstance(key, ast.Constant) for key in keys)
+        extracted = self._visit_json_path(source, keys) if walks_path else None
+        path = None if walks_path else self._json_path([key.value for key in keys if isinstance(key, ast.Constant)])
         if target.startswith("MAP(VARCHAR, "):
             value_type = target[len("MAP(VARCHAR, ") : -1]
             if value_type in {
@@ -2424,12 +2520,17 @@ class TrinoPrinter(PostgresPrinter):
                     converted = f"coalesce({converted}, CAST({default} AS {value_type}))"
                 result = f"transform_values({raw}, (__hogql_json_key, __hogql_json_value) -> {converted})"
                 return self._json_default(node, result, self._json_type_default(target))
+        default = (
+            f"CAST(NULL AS {target})"
+            if type_arg.value.strip().lower().startswith("nullable(")
+            else self._json_type_default(target)
+        )
         if extracted:
             value = extracted if target.startswith(("ARRAY", "MAP")) else f"json_extract_scalar({extracted}, '$')"
-            return self._json_default(node, f"CAST({value} AS {target})", self._json_type_default(target))
+            return self._json_default(node, f"CAST({value} AS {target})", default)
         extractor = "json_extract" if target.startswith(("ARRAY", "MAP")) else "json_extract_scalar"
         converted = f"CAST({extractor}({source}, {path}) AS {target})"
-        return self._json_default(node, converted, self._json_type_default(target))
+        return self._json_default(node, converted, default)
 
     def _trino_json_type(self, type_name: str, node: ast.Call) -> str:
         normalized = " ".join(type_name.strip().lower().split())
@@ -2617,8 +2718,73 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             precision = precision_arg.value
+        timezone = node.args[2] if len(node.args) == 3 else None
+        if self._is_numeric(node.args[0]):
+            return self._print_unix_timestamp(node.args[0], timezone, precision)
         timestamp = f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
-        return f"with_timezone({timestamp}, {self.visit(node.args[2])})" if len(node.args) == 3 else timestamp
+        return f"with_timezone({timestamp}, {self.visit(timezone)})" if timezone is not None else timestamp
+
+    def _print_unix_timestamp(self, seconds: ast.Expr, timezone: ast.Expr | None, precision: int | None = None) -> str:
+        if precision is None:
+            timestamp = f"from_unixtime(CAST({self.visit(seconds)} AS DOUBLE))"
+            if timezone is not None:
+                return f"at_timezone({timestamp}, {self.visit(timezone)})"
+            return f"CAST({timestamp} AS TIMESTAMP)"
+        nanoseconds = f"CAST(CAST({self.visit(seconds)} AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)"
+        timestamp = f"from_unixtime_nanos({nanoseconds})"
+        if timezone is not None:
+            return f"CAST(at_timezone({timestamp}, {self.visit(timezone)}) AS TIMESTAMP({precision}) WITH TIME ZONE)"
+        return f"CAST({timestamp} AS TIMESTAMP({precision}))"
+
+    def _visit_any_heavy(self, node: ast.Call) -> str:
+        conditional = node.name.lower() == "anyheavyif"
+        if len(node.args) != (2 if conditional else 1):
+            self._invalid_function_arguments(node, f"{node.name} expects a value and, for anyHeavyIf, a condition.")
+        if node.params or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(
+                node, f"{node.name} does not support these aggregate modifiers in Trino mode."
+            )
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.IntegerType):
+            value = f"CAST({self.visit(node.args[0])} AS BIGINT)"
+        elif isinstance(value_type, ast.StringType):
+            value = self.visit(node.args[0])
+        else:
+            self._invalid_function_arguments(node, f"{node.name} requires a string or integer value in Trino mode.")
+        conditions = [node.args[1]] if conditional else []
+        if node.filter_expr is not None:
+            conditions.append(node.filter_expr)
+        frequent = f"approx_most_frequent(1, {value}, {_ANY_HEAVY_CAPACITY})"
+        if conditions:
+            predicate = " AND ".join(f"({self._visit_predicate(condition)})" for condition in conditions)
+            frequent = f"{frequent} FILTER (WHERE {predicate})"
+        most_frequent = f"element_at(map_keys({frequent}), 1)"
+        if value_type.nullable:
+            return most_frequent
+        default = "''" if isinstance(value_type, ast.StringType) else "BIGINT '0'"
+        return f"coalesce({most_frequent}, {default})"
+
+    def _visit_multi_match_any_index(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "multiMatchAnyIndex expects a haystack and an array of patterns.")
+        haystack_expr, patterns = node.args
+        if isinstance(patterns, ast.Array) and all(
+            isinstance(pattern, ast.Constant) and isinstance(pattern.value, str) for pattern in patterns.exprs
+        ):
+            matches = "".join(
+                f" WHEN regexp_like(__hogql_haystack, {self.visit(pattern)}) THEN {index}"
+                for index, pattern in enumerate(patterns.exprs, start=1)
+            )
+            return (
+                f"element_at(transform(ARRAY[{self.visit(haystack_expr)}], __hogql_haystack -> "
+                f"CASE WHEN __hogql_haystack IS NULL THEN NULL{matches} ELSE 0 END), 1)"
+            )
+        search = f"ARRAY[ROW({self.visit(haystack_expr)}, {self.visit(patterns)})]"
+        position = (
+            "array_position(transform(__hogql_match[2], "
+            "__hogql_pattern -> regexp_like(__hogql_match[1], __hogql_pattern)), TRUE)"
+        )
+        return f"element_at(transform({search}, __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, {position})), 1)"
 
     def _visit_parse_datetime_best_effort(self, node: ast.Call) -> str:
         if len(node.args) not in {1, 2}:

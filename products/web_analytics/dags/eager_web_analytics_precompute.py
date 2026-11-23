@@ -621,7 +621,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
         "path — the runner decides what's stale and inserts only what's missing."
     ),
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         # Dagster terminates the run if it exceeds this. The long pole is the
         # initial cold warm of the whole team list (28-day buckets for every
         # tile); 90 min leaves headroom for it even as the audience grows.
@@ -685,7 +685,7 @@ def _fail_on_concurrent_run(context: dagster.OpExecutionContext) -> None:
     ),
     config={"ops": {"warm_eager_baseline_op": {"config": {"active_teams_pct": 100, "active_lookback_hours": 168}}}},
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(24 * 60 * 60),
     },
 )
@@ -705,7 +705,7 @@ def web_analytics_eager_backfill_job():
     cron_schedule="53 * * * *",
     job=web_analytics_eager_baseline_warming_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_eager_baseline_warming_schedule(
     context: dagster.ScheduleEvaluationContext,
