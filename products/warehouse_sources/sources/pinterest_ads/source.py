@@ -124,7 +124,8 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                         caption=(
                             "The time zone that decides which day each analytics row falls on. "
                             "The ad account time zone needs a time zone set on the ad account in Pinterest. "
-                            "After you change this, resync the analytics tables so past days use the new time zone."
+                            "A change applies to new syncs only. A resync also moves past days, but it replaces each "
+                            "analytics table with the last 89 days and deletes older rows."
                         ),
                         required=False,
                         defaultValue="PINTEREST_TIME_ZONE",

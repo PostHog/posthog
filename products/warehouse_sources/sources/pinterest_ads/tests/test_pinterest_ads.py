@@ -1,4 +1,6 @@
 import datetime as dt
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -661,7 +663,7 @@ class TestReportingTimezone:
             ),
         ):
             response = PinterestAdsSource().source_for_pipeline(config, _make_resume_manager(), inputs)
-            list(response.items())
+            list(cast(Iterable[Any], response.items()))
 
         analytics_requests = [params for url, params in session.requests if url.endswith("analytics")]
         assert analytics_requests

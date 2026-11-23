@@ -973,7 +973,7 @@ Pike13,,,,,,pike13
 Pinecone,api_key,,,,,pinecone
 Pingdom,api_token,,,,,pingdom
 Pingone,,,,,,pingone
-PinterestAds,,pinterest_ads_integration_id,ad_account_id,,,pinterest-ads
+PinterestAds,,pinterest_ads_integration_id,ad_account_id,reporting_timezone,,pinterest-ads
 PinterestOrganic,,,,,,pinterest-organic
 Pipedrive,company_domain api_token,,,,,pipedrive
 Pipeliner,service_url space_id username password,,,,,pipeliner
