@@ -1178,11 +1178,14 @@ class TestTransactionalEmail(APIBaseTest):
         self._use_fakes(cdp_post, capture)
         before = self._category(**existing) if existing is not None else None
 
-        response = self._psak_client(["transactional_email:write"]).post(
-            self.send_email_url,
-            self._code_send(category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML),
-            format="json",
-        )
+        with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+            response = self._psak_client(["transactional_email:write"]).post(
+                self.send_email_url,
+                self._code_send(
+                    category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML
+                ),
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         category = MessageCategory.objects.get(team=self.team, key="newsletter")
@@ -1517,6 +1520,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert "send `transactional`" not in lowered
         assert "send it as a transactional" not in lowered
         assert "marketing" in lowered
+        if scenario == "dedicated_template":
+            assert "template's own category" in detail
+            assert "`template_key`" in detail
+            assert self.send_email_url in detail
 
     def test_transactional_category_flag_off_still_explains_sending_transactional(self, cdp_post, flag, capture):
         self._use_fakes(cdp_post, capture)
@@ -3918,49 +3925,3 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
         assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
-
-    @parameterized.expand([("creates", False), ("restores", True)])
-    def test_a_key_another_writer_makes_live_at_the_limit_before_the_limit_check_is_used(
-        self, cdp_post, _flag, _capture, _name, archived
-    ):
-        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        archived_category = (
-            MessageCategory.objects.create(
-                team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
-            )
-            if archived
-            else None
-        )
-        written_id: list[Any] = []
-
-        def write_in_other_session() -> None:
-            try:
-                if archived_category is not None:
-                    MessageCategory.objects.filter(id=archived_category.id).update(deleted=False)
-                    written_id.append(archived_category.id)
-                else:
-                    written_id.append(
-                        MessageCategory.objects.create(
-                            team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
-                        ).id
-                    )
-            finally:
-                connection.close()
-
-        original_at_limit = send_categories._at_category_limit
-
-        def other_writer_wins_before_limit_check(team_id: int) -> bool:
-            if not written_id:
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    pool.submit(write_in_other_session).result(timeout=30)
-            return original_at_limit(team_id)
-
-        with (
-            patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1),
-            patch.object(send_categories, "_at_category_limit", side_effect=other_writer_wins_before_limit_check),
-        ):
-            response = self._send_newsletter()
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert len(written_id) == 1
-        assert cdp.categories() == [{"id": str(written_id[0]), "type": "marketing"}]

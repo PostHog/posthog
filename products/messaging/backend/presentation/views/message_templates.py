@@ -736,8 +736,9 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError(
                 {
                     "category": ErrorDetail(
-                        f"This route doesn't take `category`, so PostHog didn't send this {email}. Send with "
-                        f"`category` on `{route}` instead.",
+                        f"This route doesn't take `category`, so PostHog didn't send this {email}. Sending a saved "
+                        "template by ID always uses the template's own category. To pass `category`, send rendered "
+                        f"content with `template_key` on `{route}` instead.",
                         code="field_not_accepted",
                     )
                 }
