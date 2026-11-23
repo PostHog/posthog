@@ -1549,6 +1549,22 @@ class TestCombinationRisks:
             ),
             ("do_block_runs_now", "DO $$ BEGIN UPDATE test_table SET foo = 'bar'; END $$;", True),
             (
+                "function_called_by_select",
+                "CREATE FUNCTION f() RETURNS void AS $$ UPDATE test_table SET x = 1 $$ LANGUAGE sql; SELECT f();",
+                True,
+            ),
+            (
+                "procedure_called_by_call",
+                "CREATE PROCEDURE p() LANGUAGE sql AS $$ DELETE FROM test_table $$; CALL p();",
+                True,
+            ),
+            (
+                "single_quoted_body_before_do_block",
+                "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'; "
+                "DO $$ BEGIN UPDATE test_table SET a = 1; END $$;",
+                True,
+            ),
+            (
                 "update_after_function",
                 "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$; UPDATE test_table SET a = 1;",
                 True,

@@ -34,9 +34,12 @@ class VolatileFunctionDetector:
         return name.lower() in stable_functions
 
 
+# The dollar quote must follow AS in the same statement, so a single-quoted body cannot match through to a later $$ block.
 _FUNCTION_BODY = re.compile(
-    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b.*?(\$\w*\$).*?\1", re.IGNORECASE | re.DOTALL
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b[^;]*?\bAS\s+(\$\w*\$).*?\1",
+    re.IGNORECASE | re.DOTALL,
 )
+_ROUTINE_CALL = re.compile(r"\b(?:CALL|PERFORM)\b|\bSELECT\s+[\w.]+\s*\(", re.IGNORECASE)
 _TRIGGER_EVENT = r"(?:INSERT|UPDATE|DELETE|TRUNCATE)\b(?:\s+OF\s+[\w\s,\"]+?)?"
 _TRIGGER_EVENTS = re.compile(
     rf"\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+{_TRIGGER_EVENT}(?:\s+OR\s+{_TRIGGER_EVENT})*\s+ON\b", re.IGNORECASE
@@ -48,9 +51,12 @@ def sql_run_at_migration_time(sql: str) -> str:
 
     A body runs when the function is called, and BEFORE UPDATE ON names the statement that fires the
     trigger. Matching DML keywords in either reads a CREATE TRIGGER as a data change. A DO block runs at
-    once, so its body stays.
+    once, so its body stays. A body also stays when the same SQL calls a routine (SELECT f(), CALL p()),
+    because the analyzer cannot tell which routine runs.
     """
-    sql = _FUNCTION_BODY.sub("CREATE FUNCTION", sql)
+    without_bodies = _FUNCTION_BODY.sub("CREATE FUNCTION", sql)
+    if not _ROUTINE_CALL.search(without_bodies):
+        sql = without_bodies
     return _TRIGGER_EVENTS.sub("ON", sql)
 
 
