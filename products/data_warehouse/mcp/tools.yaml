@@ -277,8 +277,6 @@ tools:
     view-rename:
         operation: warehouse_saved_queries_rename_create
         enabled: true
-        # Shown only once the flag is on, after the Django routes behind these tools are deployed.
-        feature_flag: data-warehouse-rename-saved-view
         scopes:
             - warehouse_view:write
         annotations:
@@ -294,11 +292,10 @@ tools:
             model in the plan is blocked. A 409 means the models that read this view changed since the plan was made, so
             get a new plan and show it again. The updated models are not rebuilt. Endpoints, insights and dashboards
             that use the old name are not updated.
+        feature_flag: data-warehouse-rename-saved-view
     view-rename-plan:
         operation: warehouse_saved_queries_rename_plan_create
         enabled: true
-        # Shown only once the flag is on, after the Django routes behind these tools are deployed.
-        feature_flag: data-warehouse-rename-saved-view
         scopes:
             - warehouse_view:write
         annotations:
@@ -312,6 +309,7 @@ tools:
             view, each with its SQL before and after, the models that block the rename with the reason, the saved joins
             that name this view and get the new name, and a plan_token. Show the user the changes, then call
             'view-rename' with the same name and the plan_token. Needs edit access to every model in the plan.
+        feature_flag: data-warehouse-rename-saved-view
     view-resume:
         operation: warehouse_saved_queries_resume_create
         enabled: true
