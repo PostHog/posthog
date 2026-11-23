@@ -33,42 +33,7 @@ def test_raw_trino_queries_reject_non_read_only_sql(sql: str) -> None:
         ensure_read_only_raw_trino_statement(sql)
 
 
-@pytest.mark.parametrize(
-    "sql",
-    [
-        "WITH SESSION query_max_scan_physical_bytes='1TB', query_max_run_time='10m' SELECT * FROM some_table",
-        "with session query_max_run_time = '10m' select 1",
-        "With Session query_max_run_time='10m' SELECT 1",
-        "-- note\nWITH SESSION query_max_run_time='10m' SELECT 1",
-        "/* note */ WITH SESSION query_max_run_time='10m' SELECT 1",
-        "/* a */ -- b\n  WITH /* c */ SESSION query_max_run_time='10m' SELECT 1",
-        "WITH\n  SESSION\n  query_max_run_time='10m' SELECT 1",
-        "WITH SESSION some_catalog.some_property=true SELECT 1",
-        "SET SESSION query_max_scan_physical_bytes='1TB'",
-        "USE some_catalog.some_schema",
-    ],
-)
-def test_raw_trino_queries_reject_session_overrides(sql: str) -> None:
-    with pytest.raises(ExposedHogQLError):
-        ensure_read_only_raw_trino_statement(sql)
-
-
-def test_raw_trino_session_override_error_names_the_clause() -> None:
-    with pytest.raises(ExposedHogQLError, match="WITH SESSION"):
-        ensure_read_only_raw_trino_statement("WITH SESSION query_max_run_time='10m' SELECT 1")
-
-
-@pytest.mark.parametrize(
-    "sql",
-    [
-        "SELECT * FROM events",
-        "WITH recent AS (SELECT 1) SELECT * FROM recent",
-        "WITH SESSION (a) AS (SELECT 1) SELECT a FROM session",
-        "SELECT session FROM events",
-        "SELECT 'WITH SESSION x = 1'",
-        "SELECT 1 -- WITH SESSION x = 1",
-    ],
-)
+@pytest.mark.parametrize("sql", ["SELECT * FROM events", "WITH recent AS (SELECT 1) SELECT * FROM recent"])
 def test_raw_trino_queries_accept_single_select(sql: str) -> None:
     assert ensure_read_only_raw_trino_statement(sql) == sql
 

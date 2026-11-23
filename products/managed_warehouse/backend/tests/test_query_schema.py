@@ -66,10 +66,7 @@ def test_native_schema_uses_warehouse_inventory(
         assert all(not table.fields for table in response.tables.values())
         assert cursor.execute.call_count == 1
     connect.assert_called_once_with(
-        str(team.organization_id),
-        principal="posthog:sql-editor:team:7:user:9",
-        canary=canary,
-        source="posthog-sql-editor",
+        str(team.organization_id), principal="posthog:sql-editor:team:7:user:9", canary=canary
     )
     cursor.close.assert_called_once()
 

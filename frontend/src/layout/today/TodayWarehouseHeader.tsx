@@ -35,7 +35,6 @@ const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
     transform: 'Transform',
     export: 'Export',
     define: 'Define',
-    manage: 'Manage',
 }
 
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */

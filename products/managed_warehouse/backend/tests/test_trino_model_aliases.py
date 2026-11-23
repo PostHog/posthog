@@ -145,9 +145,7 @@ class TestModelAliasScoping(BaseTest):
         ):
             reconcile_trino_model_aliases(self.team.pk, lambda: None)
         connect.assert_called_once_with(
-            str(self.organization.id),
-            principal=f"posthog:trino-model-aliases:team:{self.team.pk}",
-            source="posthog-materialization",
+            str(self.organization.id), principal=f"posthog:trino-model-aliases:team:{self.team.pk}"
         )
         publish.assert_called_once_with([alias("reporting.orders")], None)
         connect.return_value.__enter__.return_value.cursor.return_value.execute.assert_not_called()

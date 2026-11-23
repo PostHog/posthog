@@ -83,35 +83,6 @@ const ISSUES = {
     ],
 }
 
-const JOB_STATS = {
-    days: 7,
-    cutoff_time: '2026-09-28T09:00:00+00:00',
-    total_jobs: 428,
-    successful_jobs: 412,
-    failed_jobs: 16,
-    external_data_jobs: { total: 300, running: 2, successful: 288, failed: 12 },
-    modeling_jobs: { total: 128, running: 0, successful: 124, failed: 4 },
-    breakdown: {
-        '2026-09-29': { successful: 60, failed: 2 },
-        '2026-09-30': { successful: 58, failed: 5 },
-        '2026-10-01': { successful: 62, failed: 1 },
-        '2026-10-03': { successful: 70, failed: 4 },
-        '2026-10-04': { successful: 80, failed: 0 },
-        '2026-10-05': { successful: 82, failed: 4 },
-    },
-}
-
-const NO_JOB_STATS = {
-    days: 7,
-    cutoff_time: '2026-09-28T09:00:00+00:00',
-    total_jobs: 0,
-    successful_jobs: 0,
-    failed_jobs: 0,
-    external_data_jobs: { total: 0, running: 0, successful: 0, failed: 0 },
-    modeling_jobs: { total: 0, running: 0, successful: 0, failed: 0 },
-    breakdown: {},
-}
-
 function run(
     id: string,
     name: string,
@@ -158,18 +129,9 @@ interface Mocks {
     health: MockSignature | 500
     completed: MockSignature | 500
     running: MockSignature | 500
-    jobStats: MockSignature | 500
 }
 
-function mocks({
-    sources,
-    tables,
-    savedQueries,
-    health,
-    completed,
-    running,
-    jobStats,
-}: Mocks): ReturnType<typeof mswDecorator> {
+function mocks({ sources, tables, savedQueries, health, completed, running }: Mocks): ReturnType<typeof mswDecorator> {
     const answer = (body: MockSignature | 500): MockSignature =>
         body === 500 ? (): [number, unknown] => [500, { detail: 'Server error' }] : body
     return mswDecorator({
@@ -183,7 +145,6 @@ function mocks({
             '/api/projects/:team_id/data_warehouse/data_health_issues': answer(health),
             '/api/projects/:team_id/data_warehouse/completed_activity': answer(completed),
             '/api/projects/:team_id/data_warehouse/running_activity': answer(running),
-            '/api/projects/:team_id/data_warehouse/job_stats': answer(jobStats),
         },
     })
 }
@@ -215,7 +176,6 @@ NewTeam.decorators = [
         health: { results: [], count: 0 },
         completed: EMPTY_ACTIVITY,
         running: EMPTY_ACTIVITY,
-        jobStats: NO_JOB_STATS,
     }),
 ]
 
@@ -228,7 +188,6 @@ Populated.decorators = [
         health: ISSUES,
         completed: COMPLETED_RUNS,
         running: RUNNING_RUNS,
-        jobStats: JOB_STATS,
     }),
 ]
 
@@ -241,6 +200,5 @@ SectionErrors.decorators = [
         health: 500,
         completed: 500,
         running: 500,
-        jobStats: 500,
     }),
 ]

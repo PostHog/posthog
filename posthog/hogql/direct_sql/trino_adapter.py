@@ -47,31 +47,8 @@ DIRECT_TRINO_TIMEOUT_ERROR = "Trino query timed out."
 _MIN_REQUEST_BUDGET_SECONDS = 1.0
 
 
-RAW_TRINO_SESSION_OVERRIDE_ERROR = "Session properties can't be set in a query here. Remove the WITH SESSION clause."
-_IGNORED_TOKEN_TYPES = (sqlparse_tokens.Whitespace, sqlparse_tokens.Newline, sqlparse_tokens.Comment)
-
-
-def _sets_inline_session_properties(statement: Any) -> bool:
-    """Whether a statement has a Trino ``WITH SESSION name = value`` clause.
-
-    Inline properties override the connection's session properties, so they would lift limits that the
-    warehouse sets for the organization. ``WITH session AS (...)`` is a CTE named session and stays allowed.
-    """
-    meaningful = [t for t in statement.flatten() if not any(t.ttype in kind for kind in _IGNORED_TOKEN_TYPES)]
-    for index, token in enumerate(meaningful[:-2]):
-        if token.value.upper() != "WITH" or meaningful[index + 1].value.upper() != "SESSION":
-            continue
-        if meaningful[index + 2].value.upper() not in ("AS", "("):
-            return True
-    return False
-
-
 def ensure_read_only_raw_trino_statement(sql: str) -> str:
     statements = parse_direct_statements(sql, dialect="trino")
-    # Checked first, so the caller gets this message and not the generic one. Trino accepts the clause only at the
-    # start of a statement, and the guard's own SELECT check is not a reliable second line of defense for it.
-    if any(_sets_inline_session_properties(statement) for statement in statements):
-        raise ExposedHogQLError(RAW_TRINO_SESSION_OVERRIDE_ERROR)
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_TRINO_READ_ONLY_ERROR)
     for token in statements[0].flatten():
