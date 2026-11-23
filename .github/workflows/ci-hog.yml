@@ -6,6 +6,10 @@ on:
     pull_request:
         paths:
             - 'hog/**'
+            - 'packages/sdk/**'
+            - '.ph/**'
+            - 'posthog.json'
+            - 'products/stacks/backend/**/*.py'
             # hog imports its types from the MCP package's CLI library.
             - 'services/mcp/src/cli/library-types.ts'
             # The lockfile and the workspace catalog decide which dependencies hog installs.
@@ -35,10 +39,17 @@ jobs:
                       /*
                       !/*/
                       /hog/
+                      /packages/sdk/
+                      /.ph/
                       /services/mcp/
                       /tools/openapi-codegen/
                       /packages/llm-normalizer/
                       /packages/quill/
+                      /products/notebooks/
+                      /products/stacks/backend/
+                      /products/product_analytics/mcp/
+                      /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+                      /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
                       /.github/actions/pnpm-install/
                       /.github/actions/setup-pnpm/
                       /patches/
@@ -51,12 +62,20 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/root --filter='hog...' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter='hog...' --filter=@posthog/posthog-as-code install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   # The version the flox environment pins for hog.
                   bun-version: 1.4.2
+
+            - name: Compile hog with the SDK and its MCP library
+              working-directory: hog
+              run: pnpm run compile
+
+            - name: Check a stack with the compiled binary
+              working-directory: hog
+              run: bun --no-env-file release/test-stack-binary.ts dist/hog
 
             - name: Typecheck
               working-directory: hog

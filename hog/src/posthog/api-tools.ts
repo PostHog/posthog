@@ -215,6 +215,21 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
         }
         case 'tool_error':
             return new HogError(error.code, error.message)
+        case 'managed_in_code': {
+            const managed = error.managedInCode
+            const stack = managed?.stacks[0]
+            const where = stack?.repository ? ` in ${stack.repository}` : ''
+            const edit = managed?.source
+                ? `Edit ${managed.source.file}${managed.source.export ? ` (export ${managed.source.export})` : ''}${where}`
+                : stack
+                  ? `Add or edit the definition in stack ${stack.name}${where}`
+                  : 'Edit the definition in the stack that manages it'
+            return new ApiError(error.status ?? 409, error.code, error.message, {
+                hint: `${edit}, run hog check, and open a pull request. The change reaches PostHog when the stack is pushed.`,
+                details: managed ? { ...managed } : undefined,
+                serverDetail: detail,
+            })
+        }
     }
 }
 

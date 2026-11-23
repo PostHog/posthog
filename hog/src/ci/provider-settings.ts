@@ -24,6 +24,7 @@ const ProviderSettings = z.object({
     issuer: z.string(),
     docs_url: z.string(),
     condition_presets: z.array(Preset),
+    condition_claims: z.array(z.object({ name: z.string() })).default([]),
     required_presets: z.array(z.string()).default([]),
     setup_snippet: z.string(),
 })

@@ -13,6 +13,7 @@ on:
         # these paths miss, and the detect job fails on it.
         paths:
             - 'hog/**'
+            - 'packages/sdk/**'
             - 'services/mcp/**'
             - 'products/*/mcp/**'
             # The CLI library imports notebook-widget-catalog.json and notebookResultPreview.ts from here.

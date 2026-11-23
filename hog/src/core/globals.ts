@@ -191,7 +191,7 @@ export function tlsVerificationOff(env: Env, globals: GlobalOptions): string | u
 
 const WINDOW_MS = 60_000
 
-export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtime {
+export function networkRuntime(runtime: Runtime, globals: GlobalOptions, privateInput = false): Runtime {
     if (globals.skipSslVerification) {
         runtime.skipTlsVerification()
     }
@@ -234,7 +234,8 @@ export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtim
             runtime.writeStderr(`[debug] ${label} ${response.status} ${runtime.now() - begin}ms\n`)
             return response
         } catch (error) {
-            runtime.writeStderr(`[debug] ${label} failed: ${error instanceof Error ? error.message : error}\n`)
+            const detail = privateInput ? '' : `: ${error instanceof Error ? error.message : error}`
+            runtime.writeStderr(`[debug] ${label} failed${detail}\n`)
             throw error
         }
     }

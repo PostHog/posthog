@@ -3,6 +3,7 @@ import { GLOBAL_OPTIONS } from './globals'
 import { kebabCase } from './text'
 
 interface OptionEntry {
+    scopes?: readonly string[]
     flags: string
     description: string
     takesValue: boolean
@@ -15,7 +16,14 @@ interface OptionEntry {
 export interface ManifestEntry {
     name: string
     description: string
-    arguments?: { name: string; description: string; required: boolean; variadic: boolean; stdin: boolean }[]
+    arguments?: {
+        name: string
+        description: string
+        required: boolean
+        variadic: boolean
+        stdin: boolean
+        stdinOnly?: boolean
+    }[]
     options?: OptionEntry[]
     scopes?: readonly string[]
     // Set when the command fails in CI unless an agent runs it.
@@ -26,6 +34,7 @@ export interface ManifestEntry {
 function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionEntry[] {
     return Object.entries(options).map(([name, spec]) => ({
         flags: optionFlags(name, spec),
+        scopes: spec.scopes,
         description: spec.description,
         takesValue: spec.type === 'string',
         choices: spec.type === 'string' ? spec.choices : undefined,
@@ -55,6 +64,7 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                             required: spec.optional !== true,
                             variadic: spec.variadic === true,
                             stdin: spec.stdin === true,
+                            ...(spec.stdinOnly ? { stdinOnly: true } : {}),
                         })),
                         options: describeOptions(node.options ?? {}),
                         scopes: node.scopes ?? [],

@@ -11,11 +11,13 @@ export interface ArgumentSpec {
     variadic?: boolean
     // `-` reads the value from stdin, and an empty value is an error. A variadic argument reads one item per line.
     stdin?: boolean
+    stdinOnly?: boolean
 }
 
 // `env` and `config` are for global options only: the env vars and the posthog.json key path, such
 // as `cli.noFail`, that set them.
 interface OptionSource {
+    scopes?: readonly string[]
     env?: readonly string[]
     config?: string
     // The posthog.json key means the opposite of the option, as `cli.telemetry: false` for --no-telemetry.
@@ -75,6 +77,9 @@ interface CommandDefinition<Args, Options, Result> {
     // The command changes something in PostHog or on disk. HOG_DRY_RUN turns on its `dryRun` option,
     // and fails it when it has none. Commands that only read run as usual in a dry run.
     writes?: boolean
+    // The command promises to reach no server, like `hog check`, so hog also skips the update check and sends
+    // no telemetry for it. It must not call ctx.posthog() or fetch through ctx.runtime.
+    offline?: boolean
     // The command runs when posthog.json is invalid, like `hog config check`, which reports why.
     // Every other command stops, so it never runs with settings hog couldn't read.
     allowsInvalidConfig?: boolean
@@ -153,6 +158,6 @@ export function optionFlags(name: string, spec: OptionSpec): string {
 }
 
 export function argumentSyntax(name: string, spec: ArgumentSpec): string {
-    const label = `${kebabCase(name)}${spec.variadic ? '...' : ''}`
+    const label = spec.stdinOnly ? '-' : `${kebabCase(name)}${spec.variadic ? '...' : ''}`
     return spec.optional ? `[${label}]` : `<${label}>`
 }

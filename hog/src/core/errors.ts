@@ -3,6 +3,7 @@ export const EXIT_FAILURE = 1
 export const EXIT_USAGE = 2
 export const EXIT_NEEDS_PERSON = 3
 export const EXIT_PENDING = 4
+export const EXIT_CHANGES = 5
 
 // Ctrl-C. Shells report 130 for a process that SIGINT stopped, so hog uses the same code.
 export const EXIT_CANCELLED = 130
@@ -38,6 +39,7 @@ export const EXIT_CODES: readonly ExitCodeEntry[] = [
         meaning: 'The work started and is still running. The output names the `--wait` command that resumes it',
         noFail: true,
     },
+    { code: EXIT_CHANGES, meaning: 'The stack diff finished and found changes', noFail: true },
     { code: EXIT_CANCELLED, meaning: 'Cancelled with Ctrl-C at a prompt', noFail: false },
 ]
 
@@ -62,6 +64,19 @@ const EXIT_CODE_BY_ERROR: Readonly<Record<string, number>> = {
     keychain_access_timeout: EXIT_NEEDS_PERSON,
     workload_no_matching_policy: EXIT_NEEDS_PERSON,
     workload_policy_request_pending: EXIT_NEEDS_PERSON,
+    // Stack pushes. Raising the removal limit, or checking a push whose outcome is unknown, is a person's call.
+    too_many_removals: EXIT_NEEDS_PERSON,
+    push_uncertain: EXIT_NEEDS_PERSON,
+    user_required: EXIT_NEEDS_PERSON,
+    context_page_write_uncertain: EXIT_NEEDS_PERSON,
+    // Stack settings that only an admin can change.
+    context_pages_not_enabled: EXIT_NEEDS_PERSON,
+    organization_admin_required: EXIT_NEEDS_PERSON,
+    context_layer_not_enabled: EXIT_NEEDS_PERSON,
+    repository_not_connected: EXIT_NEEDS_PERSON,
+    credential_not_supported: EXIT_NEEDS_PERSON,
+    reconcile_needs_person: EXIT_NEEDS_PERSON,
+    max_removals_needs_person: EXIT_NEEDS_PERSON,
 }
 
 export function exitCodeFor(code: string): number {
@@ -71,6 +86,11 @@ export function exitCodeFor(code: string): number {
 export interface ErrorPatch {
     message?: string
     hint?: string
+}
+
+export interface CapturedOutput {
+    stdout: string
+    stderr: string
 }
 
 // A failure hog reports to the caller. `code` is stable and machine-readable, so agents and
@@ -83,7 +103,7 @@ export class HogError extends Error {
         message: string,
         readonly hint?: string,
         readonly exitCode: number = exitCodeFor(code),
-        readonly details?: Readonly<Record<string, unknown>>,
+        readonly details?: Readonly<Record<string, unknown>> & { output?: CapturedOutput },
         readonly serverDetail?: string
     ) {
         super(message)
@@ -124,7 +144,9 @@ export function wrapFailure(code: string, context: string, cause: unknown, hint?
 export const SERVER_DETAIL_HIDDEN = "PostHog's reason is hidden in CI. Run the command outside CI to see it."
 
 export function withServerDetail(message: string, serverDetail: string): string {
-    return `${message.replace(/\.$/, '')}: ${serverDetail}`
+    const lead = message.replace(/\.$/, '')
+    // PostHog's reason often begins with the same sentence hog already says, so print it once.
+    return serverDetail.startsWith(lead) ? serverDetail : `${lead}: ${serverDetail}`
 }
 
 // The text of a failure that a command keeps in its result instead of throwing, such as one endpoint

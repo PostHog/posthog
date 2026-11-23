@@ -21,7 +21,12 @@ export const agentsMd: Step = {
             )
         }
 
-        run.context.agentsMd = await writeBlock(run.ctx.runtime, run.scope.folder, earlyBlock())
+        run.context.agentsMd = await writeBlock(
+            run.ctx.runtime,
+            run.scope.folder,
+            earlyBlock(),
+            (await run.ctx.config())?.config.stacks
+        )
         await run.complete('agents-md')
 
         return undefined

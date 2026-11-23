@@ -126,6 +126,54 @@
             },
             "additionalProperties": false
         },
+        "stacks": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+            },
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "dir": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The stack folder, relative to posthog.json. Its index.ts exports the definitions."
+                    },
+                    "environments": {
+                        "description": "The projects this stack is pushed to, by environment name, like production.",
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "host": {
+                                    "type": "string",
+                                    "format": "uri",
+                                    "description": "The PostHog host, like https://us.posthog.com."
+                                },
+                                "project": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "The project ID, like the 2 in https://us.posthog.com/project/2."
+                                }
+                            },
+                            "required": ["host", "project"],
+                            "additionalProperties": false,
+                            "description": "Where one environment of the stack lives."
+                        }
+                    }
+                },
+                "required": ["dir"],
+                "additionalProperties": false,
+                "description": "One stack: a folder of definitions that PostHog manages in code."
+            },
+            "description": "The stacks managed in code, by name. Without it, the stack is the .ph/ folder next to posthog.json."
+        },
         "languages": {
             "description": "The typed SDKs `hog schema pull` generates, by language. posthog-cli reads the same entries.",
             "type": "object",

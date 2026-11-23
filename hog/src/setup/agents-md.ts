@@ -4,12 +4,14 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { isInside } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
+import type { StacksConfig } from '@/stack/config'
 
 import type { Product, ProductId } from './products'
 
 const START = '<!-- posthog:setup:start -->'
 const END = '<!-- posthog:setup:end -->'
 const IN_PROGRESS = 'PostHog setup is in progress for this folder.'
+const STACK_LINK = '- Stack instructions for `'
 // Claude Code reads CLAUDE.md, and a CLAUDE.md that imports AGENTS.md, on a line of its own or
 // inside a sentence, already shows the block.
 const IMPORTS_AGENTS_MD = /(^|\s)@(\.\/)?AGENTS\.md(?![\w.-])/m
@@ -20,6 +22,12 @@ const CLAUDE_FILE = 'CLAUDE.md'
 export interface WrittenFile {
     path: string
     status: 'created' | 'updated' | 'unchanged'
+}
+
+export interface BlockEdit extends WrittenFile {
+    target: string
+    before?: string
+    contents: string
 }
 
 export function earlyBlock(): string {
@@ -119,15 +127,15 @@ function findBlock(text: string): { start: number; end: number } | undefined {
 function withBlock(path: string, text: string, body: string): string {
     const block = `${START}\n${body}\n${END}`
     const found = findBlock(text)
-    if (found) {
-        return `${text.slice(0, found.start)}${block}${text.slice(found.end)}`
-    }
     if (text.includes(START) || text.includes(END)) {
-        throw new HogError(
-            'setup_block_broken',
-            `${path} has only one of the two PostHog setup markers, ${START} and ${END}.`,
-            `Remove the remaining marker from ${path}, then run \`hog setup next\` again.`
-        )
+        if (!found || text.indexOf(START) !== text.lastIndexOf(START) || text.indexOf(END) !== text.lastIndexOf(END)) {
+            throw new HogError(
+                'setup_block_broken',
+                `${path} has incomplete or repeated PostHog setup markers.`,
+                `Keep one matching pair of markers or remove the broken markers from ${path}, then retry.`
+            )
+        }
+        return `${text.slice(0, found.start)}${block}${text.slice(found.end)}`
     }
     if (text.trim() === '') {
         return `${block}\n`
@@ -152,24 +160,41 @@ async function destination(runtime: Runtime, root: string, path: string): Promis
     return target
 }
 
-async function writeOne(
-    runtime: Runtime,
+function editBlock(
     file: { path: string; target: string; before: string | undefined },
-    body: string
-): Promise<WrittenFile> {
+    body: string | undefined,
+    stacks: StacksConfig | undefined
+): BlockEdit {
     const { path, target, before } = file
-    const after = withBlock(path, before ?? '', body)
-    if (after === before) {
-        return { path, status: 'unchanged' }
+    const found = before && findBlock(before)
+    const current = found && before ? before.slice(found.start + START.length, found.end - END.length).trim() : ''
+    const bodyLines = (body ?? current).split('\n').filter((line) => !line.startsWith(STACK_LINK))
+    const links = Object.entries(stacks ?? {}).map(([name, stack]) => {
+        const url = stack.dir
+            .split(/[\\/]/)
+            .map((part) => encodeURIComponent(part).replaceAll('(', '%28').replaceAll(')', '%29'))
+            .join('/')
+        return `${STACK_LINK}${name}\`: [${AGENTS_FILE}](./${url}/${AGENTS_FILE})`
+    })
+    const content = [bodyLines.join('\n').trimEnd() || '## PostHog', links.join('\n')].filter(Boolean).join('\n\n')
+    const after = withBlock(path, before ?? '', content)
+    return {
+        path,
+        target,
+        before,
+        contents: after,
+        status: after === before ? 'unchanged' : before === undefined ? 'created' : 'updated',
     }
-
-    await runtime.replaceFile(target, after)
-    return { path, status: before === undefined ? 'created' : 'updated' }
 }
 
 // Everything outside the markers stays as it is. A CLAUDE.md linked to AGENTS.md already has the
 // new block when it is read, so it counts as unchanged.
-export async function writeBlock(runtime: Runtime, folder: string, body: string): Promise<WrittenFile[]> {
+export async function blockEdits(
+    runtime: Runtime,
+    folder: string,
+    body: string | undefined,
+    stacks?: StacksConfig
+): Promise<BlockEdit[]> {
     const root = await runtime.realPath(folder)
     const [agentsPath, claudePath] = [join(folder, AGENTS_FILE), join(folder, CLAUDE_FILE)]
     const [agentsTarget, claudeTarget] = await Promise.all([
@@ -178,14 +203,28 @@ export async function writeBlock(runtime: Runtime, folder: string, body: string)
     ])
 
     const agents = { path: agentsPath, target: agentsTarget, before: await readText(runtime, agentsTarget) }
-    const written = [await writeOne(runtime, agents, body)]
-
-    const claude = await readText(runtime, claudeTarget)
-    if (claude !== undefined && (!IMPORTS_AGENTS_MD.test(claude) || findBlock(claude))) {
-        written.push(await writeOne(runtime, { path: claudePath, target: claudeTarget, before: claude }, body))
+    const first = editBlock(agents, body, stacks)
+    const edits = [first]
+    const claude = claudeTarget === agentsTarget ? first.contents : await readText(runtime, claudeTarget)
+    if (claude !== undefined && (!IMPORTS_AGENTS_MD.test(claude) || claude.includes(START) || claude.includes(END))) {
+        edits.push(editBlock({ path: claudePath, target: claudeTarget, before: claude }, body, stacks))
     }
+    return edits
+}
 
-    return written
+export async function writeBlock(
+    runtime: Runtime,
+    folder: string,
+    body: string | undefined,
+    stacks?: StacksConfig
+): Promise<WrittenFile[]> {
+    const edits = await blockEdits(runtime, folder, body, stacks)
+    for (const edit of edits) {
+        if (edit.status !== 'unchanged') {
+            await runtime.replaceFile(edit.target, edit.contents)
+        }
+    }
+    return edits.map(({ path, status }) => ({ path, status }))
 }
 
 export async function blockStage(runtime: Runtime, folder: string): Promise<'early' | 'final' | undefined> {
@@ -194,5 +233,11 @@ export async function blockStage(runtime: Runtime, folder: string): Promise<'ear
     if (!text || !found) {
         return undefined
     }
-    return text.slice(found.start, found.end).includes(IN_PROGRESS) ? 'early' : 'final'
+    const body = text.slice(found.start + START.length, found.end - END.length)
+    if (body.includes(IN_PROGRESS)) {
+        return 'early'
+    }
+    return body.split('\n').some((line) => line.trim() && line !== '## PostHog' && !line.startsWith(STACK_LINK))
+        ? 'final'
+        : undefined
 }

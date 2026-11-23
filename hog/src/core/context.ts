@@ -20,6 +20,7 @@ import { fallbackHost, readSettings } from '@/posthog/settings'
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
 import { loadConfig, type LoadedConfig } from './config'
+import { EXIT_USAGE, HogError } from './errors'
 import { tlsVerificationOff, type GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
@@ -45,6 +46,7 @@ export class Context {
     private tools?: Promise<ApiToolLibrary>
     private skillsLibrary?: Promise<SkillsLibrary>
     private stepUpRunning?: Promise<boolean>
+    private projectContext?: Context
 
     constructor(
         readonly runtime: Runtime,
@@ -52,7 +54,8 @@ export class Context {
         readonly mode: Mode,
         readonly tree: CommandTree,
         loaded?: Promise<LoadedConfig | undefined>,
-        readonly telemetry: Telemetry = new Telemetry(runtime, mode, false)
+        readonly telemetry: Telemetry = new Telemetry(runtime, mode, false),
+        private readonly project?: { host: Host; project: number }
     ) {
         this.loaded = loaded
     }
@@ -69,6 +72,35 @@ export class Context {
     async posthog(): Promise<PostHogApi> {
         this.api ??= new PostHogApi(await this.session(), this.runtime.fetch, (scopes) => this.stepUp(scopes))
         return this.api
+    }
+
+    forProject(project: { host: Host; project: number } | undefined): Context {
+        if (!project) {
+            return this
+        }
+        const active = this.projectContext
+        if (active?.project?.host === project.host && active.project.project === project.project) {
+            return active
+        }
+        if (this.globals.host !== undefined && this.globals.host !== project.host) {
+            throw new HogError(
+                'host_mismatch',
+                'The stack environment and the selected host differ.',
+                'Use the host in the stack environment or select a matching environment with --env.',
+                EXIT_USAGE
+            )
+        }
+        const runtime = { ...this.runtime, env: { ...this.runtime.env, HOG_PROJECT_ID: String(project.project) } }
+        this.projectContext = new Context(
+            runtime,
+            this.globals,
+            this.mode,
+            this.tree,
+            this.config(),
+            this.telemetry,
+            project
+        )
+        return this.projectContext
     }
 
     // Called once a command knows what it will write, so a step-up comes before the first write.
@@ -97,6 +129,7 @@ export class Context {
         this.credentialsRequest = undefined
         this.keySession = undefined
         this.api = undefined
+        this.projectContext = undefined
     }
 
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
@@ -194,21 +227,34 @@ export class Context {
 
     private async credentialOptions(): Promise<CredentialOptions> {
         const loaded = await this.config()
-        const projectId = loaded?.config.projectId
+        const projectId = this.project?.project ?? loaded?.config.projectId
 
         return {
             ...this.globals,
             configPath: loaded?.path,
-            configHost: loaded?.config.host,
+            configHost: this.project?.host ?? loaded?.config.host,
             configProjectId: projectId === undefined ? undefined : parseProjectId(projectId),
         }
     }
 
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
-        this.credentialsRequest ??= this.credentialOptions().then((options) =>
-            resolveCredentials(this.runtime, options)
-        )
+        this.credentialsRequest ??= this.credentialOptions().then(async (options) => {
+            const credentials = await resolveCredentials(this.runtime, options)
+            if (
+                this.project &&
+                (credentials.key.projectId !== parseProjectId(this.project.project) ||
+                    credentials.key.host !== this.project.host)
+            ) {
+                throw new HogError(
+                    'stack_project_mismatch',
+                    'Your credentials are for a different stack environment.',
+                    'Choose a matching environment with --env or log in to its project with hog auth login.',
+                    EXIT_USAGE
+                )
+            }
+            return credentials
+        })
         return this.credentialsRequest
     }
 
@@ -226,6 +272,6 @@ export class Context {
 
     // The credentials the command already asked for, so telemetry doesn't read the keychain a second time.
     get requestedCredentials(): Promise<Credentials> | undefined {
-        return this.credentialsRequest
+        return this.projectContext?.requestedCredentials ?? this.credentialsRequest
     }
 }

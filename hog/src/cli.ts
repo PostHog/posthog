@@ -146,6 +146,36 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
     )
 }
 
+function privateInputError(): HogError {
+    return new HogError(
+        'usage_error',
+        'This command reads private input from stdin or a hidden prompt.',
+        'Pipe the value using -, or run this command at a terminal. Use --help to see its arguments.',
+        EXIT_USAGE
+    )
+}
+
+async function readPrivateArgument(
+    runtime: Runtime,
+    value: string | string[] | undefined
+): Promise<string | undefined> {
+    if (value !== undefined && value !== '-') {
+        throw privateInputError()
+    }
+    if (runtime.stdinIsTTY) {
+        return undefined
+    }
+    try {
+        return await runtime.readStdin()
+    } catch {
+        throw new HogError(
+            'stdin_unreadable',
+            'Could not read private input from stdin.',
+            'Check the input stream and run the command again.'
+        )
+    }
+}
+
 async function readArgument(runtime: Runtime, name: string, value: string | string[]): Promise<string | string[]> {
     if (Array.isArray(value)) {
         return readListArgument(runtime, name, value)
@@ -245,7 +275,11 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             telemetry.credentials = () =>
                 ctx?.requestedCredentials ??
                 resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, envOnly: true })
-            const commandRuntime = networkRuntime(runtime, globals)
+            const commandRuntime = networkRuntime(
+                runtime,
+                globals,
+                argEntries.some(([, spec]) => spec.stdinOnly)
+            )
             const options = self.opts()
             // An empty value, often an unset shell variable, fails here instead of falling back to a
             // default, such as the login's project.
@@ -269,7 +303,11 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             for (const [index, [name, spec]] of argEntries.entries()) {
                 const value = self.processedArgs[index] as string | string[] | undefined
                 args[name] = (
-                    spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
+                    spec.stdinOnly
+                        ? await readPrivateArgument(runtime, value)
+                        : spec.stdin && value !== undefined
+                          ? await readArgument(runtime, name, value)
+                          : value
                 ) as string
             }
 
@@ -648,18 +686,23 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const args = expandShortcut(
         isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : argv
     )
+    const route = resolveRoute(preParse(args).tokens)
+    const offline = route.node?.kind === 'command' && route.node.offline
+    if (offline) {
+        telemetry.disable()
+    }
     // Help and --version answer at once, so they don't wait for a request to finish.
     const answersAtOnce =
         isHelp || tokens.some((token) => token.kind === 'option' && ['help', 'h', 'version', 'V'].includes(token.name))
-    const updates = answersAtOnce
-        ? undefined
-        : new UpdateCheck(
-              runtime,
-              optOuts.updateCheck || updateChecksOff(runtime, undefined) || tlsOff(tokens, runtime)
-          )
+    const updates =
+        answersAtOnce || offline
+            ? undefined
+            : new UpdateCheck(
+                  runtime,
+                  optOuts.updateCheck || updateChecksOff(runtime, undefined) || tlsOff(tokens, runtime)
+              )
     await removeReplacedBinary(runtime)
 
-    const route = resolveRoute(preParse(args).tokens)
     let exitCode: number
     let failure: HogError | undefined
     try {
@@ -670,7 +713,9 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         if (caught instanceof CommanderError && caught.exitCode === EXIT_SUCCESS) {
             return EXIT_SUCCESS
         }
-        failure = toHogError(caught)
+        const hasPrivateInput =
+            route.node?.kind === 'command' && Object.values(route.node.args ?? {}).some((arg) => arg.stdinOnly)
+        failure = caught instanceof CommanderError && hasPrivateInput ? privateInputError() : toHogError(caught)
         new Output(runtime, mode).error(failure, feedbackCommand(route, failure))
         if (UNFINISHED_CODES.has(failure.exitCode)) {
             captureFailure(telemetry, state.command, failure, caught)

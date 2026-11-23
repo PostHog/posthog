@@ -11,7 +11,8 @@
         "noEmit": true,
         "types": ["bun"],
         "paths": {
-            "@/*": ["./src/*"]
+            "@/*": ["./src/*"],
+            "@posthog/sdk/stack": ["../packages/sdk/src/stack/index.ts"]
         }
     },
     "include": ["src", "test", "scripts", "release"]
