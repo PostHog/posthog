@@ -140,15 +140,26 @@ describe('dashboardEdits', () => {
         ])
     })
 
-    test.each([
-        { name: 'to the front', id: 'third', index: 0, expected: ['third', 'first', 'second'] },
-        { name: 'to the end', id: 'first', index: 2, expected: ['second', 'third', 'first'] },
-        { name: 'past the end, clamped', id: 'first', index: 9, expected: ['second', 'third', 'first'] },
-        { name: 'onto its own place', id: 'second', index: 1, expected: ['first', 'second', 'third'] },
-    ])('moves a tab $name and keeps its tiles', ({ id, index, expected }) => {
+    test.each<{ name: string; id: string; before: string | null; expected: string[] }>([
+        {
+            name: 'right, in front of a later tab',
+            id: 'first',
+            before: 'third',
+            expected: ['second', 'first', 'third'],
+        },
+        { name: 'right, to the end', id: 'first', before: null, expected: ['second', 'third', 'first'] },
+        { name: 'left, to the front', id: 'third', before: 'first', expected: ['third', 'first', 'second'] },
+        { name: 'in front of itself', id: 'second', before: 'second', expected: ['first', 'second', 'third'] },
+        {
+            name: 'in front of the tab already after it',
+            id: 'first',
+            before: 'second',
+            expected: ['first', 'second', 'third'],
+        },
+    ])('moves a tab $name and keeps its tiles', ({ id, before, expected }) => {
         const board = { ...nested, tabs: [...nested.tabs, { id: 'third', title: 'Third', tiles: [] }] }
 
-        const moved = applyEdit(board, { edit: 'moveTab', id, index })
+        const moved = applyEdit(board, { edit: 'moveTab', id, before })
 
         expect(moved.tabs.map((tab) => tab.id)).toEqual(expected)
         expect(allPlaces(moved).sort()).toEqual(allPlaces(board).sort())

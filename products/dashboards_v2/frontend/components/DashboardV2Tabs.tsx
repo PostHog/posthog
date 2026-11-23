@@ -26,12 +26,6 @@ interface TabInsert {
     side: 'before' | 'after'
 }
 
-/** Where a tab lands once it is taken out of the list, so `moveTab` can insert it there. */
-function insertIndex(tabIds: string[], draggedId: string, insert: TabInsert): number {
-    const target = tabIds.indexOf(insert.id) + (insert.side === 'after' ? 1 : 0)
-    return tabIds.indexOf(draggedId) < target ? target - 1 : target
-}
-
 export function DashboardV2Tabs(): JSX.Element | null {
     const { dashboard, activeTab, hasPermission, dropTarget, disabledReasonFor } = useValues(dashboardV2Logic)
     const { setActiveTab, applyDashboardEdit } = useActions(dashboardV2Logic)
@@ -47,8 +41,9 @@ export function DashboardV2Tabs(): JSX.Element | null {
     }
 
     const dropTab = (): void => {
-        if (draggedId !== null && insert !== null && insert.id !== draggedId) {
-            applyDashboardEdit({ edit: 'moveTab', id: draggedId, index: insertIndex(tabIds, draggedId, insert) })
+        if (draggedId !== null && insert !== null) {
+            const before = insert.side === 'before' ? insert.id : (tabIds[tabIds.indexOf(insert.id) + 1] ?? null)
+            applyDashboardEdit({ edit: 'moveTab', id: draggedId, before })
         }
         endDrag()
     }
@@ -83,7 +78,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         <div className="flex items-center gap-2 border-b">
             <Tabs value={activeTab.id} onValueChange={(value) => setActiveTab(String(value))}>
                 <TabsList variant="line" data-attr="dashboard-v2-tabs">
-                    {dashboard.tabs.map((tab) => {
+                    {dashboard.tabs.map((tab, position) => {
                         if (draft?.id === tab.id) {
                             return (
                                 <Input
@@ -109,10 +104,23 @@ export function DashboardV2Tabs(): JSX.Element | null {
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
                         const insertClass =
-                            draggedId !== null && insert?.id === tab.id && insert.id !== draggedId
-                                ? `DashboardV2__tab--insert-${insert.side}`
-                                : undefined
-                        const position = tabIds.indexOf(tab.id)
+                            insert?.id === tab.id ? `DashboardV2__tab--insert-${insert.side}` : undefined
+                        const moves = [
+                            {
+                                key: 'left',
+                                label: 'Move left',
+                                Icon: IconArrowLeft,
+                                disabled: position === 0,
+                                before: tabIds[position - 1] ?? null,
+                            },
+                            {
+                                key: 'right',
+                                label: 'Move right',
+                                Icon: IconArrowRight,
+                                disabled: position === tabIds.length - 1,
+                                before: tabIds[position + 2] ?? null,
+                            },
+                        ]
                         // A tile dropped on a tab moves to that tab; the drag looks for `data-dv2-tab`.
                         const trigger = (
                             <TabsTrigger
@@ -129,6 +137,10 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                 }}
                                 onDragOver={(event) => {
                                     if (draggedId === null) {
+                                        return
+                                    }
+                                    if (tab.id === draggedId) {
+                                        setInsert(null)
                                         return
                                     }
                                     event.preventDefault()
@@ -163,38 +175,20 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                         <IconPencil />
                                         Rename
                                     </ContextMenuItem>
-                                    {canMove && (
-                                        <>
+                                    {canMove &&
+                                        moves.map(({ key, label, Icon, disabled, before }) => (
                                             <ContextMenuItem
-                                                data-attr="dashboard-v2-move-tab-left"
-                                                disabled={position === 0}
+                                                key={key}
+                                                data-attr={`dashboard-v2-move-tab-${key}`}
+                                                disabled={disabled}
                                                 onClick={() =>
-                                                    applyDashboardEdit({
-                                                        edit: 'moveTab',
-                                                        id: tab.id,
-                                                        index: position - 1,
-                                                    })
+                                                    applyDashboardEdit({ edit: 'moveTab', id: tab.id, before })
                                                 }
                                             >
-                                                <IconArrowLeft />
-                                                Move left
+                                                <Icon />
+                                                {label}
                                             </ContextMenuItem>
-                                            <ContextMenuItem
-                                                data-attr="dashboard-v2-move-tab-right"
-                                                disabled={position === tabIds.length - 1}
-                                                onClick={() =>
-                                                    applyDashboardEdit({
-                                                        edit: 'moveTab',
-                                                        id: tab.id,
-                                                        index: position + 1,
-                                                    })
-                                                }
-                                            >
-                                                <IconArrowRight />
-                                                Move right
-                                            </ContextMenuItem>
-                                        </>
-                                    )}
+                                        ))}
                                     <ContextMenuItem
                                         variant="destructive"
                                         data-attr="dashboard-v2-delete-tab"

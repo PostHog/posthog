@@ -95,10 +95,26 @@ export function isSection(tile: Tile): tile is SectionTile {
     return tile.widget.type === 'section'
 }
 
-/** Whether a content tile shows a part. The description lives in the header, so hiding the header hides it too. */
+/** Whether a content tile has anything to put in a part. The description renders inside the header, so it needs a title. */
+export function hasPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
+    switch (part) {
+        case 'header':
+            return !!widget.title
+        case 'description':
+            return !!widget.title && !!widget.description
+        case 'footer':
+            return !!widget.footer?.length
+    }
+}
+
+/** The description lives in the header, so hiding the header hides it too. */
 export function showsPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
     if (part === 'description' && widget.parts?.header === false) {
         return false
     }
     return widget.parts?.[part] !== false
+}
+
+export function isPartShown(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
+    return hasPart(widget, part) && showsPart(widget, part)
 }
