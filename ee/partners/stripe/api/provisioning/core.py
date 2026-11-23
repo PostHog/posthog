@@ -27,11 +27,13 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -179,6 +181,23 @@ def mint_auth_code(
     return code
 
 
+PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
+
+
+class ProjectLimitReachedError(Exception):
+    """Raised instead of creating a project in an organization that holds its limit of projects."""
+
+    def __init__(self, limit: ProjectLimit) -> None:
+        super().__init__(PROJECT_LIMIT_MESSAGES[limit])
+        self.message = PROJECT_LIMIT_MESSAGES[limit]
+
+
+def _assert_organization_can_add_project(organization: Organization) -> None:
+    reached_limit = organization_project_limit_reached(organization)
+    if reached_limit is not None:
+        raise ProjectLimitReachedError(reached_limit)
+
+
 def resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
     """Pick a team for an existing user during email-based account linking.
 
@@ -209,6 +228,7 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
     # TODO: latent bug - memberships is unordered, so which organization hosts
     # the new project is arbitrary for multi-org users.
     organization = memberships[0].organization
+    _assert_organization_can_add_project(organization)
     return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
 
@@ -236,7 +256,11 @@ def handle_existing_user(
         )
         raise SpecError("forbidden", ACCOUNT_NOT_LINKABLE_MESSAGE, request_id=request_id, status=403)
 
-    team = resolve_team_for_existing_user(user, requested_team_id)
+    try:
+        team = resolve_team_for_existing_user(user, requested_team_id)
+    except ProjectLimitReachedError as refused:
+        capture_provisioning_event("account_request", "error", error_code=PROJECT_LIMIT_REACHED_CODE)
+        raise SpecError(PROJECT_LIMIT_REACHED_CODE, refused.message, request_id=request_id, status=403)
     if team is None:
         capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
         raise SpecError("team_resolution_failed", "Could not resolve a project for this user", request_id=request_id)
@@ -580,9 +604,11 @@ def resolve_or_create_project_team(
             return None, scoped_teams
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
-    base_team = Team.objects.get(id=scoped_teams[0])
+    base_team = Team.objects.select_related("organization").get(id=scoped_teams[0])
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
+
+    _assert_organization_can_add_project(base_team.organization)
 
     # TODO: latent bug - project_name is unvalidated; a non-string or over-long
     # value fails at the DB layer (500) where the spec calls for a 400

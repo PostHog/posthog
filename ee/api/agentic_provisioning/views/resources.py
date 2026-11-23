@@ -24,7 +24,11 @@ from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
 from ee.api.agentic_provisioning.serializers import ResourceCreateSerializer, RotateCredentialsSerializer
-from ee.api.agentic_provisioning.teams import ProjectIdCollisionError, resolve_or_create_project_team
+from ee.api.agentic_provisioning.teams import (
+    ProjectCreationRefusedError,
+    ProjectIdCollisionError,
+    resolve_or_create_project_team,
+)
 from ee.api.agentic_provisioning.tokens import remove_team_from_token_scopes
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
 
@@ -101,6 +105,11 @@ class ResourcesCreateView(BearerResourceAPIView):
                     "Project ID already linked to another organization",
                     status=409,
                 )
+            except ProjectCreationRefusedError as refused:
+                capture_provisioning_event(
+                    "resource_created", "error", partner=app, error_code=refused.code, project_id=project_id
+                )
+                raise ProvisioningError(refused.code, refused.message, status=403)
             if team is None:
                 capture_provisioning_event(
                     "resource_created", "error", partner=app, error_code="not_found", project_id=project_id

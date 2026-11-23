@@ -13,8 +13,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -24,6 +26,8 @@ from ee.partners.stripe.api.provisioning.authentication import StripeBearerAuthe
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
 
 
 class TestResources(StripeProvisioningTestBase):
@@ -49,6 +53,8 @@ class TestResources(StripeProvisioningTestBase):
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
 
     def test_create_with_project_id_is_idempotent(self):
+        self.organization.available_product_features = [UNLIMITED_PROJECTS_FEATURE]
+        self.organization.save()
         token = self._get_bearer_token()
         first = self._post_signed_with_bearer(RESOURCES_URL, data={"project_id": "proj_1"}, token=token)
         assert first.status_code == 200
@@ -57,6 +63,35 @@ class TestResources(StripeProvisioningTestBase):
         assert first.json()["id"] == second.json()["id"]
         # A project_id provisions a dedicated team, distinct from the consent team.
         assert first.json()["id"] != str(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("without_projects_feature", [], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_plan_limit", [ONE_PROJECT_FEATURE], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+        ]
+    )
+    def test_create_with_new_project_id_refused_at_project_limit(
+        self, _name: str, features: list[dict], organization_maximum: int | None, message: str
+    ) -> None:
+        self.organization.available_product_features = features
+        self.organization.save()
+        token = self._get_bearer_token()
+        team_count = Team.objects.filter(organization=self.organization).count()
+
+        with patch(
+            "posthog.project_creation_limits.MAX_ALLOWED_PROJECTS_PER_ORG",
+            organization_maximum or 2000,
+        ):
+            res = self._post_signed_with_bearer(RESOURCES_URL, data={"project_id": "proj_over_limit"}, token=token)
+
+        assert res.status_code == 403
+        assert res.json() == {
+            "status": "error",
+            "id": "",
+            "error": {"code": "project_limit_reached", "message": message},
+        }
+        assert Team.objects.filter(organization=self.organization).count() == team_count
 
     @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
     def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:

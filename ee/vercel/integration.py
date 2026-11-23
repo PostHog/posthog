@@ -33,6 +33,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
@@ -550,6 +551,38 @@ class VercelIntegration:
         return {"plans": VercelIntegration.get_vercel_plans()}
 
     @staticmethod
+    def _refresh_available_product_features(organization: Organization) -> None:
+        license = get_cached_instance_license()
+        if not license:
+            return
+        try:
+            # Deferred for the same reason as in upsert_installation: keep the billing stack off the import path.
+            from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
+
+            BillingManager(license).update_available_product_features(organization)
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh available product features for Vercel resource creation",
+                organization_id=str(organization.id),
+                integration="vercel",
+            )
+            capture_exception(e)
+
+    @staticmethod
+    def _assert_organization_can_add_project(organization: Organization) -> None:
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit == ProjectLimit.PLAN:
+            # upsert_installation authorizes billing but does not store the plan's features, which
+            # arrive later from the billing service. A resource created soon after the install can
+            # find them missing and fall back to the one-project limit, so read them from billing
+            # before refusing.
+            VercelIntegration._refresh_available_product_features(organization)
+            reached_limit = organization_project_limit_reached(organization)
+
+        if reached_limit is not None:
+            raise exceptions.PermissionDenied(PROJECT_LIMIT_MESSAGES[reached_limit])
+
+    @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "Starting Vercel resource creation",
@@ -565,6 +598,8 @@ class VercelIntegration:
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
+
+        VercelIntegration._assert_organization_can_add_project(organization)
 
         team = Team.objects.create_with_data(
             initiating_user=installation.created_by or None,

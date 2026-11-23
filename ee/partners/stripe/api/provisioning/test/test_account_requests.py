@@ -11,7 +11,9 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.project_creation_limits import PLAN_PROJECT_LIMIT_MESSAGE
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.core import ACCOUNT_NOT_LINKABLE_MESSAGE, EMAIL_NOT_VERIFIED_MESSAGE
@@ -178,6 +180,16 @@ class TestAccountRequests(StripeProvisioningTestBase):
                 EMAIL_NOT_VERIFIED_MESSAGE,
                 ["race_condition_existing_user", "email_not_verified"],
             ),
+            (
+                "new_project_over_plan_limit",
+                {"verified_fields": ["email"]},
+                True,
+                False,
+                "project_limit_reached",
+                PLAN_PROJECT_LIMIT_MESSAGE,
+                ["error"],
+                2,
+            ),
         ]
     )
     def test_existing_user_is_not_linked(
@@ -189,9 +201,13 @@ class TestAccountRequests(StripeProvisioningTestBase):
         error_code: str,
         message: str,
         outcomes: list[str],
+        project_count: int = 1,
     ) -> None:
         self.user.is_active = user_is_active
         self.user.save()
+        for _ in range(project_count - 1):
+            Team.objects.create(organization=self.organization)
+        team_count = Team.objects.filter(organization=self.organization).count()
         view_lookup_misses_user: AbstractContextManager[object] = (
             patch(
                 "ee.partners.stripe.api.provisioning.views.EmailLookupHandler",
@@ -212,6 +228,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.json() == {"id": "acctreq_test", "type": "error", "error": {"code": error_code, "message": message}}
         auth_code_cache.set.assert_not_called()
         assert [event["outcome"] for event in _account_request_events(capture)] == outcomes
+        assert Team.objects.filter(organization=self.organization).count() == team_count
 
     def test_optional_fields_accept_explicit_null(self):
         # Spec JSON tolerance: an explicit null on an optional field is treated

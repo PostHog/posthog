@@ -56,7 +56,9 @@ from ee.partners.stripe.api.provisioning.constants import (
     SUPPORTED_VERSIONS,
 )
 from ee.partners.stripe.api.provisioning.core import (
+    PROJECT_LIMIT_REACHED_CODE,
     ProjectIdCollisionError,
+    ProjectLimitReachedError,
     StripeOAuthAppMissingError,
     base_team_id_from_scope,
     compute_partner_scoped_teams,
@@ -656,6 +658,15 @@ class ResourcesCreateView(StripeResourceAPIView):
                     "resource_created", "error", partner=app, error_code="project_id_conflict", project_id=project_id
                 )
                 raise SpecError("project_id_conflict", "Project ID already linked to another organization", status=409)
+            except ProjectLimitReachedError as refused:
+                capture_provisioning_event(
+                    "resource_created",
+                    "error",
+                    partner=app,
+                    error_code=PROJECT_LIMIT_REACHED_CODE,
+                    project_id=project_id,
+                )
+                raise SpecError(PROJECT_LIMIT_REACHED_CODE, refused.message, status=403)
             if team is None:
                 capture_provisioning_event(
                     "resource_created", "error", partner=app, error_code="not_found", project_id=project_id
