@@ -1,21 +1,17 @@
 import pytest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
 
-from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 # Named specification of the most-specific resolution semantics plus the cases the property-based
 # harness (test_user_access_control_pbt.py) cannot generate: the RESOURCE_FALLBACK_MAP ladder,
-# resolution without the entitlement, resources without resource-level controls, and the
-# shadow-divergence telemetry. Exhaustive combination coverage lives in the harness's
-# most-specific oracle tests, not here.
+# resolution without the entitlement, and resources without resource-level controls. Exhaustive
+# combination coverage lives in the harness's oracle tests, not here.
 
 
 class BaseMostSpecificResolutionTest(BaseUserAccessControlTest):
@@ -43,7 +39,7 @@ class BaseMostSpecificResolutionTest(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
     def _resolve(self):
-        return self.user_access_control.resolve_most_specific_object_access(self.dashboard)
+        return self.user_access_control._resolved_object_access(self.dashboard)
 
 
 @pytest.mark.ee
@@ -105,8 +101,6 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
     def test_resource_gate_preserves_explicit_sharing(
         self, resource_subject: str, resource_level: str, object_level: str, sharing: str | None
     ) -> None:
-        self.organization.uses_most_specific_access_resolution = True
-        self.organization.save()
         rules = {resource_subject: resource_level, "object_default": object_level}
         if sharing:
             rules[sharing] = "viewer"
@@ -173,8 +167,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
                 "viewer",
                 "parent_object",
             ),
-            # The table's own default row is nearer than the source, so it wins — under the
-            # enforced ladder the source's row would win here
+            # The table's own default row is nearer than the source, so it wins
             (
                 "table_default_beats_source_deny",
                 {"this_table_default": "editor", "this_source": "none"},
@@ -204,7 +197,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
             )
         self._clear_uac_caches()
 
-        resolved = self.user_access_control.resolve_most_specific_object_access(self.table)
+        resolved = self.user_access_control._resolved_object_access(self.table)
 
         assert resolved is not None
         assert resolved.access_level == expected_level
@@ -214,76 +207,8 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
 @pytest.mark.ee
 class TestResolveResourceAccess(BaseMostSpecificResolutionTest):
     def test_resource_without_resource_level_controls_resolves_to_system_default(self):
-        resolved = self.user_access_control.resolve_most_specific_resource_access("project")
+        resolved = self.user_access_control.access_level_for_resource("project")
 
         assert resolved is not None
         assert resolved.source == "system_default"
         assert resolved.access_level == "admin"
-
-
-@pytest.mark.ee
-class TestShadowDivergenceTelemetry(BaseMostSpecificResolutionTest):
-    def setUp(self):
-        super().setUp()
-        # The shadow only runs, and only diverges, for an org still on the legacy resolution
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.user_access_control = UserAccessControl(self.user, self.team)
-
-    @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
-    def test_enforcement_keeps_the_enforced_answer_and_reports_the_divergence(self, mock_capture):
-        self._apply({"member": "none", "role_a": "editor"})
-
-        level = self.user_access_control.get_user_access_level(self.dashboard)
-
-        # The enforced max() still decides: the role grant wins today, and the event records that
-        # the future answer differs
-        assert level == "editor"
-        assert mock_capture.call_count == 1
-        properties = mock_capture.call_args.kwargs["properties"]
-        assert properties["kind"] == "object"
-        assert properties["resource"] == "dashboard"
-        assert properties["direction"] == "narrows"
-        assert properties["current_level"] == "editor"
-        assert properties["proposed_level"] == "none"
-        assert properties["proposed_source_subject"] == "member"
-
-    @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
-    def test_divergence_is_reported_once_per_instance(self, mock_capture):
-        self._apply({"member": "none", "role_a": "editor"})
-
-        self.user_access_control.get_user_access_level(self.dashboard)
-        self.user_access_control.get_user_access_level(self.dashboard)
-
-        assert mock_capture.call_count == 1
-
-    @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
-    def test_no_event_when_resolutions_agree(self, mock_capture):
-        self._apply({"member": "editor", "role_a": "viewer"})
-
-        assert self.user_access_control.get_user_access_level(self.dashboard) == "editor"
-        assert mock_capture.call_count == 0
-
-    @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
-    def test_resource_divergence_is_reported(self, mock_capture):
-        self._apply({"resource_member": "none", "resource_role_a": "editor"})
-
-        access = self.user_access_control.access_level_for_resource("dashboard")
-
-        assert access is not None
-        assert access.access_level == "editor"
-        assert mock_capture.call_count == 1
-        properties = mock_capture.call_args.kwargs["properties"]
-        assert properties["kind"] == "resource"
-        assert properties["proposed_level"] == "none"
-
-    @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
-    def test_subject_resolution_does_not_report(self, mock_capture):
-        # SubjectAccessControl resolves other people's access for display; its divergences are
-        # about the subject, not the requesting user, so the shadow skips subclasses entirely
-        self._apply({"member": "none", "role_a": "editor"})
-        subject = SubjectAccessControl.for_member(self.user_access_control, self.team, self.membership)
-
-        subject.get_user_access_level(self.dashboard)
-
-        assert mock_capture.call_count == 0

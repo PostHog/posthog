@@ -252,7 +252,6 @@ django.Model products.access_control.backend.facade.user_access_control.UserAcce
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.get_access_source_for_object facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.get_user_access_level facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.preload_object_access_controls facade-accepts(objects) 1
-django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.resolve_most_specific_object_access facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.specific_access_level_for_object facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.fallback_parent_object facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.fallback_parent_object facade-returns 1

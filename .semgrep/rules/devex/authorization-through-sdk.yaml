@@ -34,7 +34,7 @@ rules:
                 - pattern: $ACCESS.$METHOD(...)
                 - metavariable-regex:
                       metavariable: $METHOD
-                      regex: ^(check_access_level_for_(object|resource|ref)|assert_access_level_for_resource|check_can_modify_access_levels_for_(object|ref)|access_level_for_(object|resource|ref)|specific_access_level_for_object|effective_access_level_for_resource|get_user_access_level|filter_queryset_by_access_level|filter_and_annotate_file_system_queryset|allowed_object_ids|denied_object_ids|object_ids_matching|none_denied_object_ids|bulk_object_access_levels|has_resource_access|has_any_specific_access_for_resource|has_object_access_limit|has_access_levels_for_resource|resolve_most_specific_(object|resource)_access)$
+                      regex: ^(check_access_level_for_(object|resource|ref)|assert_access_level_for_resource|check_can_modify_access_levels_for_(object|ref)|access_level_for_(object|resource|ref)|specific_access_level_for_object|effective_access_level_for_resource|get_user_access_level|filter_queryset_by_access_level|filter_and_annotate_file_system_queryset|allowed_object_ids|denied_object_ids|object_ids_matching|none_denied_object_ids|bulk_object_access_levels|has_resource_access|has_any_specific_access_for_resource|has_object_access_limit|has_access_levels_for_resource)$
           - pattern: $ACCESS.is_organization_admin
           - pattern: $ACCESS.effective_membership_level
           - pattern: $ACCESS.blocked_resource_ids_by_scope
