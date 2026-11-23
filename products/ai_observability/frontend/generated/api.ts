@@ -142,7 +142,6 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
-    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
@@ -177,8 +176,6 @@ import type {
     ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
-    TaggerApi,
-    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
     TextReprRequestApi,
@@ -4209,44 +4206,6 @@ export const llmPromptsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMPromptResolveResponseApi> => {
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/taggers/?${stringifiedParams}`
-        : `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersList = async (
-    projectId: string,
-    params?: TaggersListParams,
-    options?: RequestInit
-): Promise<PaginatedTaggerListApi> => {
-    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
