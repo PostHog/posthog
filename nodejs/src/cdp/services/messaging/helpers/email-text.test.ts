@@ -34,7 +34,8 @@ describe('plainTextFromHtml', () => {
             '<a href="https://example.com/app"><img src="logo.png"></a>',
             'https://example.com/app',
         ],
-        ['a javascript link', '<a href="JavaScript:void(0)">Click</a>', 'Click'],
+        ['a javascript link', '<a href=" JavaScript:void(0)">Click</a>', 'Click'],
+        ['a hidden javascript link', '<a style="display:none" href="javascript:void(0)">Hidden</a><p>Hi</p>', 'Hi'],
         ['a page anchor link', '<a href="#top">Back to top</a>', 'Back to top'],
         [
             'entities',
@@ -53,6 +54,11 @@ describe('plainTextFromHtml', () => {
         ],
         ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
         ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
+        [
+            'a hidden style with spaces around the colon',
+            '<div style="display : none">Preview</div><p>Hello</p>',
+            'Hello',
+        ],
         ['a code shown as an image', '<p>Your code:</p><img src="code.png" alt="482913">', 'Your code:\n\n482913'],
         [
             'comments and conditional comments',
@@ -60,6 +66,8 @@ describe('plainTextFromHtml', () => {
             'Hi',
         ],
         ['a literal less-than sign', '<p>1 < 2 and 3 > 2</p>', '1 < 2 and 3 > 2'],
+        ['nested quotes', '<blockquote><blockquote><p>Quoted</p></blockquote></blockquote>', 'Quoted'],
+        ['punctuation only', '<p>??!</p>', '??!'],
         ['lists and line breaks', '<ul><li>One</li><li>Two</li></ul>Line<br>Next', '- One\n- Two\n\nLine\nNext'],
         ['joiners in visible text', '<p>👩&#8205;💻 می&#8204;خواهم</p>', '👩\u200d💻 می\u200cخواهم'],
         [

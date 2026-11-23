@@ -3793,6 +3793,18 @@ describe('EmailService', () => {
                 },
             ],
             [
+                'html and text, from a team on the text part list',
+                { html: '<p>Hello</p>', text: 'Your own text' },
+                true,
+                { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, too large to carry a text part as well',
+                { html: 'x'.repeat(MESSAGE_MAX_BYTES / 2), text: undefined },
+                true,
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+            [
                 'html only, from a team not on the text part list',
                 { html: '<p>Hello</p>', text: undefined },
                 false,

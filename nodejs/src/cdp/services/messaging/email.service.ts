@@ -1674,18 +1674,18 @@ export class EmailService {
                   params.preheader
               )
             : null
-        const fitsBesideFiles = (text: string): boolean =>
-            files.length === 0 ||
+        const fitsInMessage = (text: string): boolean =>
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
                 [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
             ) <= MESSAGE_MAX_BYTES
-        if (!fitsBesideFiles(params.text ?? '')) {
+        if (files.length > 0 && !fitsInMessage(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
         const candidateText = this.textPart(params, result.invocation.teamId)
-        const text = fitsBesideFiles(candidateText) ? candidateText : ''
+        // A text part made from the html can outgrow it, so it goes out only when the message still fits.
+        const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {

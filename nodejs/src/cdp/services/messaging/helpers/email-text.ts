@@ -10,19 +10,32 @@ const SKIPPED_SELECTORS = [
     '[hidden]',
     '[style*="display:none" i]',
     '[style*="display: none" i]',
+    '[style*="display :none" i]',
+    '[style*="display : none" i]',
 ]
 
 const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
 
-const CONTENT_CHARACTER = /[\p{L}\p{N}\p{S}]/u
+// The hyphen is the list item prefix, so a list of image-only items still counts as empty.
+const VISIBLE_CHARACTER = /[^\s\p{Cf}\p{M}-]/u
+
+const SCRIPT_URL = /^\s*javascript:/i
 
 const toText = compile({
     wordwrap: false,
     selectors: [
         ...SKIPPED_SELECTORS.map((selector) => ({ selector, format: 'skip' })),
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
-        { selector: 'a', options: { hideLinkHrefIfSameAsText: true, linkBrackets: ['(', ')'] } },
-        { selector: 'a[href^="javascript:" i]', format: 'inline' },
+        {
+            selector: 'a',
+            options: {
+                hideLinkHrefIfSameAsText: true,
+                linkBrackets: ['(', ')'],
+                pathRewrite: (path: string) => (SCRIPT_URL.test(path) ? '' : path),
+            },
+        },
+        // The default prefixes each line with "> " per level, so nested quotes multiply the text's size.
+        { selector: 'blockquote', format: 'block' },
         { selector: 'img', format: 'altText' },
         { selector: 'ul', options: { itemPrefix: '- ' } },
         { selector: 'table', format: 'block' },
@@ -49,5 +62,5 @@ export const plainTextFromHtml = (html: string): string => {
         // The email then goes out without a text part, as html-only emails always did.
         return ''
     }
-    return CONTENT_CHARACTER.test(text) ? text : ''
+    return VISIBLE_CHARACTER.test(text) ? text : ''
 }
