@@ -7,6 +7,7 @@ from a prompt.
 import re
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 
@@ -128,12 +129,13 @@ def request_model_override(
         distinct_id=attribution.distinct_id,
         properties=dict(attribution.properties),
     ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
+    extra: dict[str, Any] = {"extra_headers": {"X-PostHog-Privacy-Mode": "true"}} if attribution.privacy_mode else {}
     response = client.chat.completions.create(
         model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
         messages=[{"role": "user", "content": prompt}],
         max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
         response_format=_response_format(choices),
-        **({"extra_headers": {"X-PostHog-Privacy-Mode": "true"}} if attribution.privacy_mode else {}),
+        **extra,
     )
     # Tolerant parse on top of the schema on purpose: the gateway fronts several
     # providers and does not honour a response format identically on every route, so

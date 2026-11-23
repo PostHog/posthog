@@ -2644,8 +2644,6 @@ export interface runStreamLogicValues {
     conversationClearSupported: boolean
     cumulativeReconnectAttempt: number
     currentMode: string | null
-    sessionEffort: string | null
-    sessionModel: string | null
     currentProgress: string | null
     currentRunStatus: RunStatus | null
     currentStage: string | null
@@ -2682,6 +2680,8 @@ export interface runStreamLogicValues {
     runStarted: boolean
     sdkSession: SdkSession | null
     seenPermissionRequestIds: Set<string>
+    sessionEffort: string | null
+    sessionModel: string | null
     showThinkingIndicator: boolean
     sseStatus: RunSseStatus
     streamHasEnded: boolean
@@ -2947,13 +2947,6 @@ export interface runStreamLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     }
-    setSessionConfig: (
-        model: string | null,
-        effort: string | null
-    ) => {
-        model: string | null
-        effort: string | null
-    }
     setCurrentProgress: (progress: string | null) => {
         progress: string | null
     }
@@ -2980,6 +2973,13 @@ export interface runStreamLogicActions {
     }
     setSdkSession: (session: SdkSession) => {
         session: SdkSession
+    }
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        effort: string | null
+        model: string | null
     }
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean

@@ -197,8 +197,6 @@ export interface runInteractionLogicValues {
     bootstrappedTaskId: string | null // runStreamLogic
     conversationClearSupported: boolean // runStreamLogic
     currentMode: string | null // runStreamLogic
-    sessionEffort: string | null // runStreamLogic
-    sessionModel: string | null // runStreamLogic
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
@@ -207,6 +205,8 @@ export interface runInteractionLogicValues {
     respondingToPermission: boolean // runStreamLogic
     runOpening: boolean // runStreamLogic
     runStarted: boolean // runStreamLogic
+    sessionEffort: string | null // runStreamLogic
+    sessionModel: string | null // runStreamLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     acceptedReplySuggestion: string | null
@@ -343,6 +343,9 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
+    markRunStarted: () => {
+        value: true
+    } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
     } // runStreamLogic
@@ -382,15 +385,12 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
-    markRunStarted: () => {
-        value: true
-    } // runStreamLogic
     setSessionConfig: (
         model: string | null,
         effort: string | null
     ) => {
-        model: string | null
         effort: string | null
+        model: string | null
     } // runStreamLogic
     startOptimisticResume: (
         message: string,
@@ -610,6 +610,7 @@ export interface runInteractionLogicMeta {
         sessionBaseline: (defaultModel: string | null, defaultEffort: string | null, arg: any) => SessionBaseline
         selectedModel: (
             modelOverride: string | null,
+            sessionModel: string | null,
             arg: any,
             sessionBaseline: SessionBaseline,
             catalogue: ModelChoiceApi[],
@@ -619,6 +620,7 @@ export interface runInteractionLogicMeta {
         ) => string
         selectedEffort: (
             effortOverride: string | null,
+            sessionEffort: string | null,
             arg: any,
             sessionBaseline: SessionBaseline,
             selectedModel: string,
