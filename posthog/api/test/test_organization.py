@@ -19,9 +19,12 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.admin.admins.organization_admin import OrganizationAdminForm
+from posthog.admin.admins.organization_ai_terms_admin import OrganizationAITermsForm
 from posthog.api.organization import (
     OrganizationMemberNoticeSerializer,
     OrganizationSerializer,
+    OrganizationViewSet,
     _fetch_member_count,
     _org_serializer_cache_version,
 )
@@ -29,6 +32,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationAITerms
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -341,6 +345,75 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "locked")
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
+    @parameterized.expand(
+        [
+            ("locked_and_off_cannot_turn_on", True, False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("locked_and_on_can_turn_off", True, True, False, status.HTTP_200_OK, False),
+            ("unlocked_can_turn_on", False, False, True, status.HTTP_200_OK, True),
+        ]
+    )
+    def test_ai_data_processing_lock(self, _name, locked, approved, requested, expected_status, expected_approved):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_data_processing_locked = locked
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": requested}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, expected_approved)
+
+    def test_update_from_a_stale_instance_keeps_a_new_ai_data_processing_lock(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale = Organization.objects.get(id=self.organization.id)
+        Organization.objects.filter(id=self.organization.id).update(
+            is_ai_data_processing_locked=True, is_ai_data_processing_approved=False
+        )
+
+        with patch.object(OrganizationViewSet, "get_object", return_value=stale):
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "Renamed"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Renamed")
+        self.assertTrue(self.organization.is_ai_data_processing_locked)
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_locking_in_the_organization_admin_turns_ai_data_processing_off(self):
+        form = OrganizationAdminForm(instance=self.organization)
+        form.cleaned_data = {"is_ai_data_processing_locked": True, "is_ai_data_processing_approved": True}
+
+        self.assertFalse(form.clean()["is_ai_data_processing_approved"])
+
+    def test_ai_terms_admin_cannot_turn_on_ai_data_processing_for_a_locked_organization(self):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        form = OrganizationAITermsForm(
+            instance=OrganizationAITerms.objects.get(pk=self.organization.pk),
+            data={"is_ai_data_processing_approved": True},
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("is_ai_data_processing_approved", form.errors)
+
+    def test_ai_data_processing_lock_is_read_only(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.patch(f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_locked": True})
+
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_locked)
 
     def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
         Organization.objects.bootstrap(self.user)
@@ -2000,6 +2073,17 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         response = self.client.post(self._url())
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_cannot_request_ai_access_when_locked(self, mock_task):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "locked"
         mock_task.delay.assert_not_called()
 
     @patch("posthog.api.organization.send_posthog_ai_access_request")

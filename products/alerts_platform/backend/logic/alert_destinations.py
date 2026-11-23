@@ -195,6 +195,21 @@ def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID])
     These are the destinations a source that counts its HogFunctions misses. A row that copies a live
     HogFunction is that HogFunction's destination, by the rule delivery skips it with. Subscriber rows
     are left out, because a source counts its subscribers apart. One read for the whole page."""
+    return {
+        public_id: len(types)
+        for public_id, types in _standalone_destination_types(team_id=team_id, public_ids=public_ids).items()
+    }
+
+
+def standalone_destination_types(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, frozenset[str]]:
+    """The types of the rows `standalone_destination_counts` counts, by the alert's public id."""
+    return {
+        public_id: frozenset(types)
+        for public_id, types in _standalone_destination_types(team_id=team_id, public_ids=public_ids).items()
+    }
+
+
+def _standalone_destination_types(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, list[str]]:
     if not public_ids:
         return {}
     # The caller names the team, as `native_configuration_ids_by_source_config` takes it: a page of
@@ -217,12 +232,11 @@ def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID])
     copies = copies_of_live_hog_functions(
         team_id=team_id, copied_by_row={row.id: tuple(row.legacy_hog_function_ids or ()) for row in rows}
     )
-    counts: dict[UUID, int] = {}
+    types: dict[UUID, list[str]] = {}
     for row in rows:
         if row.id not in copies:
-            public_id = public_by_configuration[row.configuration_id]
-            counts[public_id] = counts.get(public_id, 0) + 1
-    return counts
+            types.setdefault(public_by_configuration[row.configuration_id], []).append(row.type)
+    return types
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:

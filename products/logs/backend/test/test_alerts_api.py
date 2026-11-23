@@ -1,19 +1,18 @@
 import json
-from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any
 from uuid import UUID, uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import OperationalError, connection, transaction
+from django.core.management import call_command
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -27,7 +26,12 @@ from posthog.models.user import User
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    list_alert_destinations,
+    list_configurations,
+    upsert_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
     IncidentAction,
@@ -44,21 +48,16 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_creation import MAX_ALERTS_PER_TEAM
-from products.logs.backend.alert_utils import PLATFORM_SHADOW
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_alert_backfill import (
-    backfill_platform_alert_configurations,
-    disable_platform_alert_configurations,
-    follow_logs_alert,
-    platform_upsert_of,
-)
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team, hand_over, roll_back_team
+from products.logs.backend.platform_alert_backfill import platform_upsert_of
+from products.logs.backend.platform_ownership import NATIVE_CREATE_FLAG, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
-from products.logs.backend.tasks.tasks import follow_logs_alert_task
+from products.logs.backend.test.hog_function_destinations import add_hog_function_destination
+from products.logs.backend.test.platform_handover import hand_over_team
 
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -112,8 +111,24 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def _keep_the_team_on_logs(self) -> None:
-        LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
+    def _create_on_logs(self, **overrides) -> dict:
+        # Every create hands the alert to the platform, except in an environment, so the logs stack's own
+        # edit path is reached through a row written straight to the database.
+        payload = self._valid_payload(**overrides)
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            created_by=self.user,
+            first_enabled_at=timezone.now() if payload.get("enabled", True) else None,
+            **payload,
+        )
+        response = self.client.get(f"{self.base_url}{alert.id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def _add_hog_function_destination(self, alert_id: str, payload: dict) -> list[str]:
+        return add_hog_function_destination(
+            team_id=self.team.id, user_id=self.user.id, alert_id=alert_id, payload=payload
+        )
 
     # --- CRUD ---
 
@@ -143,8 +158,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_update_with_quiet_hours_defers_next_check(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
 
         response = self.client.patch(
             f"{self.base_url}{created['id']}/",
@@ -156,9 +170,8 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
 
     def test_enabling_alert_during_quiet_hours_defers_next_check(self):
-        self._keep_the_team_on_logs()
         with time_machine.travel("2026-01-01T16:00:00Z", tick=False):
-            created = self._create_via_api(
+            created = self._create_on_logs(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
             )
             self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
@@ -211,7 +224,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
             for i in range(2)
         ]
-        cut_over_team(self.team.id, now=now)
+        hand_over_team(self.team.id, now)
         platform_due_at = now + timedelta(minutes=7)
         with team_scope(self.team.id):
             for alert in alerts:
@@ -231,11 +244,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # Settings, runtime, history ids and control-change ids, whatever the page size. A list also
+        # Settings, runtime, destination rows, history ids and control-change ids, whatever the page size. A list also
         # reads which alerts the platform owns and the alerts with no logs row; a single alert also
         # reads its destinations.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (6 if action == "list" else 5)
+        assert len(platform_reads) == (7 if action == "list" else 6)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -464,101 +477,6 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
-    @parameterized.expand(
-        [
-            ("created_in_a_team_running_logs_on_the_platform", "create", "running", True),
-            ("created_in_a_team_outside_the_sample", "create", "not_backfilled", None),
-            ("turned_back_on_in_a_team_running_logs_on_the_platform", "enable", "running", True),
-            ("turned_back_on_after_the_team_was_switched_off", "enable", "switched_off", False),
-        ]
-    )
-    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
-        self, _name: str, write: str, team_run: str, copy_enabled: bool | None
-    ) -> None:
-        self._keep_the_team_on_logs()
-        self._create_via_api(name="Already on the platform")
-        dormant = self._create_via_api(name="Turned back on", enabled=False)
-        if team_run != "not_backfilled":
-            backfill_platform_alert_configurations(team_id=self.team.id)
-        if team_run == "switched_off":
-            disable_platform_alert_configurations(team_id=self.team.id)
-
-        with self.captureOnCommitCallbacks(execute=True):
-            if write == "create":
-                alert_id = self._create_via_api(name="New alert")["id"]
-            else:
-                alert_id = dormant["id"]
-                response = self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": True}, format="json")
-                assert response.status_code == status.HTTP_200_OK, response.json()
-
-        with team_scope(self.team.id):
-            copies = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
-            ).configurations
-        copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
-        assert (copy.enabled if copy else None) is copy_enabled
-
-    def test_deleting_an_alert_logs_owns_deletes_its_copy_and_no_other(self) -> None:
-        self._keep_the_team_on_logs()
-        deleted = self._create_via_api(name="Deleted")
-        kept = self._create_via_api(name="Kept")
-        backfill_platform_alert_configurations(team_id=self.team.id)
-
-        response = self.client.delete(f"{self.base_url}{deleted['id']}/")
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        with team_scope(self.team.id):
-            copies = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
-            ).configurations
-        copied = {str(view.legacy_configuration_id) for view in copies}
-        assert kept["id"] in copied and deleted["id"] not in copied
-
-    def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
-        self._keep_the_team_on_logs()
-        self._create_via_api(name="Already on the platform")
-        retired = self._create_via_api(name="Retired by the rollout")
-        backfill_platform_alert_configurations(team_id=self.team.id)
-        disable_platform_alert_configurations(alert_ids=[UUID(retired["id"])])
-
-        url = f"{self.base_url}{retired['id']}/"
-        with self.captureOnCommitCallbacks(execute=True):
-            assert self.client.patch(url, {"enabled": False}, format="json").status_code == status.HTTP_200_OK
-            assert self.client.patch(url, {"enabled": True}, format="json").status_code == status.HTTP_200_OK
-
-        with team_scope(self.team.id):
-            copies = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
-            ).configurations
-        assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
-
-    def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
-        self._keep_the_team_on_logs()
-        self._create_via_api(name="Already on the platform")
-        backfill_platform_alert_configurations(team_id=self.team.id)
-        alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
-        LogsAlertConfiguration.objects.filter(id=alert_id).update(enabled=True)
-
-        with (
-            patch(
-                "products.logs.backend.platform_alert_backfill.upsert_if_running",
-                side_effect=OperationalError("connection reset"),
-            ),
-            pytest.raises(Retry),
-        ):
-            follow_logs_alert_task.apply(args=[self.team.id, alert_id])
-        # Celery's eager mode stops at the retry, so the second attempt runs by hand.
-        retried = follow_logs_alert_task.apply(args=[self.team.id, alert_id])
-
-        with team_scope(self.team.id):
-            copies = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
-            ).configurations
-        assert retried.state == "SUCCESS"
-        assert {str(view.legacy_configuration_id): view.enabled for view in copies}.get(alert_id) is True
-
-    # --- first_enabled_at stamping ---
-
     def test_first_enabled_at_stamped_on_first_enable(self):
         created = self._create_via_api(enabled=False)
         alert_id = created["id"]
@@ -579,7 +497,8 @@ class TestLogsAlertAPI(APIBaseTest):
                 offset=0,
                 legacy_configuration_id=UUID(alert_id),
             ).configurations
-        assert copy.first_enabled_at == LogsAlertConfiguration.objects.get(id=alert_id).first_enabled_at
+        assert copy.first_enabled_at is not None
+        assert response.json()["first_enabled_at"] == copy.first_enabled_at.isoformat().replace("+00:00", "Z")
 
     def test_first_enabled_at_not_overwritten_on_subsequent_enable(self):
         created = self._create_via_api()
@@ -945,12 +864,9 @@ class TestLogsAlertAPI(APIBaseTest):
 
     def _add_pagerduty_destination(self, alert_id: str) -> None:
         self._sync_destination_templates()
-        response = self.client.post(
-            self._destinations_url(alert_id),
-            {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
-            format="json",
+        self._add_hog_function_destination(
+            alert_id, {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     @parameterized.expand(
         [
@@ -993,8 +909,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert [(close["alert_id"], close["reason"]) for close in closes] == [(created["id"], expected_reason)]
 
     def test_deleting_a_firing_alert_sends_a_close_before_its_destinations_go(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         self._add_pagerduty_destination(created["id"])
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
 
@@ -1009,8 +924,7 @@ class TestLogsAlertAPI(APIBaseTest):
     # --- Edit behavior: recheck and state reset ---
 
     def test_threshold_change_resets_state_and_clears_next_check(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
             next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
@@ -1038,8 +952,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["state"] == "not_firing"
 
     def test_window_change_preserves_state_and_clears_next_check(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
             next_check_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
@@ -1055,9 +968,8 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] is None
 
     def test_name_change_preserves_state_and_next_check(self):
-        self._keep_the_team_on_logs()
         next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
             next_check_at=next_check,
@@ -1190,9 +1102,11 @@ class TestLogsAlertAPI(APIBaseTest):
         )
 
     @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
-    def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
+    def test_create_on_a_logs_evaluated_alert_slack_destination_creates_one_hog_function_per_event_kind(
+        self, mock_report
+    ):
         self._sync_destination_templates()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         response = self.client.post(
             self._destinations_url(created["id"]),
             {
@@ -1235,11 +1149,11 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
+    def test_create_on_a_logs_evaluated_alert_webhook_destination_creates_one_hog_function_per_event_kind(
         self, signal_reload_hog_functions, alert_reload_hog_functions
     ):
         self._sync_destination_templates()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 self._destinations_url(created["id"]),
@@ -1270,9 +1184,9 @@ class TestLogsAlertAPI(APIBaseTest):
                 "logs_alert.errored",
             )
 
-    def test_create_teams_destination_creates_one_hog_function_per_event_kind(self):
+    def test_create_on_a_logs_evaluated_alert_teams_destination_creates_one_hog_function_per_event_kind(self):
         self._sync_destination_templates()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01"
         response = self.client.post(
             self._destinations_url(created["id"]),
@@ -1295,9 +1209,11 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
-    def test_create_pagerduty_destination_pairs_a_trigger_with_a_resolve_and_hides_the_key(self):
+    def test_create_on_a_logs_evaluated_alert_pagerduty_destination_pairs_a_trigger_with_a_resolve_and_hides_the_key(
+        self,
+    ):
         self._sync_destination_templates()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         response = self.client.post(
             self._destinations_url(created["id"]),
             {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY, "pagerduty_severity": "warning"},
@@ -1366,21 +1282,17 @@ class TestLogsAlertAPI(APIBaseTest):
     ) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        create_response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        hog_function_ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
         )
-        hog_function_ids = create_response.json()["hog_function_ids"]
         if converted:
             HogFunction.objects.filter(id__in=hog_function_ids).update(deleted=True, enabled=False)
 
         (destination,) = self._read_destinations(created["id"])
         assert destination["id"] is not None
-        assert create_response.json()["id"] == destination["id"]
         assert sorted(destination["hog_function_ids"]) == sorted(hog_function_ids)
 
-        named = hog_function_ids if delete_by == "hog_function_ids" else [create_response.json()["id"]]
+        named = hog_function_ids if delete_by == "hog_function_ids" else [destination["id"]]
         response = self.client.post(self._destinations_delete_url(created["id"]), {delete_by: named}, format="json")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
@@ -1394,11 +1306,9 @@ class TestLogsAlertAPI(APIBaseTest):
         self._sync_destination_templates()
         created = self._create_via_api()
         assert created["platform_owned"] is True
-        hog_function_ids = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
-        ).json()["hog_function_ids"]
+        hog_function_ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
         (copied,) = self._read_destinations(created["id"])
 
         kept = self.client.post(
@@ -1435,6 +1345,103 @@ class TestLogsAlertAPI(APIBaseTest):
             "logs alert destination customized",
         ]
 
+    def test_a_new_destination_is_a_row_that_keeps_its_id_through_customize_and_reset(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        destinations_url = self._destinations_url(created["id"])
+
+        response = self.client.post(
+            destinations_url,
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        (row_only,) = self._read_destinations(created["id"])
+        assert response.json() == {"id": row_only["id"], "hog_function_ids": []}
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+
+        customized = self.client.post(
+            f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
+        )
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self._read_destinations(created["id"])
+        assert (listed["id"], sorted(listed["hog_function_ids"])) == (
+            row_only["id"],
+            sorted(customized.json()["hog_function_ids"]),
+        )
+
+        reset = self.client.post(
+            f"{destinations_url}reset/", {"hog_function_ids": customized.json()["hog_function_ids"]}, format="json"
+        )
+        assert reset.status_code == status.HTTP_200_OK, reset.json()
+        (after_reset,) = self._read_destinations(created["id"])
+        assert (after_reset["id"], after_reset["hog_function_ids"]) == (row_only["id"], [])
+
+    @parameterized.expand([("held_on_hog_functions_by_a_customized_destination", True), ("sent_natively", False)])
+    def test_a_new_webhook_keeps_the_legacy_body_a_stock_hog_function_would_send(
+        self, _name: str, held_on_hog_functions: bool
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        if held_on_hog_functions:
+            (edited_id, *_) = self._add_hog_function_destination(
+                created["id"],
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "eng"},
+            )
+            HogFunction.objects.filter(id=edited_id).update(
+                masking={"ttl": 3600, "hash": "{event.event}", "threshold": None}
+            )
+
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        with team_scope(self.team.id):
+            configuration_id = platform_testing.copy_of(UUID(created["id"])).id
+        (webhook,) = [
+            row
+            for row in list_alert_destinations(team_id=self.team.id, configuration_id=configuration_id)
+            if row.data["type"] == "webhook"
+        ]
+        assert (webhook.id, webhook.legacy_hog_function_ids) == (UUID(response.json()["id"]), ())
+        assert webhook.keeps_legacy_webhook_body is held_on_hog_functions
+
+    @parameterized.expand(
+        [
+            ("released_before_row_ids", "1.0.31", status.HTTP_400_BAD_REQUEST),
+            ("first_release_with_row_ids", "1.0.32", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_terraform_provider_that_cannot_track_a_row_is_refused_before_anything_is_written(
+        self, _name: str, version: str, expected_status: int
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+            headers={"User-Agent": f"posthog/terraform-provider; version: {version}"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (response.json()["type"], response.json()["code"]) == (
+                "invalid_request",
+                "terraform_provider_upgrade_required",
+            )
+            assert self._read_destinations(created["id"]) == []
+            assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+        else:
+            assert [destination["id"] for destination in self._read_destinations(created["id"])] == [
+                response.json()["id"]
+            ]
+
     def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1444,19 +1451,17 @@ class TestLogsAlertAPI(APIBaseTest):
             "https://edited.example.com/hook",
             "https://refused.example.com/hook",
         ):
-            response = self.client.post(
-                self._destinations_url(created["id"]), {"type": "webhook", "webhook_url": url}, format="json"
+            ids_by_url[url] = set(
+                self._add_hog_function_destination(created["id"], {"type": "webhook", "webhook_url": url})
             )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-            ids_by_url[url] = set(response.json()["hog_function_ids"])
         edited = HogFunction.objects.get(id=sorted(ids_by_url["https://edited.example.com/hook"])[0])
         edited.masking = {"ttl": 3600, "hash": "{event.event}", "threshold": None}
         edited.save(update_fields=["masking"])
         for refused in HogFunction.objects.filter(id__in=ids_by_url["https://refused.example.com/hook"]):
-            encrypted_inputs = refused.encrypted_inputs or {}
-            encrypted_inputs["url"]["value"] = "http://refused.example.com/hook"
-            refused.encrypted_inputs = encrypted_inputs
-            refused.save(update_fields=["encrypted_inputs"])
+            inputs = refused.inputs or {}
+            inputs["url"]["value"] = "http://refused.example.com/hook"
+            refused.inputs = inputs
+            refused.save(update_fields=["inputs"])
 
         customized_by_ids = {
             frozenset(destination["hog_function_ids"]): destination["message_customized"]
@@ -1469,7 +1474,7 @@ class TestLogsAlertAPI(APIBaseTest):
             frozenset(str(i) for i in ids_by_url["https://refused.example.com/hook"]): False,
         }
 
-    def test_newly_added_destinations_read_as_stock(self) -> None:
+    def test_stock_hog_function_destinations_read_as_stock(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
         for payload in (
@@ -1480,8 +1485,7 @@ class TestLogsAlertAPI(APIBaseTest):
             {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/token"},
             {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
         ):
-            response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            self._add_hog_function_destination(created["id"], payload)
 
         customized_by_type = {
             destination["type"]: destination["message_customized"]
@@ -1493,17 +1497,14 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        create_response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        hog_function_ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
         )
-        assert create_response.status_code == status.HTTP_201_CREATED
-        hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
-        encrypted_inputs = hog_function.encrypted_inputs or {}
-        encrypted_inputs["url"]["value"] = "https://[broken/path"
-        hog_function.encrypted_inputs = encrypted_inputs
-        hog_function.save(update_fields=["encrypted_inputs"])
+        hog_function = HogFunction.objects.get(id=hog_function_ids[0])
+        inputs = hog_function.inputs or {}
+        inputs["url"]["value"] = "https://[broken/path"
+        hog_function.inputs = inputs
+        hog_function.save(update_fields=["inputs"])
 
         assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
 
@@ -1528,13 +1529,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_destination_reports_disabled_when_one_of_its_hog_functions_is_off(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        create_response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        hog_function_ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
         )
-        assert create_response.status_code == status.HTTP_201_CREATED
-        hog_function_ids = create_response.json()["hog_function_ids"]
         assert self._read_destinations(created["id"])[0]["enabled"] is True
 
         HogFunction.objects.filter(id=hog_function_ids[0]).update(enabled=False)
@@ -1581,12 +1578,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
-        create_response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
         )
-        ids = create_response.json()["hog_function_ids"]
 
         with self.captureOnCommitCallbacks(execute=True):
             delete_response = self.client.post(
@@ -1604,12 +1598,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_alert_soft_deletes_destination_hog_functions(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        create_response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
         )
-        ids = create_response.json()["hog_function_ids"]
 
         delete_response = self.client.delete(f"{self.base_url}{created['id']}/")
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
@@ -1622,16 +1613,12 @@ class TestLogsAlertAPI(APIBaseTest):
         created_a = self._create_via_api()
         created_b = self._create_via_api(name="Another alert")
 
-        a_ids = self.client.post(
-            self._destinations_url(created_a["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/a"},
-            format="json",
-        ).json()["hog_function_ids"]
-        b_ids = self.client.post(
-            self._destinations_url(created_b["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/b"},
-            format="json",
-        ).json()["hog_function_ids"]
+        a_ids = self._add_hog_function_destination(
+            created_a["id"], {"type": "webhook", "webhook_url": "https://example.com/a"}
+        )
+        b_ids = self._add_hog_function_destination(
+            created_b["id"], {"type": "webhook", "webhook_url": "https://example.com/b"}
+        )
 
         response = self.client.post(
             self._destinations_delete_url(created_b["id"]),
@@ -1657,11 +1644,6 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
 
-    def _create_destination(self, alert_id: str, payload: dict) -> list[str]:
-        response = self.client.post(self._destinations_url(alert_id), payload, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        return response.json()["hog_function_ids"]
-
     @parameterized.expand(
         [
             (
@@ -1686,8 +1668,8 @@ class TestLogsAlertAPI(APIBaseTest):
     ):
         self._sync_destination_templates()
         created = self._create_via_api()
-        first_ids = self._create_destination(created["id"], first_payload)
-        second_ids = self._create_destination(created["id"], second_payload)
+        first_ids = self._add_hog_function_destination(created["id"], first_payload)
+        second_ids = self._add_hog_function_destination(created["id"], second_payload)
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
@@ -1711,7 +1693,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_destination_rejects_partial_group(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
@@ -1726,25 +1710,43 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "slack_channel",
-                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
-            ),
-            ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
-            ("pagerduty_key", {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}),
+            (f"{payload_name}_{existing}", payload, existing)
+            for payload_name, payload in [
+                (
+                    "slack_channel",
+                    {
+                        "type": "slack",
+                        "slack_workspace_id": 42,
+                        "slack_channel_id": "C111",
+                        "slack_channel_name": "eng",
+                    },
+                ),
+                ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+                ("pagerduty_key", {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}),
+            ]
+            for existing in ("on_hog_functions", "as_a_row")
         ]
     )
-    def test_create_destination_rejects_a_duplicate_of_an_existing_destination(self, _name: str, payload: dict):
+    def test_create_destination_rejects_a_duplicate_of_an_existing_destination(
+        self, _name: str, payload: dict, existing: str
+    ):
         self._sync_destination_templates()
         created = self._create_via_api()
-        ids = self._create_destination(created["id"], payload)
+        if existing == "on_hog_functions":
+            ids = self._add_hog_function_destination(created["id"], payload)
+        else:
+            first = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+            assert first.status_code == status.HTTP_201_CREATED, first.json()
+            ids = []
 
         response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "This destination is already configured for this alert."
-        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
-        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(ids)
+        assert response.json()["detail"] == "This alert already sends to this destination."
+        assert len(self._read_destinations(created["id"])) == 1
+        assert sorted(
+            map(str, HogFunction.objects.filter(team=self.team, deleted=False).values_list("id", flat=True))
+        ) == sorted(ids)
 
     def test_create_destination_locks_the_alert_row_before_the_duplicate_check(self):
         self._sync_destination_templates()
@@ -1781,7 +1783,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_destination_removes_a_pre_existing_duplicate_pair(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
         duplicate_ids = [
             str(self._clone_row_without_the_duplicate_check(hog_function).id)
             for hog_function in HogFunction.objects.filter(id__in=ids)
@@ -1799,7 +1803,9 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_destination_accepts_a_server_group_larger_than_100_ids(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
         source = HogFunction.objects.get(id=ids[0])
         duplicate_ids = [str(self._clone_row_without_the_duplicate_check(source).id) for _ in range(100)]
         source.inputs = {}
@@ -1829,8 +1835,10 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_delete_alert_removes_both_destinations_of_the_same_type(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        first_ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
-        second_ids = self._create_destination(
+        first_ids = self._add_hog_function_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/a"}
+        )
+        second_ids = self._add_hog_function_destination(
             created["id"], {"type": "webhook", "webhook_url": "https://example.com/b"}
         )
 
@@ -1842,7 +1850,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_destination_types_ignores_a_row_carrying_another_products_event(self):
         self._sync_destination_templates()
         created = self._create_via_api()
-        self._create_destination(
+        self._add_hog_function_destination(
             created["id"],
             {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
         )
@@ -1873,8 +1881,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_reset_broken_alert(self, mock_report):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
             consecutive_failures=5,
@@ -1934,7 +1941,7 @@ class TestLogsAlertAPI(APIBaseTest):
             consecutive_failures=5 if state_at_cutover == "broken" else 0,
             next_check_at=now + timedelta(minutes=3),
         )
-        cut_over_team(self.team.id, now=now)
+        hand_over_team(self.team.id, now)
         LogsAlertConfiguration.objects.filter(pk=alert.id).update(state=logs_state_after)
         if fired_before_breaking:
             with team_scope(self.team.id):
@@ -1973,10 +1980,9 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_reset_writes_activity_log(self):
-        self._keep_the_team_on_logs()
         from posthog.models.activity_logging.activity_log import ActivityLog
 
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
             consecutive_failures=5,
@@ -2012,8 +2018,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert event.result_count is None
 
     def test_reset_writes_reset_event_row(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
             consecutive_failures=5,
@@ -2086,7 +2091,7 @@ class TestLogsAlertAPI(APIBaseTest):
         expected_state_before: str,
         expected_state_after: str,
     ) -> None:
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(**initial_db_state)
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", patch_payload, format="json")
@@ -2113,8 +2118,7 @@ class TestLogsAlertAPI(APIBaseTest):
         return f"{self.base_url}{alert_id}/events/"
 
     def test_events_returns_rows_newest_first(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         older_transition = LogsAlertEvent.objects.create(
             alert_id=created["id"],
             kind=LogsAlertEvent.Kind.CHECK,
@@ -2138,11 +2142,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
 
     def test_events_filters_out_quiet_check_rows(self):
-        self._keep_the_team_on_logs()
         # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
         # are kept inline at a cap of 10 per alert — surfacing them in the event history
         # would bury the interesting transitions. Backend filter pins this contract.
-        created = self._create_via_api()
+        created = self._create_on_logs()
         LogsAlertEvent.objects.create(
             alert_id=created["id"],
             kind=LogsAlertEvent.Kind.CHECK,
@@ -2182,8 +2185,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
     def test_events_filter_by_kind(self, kind):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         # CHECK rows need a real transition to survive the quiet-row filter; control-plane
         # kinds are never quiet-filtered so any state pair is fine.
         kept_before, kept_after = (
@@ -2270,8 +2272,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_splits_on_state_transitions(self):
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
         alert_id = created["id"]
         self._make_event_at(
             alert_id,
@@ -2662,9 +2663,12 @@ class TestLogsAlertAPI(APIBaseTest):
         assert {field: read[field] for field in fields} == {field: created[field] for field in fields}
         assert read["created_by"]["id"] == self.user.pk
 
-    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+    def test_each_api_edits_only_the_copy_of_an_alert_the_platform_owns(self) -> None:
         created = self._owned_by_the_platform()
         copy = self._copy(created["id"])
+        row_before = LogsAlertConfiguration.objects.values("name", "threshold_count", "updated_at").get(
+            id=created["id"]
+        )
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             platform_edit = self.client.patch(
@@ -2687,11 +2691,25 @@ class TestLogsAlertAPI(APIBaseTest):
             50,
             ("service_name",),
         )
+        assert (
+            LogsAlertConfiguration.objects.values("name", "threshold_count", "updated_at").get(id=created["id"])
+            == row_before
+        )
+
+    def test_a_partial_edit_validates_against_the_copy_not_the_logs_row(self) -> None:
+        created = self._owned_by_the_platform()
+        url = f"{self.base_url}{created['id']}/"
+
+        widened = self.client.patch(url, {"evaluation_periods": 3}, format="json")
+        tightened = self.client.patch(url, {"datapoints_to_alarm": 2}, format="json")
+
+        assert widened.status_code == status.HTTP_200_OK, widened.json()
+        assert tightened.status_code == status.HTTP_200_OK, tightened.json()
+        assert (self._copy_view(created["id"]).evaluation_periods, tightened.json()["datapoints_to_alarm"]) == (3, 2)
 
     @parameterized.expand(
         [
             ("backfill", lambda stale: upsert_configuration(platform_upsert_of(stale))),
-            ("delayed_follow", follow_logs_alert),
         ]
     )
     def test_a_snapshot_read_before_a_disable_does_not_turn_the_copy_back_on(self, _name: str, write: Any) -> None:
@@ -2709,40 +2727,6 @@ class TestLogsAlertAPI(APIBaseTest):
                 configuration_id=self._copy(created["id"]).id,
             )
         assert view is not None and view.enabled is False
-
-    def test_the_platform_api_refuses_an_edit_of_an_environments_alert(self) -> None:
-        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-        alert = LogsAlertConfiguration.objects.create(
-            team=environment,
-            name="Environment errors",
-            filters={"severityLevels": ["error"]},
-            threshold_count=10,
-            owner="platform",
-        )
-        # The copy lands on the project, as every copy of an environment's alert does.
-        with team_scope(self.team.id):
-            copy = platform_testing.create_configuration(**{**asdict(platform_upsert_of(alert)), "owner": "platform"})
-
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/",
-                {"name": "Renamed", "enabled": False},
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        alert.refresh_from_db()
-        with team_scope(self.team.id):
-            view = get_configuration(
-                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
-            )
-        assert view is not None
-        assert (alert.name, alert.enabled, view.name, view.enabled) == (
-            "Environment errors",
-            True,
-            "Environment errors",
-            True,
-        )
 
     def _create_on_the_platform(self, body: dict, team_id: int | None = None) -> Any:
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
@@ -2863,35 +2847,12 @@ class TestLogsAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
 
-    @parameterized.expand(
-        [
-            ("first_alert_of_the_team", None, "logs_api", True),
-            ("first_alert_of_the_team_through_the_platform", None, "platform_api", True),
-            ("team_the_platform_has_begun_taking_over", "platform", "logs_api", True),
-            ("team_the_platform_has_begun_taking_over_through_the_platform", "platform", "platform_api", True),
-            ("team_whose_alerts_stay_on_logs", "logs", "logs_api", False),
-            ("team_rolled_back", "rolled_back", "logs_api", False),
-        ]
-    )
+    @parameterized.expand([("logs_api",), ("platform_api",)])
     @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
-    def test_where_a_new_alert_starts(
-        self, _name: str, existing: str | None, route: str, on_the_platform: bool
-    ) -> None:
-        now = timezone.now()
-        team_cut_over_at = now - timedelta(days=4)
-        if existing == "platform":
-            for moved_at in (team_cut_over_at, now - timedelta(days=1)):
-                moved = self._owned_by_the_platform(name=f"Moved at {moved_at}")
-                LogsAlertConfiguration.objects.filter(pk=moved["id"]).update(owner_changed_at=moved_at)
-        elif existing == "logs":
-            self._keep_the_team_on_logs()
-        elif existing == "rolled_back":
-            self._create_via_api(name="Moved, then handed back", enabled=False)
-            assert [result.skipped for result in roll_back_team(self.team.id)] == [None]
-
+    def test_a_new_alert_starts_on_the_platform(self, route: str) -> None:
         if route == "logs_api":
             created = self._create_via_api(name="New alert")
-            assert created["platform_owned"] is on_the_platform
+            assert created["platform_owned"] is True
             alert_id = created["id"]
         else:
             response = self._create_on_the_platform(
@@ -2907,11 +2868,9 @@ class TestLogsAlertAPI(APIBaseTest):
             alert_id = response.json()["legacy_configuration_id"]
 
         alert = LogsAlertConfiguration.objects.get(pk=alert_id)
-        assert alert.platform_owned is on_the_platform
-        if on_the_platform:
-            assert self._copy(alert_id).owner == "platform"
-            # A team's first alert has no logs history to shadow, so its shadow is already over.
-            assert alert.owner_changed_at == (team_cut_over_at if existing == "platform" else now - PLATFORM_SHADOW)
+        assert alert.platform_owned is True
+        assert self._copy(alert_id).owner == "platform"
+        assert alert.owner_changed_at == timezone.now()
 
     def _copy_view(self, alert_id: str) -> PlatformAlertConfigurationView:
         with team_scope(self.team.id):
@@ -2953,18 +2912,12 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cut_over", True, True, "severity_text", status.HTTP_201_CREATED),
-            ("cut_over_flag_off", True, False, "severity_text", status.HTTP_400_BAD_REQUEST),
-            ("not_cut_over", False, True, "severity_text", status.HTTP_400_BAD_REQUEST),
-            ("cut_over_unknown_key", True, True, "host", status.HTTP_400_BAD_REQUEST),
+            ("grouped", True, "severity_text", status.HTTP_201_CREATED),
+            ("flag_off", False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_creating_a_grouped_alert(
-        self, _name: str, cut_over: bool, flag_on: bool, key: str, expected_status: int
-    ) -> None:
-        self._keep_the_team_on_logs()
-        if cut_over:
-            self._owned_by_the_platform()
+    def test_creating_a_grouped_alert(self, _name: str, flag_on: bool, key: str, expected_status: int) -> None:
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         with patch(f"{_ALERTS_API}.posthog_feature_flag_enabled", return_value=flag_on):
@@ -2995,7 +2948,6 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_with_the_grouping_flag_off_a_grouped_alert_keeps_only_its_keys(
         self, _name: str, grouping: dict, expected_status: int
     ) -> None:
-        self._keep_the_team_on_logs()
         created = self._owned_by_the_platform()
         self.client.patch(
             f"{self.base_url}{created['id']}/",
@@ -3025,8 +2977,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_grouping_the_alert_cannot_take_is_rejected(
         self, _name: str, platform_owned: bool, payload: dict
     ) -> None:
-        self._keep_the_team_on_logs()
-        created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
+        created = self._owned_by_the_platform() if platform_owned else self._create_on_logs()
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
 
@@ -3043,8 +2994,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
 
         response = self.client.put(
             f"{self.base_url}{created['id']}/",
@@ -3082,15 +3032,11 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cut_over", True, "labels", {"team": "checkout"}, status.HTTP_201_CREATED),
-            ("not_cut_over", False, "labels", {"team": "checkout"}, status.HTTP_400_BAD_REQUEST),
-            ("not_cut_over_empty", False, "labels", {}, status.HTTP_201_CREATED),
-            ("cut_over_reserved_name", True, "labels", {"alertname": "mine"}, status.HTTP_400_BAD_REQUEST),
-            ("annotated_cut_over", True, "annotations", {"summary": "Checkout errors"}, status.HTTP_201_CREATED),
-            ("annotated_not_cut_over", False, "annotations", {"summary": "x"}, status.HTTP_400_BAD_REQUEST),
+            ("labelled", "labels", {"team": "checkout"}, status.HTTP_201_CREATED),
+            ("reserved_name", "labels", {"alertname": "mine"}, status.HTTP_400_BAD_REQUEST),
+            ("annotated", "annotations", {"summary": "Checkout errors"}, status.HTTP_201_CREATED),
             (
-                "annotated_cut_over_insecure_link",
-                True,
+                "insecure_link",
                 "annotations",
                 {"runbook_url": "http://example.com/runbook"},
                 status.HTTP_400_BAD_REQUEST,
@@ -3098,11 +3044,8 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     def test_creating_a_labelled_or_annotated_alert(
-        self, _name: str, cut_over: bool, field: str, value: dict[str, str], expected_status: int
+        self, _name: str, field: str, value: dict[str, str], expected_status: int
     ) -> None:
-        self._keep_the_team_on_logs()
-        if cut_over:
-            self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         response = self.client.post(
@@ -3112,16 +3055,14 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_201_CREATED:
             assert response.json()[field] == value
-            if cut_over:
-                assert getattr(self._copy_view(response.json()["id"]), field) == value
+            assert getattr(self._copy_view(response.json()["id"]), field) == value
         else:
             assert response.json()["attr"] == field
             assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
 
     @parameterized.expand([("labels",), ("annotations",)])
     def test_a_source_owned_alert_rejects(self, field: str) -> None:
-        self._keep_the_team_on_logs()
-        created = self._create_via_api()
+        created = self._create_on_logs()
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", {field: {"team": "checkout"}}, format="json")
 
@@ -3328,16 +3269,6 @@ class TestLogsAlertAPI(APIBaseTest):
             LogsAlertConfiguration.objects.filter(id=created["id"]).exists(),
             HogFunction.objects.filter(team=self.team, deleted=False).exists(),
         ) == (None, False, False)
-
-    def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
-        created = self._owned_by_the_platform()
-        # The state a rollback leaves when it hands the alert back after the platform read its owner.
-        LogsAlertConfiguration.objects.filter(id=created["id"]).update(owner="source")
-
-        response = self._delete_through("platform", created["id"])
-
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
 
     @parameterized.expand([("logs",), ("platform",)])
     def test_deleting_an_alert_the_platform_owns_deletes_both_rows_and_its_destinations(self, route: str) -> None:
@@ -3900,8 +3831,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         self._logs_event(
             LogsAlertEvent.Kind.CHECK, hours_ago=3, state_after="errored", error_message="Logs stack timeout"
         )
-        [cutover] = cut_over_team(self.team.id, now=self.now)
-        assert cutover.skipped is None
+        hand_over_team(self.team.id, self.now)
 
     def _logs_event(self, kind: str, *, hours_ago: float, state_after: str, error_message: str | None = None) -> None:
         event = LogsAlertEvent.objects.create(
@@ -4118,6 +4048,77 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             for e in response.json()["results"]
         ] == expected
 
+    def _copy_history(self, *flags: str) -> str:
+        out = StringIO()
+        call_command("copy_logs_alert_history_to_platform", "--team-id", str(self.team.id), *flags, stdout=out)
+        return out.getvalue()
+
+    def _events(self) -> list[tuple[Any, ...]]:
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [
+            (
+                e["kind"],
+                e["created_at"],
+                e["state_before"],
+                e["state_after"],
+                e["result_count"],
+                e["threshold_breached"],
+                e["error_message"],
+            )
+            for e in response.json()["results"]
+        ]
+
+    def test_copied_history_shows_the_same_events_once_the_logs_rows_are_gone(self) -> None:
+        old_kinds = [
+            (LogsAlertEvent.Kind.ENABLE, "not_firing"),
+            (LogsAlertEvent.Kind.SNOOZE, "snoozed"),
+            (LogsAlertEvent.Kind.UNSNOOZE, "not_firing"),
+            (LogsAlertEvent.Kind.THRESHOLD_CHANGE, "not_firing"),
+            (LogsAlertEvent.Kind.RESET, "not_firing"),
+            (LogsAlertEvent.Kind.HANDBACK, "firing"),
+            (LogsAlertEvent.Kind.DISABLE, "not_firing"),
+        ]
+        for hours_ago, (kind, state_after) in zip(range(20, 13, -1), old_kinds):
+            self._logs_event(kind, hours_ago=hours_ago, state_after=state_after)
+        breached = LogsAlertEvent.objects.create(
+            alert=self.alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            result_count=150,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        LogsAlertEvent.objects.filter(pk=breached.pk).update(created_at=self.now - timedelta(hours=12))
+        # The list leaves out a check that moved nothing, so neither copies it.
+        self._logs_event(LogsAlertEvent.Kind.CHECK, hours_ago=11, state_after="not_firing")
+        # The platform records this change itself. Edits made before the logs API stopped writing its row
+        # recorded it a second time, as a logs event.
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"{self.base_url}{self.alert.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self._logs_event(LogsAlertEvent.Kind.DISABLE, hours_ago=-0.01, state_after="not_firing")
+        # The platform records no handback, so one after its first change has no platform row to stand for it.
+        self._logs_event(LogsAlertEvent.Kind.HANDBACK, hours_ago=-0.5, state_after="firing")
+        self._logs_event(LogsAlertEvent.Kind.CHECK, hours_ago=-0.25, state_after="firing")
+        before = self._events()
+        assert len(before) == len(old_kinds) + 4
+
+        assert "10 to copy, 0 copied" in self._copy_history()
+        assert "1 recorded by the platform, 10 to copy, 10 copied" in self._copy_history("--apply")
+        assert "10 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        assert self._events() == before
+        LogsAlertEvent.objects.filter(alert=self.alert).delete()
+
+        assert self._events() == before
+
+    def test_an_alert_without_history_copies_nothing(self) -> None:
+        LogsAlertEvent.objects.filter(alert=self.alert).delete()
+
+        assert "0 legacy, 0 copied before, 0 recorded by the platform, 0 to copy, 0 copied" in self._copy_history(
+            "--apply"
+        )
+
     def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
         response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")
 
@@ -4168,15 +4169,15 @@ class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         alert_id = response.json()["id"]
-        response = self.client.post(
-            f"{self.base_url}{alert_id}/destinations/",
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
+        hog_function_ids = add_hog_function_destination(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            alert_id=alert_id,
+            payload={"type": "webhook", "webhook_url": "https://example.com/hook"},
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
         functions = {
             str(function.id): (function.filters or {})["events"][0]["id"]
-            for function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
+            for function in HogFunction.objects.filter(id__in=hog_function_ids)
         }
         firing = next(i for i, event in functions.items() if event == "$logs_alert_firing")
         resolved = next(i for i, event in functions.items() if event == "$logs_alert_resolved")

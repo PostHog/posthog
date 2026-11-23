@@ -814,6 +814,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=read_format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             context=placeholder_context,
             table_size_mib=0,
             compression=compression,
@@ -845,6 +846,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=describe_format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -920,6 +922,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 format=self.format,
                 access_key=self.credential.access_key if self.credential else None,
                 access_secret=self.credential.access_secret if self.credential else None,
+                credential_required=self.credential_id is not None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -974,6 +977,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
             compression=compression,
@@ -1014,6 +1018,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             context=placeholder_context,
             # The real size, so a table too large for one node is counted across the cluster
             # instead of on the node chdb already could not finish on.
@@ -1071,6 +1076,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 format=self.format,
                 access_key=self.credential.access_key if self.credential else None,
                 access_secret=self.credential.access_secret if self.credential else None,
+                credential_required=self.credential_id is not None,
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -1383,6 +1389,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
@@ -1444,6 +1451,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             format=self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
+            credential_required=self.credential_id is not None,
             context=ctx,
             table_size_mib=0,
         )

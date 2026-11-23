@@ -3781,7 +3781,7 @@ export const LogsAlertsDestroyParams = () => zod.object({
 })
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
+ * Create a notification destination for this alert. The returned `id` identifies the destination; delete it by passing that `id` in `destination_ids`. The alerts platform sends the destination's message itself, so `hog_function_ids` is empty until someone customizes the message. A PagerDuty destination opens an incident when the alert starts firing and resolves it when the firing ends, cooldown included. Terraform providers older than 1.0.32 get a 400 with code `terraform_provider_upgrade_required` and nothing is created.
  */
 export const LogsAlertsDestinationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),

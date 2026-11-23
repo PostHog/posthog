@@ -675,14 +675,16 @@ def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> di
 
 
 def notable_checks_by_public_id(
-    *, team_id: int, public_id: UUID, since: datetime, limit: int
+    *, team_id: int, public_id: UUID, since: datetime, limit: int, copies_before: bool = False
 ) -> PlatformCheckEventPage | None:
     """The newest checks since `since` that moved the named alert's state or failed, or None when
     the platform does not own it."""
     platform_id = _platform_id_of(team_id, public_id)
     if platform_id is None:
         return None
-    return platform_alert_events.notable_checks(team_id, platform_id, since=since, limit=limit)
+    return platform_alert_events.notable_checks(
+        team_id, platform_id, since=since, limit=limit, copies_before=copies_before
+    )
 
 
 def control_changes_by_public_id(

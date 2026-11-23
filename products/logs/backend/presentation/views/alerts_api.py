@@ -38,6 +38,7 @@ from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
+    choose_delivery_path,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
     customize_source_destination,
@@ -61,6 +62,7 @@ from products.alerts_platform.backend.facade.api import (
     redact_destination_data as redact_platform_destination_data,
     reset_broken,
     runtime_by_public_id,
+    standalone_destination_types,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -75,6 +77,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCreateRefused,
     PlatformAlertHistory,
     PlatformAlertRuntime,
+    SourceKind,
+    StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
@@ -121,7 +125,6 @@ from products.logs.backend.facade.api import (
     claim_alert_slot,
     close_incident_on_commit,
     first_check_at,
-    follow_logs_alert,
     has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
@@ -138,13 +141,14 @@ from products.logs.backend.facade.platform_ownership import (
     native_alert_view,
     native_alert_views,
     on_created,
-    on_updated,
     owned_copy_alert_keys,
     owned_copy_views,
+    refuse_platform_only_settings,
     update_native,
 )
 from products.logs.backend.facade.queries import validate_nested_filter_groups
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.presentation.views.terraform_provider_gate import refuse_untrackable_terraform_create
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -303,6 +307,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
 
 
 _PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+_ROW_DESTINATION_TYPES_CONTEXT_KEY: Final = "row_destination_types"
 _PLATFORM_HISTORY_CONTEXT_KEY: Final = "platform_history"
 _PLATFORM_CONTROL_CONTEXT_KEY: Final = "platform_control"
 
@@ -312,6 +317,14 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     if not owned:
         return {}
     return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
+
+
+def _row_destination_types_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, frozenset[str]]:
+    # Only the platform sends a destination row, so an alert the logs stack evaluates has none to show.
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    return standalone_destination_types(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
 class PlatformHistoryUnavailable(APIException):
@@ -427,6 +440,7 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
         # One platform read of each kind for the page, which the child serializer finds in the
         # shared context.
         self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        self.context[_ROW_DESTINATION_TYPES_CONTEXT_KEY] = _row_destination_types_of(alerts)
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
         self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(alerts, window)
         self.context[_PLATFORM_CONTROL_CONTEXT_KEY] = _platform_control_of(alerts, window)
@@ -437,6 +451,10 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
 _PLATFORM_CHANGE: Final = "platform_change"
 _SNOOZE_EXPIRY: Final = "snooze_expiry"
 _SNOOZE_KINDS: Final = (LogsAlertEvent.Kind.SNOOZE, LogsAlertEvent.Kind.UNSNOOZE)
+# From the platform's oldest change on, a logs row of one of these kinds is a second copy of a
+# platform row. A handback is not one of them, because the platform holds one only as a copy.
+_PLATFORM_RECORDED_KINDS: Final = PLATFORM_CONTROL_KINDS - {LogsAlertEvent.Kind.HANDBACK}
+
 _PLATFORM_TIMELINE_LOGS_KINDS: Final = (
     LogsAlertEvent.Kind.ENABLE,
     LogsAlertEvent.Kind.DISABLE,
@@ -687,7 +705,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             event
             for event in self._timeline_events(obj, window_start)
             if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
-            and (control is None or event.kind not in PLATFORM_CONTROL_KINDS or event.created_at < control.oldest_at)
+            and (control is None or event.kind not in _PLATFORM_RECORDED_KINDS or event.created_at < control.oldest_at)
         ]
         if control is not None:
             logs_events.extend(change for change in control.changes if change.kind in _PLATFORM_TIMELINE_LOGS_KINDS)
@@ -833,10 +851,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             alert_id=str(obj.id),
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
+        row_types_by_alert = self.context.get(_ROW_DESTINATION_TYPES_CONTEXT_KEY)
+        if row_types_by_alert is None:
+            row_types_by_alert = _row_destination_types_of([obj])
+        row_types = row_types_by_alert.get(obj.id, frozenset())
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if destination_template_id(destination_type) in configured_template_ids
+            if destination_template_id(destination_type) in configured_template_ids or destination_type in row_types
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -865,7 +887,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         if not instance.platform_owned:
             return data
-        # The platform evaluates an alert it owns, so the logs row stops moving once the shadow ends.
+        # The platform evaluates an alert it owns, so its logs row does not move.
         runtimes = self.context.get(_PLATFORM_RUNTIME_CONTEXT_KEY)
         if runtimes is None:
             runtimes = _platform_runtime_of([instance])
@@ -1018,14 +1040,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if "name" in validated_data and not validated_data.get("name", "").strip():
             validated_data["name"] = "Untitled alert"
 
-        # Before the edit writes its logs history row, so the platform's row of the same change is no
-        # later and the events list counts that logs row as a copy of it.
-        edited_at = timezone.now()
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
         grouping: Grouping | None = validated_data.pop("grouping", None)
         labels: dict[str, str] | None = validated_data.pop("labels", None)
         annotations: dict[str, str] | None = validated_data.pop("annotations", None)
-        if instance.has_no_logs_row:
+        if instance.platform_owned:
             return self._update_native(
                 instance,
                 validated_data,
@@ -1034,6 +1053,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 annotations=annotations,
                 snooze_data=snooze_data,
             )
+        _write_platform_edit(
+            lambda: refuse_platform_only_settings(grouping=grouping, labels=labels, annotations=annotations)
+        )
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -1111,23 +1133,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 else:
                     instance.clear_next_check()
 
-            updated = super().update(instance, validated_data)
-            _write_platform_edit(
-                lambda: on_updated(
-                    team_id=updated.team_id,
-                    alert_id=updated.id,
-                    snooze_changed=snooze_data is not _SENTINEL,
-                    grouping=grouping,
-                    labels=labels,
-                    annotations=annotations,
-                    at=edited_at,
-                )
-            )
-            if not updated.platform_owned and enabled_change is True:
-                transaction.on_commit(
-                    lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
-                )
-            return updated
+            return super().update(instance, validated_data)
 
     def _update_native(
         self,
@@ -1154,7 +1160,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         if updated is None:
             raise NotFound()
-        return _platform_alert(updated, team_id=instance.team_id)
+        return _platform_alert(updated, team_id=instance.team_id, row=None if instance.has_no_logs_row else instance)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -1192,10 +1198,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 )
             ):
                 created.refresh_from_db(fields=["owner", "owner_changed_at"])
-            elif created.enabled:
-                transaction.on_commit(
-                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
-                )
             return created
 
 
@@ -1684,20 +1686,33 @@ def _with_platform_history(
     logs_events = events
     if reads_checks:
         logs_events = logs_events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
+    # The platform holds a check from before the cutover only as a copy of a logs row, so the copies
+    # are read once the logs rows are gone, as for handbacks.
+    copies_before = (
+        reads_checks and not events.filter(kind=LogsAlertEvent.Kind.CHECK, created_at__lt=cutover_at).exists()
+    )
     checks = (
         _read_platform_history(
-            lambda: platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+            lambda: platform_check_rows(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                since=cutover_at,
+                limit=rows_needed,
+                copies_before=copies_before,
+            )
         )
         if reads_checks and cutover_at is not None
         else None
     )
+    control_kinds = PLATFORM_CONTROL_KINDS if kind is None else {kind}
+    # The platform holds a handback only as a copy of a logs row, so while the logs rows remain they
+    # are shown and the copies are not. Hiding them by time instead would hide a handback not yet copied.
+    if LogsAlertEvent.Kind.HANDBACK in control_kinds and events.filter(kind=LogsAlertEvent.Kind.HANDBACK).exists():
+        control_kinds = control_kinds - {LogsAlertEvent.Kind.HANDBACK}
     changes = (
         _read_platform_history(
             lambda: platform_control_rows(
-                team_id=alert.team_id,
-                alert_id=alert.id,
-                kinds=PLATFORM_CONTROL_KINDS if kind is None else [kind],
-                limit=rows_needed,
+                team_id=alert.team_id, alert_id=alert.id, kinds=control_kinds, limit=rows_needed
             )
         )
         if reads_changes
@@ -1706,7 +1721,7 @@ def _with_platform_history(
     if (reads_checks and checks is None) or (reads_changes and changes is None):
         return events
     if changes is not None and changes.oldest_at is not None:
-        logs_events = logs_events.exclude(kind__in=PLATFORM_CONTROL_KINDS, created_at__gte=changes.oldest_at)
+        logs_events = logs_events.exclude(kind__in=_PLATFORM_RECORDED_KINDS, created_at__gte=changes.oldest_at)
     # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
     logs_events = stable_queryset_ordering(logs_events)
     merged: list[LogsAlertEvent] = [*logs_events[:rows_needed]]
@@ -1907,6 +1922,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         with transaction.atomic():
             instance = self._get_locked_alert()
+            if instance.platform_owned and not instance.has_no_logs_row:
+                # The edit validates against the copy's settings, because the logs row keeps its old ones.
+                (instance,) = _shown_from_copies([instance])
             serializer = self.get_serializer(instance, data=request.data, partial=partial)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
@@ -1921,10 +1939,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertCreatedDestinationResponseSerializer},
         description=(
-            "Create a notification destination for this alert. One HogFunction is created per alert event kind "
-            "(firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed "
-            "kinds instead. They follow every start and end of a firing, cooldown included, so each incident it "
-            "opens is resolved."
+            "Create a notification destination for this alert. The returned `id` identifies the destination; "
+            "delete it by passing that `id` in `destination_ids`. The alerts platform sends the destination's "
+            "message itself, so `hog_function_ids` is empty until someone customizes the message. A PagerDuty "
+            "destination opens an incident when the alert starts firing and resolves it when the firing ends, "
+            "cooldown included. Terraform providers older than 1.0.32 get a 400 with code "
+            "`terraform_provider_upgrade_required` and nothing is created."
         ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
@@ -1936,20 +1956,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            configs = [
-                with_secret_destination_url(config)
-                for config in build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
-            ]
-            try:
-                hog_function_ids = create_alert_destination_hog_functions(
-                    configs,
-                    team_id=alert.team_id,
-                    created_by_id=cast(User, request.user).id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                )
-                # The HogFunctions send while they exist. Rollback to the logs stack reads only them.
-                stored = record_source_destination(
+            refuse_untrackable_terraform_create(request.headers.get("user-agent") or "")
+
+            def record(
+                hog_function_ids: tuple[UUID, ...], *, keeps_legacy_webhook_body: bool = False
+            ) -> StoredAlertDestination | None:
+                return record_source_destination(
                     team_id=alert.team_id,
                     public_id=alert.id,
                     data=data,
@@ -1958,7 +1970,33 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hog_function_groups=list_alert_destination_groups(
                         team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
                     ),
+                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+                    # A handback to the logs stack after `alert` was read would leave a row nothing sends.
+                    only_while_platform_owned=not hog_function_ids,
                 )
+
+            hog_function_ids: tuple[UUID, ...] = ()
+            try:
+                stored = (
+                    record((), keeps_legacy_webhook_body=self._stock_webhook_sends_legacy_body(alert, data))
+                    if alert.platform_owned
+                    else None
+                )
+                # Only the platform sends a row, so an alert the logs stack evaluates sends through HogFunctions.
+                if stored is None:
+                    hog_function_ids = create_alert_destination_hog_functions(
+                        [
+                            with_secret_destination_url(config)
+                            for config in build_logs_destination_configs(
+                                alert_id=str(alert.id), alert_name=alert.name, data=data
+                            )
+                        ],
+                        team_id=alert.team_id,
+                        created_by_id=cast(User, request.user).id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    )
+                    stored = record(hog_function_ids)
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)
 
@@ -1972,6 +2010,23 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"id": stored.id if stored else None, "hog_function_ids": list(hog_function_ids)}
         )
         return Response(response.data, status=201)
+
+    @staticmethod
+    def _stock_webhook_sends_legacy_body(alert: LogsAlertConfiguration, data: AlertDestinationData) -> bool:
+        """Whether a stock webhook HogFunction on this alert would send the legacy body. It does while a
+        customized destination keeps the alert on the HogFunction path, and a row on a team the webhook
+        body flags moved off the legacy body would not, so the row keeps it as the conversion does."""
+        if data["type"] != DestinationType.WEBHOOK:
+            return False
+        return (
+            choose_delivery_path(
+                source=SourceKind.LOGS,
+                team_id=alert.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            == DeliveryPath.HOG_FUNCTION
+        )
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,
@@ -2210,13 +2265,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         with transaction.atomic():
-            # The logs row first, then the platform copy: the cutover and rollback take the two
-            # locks in that order, and the opposite order deadlocks against them.
+            # The logs row first, then the platform copy: an edit takes the two locks in that order, and the
+            # opposite order deadlocks against it.
             alert = self._get_locked_alert()
             previous_failures = alert.consecutive_failures
             if alert.platform_owned:
-                # The platform skips a broken alert, so the reset has to reach its copy. Its state
-                # decides, because the logs row stops moving once the shadow ends.
+                # The platform skips a broken alert, so the reset has to reach its copy. Its state decides,
+                # because the logs row of an alert the platform owns does not move.
                 platform_failures = reset_broken(team_id=alert.team_id, public_id=alert.id, at=timezone.now())
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
@@ -2258,19 +2313,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _reset_logs_row(alert: LogsAlertConfiguration) -> None:
-        try:
-            outcome = apply_user_reset(alert.to_snapshot())
-        except InvalidTransition:
-            if not alert.platform_owned:
+        if not alert.platform_owned:
+            try:
+                outcome = apply_user_reset(alert.to_snapshot())
+            except InvalidTransition:
                 raise ValidationError({"state": "Only broken alerts can be reset."})
-            outcome = None
-        if outcome is not None:
             update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
             update_fields.extend(alert.clear_next_check())
             alert.save(update_fields=update_fields)
         else:
-            # The logs row did not move, so nothing else records the reset that the alert's
-            # timeline needs. The platform's history writes no row for it either.
+            # The platform's copy is the alert, so its logs row keeps its state. Nothing else records the
+            # reset that the alert's timeline needs, because the platform's history writes no row for it.
             LogsAlertEvent.objects.create(
                 alert=alert,
                 kind=LogsAlertEvent.Kind.RESET,
