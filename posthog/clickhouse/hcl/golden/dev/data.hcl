@@ -1994,7 +1994,7 @@ database "posthog" {
       type = "Map(String, String)"
     }
     column "properties_group_feature_flags" {
-      type = "Map(String, String)"
+      type = "Map(String, LowCardinality(String))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -5579,8 +5579,8 @@ database "posthog" {
       materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
     }
     column "properties_group_feature_flags" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+      type         = "Map(String, LowCardinality(String))"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, LowCardinality(String))')))"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"

@@ -1,6 +1,7 @@
 import re
 import json
 import uuid
+import dataclasses
 from collections import Counter
 from collections.abc import Callable
 from contextlib import ExitStack
@@ -59,6 +60,7 @@ from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.property_groups import property_groups
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import Team
@@ -467,6 +469,50 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         assert "properties_group_feature_flags" not in (read.clickhouse or "")
+
+    @parameterized.expand(
+        [
+            ("equals", "properties.`$feature/beta` = 'true'", 1),
+            ("not_equals", "properties.`$feature/beta` != 'true'", 1),
+            ("in", "properties.`$feature/variant` IN ('control', 'test')", 2),
+            ("like", "properties.`$feature/variant` LIKE 'cont%'", 1),
+            ("missing_key", "properties.`$feature/absent` = 'true'", 0),
+            ("is_null", "properties.`$feature/beta` IS NULL", 1),
+            ("is_not_null", "properties.`$feature/beta` IS NOT NULL", 2),
+        ]
+    )
+    def test_feature_flag_property_filter_returns_the_same_rows_from_the_map_as_from_the_json(
+        self, _name: str, predicate: str, matches: int
+    ):
+        rows: dict[uuid.UUID, dict[str, str | int | None]] = {
+            uuid.uuid4(): {"$feature/beta": True, "$feature/variant": "control"},
+            uuid.uuid4(): {"$feature/beta": False, "$feature/variant": "test"},
+            uuid.uuid4(): {"$feature/beta": None, "$feature/variant": "other"},
+        }
+        for row_uuid, properties in rows.items():
+            self._insert_row(row_uuid, properties)
+        columns = "uuid, properties.`$feature/beta`, properties.`$feature/variant`"
+        where = f" AND {predicate} ORDER BY uuid"
+
+        json_read = self._execute(
+            columns,
+            where,
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
+            row_uuids=tuple(rows),
+        )
+        groups = property_groups._PropertyGroupManager__groups["flag_evaluations"]["properties"]
+        unhidden = dataclasses.replace(groups["feature_flags"], hidden=False)
+        with patch.dict(groups, {"feature_flags": unhidden}):
+            map_read = self._execute(
+                columns,
+                where,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+                row_uuids=tuple(rows),
+            )
+
+        assert "properties_group_feature_flags" in (map_read.clickhouse or "")
+        assert len(json_read.results) == matches
+        assert map_read.results == json_read.results
 
     @parameterized.expand(
         [

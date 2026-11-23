@@ -172,7 +172,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   _partition UInt64,
   properties_group_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
   person_properties_map_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))),
-  properties_group_feature_flags Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
+  properties_group_feature_flags Map(String, LowCardinality(String)) MATERIALIZED mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, LowCardinality(String))'))),
   INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -595,7 +595,7 @@ CREATE TABLE posthog.flag_evaluations (
   _partition UInt64,
   properties_group_custom Map(String, String),
   person_properties_map_custom Map(String, String),
-  properties_group_feature_flags Map(String, String)
+  properties_group_feature_flags Map(String, LowCardinality(String))
 ) ENGINE = Distributed('flags', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test

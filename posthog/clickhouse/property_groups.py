@@ -24,6 +24,7 @@ class PropertyGroupDefinition:
     # The bloom filters on mapKeys and mapValues help a group of few keys per row. A group of hundreds of keys per row
     # gains no read speed from them and makes inserts slower.
     has_indexes: bool = True
+    value_type: str = "String"
 
     def contains(self, property_key: str) -> bool:
         if self.hidden:
@@ -35,7 +36,8 @@ class PropertyGroupDefinition:
         return self.column_name if self.column_name else f"{source_column}_{self.column_type_name}_{group_name}"
 
     def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
-        column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
+        map_type = f"Map(String, {self.value_type})"
+        column_definition = f"{self.get_column_name(source_column, group_name)} {map_type}"
         if not self.is_materialized:
             return column_definition
 
@@ -44,7 +46,7 @@ class PropertyGroupDefinition:
             {column_definition}
             MATERIALIZED mapSort(
                 mapFilter((key, _) -> {self.key_filter_expression},
-                CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
+                CAST(JSONExtractKeysAndValues({source_column}, 'String'), '{map_type}'))
             )
             {codec_clause}
         """
@@ -254,6 +256,8 @@ flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
             codec=None,
             hidden=True,
             has_indexes=False,
+            # Almost every value is true, false or a variant key. LowCardinality stores each distinct value once per part.
+            value_type="LowCardinality(String)",
         ),
     },
     "person_properties": {
