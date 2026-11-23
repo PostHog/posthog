@@ -137,6 +137,32 @@ PARTNERIZE_ENDPOINTS: dict[str, PartnerizeEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "voucher_codes": PartnerizeEndpointConfig(
+        name="voucher_codes",
+        # Voucher (promo) codes of each campaign the partner is approved on.
+        path="/user/publisher/{publisher_id}/campaign/{campaign_id}/voucher",
+        data_key="voucher_codes",
+        item_key="voucher_code",
+        # The docs don't state that voucher_code_id is unique outside its campaign.
+        primary_keys=["campaign_id", "voucher_code_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="campaigns",
+            resolve_param="campaign_id",
+            resolve_field="campaign_id",
+            include_from_parent=["campaign_id"],
+            parent_field_renames={"campaign_id": "campaign_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "selfbills": PartnerizeEndpointConfig(
+        name="selfbills",
+        # The start_date filter applies to the creation date, but status and payment_date change
+        # after creation, so this table is full refresh only.
+        path="/user/publisher/{publisher_id}/selfbill",
+        data_key="selfbills",
+        item_key="selfbill",
+        primary_keys=["publisher_self_bill_id"],
+    ),
     "countries": PartnerizeEndpointConfig(
         name="countries",
         path="/reference/country",
