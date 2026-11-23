@@ -224,6 +224,7 @@ post_save:products.cdp.backend.abuse.shadow.hog_function_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.cohort_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.enabled_default_hog_functions_for_new_team
 post_save:products.cdp.backend.models.hog_functions.hog_function.hog_function_saved
+post_save:products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_organization_active_change
 post_save:products.cdp.backend.models.hog_functions.hog_function.team_inject_web_apps_changd
 post_save:products.cdp.backend.models.hog_functions.hog_function.team_saved
 post_save:products.cdp.backend.models.hook.hook_saved
@@ -312,6 +313,7 @@ post_save:products.tasks.backend.search_index.task_run_saved
 post_save:products.tasks.backend.search_index.task_saved
 post_save:products.tasks.backend.task_run_sync.sync_task_status_on_run
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
+post_save:products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_organization_active_change
 post_save:products.workflows.backend.models.hog_flow.hog_flow.team_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created
 post_save:products.workflows.backend.receivers.new_team_captures_engagement_events
