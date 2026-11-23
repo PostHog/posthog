@@ -149,7 +149,7 @@ function listKinds(
     return requested ?? auth.kinds
 }
 
-function owner(caller: Caller): IntegrationOwner {
+export function owner(caller: Caller): IntegrationOwner {
     const tokenOwner = caller.auth.owner
     if (tokenOwner === null) {
         // The auth middleware rejects an ownerless token for every owner-scoped operation.
@@ -158,7 +158,7 @@ function owner(caller: Caller): IntegrationOwner {
     return tokenOwner
 }
 
-function writeDeadline(): () => void {
+export function writeDeadline(): () => void {
     const deadline = Date.now() + WRITE_DEADLINE_MS
     return () => {
         if (Date.now() > deadline) {
@@ -167,7 +167,7 @@ function writeDeadline(): () => void {
     }
 }
 
-function isEmpty(value: object): boolean {
+export function isEmpty(value: object): boolean {
     return Object.keys(value).length === 0
 }
 
@@ -237,7 +237,7 @@ async function forEachLimit<T>(items: readonly T[], limit: number, fn: (item: T)
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
 }
 
-function encryptionContext(row: { id: string; ownerId: number; kind: string }): {
+export function encryptionContext(row: { id: string; ownerId: number; kind: string }): {
     integrationId: string
     ownerId: string
     kind: string
@@ -245,7 +245,7 @@ function encryptionContext(row: { id: string; ownerId: number; kind: string }): 
     return { integrationId: row.id, ownerId: String(row.ownerId), kind: row.kind }
 }
 
-function kmsUnavailable(): IntegrationApiError {
+export function kmsUnavailable(): IntegrationApiError {
     return new IntegrationApiError('kms_unavailable', 'the key service is not available, retry later')
 }
 

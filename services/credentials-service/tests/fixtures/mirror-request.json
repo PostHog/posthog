@@ -1,0 +1,38 @@
+{
+    "origin": "write",
+    "force": false,
+    "rows": [
+        {
+            "legacy_id": 123,
+            "deleted": false,
+            "source_version": 7,
+            "kind": "slack",
+            "integration_id": "T0000FAKE",
+            "auth_type": "oauth",
+            "is_source_row": false,
+            "config": { "team": { "id": "T0000FAKE", "name": "Example workspace" }, "expires_in": 3600 },
+            "sensitive_config": { "access_token": "fake-mirror-access-token", "refresh_token": "fake-mirror-refresh-token" },
+            "legacy_unreadable_keys": [],
+            "errors": "",
+            "created_by_id": 5,
+            "created_at": "2024-01-01T00:00:00.123456+00:00"
+        },
+        {
+            "legacy_id": 124,
+            "deleted": false,
+            "source_version": 2,
+            "kind": "hubspot",
+            "integration_id": null,
+            "auth_type": "token",
+            "is_source_row": false,
+            "config": {},
+            "sensitive_config": {},
+            "legacy_unreadable_keys": ["api_key"],
+            "errors": "token expired",
+            "created_by_id": null,
+            "created_at": "2024-02-03T04:05:06+00:00"
+        },
+        { "legacy_id": 125, "deleted": true, "kind": "slack", "tombstone": true },
+        { "legacy_id": 126, "deleted": true, "kind": "slack", "tombstone": false, "source_version": 3 }
+    ]
+}

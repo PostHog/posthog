@@ -17,3 +17,10 @@ export const auditWrittenTotal = new Counter({
     help: 'Audit rows written by the async read queue',
     registers: [register],
 })
+
+export const mirrorRowsTotal = new Counter({
+    name: 'credentials_service_integration_mirror_rows_total',
+    help: 'Rows of PUT /v1/integrations/mirror, by origin and outcome',
+    labelNames: ['origin', 'outcome'],
+    registers: [register],
+})

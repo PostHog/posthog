@@ -165,9 +165,10 @@ A test pins the whole table, so a change to it is visible in review.
 
 | Deployment                                                                                     | Ops                                                                                      | Kinds                                                                                                                            |
 | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)            | all except `reverse_sync`                                                                | any                                                                                                                              |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)            | all except `reverse_sync` and `mirror`                                                   | any                                                                                                                              |
 | `posthog-integrations-reverse-sync` (dedicated Celery queue, Phase 7 removes it)               | `reverse_sync` only                                                                      | any                                                                                                                              |
-| `posthog-worker-django` (Celery), `posthog-admin-django`, `temporal-worker-general-purpose`    | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | any                                                                                                                              |
+| `posthog-worker-django` (Celery)                                                               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mirror`                     | any                                                                                                                              |
+| `posthog-admin-django`, `temporal-worker-general-purpose`                                      | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | any                                                                                                                              |
 | `posthog-query-django`                                                                         | `read`                                                                                   | any (HogQL `system.integrations`)                                                                                                |
 | `temporal-worker-data-warehouse`, `warehouse-sources-load`                                     | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | the warehouse OAuth and destination kinds, plus warehouse source rows                                                            |
 | `temporal-worker-batch-exports`                                                                | `read`, `resolve`, `refresh`                                                             | `aws-redshift`, `aws-s3`, `azure-blob`, `databricks`, `google-cloud-service-account`, `postgresql`, `s3-compatible`, `snowflake` |
@@ -177,7 +178,7 @@ A test pins the whole table, so a change to it is visible in review.
 | the listed `cdp-*` deployments and `ingestion-*` lanes (hog functions and hog transformations) | `resolve`                                                                                | any                                                                                                                              |
 
 `temporal-worker-health-check`, `temporal-worker-stamphog` and every other name get nothing.
-Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `write_by_external_id`, `delete_by_external_id` and `delete_owner`. `read_by_external_id` also goes to `temporal-worker-tasks-agent`, for the Slack kinds only.
+Only `posthog-worker-django` holds `mirror`. Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `write_by_external_id`, `delete_by_external_id` and `delete_owner`. `read_by_external_id` also goes to `temporal-worker-tasks-agent`, for the Slack kinds only.
 
 A warehouse source row holds the typed-in credentials of a warehouse source and is marked by `config.warehouse_source_type`.
 There are about a thousand such kinds, so the policy gives the warehouse deployments a `sourceRows` flag instead of a list.
@@ -301,6 +302,7 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
 | `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
+| `credentials_service_integration_mirror_rows_total{origin,outcome}`      | mirrored rows, by sender origin and per-row outcome           |
 | `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
 | `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
@@ -463,6 +465,7 @@ Every query binds the owner from the token.
 | `DELETE /v1/integrations/by-external-id/:kind/:external_id` | `delete_by_external_id` | Soft-deletes those rows and their secrets in one transaction. Web only       |
 | `DELETE /v1/integrations?owner=<team id>`                   | `delete_owner`          | Soft-deletes every row and secret of the token's owner, in batches. Web only |
 | `GET /v1/integrations/changes`                              | `reverse_sync`          | Rows of every team changed after a cursor, with secrets. Reverse-sync only   |
+| `PUT /v1/integrations/mirror`                               | `mirror`                | Upserts or tombstones up to 100 Django rows by legacy id. Celery worker only |
 
 - A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
 - `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
@@ -472,6 +475,11 @@ Every query binds the owner from the token.
   Rows come oldest first by `created_at`. `next` in the response is the `after` of the next page.
 - `list-across-teams` takes `kinds` (required), `auth_types`, `source_rows`, `team_ids`, `exclude_team_ids`, `created_by_ids`, `external_id`, `where`, `where_in`, `where_iexact`, `has_config_key`, `newest_first`, `limit` (default and maximum 1000) and `after`.
 - A row of another team answers 404, the same as a row that does not exist, so a caller cannot probe ids.
+- `mirror` copies Django rows, keyed by `legacy_id`, for the token's owner. Each row carries the Django `row_version` as `source_version`.
+  An older version answers `stale`, the same version answers `unchanged` (no KMS call, no audit row) unless `force` is set, and a newer one replaces every field and seals the secret again.
+  A delete soft-deletes the row and removes its secret. `tombstone: true` on an unknown id stores a deleted row, so a late upsert of that id answers `stale`.
+  Each row answers `created`, `updated`, `deleted`, `unchanged`, `stale`, `absent`, `owner_mismatch`, `conflict` (with `conflicting_legacy_id`) or `rejected` (with `code`), and one bad row does not fail the others.
+  [`tests/fixtures/mirror-request.json`](tests/fixtures/mirror-request.json) is a request the route must accept as-is.
 
 Web-only routes (the web deployment is the only one whose policy holds these ops):
 

@@ -7,6 +7,7 @@ import { Hono } from 'hono'
 import type { IntegrationVerifier } from '../auth/integrations'
 import { bearerToken, type JwtVerifier } from '../auth/jwt'
 import { AuthError } from '../auth/types'
+import type { MirrorService } from '../integrations/mirror'
 import type { IntegrationsService } from '../integrations/service'
 import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from '../metrics'
@@ -28,6 +29,7 @@ export interface AppOptions {
 export interface IntegrationDeps {
     verifier: IntegrationVerifier
     service: IntegrationsService
+    mirror: MirrorService
 }
 
 export function createApp(opts: AppOptions): Hono {

@@ -191,8 +191,18 @@ describe('integration policy', () => {
         expect(POLICY[REVERSE_SYNC]!.ops).toEqual(['reverse_sync'])
     })
 
-    it('gives web every op except reverse_sync', () => {
-        expect([...POLICY[WEB]!.ops].sort()).toEqual(INTEGRATION_OPS.filter((op) => op !== 'reverse_sync').sort())
+    it('gives web every op except reverse_sync and mirror', () => {
+        expect([...POLICY[WEB]!.ops].sort()).toEqual(
+            INTEGRATION_OPS.filter((op) => op !== 'reverse_sync' && op !== 'mirror').sort()
+        )
+    })
+
+    it('gives mirror to the Celery worker only', () => {
+        const holders = Object.entries(POLICY)
+            .filter(([, policy]) => policy.ops.includes('mirror'))
+            .map(([deployment]) => deployment)
+
+        expect(holders).toEqual([CELERY])
     })
 
     it('keeps the cross-team and admin ops on web', () => {
@@ -456,7 +466,7 @@ describe('integration policy', () => {
             "posthog-worker-django": {
               "kinds": "*",
               "opKinds": {},
-              "ops": "list_across_teams,read,refresh,resolve,write",
+              "ops": "list_across_teams,mirror,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "temporal-worker-batch-exports": {
