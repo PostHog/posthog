@@ -12,6 +12,7 @@ from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.transforms.property_types import key_json_document_read
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS
@@ -50,19 +51,23 @@ def visit_after_grouping(node: ast.SelectQuery, visit: Callable[[Any], Any]) -> 
 _TEXT_EXTRACTIONS = frozenset({"JSONExtractString", "JSONExtractInt", "JSONExtractUInt", "JSONExtractFloat"})
 
 
-def _is_json_text_read(expr: ast.Expr) -> bool:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    if isinstance(expr, ast.PropertyAccess):
-        return expr.as_json
-    return isinstance(expr, ast.Field) and isinstance(expr.type, ast.PropertyType) and expr.type.as_json
+def _is_json_text_read(key_read: ast.Expr) -> bool:
+    """Whether the property pass marked `key_read` as the JSON text of its key. A hand-written
+    `toJSONString(properties.key)` has no mark. The mark is on the field's type before lowering and on the
+    `PropertyAccess` after it."""
+    while isinstance(key_read, ast.Alias):
+        key_read = key_read.expr
+    match key_read:
+        case ast.PropertyAccess(as_json=True) | ast.Field(type=ast.PropertyType(as_json=True)):
+            return True
+    return False
 
 
 def needs_stored_json(node: ast.Call) -> bool:
     """Whether `node` is a JSON function over one property whose result the property's text cannot give.
 
-    The property pass writes `f(ifNull(toJSONString(<key>), ''), ...)` for `f(properties, 'key', ...)` on the native
-    events table and marks the key read `as_json`. After grouping, a pass reads a key as its text, so that an
+    For `f(properties, 'key', ...)` on the native events table, the property pass gives `f` the `key_json_document`
+    of the key and marks the key read `as_json`. After grouping, a pass reads a key as its text, so that an
     expression stays a function of a `properties.key` grouping key. The text does not record whether the value was a
     string, a number, a Bool, an array or an object, and serializing it quotes all of them. Only the extraction of
     the key as text or as a number returns the same result from that text.
@@ -73,22 +78,14 @@ def needs_stored_json(node: ast.Call) -> bool:
     """
     if node.name not in JSON_KEY_PATH_FUNCTIONS or not node.args:
         return False
-    document = node.args[0]
-    if not (
-        isinstance(document, ast.Call)
-        and document.name == "ifNull"
-        and len(document.args) == 2
-        and isinstance(document.args[0], ast.Call)
-        and document.args[0].name == "toJSONString"
-        and len(document.args[0].args) == 1
-        and _is_json_text_read(document.args[0].args[0])
-    ):
+    key_read = key_json_document_read(node.args[0])
+    if key_read is None or not _is_json_text_read(key_read):
         return False
-    if len(node.args) == 1:
-        return node.name not in _TEXT_EXTRACTIONS
-    if node.name == "JSONExtract" and len(node.args) == 2:
-        target = node.args[1]
-        return not (isinstance(target, ast.Constant) and target.value in ("String", "Nullable(String)"))
+    match node.name, node.args[1:]:
+        case name, [] if name in _TEXT_EXTRACTIONS:
+            return False
+        case "JSONExtract", [ast.Constant(value="String" | "Nullable(String)")]:
+            return False
     return True
 
 

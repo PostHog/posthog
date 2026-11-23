@@ -37,6 +37,28 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
 }
 
 
+def key_json_document(key_read: ast.Expr) -> ast.Call:
+    """The document a JSON function reads for one key of a native properties column: the key's JSON text, or '' when
+    the key is missing.
+
+    `key_json_document_read` recognizes this shape, so change the two together.
+    """
+    json_text = ast.Call(name="toJSONString", args=[key_read], type=ast.StringType(nullable=True))
+    return ast.Call(
+        name="ifNull",
+        args=[json_text, ast.Constant(value="", inline_sentinel=True)],
+        type=ast.StringType(nullable=False),
+    )
+
+
+def key_json_document_read(document: ast.Expr) -> ast.Expr | None:
+    """The key read inside a `key_json_document`, or None for any other expression."""
+    match document:
+        case ast.Call(name="ifNull", args=[ast.Call(name="toJSONString", args=[key_read]), ast.Constant(value="")]):
+            return key_read
+    return None
+
+
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     if not context or not context.team_id:
         return
@@ -540,19 +562,6 @@ class PropertySwapper(CloningVisitor):
             # typed key unconverted.
             type=ast.PropertyType(chain=[first_key], field_type=field_type, as_json=True),
         )
-        property_document: ast.Expr = ast.Call(
-            name="toJSONString",
-            args=[property_value],
-            type=ast.StringType(nullable=True),
-        )
-        property_document = ast.Call(
-            name="ifNull",
-            args=[
-                property_document,
-                ast.Constant(value="", inline_sentinel=True),
-            ],
-            type=ast.StringType(nullable=False),
-        )
 
         # Keep remaining indices on the JSON function: integer indices can address both arrays and object members.
         return ast.Call(
@@ -560,7 +569,7 @@ class PropertySwapper(CloningVisitor):
             end=node.end,
             type=node.type,
             name=node.name,
-            args=[property_document, *node.args[2:]],
+            args=[key_json_document(property_value), *node.args[2:]],
             params=node.params,
             distinct=node.distinct,
             within_group=node.within_group,
