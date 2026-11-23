@@ -408,7 +408,7 @@ class TestAEOPromptAPI(APIBaseTest):
             # claude-web-search cites "cited?", but exa-answer never does.
             ("one_engine", {"engine": "exa-answer"}, ["cited long ago?", "cited?", "edited again?", "never cited?"]),
             # The window reaches the citation of 40 days ago.
-            ("longer_window", {"days": "60"}, ["edited again?", "never cited?"]),
+            ("longer_window", {"date_from": "-60d"}, ["edited again?", "never cited?"]),
         ]
     )
     def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(
@@ -484,25 +484,38 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert len(four_prompts.captured_queries) == len(one_prompt.captured_queries)
 
-    @parameterized.expand([("overview", "overview/"), ("rankings", "rankings/")])
+    @parameterized.expand(
+        [
+            ("overview", "overview/", "", 2),
+            ("rankings", "rankings/", "", 2),
+            ("overview_date_range", "overview/", "?date_from=-3d", 1),
+            ("rankings_date_range", "rankings/", "?date_from=-3d", 1),
+        ]
+    )
     def test_a_repeated_set_level_read_runs_no_check_queries_until_the_data_changes(
-        self, _name: str, path: str
+        self, _name: str, path: str, query: str, expected: int
     ) -> None:
+        def answers(body: dict) -> int:
+            return body["answers"] if path == "rankings/" else body["current"]["checks"]
+
         create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=10 * 24 * 60, cited_urls=["https://rival.io/old"])
         self._record_check(prompt_id, "exa-answer", minutes_ago=30, cited_urls=["https://rival.io/a"])
-        first = self.client.get(f"{self.url}{path}").json()
+        default = self.client.get(f"{self.url}{path}").json()
+        first = self.client.get(f"{self.url}{path}{query}").json()
 
         with CaptureQueriesContext(connection) as repeated:
-            again = self.client.get(f"{self.url}{path}").json()
+            again = self.client.get(f"{self.url}{path}{query}").json()
         with self.captureOnCommitCallbacks(execute=True):
             self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited_urls=["https://rival.io/b"])
-        after_write = self.client.get(f"{self.url}{path}").json()
+        after_write = self.client.get(f"{self.url}{path}{query}").json()
 
+        assert answers(default) == 2
+        assert answers(first) == expected
         assert again == first
         assert [q["sql"] for q in repeated.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
-        answers = "answers" if path == "rankings/" else None
-        assert (after_write[answers] if answers else after_write["current"]["checks"]) == 2
+        assert answers(after_write) == expected + 1
 
     def test_refresh_stores_the_views_the_page_opens_on(self) -> None:
         create_own_brand(self.team, "example.com")
@@ -915,7 +928,7 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         overview = response.json()
-        assert (overview["days"], overview["window_from"], overview["window_to"]) == (30, "2026-09-21", "2026-10-20")
+        assert (overview["days"], overview["window_from"], overview["window_to"]) == (31, "2026-09-20", "2026-10-20")
         assert overview["prompts_tracked"] == 3
         assert (overview["target_domains"], overview["brand_names"]) == (["example.com"], ["example"])
         assert overview["current"] == {
@@ -994,7 +1007,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ("session replay", 1, 1, 0, ["claude-web-search"], ["replay?"]),
         ]
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
-        via_child = get_prompt_set_overview(child.id, timezone_name="UTC", days=7)
+        via_child = get_prompt_set_overview(child.id, timezone_name="UTC", date_from="-7d")
         assert [domain.domain for domain in via_child.top_domains] == ["docs.example.com", "rival.example.org"]
         assert [search.query for search in via_child.top_searches] == [
             "funnel tools",
@@ -1111,7 +1124,7 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         rankings = response.json()
-        assert (rankings["window_from"], rankings["window_to"], rankings["answers"]) == ("2026-09-21", "2026-10-20", 3)
+        assert (rankings["window_from"], rankings["window_to"], rankings["answers"]) == ("2026-09-20", "2026-10-20", 3)
         assert rankings["competitors_confirmed"] is False
         assert [
             (
@@ -1318,11 +1331,13 @@ class TestAEOPromptAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_branded", "overview", "branded=yes"),
-            ("window_below_bounds", "overview", "days=0"),
-            ("window_above_bounds", "rankings", "days=91"),
+            ("unreadable_date_from", "overview", "date_from=yesterday"),
+            ("hours_are_not_days", "overview", "date_from=-24h"),
+            ("date_from_after_date_to", "overview", "date_from=2026-10-10&date_to=2026-10-01"),
+            ("window_above_bounds", "rankings", "date_from=-91d"),
             ("engine_too_long", "overview", f"engine={'e' * 65}"),
             ("topic_too_long", "rankings", f"topic={'t' * 201}"),
-            ("needs_improvement_window_above_bounds", "", "needs_improvement=true&days=91"),
+            ("needs_improvement_window_above_bounds", "", "needs_improvement=true&date_from=-91d"),
         ]
     )
     def test_set_reads_reject_invalid_filters(self, _name: str, endpoint: str, query: str) -> None:
@@ -1336,12 +1351,13 @@ class TestAEOPromptAPI(APIBaseTest):
             ("domain_matches_subdomains", "domain=Example.com", ["best funnel tools?"]),
             ("host", "domain=docs.example.com", ["best funnel tools?"]),
             ("domain_skips_lookalikes", "domain=notexample.com", ["is example good?"]),
-            ("longer_window", "domain=example.com&days=60", ["best funnel tools?", "best funnel tools?"]),
+            ("longer_window", "domain=example.com&date_from=-60d", ["best funnel tools?", "best funnel tools?"]),
+            ("past_range", "domain=example.com&date_from=-60d&date_to=-30d", ["best funnel tools?"]),
             ("engine", "domain=example.com&engine=claude-web-search", []),
             ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
             ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
             ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
-            ("no_filter", "days=7", None),
+            ("no_filter", "date_from=-7d", None),
             ("two_filters", "url=https://example.com/&domain=example.com", None),
         ]
     )
@@ -1877,11 +1893,11 @@ class TestAEOKeywordAPI(APIBaseTest):
         self._record(replay, searches=["session replay"], answer_text="Session replay", cited=True, days_ago=10)
 
         create_own_brand(self.team, "example.com")
-        response = self.client.get(f"{self.url}report/?days=7")
+        response = self.client.get(f"{self.url}report/?date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        assert (body["answers"], body["brand_names"], body["window_from"]) == (4, ["example"], "2026-10-14")
+        assert (body["answers"], body["brand_names"], body["window_from"]) == (4, ["example"], "2026-10-13")
         rows = {row.pop("keyword"): row for row in body["keywords"]}
         assert rows["session replay"] == {
             "prompts": 1,
@@ -1917,7 +1933,7 @@ class TestAEOKeywordAPI(APIBaseTest):
         assert rows["zebra"]["uses_per_answer"] is None
 
         self.client.post(self.url, {"keywords": ["acme"]}, format="json")
-        refreshed = self.client.get(f"{self.url}report/?days=7").json()
+        refreshed = self.client.get(f"{self.url}report/?date_from=-7d").json()
         assert [row["keyword"] for row in refreshed["keywords"]] == ["acme", "pricing", "session replay", "zebra"]
         assert next(row for row in refreshed["keywords"] if row["keyword"] == "acme")["answer_checks"] == 2
 
@@ -1970,7 +1986,7 @@ class TestAEOKeywordAPI(APIBaseTest):
         self._record("privacy analytics", engine="exa-answer", cited=True)
         self._record("web analytics", searches=["acme pricing"], check_failed=True)
 
-        response = self.client.get(f"{self.url}modifiers/?days=7{query}")
+        response = self.client.get(f"{self.url}modifiers/?date_from=-7d{query}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -2024,7 +2040,7 @@ class TestAEOKeywordAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("window_above_bounds", "report", "days=91"),
+            ("window_above_bounds", "report", "date_from=-91d"),
             ("unknown_branded", "modifiers", "branded=yes"),
             ("engine_too_long", "report", f"engine={'e' * 65}"),
         ]
