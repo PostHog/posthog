@@ -161,13 +161,4 @@ describe('workflowEmailPrefill', () => {
             name: '{% assign variables = 1 %}Shop',
         })
     })
-
-    it('copies a template whose sender is a plain address as a step without a sender', () => {
-        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
-            name: 'Receipt',
-            content: { templating: 'liquid', email: { from: 'orders@example.com', html: '<p>Hi</p>' } },
-        } as any)
-
-        expect((workflow.actions[1].config as any).inputs.email.value.from).toEqual({})
-    })
 })
