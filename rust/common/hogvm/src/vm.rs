@@ -1182,8 +1182,9 @@ impl<'a> HogVM<'a> {
         let mut work = 0usize;
         for item in items {
             work = work.saturating_add(item.deref(&self.heap)?.compare_work(needle));
+            Self::assert_compare_work_fits(work)?;
         }
-        Self::assert_compare_work_fits(work)
+        Ok(())
     }
 
     fn assert_compare_work_fits(work: usize) -> Result<(), VmError> {
