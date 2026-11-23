@@ -47,7 +47,7 @@ export function sealInvocation(invocation: CyclotronJobInvocation, sealer: State
         // lodash reads each element of one array argument as a deep path, which its types do not express.
         ...omit(invocation, SEALED_PATHS as unknown as string[]),
         sealed: sealer.encrypt(JSON.stringify(content)),
-        ...(fileBytes !== null && { sealedFileBytes: fileBytes }),
+        ...(fileBytes !== null && { fileBytesBeforeSealing: fileBytes }),
     } as CyclotronJobInvocation
 }
 
@@ -114,7 +114,7 @@ export type EncodedStateColumns = {
 export function encodeStateColumns(invocation: CyclotronJobInvocation): EncodedStateColumns {
     return {
         state: serializeState(invocation),
-        fileBytes: fileBytesOf(invocation) ?? invocation.sealedFileBytes ?? null,
+        fileBytes: fileBytesOf(invocation) ?? invocation.fileBytesBeforeSealing ?? null,
         distinctId: extractDistinctId(invocation),
         personId: extractPersonId(invocation),
         actionId: extractActionId(invocation),
