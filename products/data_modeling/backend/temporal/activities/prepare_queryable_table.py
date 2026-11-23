@@ -4,6 +4,7 @@ import dataclasses
 from django.db import transaction
 
 import deltalake
+from opentelemetry import trace
 from structlog import get_logger
 from temporalio import activity
 
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 @dataclasses.dataclass
@@ -102,7 +104,9 @@ class PublishQueryableTableInputs(PrepareQueryableTableInputs):
     staged_folder_path: str = dataclasses.field(kw_only=True)
 
 
+@tracer.start_as_current_span("prepare_queryable_table.stage_files")
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:
+    trace.get_current_span().set_attribute("file_count", len(inputs.file_uris))
     queryable_folder = saved_query.table.queryable_folder if saved_query.table else None
     await logger.adebug(
         f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.storage_name} "
@@ -130,7 +134,8 @@ async def _publish_table(
         inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
     )
 
-    await _update_saved_query_with_table(inputs, saved_query, create_result.table)
+    with tracer.start_as_current_span("prepare_queryable_table.link_table"):
+        await _update_saved_query_with_table(inputs, saved_query, create_result.table)
     await logger.ainfo(f"Updated saved query row count: id={saved_query.id} row_count={inputs.row_count}")
 
     return PrepareQueryableTableResult(

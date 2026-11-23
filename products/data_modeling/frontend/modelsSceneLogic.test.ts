@@ -114,10 +114,7 @@ describe('modelsSceneLogic', () => {
         ['/models?tab=data-quality', { tab: 'data-quality' }],
         ['/models?tab=models', { tab: 'tables' }],
     ])('with the catalog restructure on, %s opens the data catalog with %j', async (path, searchParams) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true })
 
         await mount(path)
 

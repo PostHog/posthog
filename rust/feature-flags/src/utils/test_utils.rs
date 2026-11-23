@@ -1005,10 +1005,9 @@ pub async fn insert_person_for_team_in_pg(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
-                created_at, properties, properties_last_updated_at,
-                properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                created_at, properties, team_id, is_user_id, is_identified, uuid, version
             )
-            VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
+            VALUES ('2023-04-05', $1, $2, NULL, true, $3, 0)
             RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)

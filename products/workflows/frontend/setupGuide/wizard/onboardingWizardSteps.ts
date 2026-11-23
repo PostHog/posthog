@@ -45,6 +45,7 @@ export const WIZARD_ENTRIES = [
     'automation_empty_state',
     'automation_banner',
     'broadcasts_empty_state',
+    'broadcast_audience_suggestions',
 ] as const
 export type WizardEntry = (typeof WIZARD_ENTRIES)[number]
 

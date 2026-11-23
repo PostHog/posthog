@@ -120,6 +120,31 @@ const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
     },
 })
 
+type EscapeShortcutExtensionOptions = {
+    onPressEscape: () => void
+}
+
+// Lowest priority so open suggestion menus (mentions, emoji, macros) claim Escape first.
+const EscapeShortcutExtension = Extension.create<EscapeShortcutExtensionOptions>({
+    name: 'escape-shortcut',
+    priority: 1,
+
+    addOptions() {
+        return {
+            onPressEscape: () => {},
+        }
+    },
+
+    addKeyboardShortcuts() {
+        return {
+            Escape: () => {
+                this.options.onPressEscape()
+                return false
+            },
+        }
+    },
+})
+
 // Ordered list icon (not in @posthog/icons)
 function IconOrderedList(): JSX.Element {
     return (
@@ -156,6 +181,8 @@ export type SupportEditorProps = {
     onCreate?: (editor: RichContentEditorType) => void
     onUpdate?: (isEmpty: boolean) => void
     onPressCmdEnter?: () => void
+    /** Called on Escape in the text, unless an open suggestion menu takes it */
+    onPressEscape?: () => void
     /** Called when upload state changes (true = uploading, false = idle) */
     onUploadingChange?: (uploading: boolean) => void
     /** Stores a file of any type. When set, the toolbar can attach files, which go into the message as download links. */
@@ -164,6 +191,9 @@ export type SupportEditorProps = {
     minRows?: number
     /** Past this, the text scrolls so the toolbar and send bar stay on screen. */
     maxRows?: number
+    /** Grow the text area to fill the parent's height instead of capping it at maxRows */
+    fillHeight?: boolean
+    toolbarEnd?: React.ReactNode
     className?: string
     autoFocus?: boolean
     /** Rendered inside the editor's frame, above the text */
@@ -495,11 +525,14 @@ export function SupportEditor({
     onCreate,
     onUpdate,
     onPressCmdEnter,
+    onPressEscape,
     onUploadingChange,
     onAttachFile,
     disabled = false,
     minRows,
     maxRows = 12,
+    fillHeight = false,
+    toolbarEnd,
     className,
     autoFocus = false,
     header,
@@ -529,12 +562,15 @@ export function SupportEditor({
 
     const onInsertMacroRef = useRef(onInsertMacro)
     onInsertMacroRef.current = onInsertMacro
+    const onPressEscapeRef = useRef(onPressEscape)
+    onPressEscapeRef.current = onPressEscape
 
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            EscapeShortcutExtension.configure({ onPressEscape: () => onPressEscapeRef.current?.() }),
             ...(enableMacros
                 ? [MacroSuggestionExtension.configure({ getOnInsert: () => onInsertMacroRef.current })]
                 : []),
@@ -682,17 +718,20 @@ export function SupportEditor({
             {header}
             <EditorContent
                 editor={editor}
-                className={cn('SupportEditor__content p-2', maxRows && 'SupportEditor__content--scroll')}
+                className={cn(
+                    'SupportEditor__content p-2',
+                    fillHeight ? 'flex-1 min-h-0 overflow-y-auto' : maxRows && 'SupportEditor__content--scroll'
+                )}
                 autoFocus={autoFocus}
                 style={
                     {
                         ...(minRows ? { minHeight: `${minRows * 1.5}em` } : {}),
-                        ...(maxRows ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
+                        ...(maxRows && !fillHeight ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
                     } as CSSProperties
                 }
             />
-            <div className="flex justify-between p-0.5">
-                <div className="flex items-center">
+            <div className="flex justify-between items-start gap-1 p-0.5">
+                <div className="flex flex-wrap items-center min-w-0">
                     <LemonButton
                         size="small"
                         active={ttEditor?.isActive('bold')}
@@ -876,6 +915,7 @@ export function SupportEditor({
                         }}
                     />
                 </div>
+                {toolbarEnd ? <div className="shrink-0">{toolbarEnd}</div> : null}
             </div>
         </div>
     )

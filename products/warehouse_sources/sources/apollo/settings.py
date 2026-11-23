@@ -18,8 +18,8 @@ class ApolloEndpointConfig:
     name: str
     # Path under /api/v1 (search endpoints are POSTs with JSON bodies, lookups are GETs).
     path: str
-    # Key the rows live under in the response body.
-    data_key: str
+    # Key the rows live under in the response body; None when the body is the bare row list.
+    data_key: Optional[str]
     primary_key: str = "id"
     method: str = "POST"
     # The stage lookups return their whole set in one response, with no page params
@@ -28,6 +28,9 @@ class ApolloEndpointConfig:
     # Apollo splits its POST search endpoints: the CRM object searches read page params
     # from the JSON body, the sequence and task searches only from the query string.
     page_params_in_query: bool = False
+    page_size_param: str = "per_page"
+    # Static query params sent with every request.
+    params: dict[str, str] = field(default_factory=dict)
     # Apollo has no server-side timestamp filter; incremental streams sort
     # descending on this field and stop at the persisted high-water mark
     # (the same CDC emulation Fivetran uses on CONTACT/ACCOUNT).
@@ -117,6 +120,32 @@ APOLLO_ENDPOINTS: dict[str, ApolloEndpointConfig] = {
         data_key="opportunity_stages",
         method="GET",
         paginated=False,
+    ),
+    "conversations": ApolloEndpointConfig(
+        name="conversations",
+        path="/conversations/search",
+        data_key="conversations",
+        page_size_param="num_fetch_result",
+        # Full refresh only: the date_range filter is on start_time, and the fields that move
+        # afterwards (processing state, comment count, linked deals) would freeze in a window.
+        partition_key="start_time",
+    ),
+    # Lists ("labels" in the API) come back as a bare array with no pagination.
+    "lists": ApolloEndpointConfig(
+        name="lists",
+        path="/labels",
+        data_key=None,
+        method="GET",
+        paginated=False,
+    ),
+    # Replaces the deprecated /typed_custom_fields, as Apollo's docs direct.
+    "custom_fields": ApolloEndpointConfig(
+        name="custom_fields",
+        path="/fields",
+        data_key="fields",
+        method="GET",
+        paginated=False,
+        params={"source": "custom"},
     ),
 }
 

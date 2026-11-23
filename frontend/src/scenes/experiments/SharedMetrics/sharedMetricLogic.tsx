@@ -64,10 +64,10 @@ export interface sharedMetricLogicValues {
     newSharedMetric: {
         created_at?: string | null | undefined
         created_by?: UserBasicType | null | undefined
-        description?: string | undefined
+        description?: string
         id?: number | undefined
-        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-        metadata?: Record<string, any> | undefined
+        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+        metadata?: Record<string, any>
         name?: string | undefined
         query: ExperimentMetricUnion
         tags?: string[] | undefined
@@ -106,10 +106,10 @@ export interface sharedMetricLogicActions {
             | {
                   created_at?: string | null | undefined
                   created_by?: UserBasicType | null | undefined
-                  description?: string | undefined
+                  description?: string
                   id?: number | undefined
-                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-                  metadata?: Record<string, any> | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+                  metadata?: Record<string, any>
                   name?: string | undefined
                   query: ExperimentMetricUnion
                   tags?: string[] | undefined
@@ -123,10 +123,10 @@ export interface sharedMetricLogicActions {
             | {
                   created_at?: string | null | undefined
                   created_by?: UserBasicType | null | undefined
-                  description?: string | undefined
+                  description?: string
                   id?: number | undefined
-                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-                  metadata?: Record<string, any> | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+                  metadata?: Record<string, any>
                   name?: string | undefined
                   query: ExperimentMetricUnion
                   tags?: string[] | undefined

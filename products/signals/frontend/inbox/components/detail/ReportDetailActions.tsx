@@ -122,15 +122,17 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         }
         // Fallback for a deep-linked detail with no mounted list for its state (e.g. cold load), and for
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
+        // Navigate before the write settles, like the path above: the write can take up to the write
+        // timeout, and the narrow-layout "…" menu shows no progress while it runs.
         setIsRestoring(true)
+        router.actions.push(urls.inbox(activeTab))
         try {
             await setReportState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             // Broadcast so any mounted list (including that Archive instance) reconciles against the
-            // server before we navigate back; nothing else in this path repairs its stale row + count.
+            // server; nothing else in this path repairs its stale row + count.
             reportStateChanged()
-            router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
             reportWriteFailed([report.id])
@@ -188,7 +190,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             ? [
                   {
                       key: 'takeover',
-                      label: 'Take over',
+                      label: 'Take over claim',
                       icon: <IconPerson />,
                       loading: claimSaving,
                       tooltip: 'Take over the claim to work on this report',

@@ -66,7 +66,7 @@ export interface eventsSceneLogicActions {
         query: Node<Record<string, any>>
     }
     setQuery: (query: Node) => {
-        query: Node<Record<string, any>>
+        query: Node
     }
 }
 

@@ -165,10 +165,26 @@ class SavedQueryRunSerializer(serializers.Serializer):
         return attrs
 
 
+class SavedQueryRunSkippedNodeSerializer(serializers.Serializer):
+    node_id = serializers.UUIDField(help_text="The data model node left out of the run.")
+    name = serializers.CharField(help_text="Name of the view left out of the run.")
+    reason = serializers.CharField(
+        help_text="Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile."
+    )
+
+
 class SavedQueryRunResponseSerializer(serializers.Serializer):
     node_ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="The data model nodes included in the run.",
+    )
+    skipped = SavedQueryRunSkippedNodeSerializer(
+        many=True,
+        help_text=(
+            "Views an upstream or downstream run selected but left out, because their query doesn't compile or "
+            "they depend on one that doesn't. Their sources can't be checked against your access, so they don't "
+            "run. Always empty for a run of only this view."
+        ),
     )
 
 
@@ -221,7 +237,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+            context["database"] = Database.create_for(
+                team_id=self.team_id, user=cast(User, self.request.user), trigger="saved_query_save"
+            )
         return context
 
     @validated_request(
@@ -325,8 +343,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         request=SavedQueryRunSerializer,
         responses={
             200: SavedQueryRunResponseSerializer,
+            400: OpenApiResponse(
+                description="The body is invalid, the view can't be materialized, or this view's query doesn't compile."
+            ),
             403: OpenApiResponse(
-                description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
+                description="You can't edit every view in the run, a view in the run reads a table you don't have access to, or engine is 'trino' and the organization has no managed warehouse."
             ),
             409: OpenApiResponse(
                 description="engine is 'trino' and a managed warehouse run is already in progress, or the run started from the PostHog app and a view it would build is still running."
@@ -347,6 +368,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             TRINO_INCREMENTAL_SCOPE,
             MissingDagNodeError,
+            StartedNodeRun,
             assert_user_can_read_saved_query,
             clear_incremental_state,
             materialize_saved_query,
@@ -380,7 +402,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     else frozenset({NodeType.METRIC})
                 )
                 if on_trino:
-                    node_ids = run_trino_node_materializations(
+                    run = run_trino_node_materializations(
                         self.team_id,
                         node.id,
                         direction=direction,
@@ -389,7 +411,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
                 else:
-                    node_ids = run_related_node_materializations(
+                    run = run_related_node_materializations(
                         self.team_id,
                         node.id,
                         direction=direction,
@@ -410,7 +432,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     clear_incremental_state(saved_query)
                     clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
                 node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
-                node_ids = [str(node_id)]
+                run = StartedNodeRun(node_ids=[str(node_id)], skipped=[])
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
@@ -433,7 +455,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             detail=Detail(name=saved_query.name),
         )
 
-        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
+        return response.Response(SavedQueryRunResponseSerializer(run).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=incremental_config.CheckIncrementalSerializer,

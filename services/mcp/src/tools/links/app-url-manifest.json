@@ -344,6 +344,16 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "businessKnowledgePlayground": {
         "template": "/business-knowledge/playground",
         "params": [],
@@ -587,6 +597,11 @@
     "dashboardTile": {
         "template": "/dashboard/{id}/tiles/{tileId}",
         "params": ["id", "tileId"],
+        "scope": "project"
+    },
+    "dashboardV2": {
+        "template": "/dashboard-v2",
+        "params": [],
         "scope": "project"
     },
     "dashboards": {

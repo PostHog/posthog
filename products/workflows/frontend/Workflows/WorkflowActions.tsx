@@ -32,6 +32,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
         discardDisabledReason,
         showDraftActions,
         statusToggleDisabledReason,
+        checkingSandboxSender,
     } = useValues(workflowLogic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, publishDraft, discardDraft } =
         useActions(workflowLogic)
@@ -86,6 +87,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                         status: workflow?.status === 'draft' ? 'active' : 'draft',
                                     })
                                 }
+                                loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
                                 data-attr="workflow-launch"
@@ -110,6 +112,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                     })
                                 }
                                 size="small"
+                                loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
                                 data-attr="workflow-launch"

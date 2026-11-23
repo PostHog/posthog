@@ -42,11 +42,11 @@ deny:
     stamphog_policy:
         match:
             extend_paths:
-                # These paths hold the dependency proof publisher and the setup-uv action it runs.
-                # A PR that edits either one changes what the proof checks.
+                # These paths hold the change prover, its workflows and the setup-uv action they run.
+                # A PR that edits any of them changes what a proof checks.
                 - '^\.github/workflows/dependency-proof'
-                - '^\.github/scripts/dependency_proof/'
-                - '^\.github/scripts/dependency_scan\.py'
+                - '^\.github/workflows/revert-proof'
+                - '^tools/change-prover/'
                 - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
@@ -192,9 +192,10 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. It
-      # first replays the pnpm update from the merge base, and confirms that the replay writes the
-      # same lockfile as the PR head.
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
+      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
+      # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
       check: 'Dependency proof'
       app_id: 5697920
       lifts: [deps_toolchain]
@@ -202,21 +203,38 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
-      # This list is a copy of PROVER_FILES in .github/scripts/dependency_proof/prove.py, so update
-      # both together. The engine ignores a proof whose marker does not pin every file listed here.
-      publisher_files:
-          - .github/actions/setup-uv/action.yml
-          - .github/scripts/dependency_proof/__init__.py
-          - .github/scripts/dependency_proof/__main__.py
-          - .github/scripts/dependency_proof/policy.py
-          - .github/scripts/dependency_proof/prove.py
-          - .github/scripts/dependency_scan.py
-          - .github/scripts/dependency_scan.py.lock
-          - .github/workflows/dependency-proof-trigger.yml
-          - .github/workflows/dependency-proof.yml
-          - .nvmrc
-# Stamphog reviews PRs from these bots. It approves one only when an attestation that declares
-# `publisher_files` proved every file the PR changes.
+          - '(?:^|/)pyproject\.toml$'
+          - '(?:^|/)uv\.lock$'
+          - '(?:^|/)requirements[^/]*\.txt$'
+      # The prover's own manifest lists the default-branch paths it runs from. The engine reads it
+      # from the default branch and ignores a proof whose marker does not pin every path in it.
+      issuer: tools/change-prover/issuer.yml
+    - name: revert_proof
+      # The Revert proof workflow posts this check with the same posthog-dependency-proof token. It
+      # recomputes the revert of one PR merged into the default branch in the last 30 days, and
+      # confirms that the PR head holds exactly that tree and that the PR author pushed it. The
+      # restored code was reviewed and ran before, so the proof lifts what asks only whether code
+      # is safe to run. It lifts nothing a revert cannot answer:
+      # - migrations: the database moved on.
+      # - auth, crypto_secrets, deps_toolchain, infra_cicd: a revert can bring back a vulnerability
+      #   or a vulnerable version that the reverted PR fixed, or turn off team-security's workflows.
+      # - billing: it is the only category over the Stripe provisioning signature check, the billing
+      #   access token and grants, and the billing permission classes, so a revert of a fix there
+      #   would bring the vulnerability back.
+      # - ci_workflows, agent_steering, workflows_delivery: owner-only, and owners are exempt, so a
+      #   lift would only let another team undo the owner's change.
+      # - devex_guardrails: reverting a guard turns the guard off.
+      check: 'Revert proof'
+      app_id: 5697920
+      lifts: [public_api]
+      # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
+      # so no other PR waits for this check.
+      title: '^Revert'
+      paths:
+          - '.*'
+      issuer: tools/change-prover/issuer.yml
+# Stamphog reviews PRs from these bots. It approves one only when an attestation that pins its
+# publisher, through `issuer` or `publisher_files`, proved every file the PR changes.
 bot_authors:
     - name: renovate
       login: 'renovate[bot]'

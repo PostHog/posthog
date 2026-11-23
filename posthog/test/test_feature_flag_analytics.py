@@ -751,6 +751,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-unity",
             "posthog-godot",
             "posthog-unreal",
+            "posthog-electron",
             "posthog-server",
             "other",
         ]

@@ -116,6 +116,12 @@ class OwnerCandidate:
         return bool(self.pins)
 
 
+def files_truncated(pr: Mapping[str, object], listed_count: int) -> bool:
+    """Whether GitHub listed fewer files than the pull request reports, because its file list stops at a page cap."""
+    changed_files = pr.get("changed_files")
+    return isinstance(changed_files, int) and listed_count < changed_files
+
+
 def is_excluded(path: str) -> bool:
     if PurePosixPath(path).name in _OWNERSHIP_FILE_NAMES:
         return False

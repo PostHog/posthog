@@ -40,6 +40,8 @@ const Collapsible = React.forwardRef<React.ComponentRef<typeof CollapsiblePrimit
  * Row container for the icon-only trigger pattern: the trigger toggles, while
  * siblings (a link, trailing count, actions) stay independently interactive.
  * Use `ms-auto` on trailing content so it stays end-aligned in RTL.
+ * The header pads its start to clear the overlaid chevron. For a full-width
+ * sibling button under the chevron, set `ps-0` here and pad the button instead.
  */
 const CollapsibleHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function CollapsibleHeader(
     { className, ...props },

@@ -17,6 +17,7 @@ import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -165,13 +166,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
     CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
-    // Valkey for caller-supplied idempotency keys, such as an `Idempotency-Key` header. When it is
-    // unset, each route decides what a request with a key does.
-    CDP_IDEMPOTENCY_VALKEY_HOST: string
-    CDP_IDEMPOTENCY_VALKEY_PORT: number
-    CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
-    CDP_IDEMPOTENCY_VALKEY_TLS: boolean
-    CDP_IDEMPOTENCY_VALKEY_ENABLED: boolean
+    // Valkey for the daily per-team byte budget of email attachment uploads. When it is unset, the upload route
+    // answers 503.
+    CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: string
+    CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: number
+    CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD: string
+    CDP_EMAIL_ATTACHMENTS_VALKEY_TLS: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -223,10 +223,16 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
+    // An intake consumer's dead letters, on the cluster it reads from.
+    CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
     // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
     // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
     CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
+    CDP_INTAKE_MSK_PRODUCER: CdpProducerName
+    // Teams whose intake runs go to the CDP intake MSK cluster instead of WarpStream, in the same format.
+    // Ignored without KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST.
+    CDP_INTAKE_MSK_TEAMS: string
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -476,11 +482,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
         CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
-        CDP_IDEMPOTENCY_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
-        CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
-        CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
-        CDP_IDEMPOTENCY_VALKEY_TLS: false,
-        CDP_IDEMPOTENCY_VALKEY_ENABLED: true,
+        CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD: '',
+        CDP_EMAIL_ATTACHMENTS_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -534,8 +539,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+        CDP_INTAKE_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
+        CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
+        CDP_INTAKE_MSK_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

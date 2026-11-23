@@ -9,7 +9,10 @@ Merge queue runs are kept for a week, and the window of default-branch runs is u
 merge queue failure older than that is no longer visible. The evidence of this rule is the
 default-branch history, with the recent merge queue runs on top.
 
-A relapse needs nothing here: the story fails again, and automatic quarantine proves the flake again.
+A quarantine that runs out while its story still renders differently is not caught again on its own. A
+story that renders one fixed picture in every run, such as a stale baseline under quarantine, is never
+proven flaky, so after the expiry it fails every run until a person quarantines it again. `auto_extend`
+extends such a quarantine before it runs out.
 
 The decision is `is_clean`, a pure function over plain values. The queries around it only collect
 them and act on the answer.
@@ -22,7 +25,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -94,10 +97,12 @@ class _Window:
         return len(self.default_branch_run_ids)
 
 
-def _window(run: Run, default_branch: str) -> _Window | None:
-    """The `AUTO_LIFT_CLEAN_RUNS` full default-branch runs up to and including `run`, or None."""
-    # Runs newer than `run` stay out, because the lift records `run`'s commit.
-    newest = list(
+def default_branch_runs_until(run: Run, default_branch: str) -> QuerySet[Run]:
+    """The completed full default-branch runs without a pull request up to and including `run`, newest first.
+
+    Runs newer than `run` stay out, because a lift records `run`'s commit and an extension names `run`.
+    """
+    return (
         Run.objects.using(WRITER_DB)
         .filter(
             repo_id=run.repo_id,
@@ -110,7 +115,15 @@ def _window(run: Run, default_branch: str) -> _Window | None:
             created_at__lte=run.created_at,
         )
         .order_by("-created_at")
-        .values_list("id", "commit_sha", "created_at")[:AUTO_LIFT_CLEAN_RUNS]
+    )
+
+
+def _window(run: Run, default_branch: str) -> _Window | None:
+    """The `AUTO_LIFT_CLEAN_RUNS` full default-branch runs up to and including `run`, or None."""
+    newest = list(
+        default_branch_runs_until(run, default_branch).values_list("id", "commit_sha", "created_at")[
+            :AUTO_LIFT_CLEAN_RUNS
+        ]
     )
     if len(newest) < AUTO_LIFT_CLEAN_RUNS:
         return None
@@ -244,7 +257,7 @@ def _capture_clean(
         logger.warning("visual_review.quarantine_clean_capture_failed", run_id=str(run.id), exc_info=True)
 
 
-def _is_on_default_branch(repo: Repo, commit_sha: str) -> bool:
+def is_on_default_branch(repo: Repo, commit_sha: str) -> bool:
     head_sha = auto_quarantine.default_branch_head(repo)
     return head_sha is not None and github_api.commit_contains(repo, commit_sha, head_sha)
 
@@ -269,7 +282,7 @@ def release_clean_quarantines(run_id: UUID) -> None:
     # The commit is client-supplied and becomes `lifted_at_sha`, where an off-branch commit would keep
     # the quarantine on real default-branch runs. Checked before the evidence read so that read is the
     # last step before the write, at the cost of one GitHub lookup per hourly check.
-    if not _is_on_default_branch(repo, run.commit_sha):
+    if not is_on_default_branch(repo, run.commit_sha):
         logger.warning("visual_review.auto_lift_commit_not_on_default_branch", repo_id=str(repo.id), run_id=str(run.id))
         return
     window = _window(run, run.branch)

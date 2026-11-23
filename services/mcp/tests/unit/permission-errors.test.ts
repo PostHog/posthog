@@ -211,7 +211,7 @@ describe('handleToolError with permission errors', () => {
         expect(content?.text).toContain('MCP Server')
     })
 
-    it('fingerprints per tool to avoid dogpiling multiple tools into one issue', () => {
+    it('does not capture wrapped permission denials as exceptions', () => {
         captureException.mockClear()
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
@@ -220,14 +220,9 @@ describe('handleToolError with permission errors', () => {
             method: 'GET',
         })
 
-        handleToolError(error, 'insights-list')
-        handleToolError(error, 'dashboards-list')
+        handleToolError(wrapError('Failed to list insights', error), 'insights-list')
 
-        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
-        expect(fingerprints).toEqual([
-            'posthog-permission-error:insights-list:user:read',
-            'posthog-permission-error:dashboards-list:user:read',
-        ])
+        expect(captureException).not.toHaveBeenCalled()
     })
 
     it('unwraps permission errors hidden behind Error.cause', () => {
@@ -482,11 +477,10 @@ describe('handleToolError with API errors', () => {
         const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
-        expect(captureException).toHaveBeenCalledWith(
-            expect.any(Error),
-            'user-123',
-            expect.objectContaining({ suppress_analytics: suppressAnalytics })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+            distinctId: 'user-123',
+            properties: expect.objectContaining({ suppress_analytics: suppressAnalytics }),
+        })
         expect(result.isError).toBe(true)
     })
 })
@@ -509,11 +503,10 @@ describe('handleToolError with transport errors', () => {
 
         const result = handleToolError(wrapError('Failed to list insights', error), 'insights-list')
 
-        expect(captureException).toHaveBeenCalledWith(
-            expect.anything(),
-            undefined,
-            expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
+            distinctId: undefined,
+            properties: expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' }),
+        })
         const [content] = result.content as Array<{ type: string; text: string }>
         expect(content?.text).not.toContain('ENOTFOUND')
     })

@@ -338,6 +338,15 @@ def on_worker_process_shutdown(**kwargs) -> None:
     except Exception:
         logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
 
+    # Billiard ends a recycled child with os._exit, which skips the atexit flush of the process-lifetime capture clients.
+    from posthog.ph_client import flush_background_capture  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    capture_flush = threading.Thread(
+        target=flush_background_capture, name="posthoganalytics-capture-flush", daemon=True
+    )
+    capture_flush.start()
+    capture_flush.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
@@ -167,14 +168,29 @@ def _unreadable_type_advice(unreadable_type: str) -> str:
     return "Convert the column to a basic type such as a string, number, or date, or leave it out of the results."
 
 
-def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
-    unreadable_type = err.message.removeprefix("Unknown type ")
+def _unreadable_type_subject(unreadable_type: str, column_names: Sequence[str]) -> str:
+    quoted_names = [f"`{name}`" for name in column_names]
+    if not quoted_names:
+        return f"This query returns a column of type `{unreadable_type}`"
+    if len(quoted_names) == 1:
+        return f"The {quoted_names[0]} column has type `{unreadable_type}`"
+    return f"The {', '.join(quoted_names[:-1])} and {quoted_names[-1]} columns have type `{unreadable_type}`"
+
+
+def unknown_type_error(
+    unreadable_type: str, column_names: Sequence[str] = (), code: int | None = None
+) -> "CHQueryErrorUnknownType":
+    subject = _unreadable_type_subject(unreadable_type, column_names)
     advice = _unreadable_type_advice(unreadable_type)
-    return CHQueryErrorUnknownType(
-        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. {advice}",
-        code=err.code,
-        code_name="unknown_type",
+    error = CHQueryErrorUnknownType(
+        f"{subject}, which PostHog can't send back in results. {advice}", code=code, code_name="unknown_type"
     )
+    error.unreadable_type = unreadable_type
+    return error
+
+
+def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
+    return unknown_type_error(err.message.removeprefix("Unknown type "), code=err.code)
 
 
 # NOT_IMPLEMENTED covers many ClickHouse limits, and PostHog-generated SQL can reach some of them. Only
@@ -398,7 +414,7 @@ class CHQueryErrorBadGet(ExposedCHQueryError):
 
 
 class CHQueryErrorUnknownType(ExposedCHQueryError):
-    pass
+    unreadable_type: str = ""
 
 
 class CHQueryErrorNoCommonType(ExposedCHQueryError):

@@ -98,6 +98,13 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+# Same name and choices as `matchedOn` on the logs and traces attribute endpoints,
+# so that all three share the `MatchedOnEnum` schema component.
+class MatchedOn(models.TextChoices):
+    KEY = "key", "key"
+    VALUE = "value", "value"
+
+
 class MetricQueryAggregation(models.TextChoices):
     NONE = "none", "none"
     SUM = "sum", "sum"
@@ -1117,6 +1124,15 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
     )
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also list keys whose values contain the search term, on searches of 4 or more "
+            "characters. Value matches come after key matches and carry matchedOn='value' with "
+            "the matching matchedValue."
+        ),
+    )
     dateFrom = serializers.DateTimeField(
         required=False,
         allow_null=True,
@@ -1183,6 +1199,16 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
     value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
+    matchedOn = serializers.ChoiceField(
+        choices=MatchedOn.choices,
+        required=False,
+        help_text="Set to 'value' when the key matched through one of its values. Absent when its name matched.",
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="One value that matched the search; only set when matchedOn is 'value'.",
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
@@ -1632,6 +1658,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
+                search_values=params.validated_data["search_values"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
