@@ -163,13 +163,14 @@ _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
 # These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
 _AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
-# The VM charges a builtin's result to the memory cap only after it builds it. `replaceAll` multiplies its input by the
-# ratio of replacement to search length, and `arrayStringConcat` copies its separator once per element, so a computed
-# or long replacement or separator can pass the cap in one step.
+# The VM charges a builtin's result to the memory cap only after it builds it. Most builtins grow their input by a small
+# constant factor at most, but `replaceAll` multiplies it by the ratio of replacement to search length,
+# `arrayStringConcat` copies its separator once per element, and an indented `jsonStringify` repeats the indent once per
+# level on every line. Any of them can pass the cap in one step.
 _MAX_REPLACEMENT_GROWTH = 8
 # JavaScript's `replaceAll` replaces these with the input before or after each match, which grows the input by its square.
 _WHOLE_INPUT_TOKENS = ("$`", "$'")
-_UNCAPPED_BUILTINS = frozenset({"replaceAll", "arrayStringConcat", "sleep"})
+_UNCAPPED_BUILTINS = frozenset({"replaceAll", "arrayStringConcat", "jsonStringify", "sleep"})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
     {"localtest.me", "lvh.me", "vcap.me", "nip.io", "sslip.io", "xip.io", "traefik.me", "local.gd", "localhost.direct"}
@@ -276,12 +277,13 @@ def _is_chat_message_api(url: str) -> bool:
     parts = _plain_url_parts(url)
     if parts is None or parts.scheme != "https" or parts.port not in (None, 443):
         return False
+    # The runtime resolves `.` and `..` segments, also percent-encoded ones, before it sends, so `/api/../oauth`
+    # reaches `/oauth`.
+    if any(unquote(segment) in (".", "..") for segment in parts.path.split("/")):
+        return False
     host = canonicalize_host(parts.hostname or "")
     if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
         return True
-    # The runtime resolves `..` before it sends, so `/api/../oauth` reaches `/oauth`.
-    if any(segment in (".", "..") for segment in unquote(parts.path).split("/")):
-        return False
     return any(host == api_host and parts.path.startswith(path) for api_host, path in _CHAT_MESSAGE_APIS)
 
 
@@ -399,12 +401,27 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
             yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
+@dataclass(frozen=False, eq=False)
+class _Binding:
+    """One declared name. Calls resolve to the binding in scope, as the compiler resolves them, so two locals that
+    share a name stay apart."""
+
+    name: str
+    # Declared with `fun`, or with `let` as a lambda literal, so a call runs a body this walk checks.
+    declares_function: bool
+    rebound: bool = False
+
+    @property
+    def is_static_function(self) -> bool:
+        return self.declares_function and not self.rebound
+
+
 @dataclass(frozen=False)
 class _Frame:
     """The body being walked: the code itself, a function, or a lambda. A lambda that `let` does not name can be
     called from anywhere, such as a callback that runs for every element."""
 
-    name: str | None
+    function: _Binding | None
     anonymous: bool = False
     loops: int = 0
 
@@ -415,31 +432,27 @@ class _Frame:
 
 @frozen
 class _LocalCall:
-    caller: str | None
+    caller: _Binding | None
     repeats: bool
-    callee: str
+    callee: _Binding
 
 
 @dataclass(frozen=False)
 class _CallGraph:
     """Which declared functions can send a request, and which of them run again and again."""
 
-    declared: set[str] = field(default_factory=set)
-    # Parameters, loop and catch variables, other `let` values and every assigned name, which can hold any value.
-    rebound: set[str] = field(default_factory=set)
-    sends: set[str] = field(default_factory=set)
+    sends: set[_Binding] = field(default_factory=set)
     calls: list[_LocalCall] = field(default_factory=list)
-    used_as_values: set[str] = field(default_factory=set)
+    used_as_values: set[_Binding] = field(default_factory=set)
 
     def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool, uncapped_step: bool) -> _Requests:
-        """A call to a function declared with `fun`, or with `let` as a lambda literal, and never rebound runs that
-        body, which this walk checked. A call to any other local can run anything."""
-        static = self.declared - self.rebound
+        """A call to a static function runs its body, which this walk checked. A call to any other local can run
+        anything, because the local can hold a closure from an input or have its upvalues swapped."""
         sends = set(self.sends)
-        edges: dict[str, set[str]] = {}
-        repeated = self.used_as_values & static
+        edges: dict[_Binding, set[_Binding]] = {}
+        repeated = {binding for binding in self.used_as_values if binding.is_static_function}
         for call in self.calls:
-            if call.callee not in static:
+            if not call.callee.is_static_function:
                 other_call = True
                 fans_out |= call.repeats
                 if call.caller is not None:
@@ -459,14 +472,14 @@ class _CallGraph:
         )
 
 
-def _callers_of(names: set[str], edges: dict[str, set[str]]) -> set[str]:
-    """`names` and every function that reaches one of them through calls."""
-    callers: dict[str, set[str]] = {}
+def _callers_of(functions: set[_Binding], edges: dict[_Binding, set[_Binding]]) -> set[_Binding]:
+    """`functions` and every function that reaches one of them through calls."""
+    callers: dict[_Binding, set[_Binding]] = {}
     for caller, callees in edges.items():
         for callee in callees:
             callers.setdefault(callee, set()).add(caller)
-    reached = set(names)
-    pending = list(names)
+    reached = set(functions)
+    pending = list(functions)
     while pending:
         for caller in callers.get(pending.pop(), ()):
             if caller not in reached:
@@ -475,22 +488,22 @@ def _callers_of(names: set[str], edges: dict[str, set[str]]) -> set[str]:
     return reached
 
 
-def _has_cycle(names: set[str], edges: dict[str, set[str]]) -> bool:
-    """Whether calls among `names` form a cycle. Every function on a cycle reaches the others, so a recursive function
-    that reaches a request has its whole cycle in `names`."""
-    done: set[str] = set()
-    for root in names:
+def _has_cycle(functions: set[_Binding], edges: dict[_Binding, set[_Binding]]) -> bool:
+    """Whether calls among `functions` form a cycle. Every function on a cycle reaches the others, so a recursive
+    function that reaches a request has its whole cycle in `functions`."""
+    done: set[_Binding] = set()
+    for root in functions:
         if root in done:
             continue
         path = {root}
         stack = [(root, iter(edges.get(root, ())))]
         while stack:
-            name, callees = stack[-1]
-            callee = next((callee for callee in callees if callee in names and callee not in done), None)
+            function, callees = stack[-1]
+            callee = next((callee for callee in callees if callee in functions and callee not in done), None)
             if callee is None:
                 stack.pop()
-                path.discard(name)
-                done.add(name)
+                path.discard(function)
+                done.add(function)
             elif callee in path:
                 return True
             else:
@@ -507,8 +520,8 @@ class _HogCodeVisitor(TraversingVisitor):
         super().__init__()
         self.matched: set[Rule] = set()
         self.calls_out = False
-        self._scopes: list[set[str]] = [set()]
-        self._frames: list[_Frame] = [_Frame(name=None)]
+        self._scopes: list[dict[str, _Binding]] = [{}]
+        self._frames: list[_Frame] = [_Frame(function=None)]
         self._literal_urls: list[str] = []
         self._other_call = False
         self._fans_out = False
@@ -528,23 +541,34 @@ class _HogCodeVisitor(TraversingVisitor):
         frame = self._frames[-1]
         if frame.repeats:
             self._fans_out = True
-        elif frame.name is not None:
-            self._graph.sends.add(frame.name)
+        elif frame.function is not None:
+            self._graph.sends.add(frame.function)
+
+    def _local(self, name: str) -> _Binding | None:
+        for scope in reversed(self._scopes):
+            if name in scope:
+                return scope[name]
+        return None
 
     def _is_local(self, name: str) -> bool:
-        return any(name in scope for scope in self._scopes)
+        return self._local(name) is not None
+
+    def _declare(self, name: str, *, declares_function: bool = False) -> _Binding:
+        binding = _Binding(name=name, declares_function=declares_function)
+        self._scopes[-1][name] = binding
+        return binding
 
     @contextmanager
     def _scope(self, names: Iterable[str] = ()) -> Iterator[None]:
-        self._scopes.append(set(names))
+        self._scopes.append({name: _Binding(name=name, declares_function=False) for name in names})
         try:
             yield
         finally:
             self._scopes.pop()
 
     @contextmanager
-    def _frame(self, name: str | None) -> Iterator[None]:
-        self._frames.append(_Frame(name=name, anonymous=name is None))
+    def _frame(self, function: _Binding | None) -> Iterator[None]:
+        self._frames.append(_Frame(function=function, anonymous=function is None))
         try:
             yield
         finally:
@@ -563,18 +587,15 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_block(node)
 
     def visit_function(self, node: ast.Function) -> None:
-        self._scopes[-1].add(node.name)
-        self._graph.declared.add(node.name)
-        self._graph.rebound.update(node.params)
-        with self._scope(node.params), self._frame(node.name):
+        function = self._declare(node.name, declares_function=True)
+        with self._scope(node.params), self._frame(function):
             super().visit_function(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
-        self._visit_lambda(node, name=None)
+        self._visit_lambda(node, function=None)
 
-    def _visit_lambda(self, node: ast.Lambda, name: str | None) -> None:
-        self._graph.rebound.update(node.args)
-        with self._scope(node.args), self._frame(name):
+    def _visit_lambda(self, node: ast.Lambda, function: _Binding | None) -> None:
+        with self._scope(node.args), self._frame(function):
             super().visit_lambda(node)
 
     def visit_while_statement(self, node: ast.WhileStatement) -> None:
@@ -583,9 +604,7 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
         self.visit(node.expr)
-        names = [node.valueVar, *([node.keyVar] if node.keyVar else [])]
-        self._graph.rebound.update(names)
-        with self._scope(names), self._loop():
+        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]), self._loop():
             self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
@@ -599,7 +618,6 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
         for name, _error_type, handler in node.catches:
-            self._graph.rebound.update([name] if name else [])
             with self._scope([name] if name else []):
                 self.visit(handler)
         self.visit(node.finally_stmt)
@@ -607,18 +625,15 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
         # The compiler binds a lambda's name before its body, so the body can call itself.
         if isinstance(node.expr, ast.Lambda):
-            self._scopes[-1].add(node.name)
-            self._graph.declared.add(node.name)
-            self._visit_lambda(node.expr, name=node.name)
+            self._visit_lambda(node.expr, function=self._declare(node.name, declares_function=True))
         else:
-            self._graph.rebound.add(node.name)
             super().visit_variable_declaration(node)
-        self._scopes[-1].add(node.name)
+            self._declare(node.name)
 
     def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
         super().visit_variable_assignment(node)
-        if (name := _base_name(node.left)) is not None:
-            self._graph.rebound.add(name)
+        if (name := _base_name(node.left)) is not None and (binding := self._local(name)) is not None:
+            binding.rebound = True
 
     # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
     # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
@@ -646,10 +661,10 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
-        if self._is_local(node.name):
+        if (callee := self._local(node.name)) is not None:
             self.calls_out = True
             frame = self._frames[-1]
-            self._graph.calls.append(_LocalCall(caller=frame.name, repeats=frame.repeats, callee=node.name))
+            self._graph.calls.append(_LocalCall(caller=frame.function, repeats=frame.repeats, callee=callee))
             return
         if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
             self._sends(url)
@@ -674,8 +689,8 @@ class _HogCodeVisitor(TraversingVisitor):
         if len(node.chain) != 1:
             return
         name = str(node.chain[0])
-        if self._is_local(name):
-            self._graph.used_as_values.add(name)
+        if (binding := self._local(name)) is not None:
+            self._graph.used_as_values.add(binding)
             return
         if name in OUTBOUND_FUNCTIONS:
             # Passed on as a value, so it can be called any number of times.
@@ -724,6 +739,8 @@ def _bounded_growth(name: str, args: list[ast.Expr]) -> bool:
         return _bounded_replacement(args)
     if name == "arrayStringConcat":
         return _short_separator(args)
+    if name == "jsonStringify":
+        return len(args) == 1
     return False
 
 

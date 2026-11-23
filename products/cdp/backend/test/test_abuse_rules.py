@@ -778,6 +778,12 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
             ("dot_segment_out_of_the_api_path", post_to("https://slack.com/api/../oauth/v2/authorize"), None),
+            ("dot_segment_in_a_teams_path", post_to("https://example.webhook.office.com/x/./y"), None),
+            (
+                "encoded_slash_before_two_dots",
+                post_to("https://slack.com/api/files/a%2F.."),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
             ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
             ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
             ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
@@ -898,6 +904,14 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             (
+                "recursive_lambda_beside_a_parameter_of_its_name",
+                content(
+                    hog="let send := n -> if(n > 0, concat(fetch(inputs.url).status, send(n - 1)), '')\n"
+                    "let id := send -> send\nreturn send(2)"
+                ),
+                False,
+            ),
+            (
                 "request_in_a_for_initializer",
                 content(hog="for (let res := fetch(inputs.url); false; res := null) {\n  print(res)\n}"),
                 True,
@@ -918,6 +932,8 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="fetch(inputs.url, {'body': replaceAll(inputs.text, 'a', '$`')})"),
                 False,
             ),
+            ("compact_json", content(hog="fetch(inputs.url, {'body': jsonStringify(event)})"), True),
+            ("indented_json", content(hog="fetch(inputs.url, {'body': jsonStringify(event, 2)})"), False),
             (
                 "join_with_a_constant_separator",
                 content(hog="fetch(inputs.url, {'body': arrayStringConcat(inputs.lines, ', ')})"),
