@@ -1,11 +1,6 @@
 from posthog.models.organization import OrganizationUsageInfo
 
-from ee.billing.billing_manager import (
-    AI_AUTOMATIC_RELOAD_KEY,
-    AI_CREDIT_SETTING_KEYS,
-    AI_DAY_KEYS,
-    AI_SETTINGS_VERSION_KEY,
-)
+from ee.billing.billing_manager import AI_AUTOMATIC_RELOAD_KEY, AI_CREDIT_SETTING_KEYS, AI_DAY_KEYS
 from ee.billing.quota_limiting import (
     BILLING_STATUS_STAMP_KEYS,
     INFORMATIONAL_USAGE_RESOURCES,
@@ -22,7 +17,6 @@ def test_usage_keys_stay_in_sync() -> None:
         AI_AUTOMATIC_RELOAD_KEY,
         *AI_CREDIT_SETTING_KEYS,
         *AI_DAY_KEYS,
-        AI_SETTINGS_VERSION_KEY,
     }
 
     quota_resource_keys = {resource.value for resource in QuotaResource}

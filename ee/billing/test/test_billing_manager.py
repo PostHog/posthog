@@ -2391,13 +2391,17 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-    def _apply(self, **settings: Any) -> dict[str, Any]:
+    def _apply(self, computed_at: str | None = None, events_usage: int = 1, **settings: Any) -> dict[str, Any]:
         billing_status = {
+            "computed_at": computed_at,
             "customer": {
-                "usage_summary": {"events": {"usage": 1, "limit": None}, "recordings": {"usage": 0, "limit": None}},
+                "usage_summary": {
+                    "events": {"usage": events_usage, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
                 "billing_period": self.PERIOD,
                 **settings,
-            }
+            },
         }
         BillingManager(self._license()).update_org_details(self.organization, cast(BillingStatus, billing_status))
         self.organization.refresh_from_db()
@@ -2407,14 +2411,12 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
     @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
     def test_keeps_the_settings_and_rewrites_the_gateway_entries(self, project: MagicMock):
         usage = self._apply(
-            ai_settings_version=1,
             ai_low_balance_threshold_usd="5.5",
             ai_automatic_reload_enabled=True,
             ai_start_day="2026-12-01",
             ai_end_day=None,
         )
 
-        assert usage["ai_settings_version"] == 1
         assert usage["ai_low_balance_threshold_usd"] == "5.50"
         assert usage["ai_automatic_reload_enabled"] is True
         assert usage["ai_start_day"] == "2026-12-01"
@@ -2424,58 +2426,53 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
     @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
     @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
     def test_reload_turning_off_alone_rewrites_the_gateway_entries(self, project: MagicMock):
-        self._apply(ai_settings_version=1, ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True)
+        self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True)
         project.reset_mock()
 
-        usage = self._apply(
-            ai_settings_version=2, ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=False
-        )
+        usage = self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=False)
 
         assert "ai_automatic_reload_enabled" not in usage
         project.assert_called_once_with(str(self.organization.id))
 
+    @parameterized.expand(
+        [
+            ("same_status", {}, {}),
+            (
+                "later_usage_report",
+                {"computed_at": "2026-11-02T10:00:00Z", "events_usage": 1},
+                {"computed_at": "2026-11-02T11:00:00Z", "events_usage": 2},
+            ),
+        ]
+    )
     @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
     @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
-    def test_the_same_status_again_rewrites_nothing(self, project: MagicMock):
-        self._apply(ai_settings_version=1, ai_low_balance_threshold_usd="5.00")
+    def test_the_same_settings_again_rewrite_nothing(self, _name, first, second, project: MagicMock):
+        self._apply(**first, ai_low_balance_threshold_usd="5.00")
         project.reset_mock()
 
-        self._apply(ai_settings_version=1, ai_low_balance_threshold_usd="5.00")
+        self._apply(**second, ai_low_balance_threshold_usd="5.00")
 
         project.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("higher_version", {"ai_settings_version": 2}, 2, {"ai_low_balance_threshold_usd": "9.00"}),
-            ("same_version", {"ai_settings_version": 1}, 1, None),
-            ("lower_version", {"ai_settings_version": 0}, 1, None),
-            ("no_version", {}, 1, None),
-        ]
-    )
-    def test_keeps_the_ai_values_of_a_status_only_with_a_higher_version(
-        self, _name, version, expected_version, expected_values
-    ):
-        held = {
-            "ai_low_balance_threshold_usd": "5.00",
-            "ai_automatic_reload_enabled": True,
-            "ai_start_day": "2026-12-01",
-        }
-        self._apply(ai_settings_version=1, **held)
+    def test_a_status_without_the_settings_keeps_them(self):
+        self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True, ai_start_day="2026-12-01")
 
-        usage = self._apply(
-            **version,
-            ai_low_balance_threshold_usd="9.00",
-            ai_automatic_reload_enabled=False,
-            ai_start_day=None,
-        )
+        usage = self._apply()
 
-        ai_values = {key: usage[key] for key in held if key in usage}
-        assert ai_values == (expected_values if expected_values is not None else held)
-        assert usage["ai_settings_version"] == expected_version
+        assert usage["ai_low_balance_threshold_usd"] == "5.00"
+        assert usage["ai_automatic_reload_enabled"] is True
+        assert usage["ai_start_day"] == "2026-12-01"
+
+    def test_a_null_setting_clears_it(self):
+        self._apply(ai_low_balance_threshold_usd="5.00", ai_start_day="2026-12-01")
+
+        usage = self._apply(ai_low_balance_threshold_usd=None, ai_start_day=None)
+
+        assert "ai_low_balance_threshold_usd" not in usage
+        assert "ai_start_day" not in usage
 
     def test_an_organization_without_settings_gains_no_keys(self):
         usage = self._apply(
-            ai_settings_version=1,
             ai_low_balance_threshold_usd=None,
             ai_automatic_reload_enabled=False,
             ai_start_day=None,

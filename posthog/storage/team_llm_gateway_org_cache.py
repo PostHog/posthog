@@ -7,8 +7,8 @@ Shape:
         {
             "version": 1,
             "team_id": 123,
+            "settings_computed_at": "2026-11-23T10:00:00+00:00" | null,
             "organization_id": "0190...",
-            "settings_version": 42 | null,
             "billing_period": {"start": "2026-10-01T00:00:00Z", "end": "2026-11-01T00:00:00Z"} | null,
             "ai_low_balance_threshold_micros": 5000000 | null,
             "ai_automatic_reload_enabled": true | false,
@@ -20,14 +20,20 @@ Shape:
 `version` is the entry's schema. The entry isn't signed. Every team of an organization carries the same
 organization values. Admission reads the billed team's entry, so one read gives the gateway the organization
 and its settings. The values come from billing's status, which `BillingManager.update_org_details` keeps on the
-organization. PostHog keeps a status's AI credit values only when its settings version is higher than the one
-PostHog holds. `settings_version` names the values in the entry. The threshold comes from billing's dollars, in
-whole micro-dollars. A change there rewrites every team of the organization. A new team gets its entry when
-PostHog creates it, and the hourly refresh rewrites entries before they expire. A project moved to another
-organization gets its new organization's entry when PostHog saves the move.
+organization. PostHog skips a status that billing computed before the status that PostHog applied. The threshold
+comes from billing's dollars, in whole micro-dollars. A change of a value rewrites every team of the
+organization. A new team gets its entry when PostHog creates it, and the hourly refresh rewrites entries before
+they expire. A project moved to another organization gets its new organization's entry when PostHog saves the
+move.
+
+`settings_computed_at` is the `computed_at` of the last status that changed the organization before PostHog
+wrote the entry, as an ISO 8601 UTC string. It is null until PostHog applies a status with a `computed_at`, and
+after a status without one changes the usage. The counters of each usage report change the organization, so a
+new stamp alone doesn't rewrite the entries. The teams of one organization can carry different stamps with the
+same values. Each stamp names a status whose values the entry holds.
 
 The gateway decides the AI usage of the calls it admits from 00:00 UTC on `ai_start_day` up to 00:00 UTC on
-`ai_end_day`. Each debit records the entry's `settings_version`. At the threshold the gateway posts a signed
+`ai_end_day`. Each debit records the entry's `settings_computed_at`. At the threshold the gateway posts a signed
 reload request to PostHog's reload route, and PostHog passes it to billing. Billing's signed
 `ai_reload_outcome` comes back on its queue, and PostHog relays it to the gateway.
 """
@@ -66,12 +72,15 @@ MICROS_PER_USD = 1_000_000
 
 
 def llm_gateway_org_values(organization: Organization) -> dict[str, Any]:
-    """The organization's part of the entry, the same for each of its teams."""
+    """The organization's values in the entry, the same for each of its teams.
+
+    `BillingManager.update_org_details` rewrites every team's entry when these values change. The status stamp
+    stays out of them because each usage report moves it.
+    """
     usage = organization.usage or {}
     period = usage.get("period")
     return {
         "organization_id": str(organization.id),
-        "settings_version": usage.get("ai_settings_version"),
         "billing_period": {"start": period[0], "end": period[1]} if period and len(period) == 2 else None,
         "ai_low_balance_threshold_micros": _micros(usage.get("ai_low_balance_threshold_usd")),
         "ai_automatic_reload_enabled": usage.get("ai_automatic_reload_enabled") is True,
@@ -86,7 +95,12 @@ def _micros(usd: str | None) -> int | None:
 
 
 def _entry(team_id: int, organization: Organization) -> dict[str, Any]:
-    return {"version": LLM_GATEWAY_ORG_VERSION, "team_id": team_id, **llm_gateway_org_values(organization)}
+    return {
+        "version": LLM_GATEWAY_ORG_VERSION,
+        "team_id": team_id,
+        "settings_computed_at": (organization.usage or {}).get("billing_status_computed_at"),
+        **llm_gateway_org_values(organization),
+    }
 
 
 def _organizations(organization_ids: set[Any]) -> dict[Any, Organization]:

@@ -28,7 +28,7 @@ class TestLLMGatewayOrgEntry(BaseTest):
         super().setUp()
         self.organization.usage = {
             "period": PERIOD,
-            "ai_settings_version": 42,
+            "billing_status_computed_at": "2026-11-02T10:00:00+00:00",
             "ai_low_balance_threshold_usd": "5.50",
             "ai_automatic_reload_enabled": True,
             "ai_start_day": "2026-12-01",
@@ -40,8 +40,8 @@ class TestLLMGatewayOrgEntry(BaseTest):
         return {
             "version": 1,
             "team_id": team.id,
+            "settings_computed_at": "2026-11-02T10:00:00+00:00",
             "organization_id": str(self.organization.id),
-            "settings_version": 42,
             "billing_period": {"start": PERIOD[0], "end": PERIOD[1]},
             "ai_low_balance_threshold_micros": 5_500_000,
             "ai_automatic_reload_enabled": True,
@@ -68,8 +68,8 @@ class TestLLMGatewayOrgEntry(BaseTest):
         assert get_team_llm_gateway_org(self.team) == {
             "version": 1,
             "team_id": self.team.id,
+            "settings_computed_at": None,
             "organization_id": str(self.organization.id),
-            "settings_version": None,
             "billing_period": None,
             "ai_low_balance_threshold_micros": None,
             "ai_automatic_reload_enabled": False,
