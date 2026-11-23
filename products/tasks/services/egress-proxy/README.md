@@ -87,7 +87,33 @@ Retries reject changes to the registered configuration. They do not reload the r
 The workflow or command runner owns terminal cleanup. A failed preparation attempt cannot tear down a successful retry.
 Cleanup can find an unsaved VM by name. Cancellation markers expire after their enrollment deadline; requests past that deadline are rejected even after the marker is removed.
 Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
-The workflow remains development-only and sends synthetic probes.
+The workflow sends synthetic probes and uses the same environment checks as the command.
+
+### Probe the staging deployment
+
+Run the same command from a trusted controller using the staging database, Modal credentials and sandbox signing key. A local database registration cannot authorize a request through a proxy reading the staging registry.
+
+Staging requires `CLOUD_DEPLOYMENT=DEV`, `DEBUG=0`, `SANDBOX_PROVIDER=modal`, and `AGENT_EGRESS_STAGING_PROBE_RUN_ID` set to the one TaskRun being tested. Keep that setting on the probe controller only. Production deployments remain excluded, and normal Tasks launches do not enroll.
+
+```text
+Controller using staging DB -> existing enrollment / renewal / cleanup lifecycle
+Synthetic VM -> isolated relay -> regional TCP ingress -> proxy -> staging registry
+```
+
+Use a dedicated active TaskRun with an eligible actor, no repositories and no sandbox. The configuration must name that run and its exact regional hostname. Staging rejects `sandbox_id` and `dev_proxy_ipv4`: each probe creates its own VM and uses the hostname's real network path. The existing ten-minute duration and request-concurrency limits still apply.
+
+Mount the operator-owned configuration directory and CA material on the controller. The proxy must trust that client CA and the controller's public verification keys. Only the controller receives the client CA private key; only the relay holds its generated private key. Use an image visible in the controller's Modal environment.
+
+```bash
+AGENT_EGRESS_STAGING_PROBE_RUN_ID=<run-uuid> \
+  python manage.py probe_agent_egress --config /run/egress/probes/probe.json
+```
+
+For `--temporal`, use a dedicated worker queue with the same run opt-in, configuration and mounted files. Workflow inputs still contain only IDs and a configuration path.
+
+Before sending traffic, verify the deployed registry, network policy, log redaction, TLS material and load-balancer readiness. Start with the default 60-second probe, then run for 360 seconds to cross capability refresh. Check 204 counts alongside proxy admission/completion events and the registry's final revocation record. Clearing or changing the opt-in blocks enrollment and renewal; the owning workflow can still revoke and clean up its existing probe. A controller crash leaves authority bounded by the 30-second lease and the VM by its TTL.
+
+This proves synthetic enrollment against deployed infrastructure. It does not establish general forwarding, upstream credential injection, DNS containment or production readiness. Denial tests, replica loss and certificate rotation still need separate deployment checks.
 
 ### Observe a development Tasks run
 

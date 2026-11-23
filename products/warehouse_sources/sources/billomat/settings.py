@@ -15,6 +15,7 @@ ENDPOINTS = (
     "Articles",
     "DeliveryNotes",
     "ActivityFeed",
+    "InvoiceComments",
 )
 
 # An activity's `id` is the ID of the document it happened to (an invoice can have many
@@ -26,7 +27,7 @@ PRIMARY_KEYS: dict[str, list[str]] = {
 # Billomat's `from`/`to` list filters apply to the document `date`, not a last-modified
 # timestamp, so this only catches new documents within a synced date window, not edits to
 # existing ones (the API has no `updated_since`-style filter at all). Clients, Suppliers,
-# ClientContacts, Recurrings, Articles and ActivityFeed have no date filter, so they stay
+# ClientContacts, Recurrings, Articles, ActivityFeed and InvoiceComments have no date filter, so they stay
 # full-refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "Invoices": [

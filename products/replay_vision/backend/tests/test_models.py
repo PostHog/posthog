@@ -439,13 +439,31 @@ class TestTargetedRecordingsQuery(BaseTest):
         assert scanner.targeted_recordings_query().experiment_exposure is None
 
     def test_targeting_sets_the_exposure_filter(self) -> None:
+        # The legacy column's singular `variant` arrives as a one-item `variants`, because the
+        # scope shape has only the plural. `resolve_exposure_linkage` folds `variant` into the
+        # same one-item list, so both narrow to the same population.
         scanner = _make_scanner(
             self.team, query={"kind": "RecordingsQuery"}, experiment_targeting={"experiment_id": 42, "variant": "test"}
         )
         exposure = scanner.targeted_recordings_query().experiment_exposure
         assert exposure is not None
         assert exposure.experiment_id == 42
-        assert exposure.variant == "test"
+        assert exposure.variant is None
+        assert exposure.variants == ["test"]
+
+    def test_a_scanner_narrowed_only_by_the_scope_column_gets_an_exposure_filter(self) -> None:
+        # The regression this guards: reading the legacy stores here returns None for a scope-only
+        # scanner, so it sweeps every session its filters match and spends credits on all of them.
+        scanner = _make_scanner(
+            self.team,
+            query={"kind": "RecordingsQuery"},
+            experiment_targeting=None,
+            scope={"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]},
+        )
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        assert exposure.experiment_id == 42
+        assert exposure.variants == ["control", "test"]
 
     def test_the_experiment_type_reads_its_scope_from_scanner_config(self) -> None:
         # The experiment type carries no experiment_targeting column value; a sweep that kept

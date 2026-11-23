@@ -5,6 +5,16 @@ import { LemonButton, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 
+export function submitSampleRate(value: number | undefined, onChange: (value: number) => void): void {
+    const returnRate = typeof value == 'number' ? value / 100 : 0
+
+    if (returnRate > 1) {
+        lemonToast.error('Session recording sample rate must be between 0 to 100')
+    } else {
+        onChange(returnRate)
+    }
+}
+
 export function SamplingTrigger({
     initialSampleRate,
     onChange,
@@ -18,14 +28,7 @@ export function SamplingTrigger({
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const updateSampling = (): void => {
-        const returnRate = typeof value == 'number' ? value / 100 : 0
-        if (returnRate > 1) {
-            lemonToast.error('Session recording sample rate must be between 0 to 100')
-        } else {
-            onChange(returnRate)
-        }
-    }
+    const updateSampling = (): void => submitSampleRate(value, onChange)
 
     return (
         <div className="flex flex-row gap-x-2">

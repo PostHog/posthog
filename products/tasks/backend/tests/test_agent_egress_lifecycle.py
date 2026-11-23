@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from collections.abc import Callable
+from inspect import unwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import ClassVar
@@ -29,6 +30,12 @@ from products.tasks.backend.logic.services.agent_egress_probe_runner import Agen
 from products.tasks.backend.logic.services.connection_token import reset_sandbox_jwt_key_cache
 from products.tasks.backend.logic.services.modal_egress_probe import ModalEgressProbe
 from products.tasks.backend.models import AgentEgressRegistration, Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities.agent_egress import (
+    AgentEgressCleanupInput,
+    AgentEgressExecutionInput,
+    AgentEgressProbeInput,
+    cleanup_agent_egress,
+)
 
 
 class FakeIssuer:
@@ -215,7 +222,18 @@ class TestAgentEgressLifecycle(TestCase):
             execution_id=execution_id or self.execution_id
         )
 
-    def test_new_worker_renews_and_refreshes_the_existing_execution(self) -> None:
+    @parameterized.expand([("development",), ("staging",)])
+    def test_new_worker_renews_and_refreshes_the_existing_execution(self, environment: str) -> None:
+        if environment == "staging":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_STAGING_PROBE_RUN_ID=str(self.task_run.id),
+                )
+            )
         TaskRun.update_state_atomic(self.task_run.id, updates={"unrelated": "preserved"})
         sandbox_id = self.controller().prepare()
         for _ in range(18):
@@ -241,6 +259,54 @@ class TestAgentEgressLifecycle(TestCase):
         self.assertEqual(self.task_run.state["unrelated"], "preserved")
         self.assertEqual(self.task_run.state[STATE_KEY]["sandbox_id"], sandbox_id)
         self.assertEqual(self.controller().probe(), {204: self.config.requests_per_round})
+        self.controller().close(reason="completed", sandbox_id=sandbox_id)
+        self.assertTrue(self.registration().revoked)
+        self.assertTrue(self.probes[sandbox_id].destroyed)
+
+    @parameterized.expand([("disabled", ""), ("replaced", "00000000-0000-0000-0000-000000000001")])
+    def test_cleanup_survives_staging_opt_in_rotation(self, _name: str, selected_run: str) -> None:
+        self.enterContext(
+            override_settings(
+                DEBUG=False,
+                TEST=False,
+                CLOUD_DEPLOYMENT="DEV",
+                SANDBOX_PROVIDER="modal",
+                AGENT_EGRESS_STAGING_PROBE_RUN_ID=str(self.task_run.id),
+                AGENT_EGRESS_PROBE_CONFIG_DIR=str(self.config.client_ca_file.parent),
+            )
+        )
+        sandbox_id = self.controller().prepare()
+        config_path = self.config.client_ca_file.parent / "probe.json"
+        config_path.write_text(self.config.model_dump_json())
+        cleanup = AgentEgressCleanupInput(
+            execution=AgentEgressExecutionInput(
+                probe=AgentEgressProbeInput(
+                    config_path=str(config_path), team_id=self.team.id, run_id=str(self.task_run.id)
+                ),
+                execution_id=str(self.execution_id),
+            ),
+            sandbox_id=sandbox_id,
+            reason="cancelled",
+        )
+        with (
+            override_settings(AGENT_EGRESS_STAGING_PROBE_RUN_ID=selected_run),
+            patch("products.tasks.backend.temporal.process_task.activities.agent_egress.activity.info") as info,
+        ):
+            for operation in (self.controller().prepare, self.controller().renew, self.controller().probe):
+                with self.assertRaises(ValueError):
+                    operation()
+            info.return_value.workflow_run_id = "workflow-b"
+            with self.assertRaises(ValueError):
+                unwrap(cleanup_agent_egress)(cleanup)
+            self.assertFalse(self.registration().revoked)
+            self.assertFalse(self.probes[sandbox_id].destroyed)
+            info.return_value.workflow_run_id = "workflow-a"
+            unwrap(cleanup_agent_egress)(cleanup)
+
+        self.assertTrue(self.registration().revoked)
+        self.assertTrue(self.probes[sandbox_id].destroyed)
+        self.task_run.refresh_from_db()
+        self.assertTrue(self.task_run.state[STATE_KEY]["closed"])
 
     def test_rejected_probe_raises_a_non_retryable_error(self) -> None:
         sandbox_id = self.controller().prepare()

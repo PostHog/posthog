@@ -33,6 +33,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_housekeeping import SandboxHousekeeping
 from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
@@ -1239,15 +1240,17 @@ def test_active_session_cap_refuses_a_cold_start_before_create(mocker, warm: boo
 
 
 @pytest.mark.parametrize(
-    "failing_step,destroy_fails",
+    "failing_step,destroy_fails,agent_version_persisted",
     [
-        ("get_connect_credentials", False),
-        ("get_connect_credentials", True),
-        ("start_cpu_billing_sampler", False),
-        ("persist_sandbox_connection", False),
+        ("get_connect_credentials", False, False),
+        ("get_connect_credentials", True, False),
+        ("run_post_create_housekeeping", False, False),
+        ("persist_sandbox_connection", False, True),
     ],
 )
-def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
+def test_a_failure_after_create_destroys_the_fresh_sandbox(
+    mocker, failing_step: str, destroy_fails: bool, agent_version_persisted: bool
+):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -1263,8 +1266,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.config.image_fallback = None
     sandbox.config.snapshot_restored = False
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    sandbox.start_cpu_billing_sampler.return_value = True
-    sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+    sandbox.run_post_create_housekeeping.return_value = _housekeeping("1.2.3")
     failure: Exception = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
@@ -1299,18 +1301,28 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_called_once_with(
-        "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
+    expected_state_writes = (
+        [mocker.call("run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[])]
+        if agent_version_persisted
+        else []
     )
+    assert task_run.update_state_atomic.call_args_list == expected_state_writes
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 
-_MANIFEST_1_2_3 = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+def _housekeeping(agent_version: str | None) -> SandboxHousekeeping:
+    return SandboxHousekeeping(
+        agent_version=agent_version,
+        cpu_billing_sampler_started=True,
+        cpu_usage_usec=None,
+        billed_cpu_usage_usec=None,
+        cpu_usage_measured_at=None,
+    )
 
 
 def _create_and_record_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    agent_version: str | None,
     pinned: str | None,
     *,
     context: TaskProcessingContext | None = None,
@@ -1325,12 +1337,8 @@ def _create_and_record_agent_version(
     sandbox.config.image_fallback = image_fallback
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
-    sandbox.start_cpu_billing_sampler.return_value = True
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    if isinstance(manifest_result, Exception):
-        sandbox.execute.side_effect = manifest_result
-    else:
-        sandbox.execute.return_value = manifest_result
+    sandbox.run_post_create_housekeeping.return_value = _housekeeping(agent_version)
     mocker.patch.object(
         provision_sandbox_module,
         "get_sandbox_class_for_run_backend",
@@ -1365,44 +1373,24 @@ def _create_and_record_agent_version(
 
 
 @pytest.mark.parametrize(
-    ("manifest_result", "pinned", "updates", "remove_keys", "warns"),
+    ("agent_version", "pinned", "updates", "remove_keys", "warns"),
     [
-        (_MANIFEST_1_2_3, "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
-        (_MANIFEST_1_2_3, "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
-        (_MANIFEST_1_2_3, None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
-        (
-            ExecutionResult(stdout="{}", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="not json", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="", stderr="not found", exit_code=1),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (RuntimeError("manifest read failed"), None, {}, ["agent_version", "agent_version_expected"], False),
+        ("1.2.3", "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
+        ("1.2.3", "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
+        ("1.2.3", None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
+        (None, "1.2.4", {"agent_version_expected": "1.2.4"}, ["agent_version"], False),
+        (None, None, {}, ["agent_version", "agent_version_expected"], False),
     ],
 )
 def test_create_sandbox_records_installed_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    agent_version: str | None,
     pinned: str | None,
     updates: dict[str, str],
     remove_keys: list[str],
     warns: bool,
 ) -> None:
-    update_state, mismatch_extras, _ = _create_and_record_agent_version(mocker, manifest_result, pinned)
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(mocker, agent_version, pinned)
 
     update_state.assert_called_once_with("run-id", updates=updates, remove_keys=remove_keys)
     expected_extras = (
@@ -1439,7 +1427,7 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
         )
 
     update_state, mismatch_extras, _ = _create_and_record_agent_version(
-        mocker, _MANIFEST_1_2_3, "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
+        mocker, "1.2.3", "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
     )
 
     if compared:
@@ -1475,7 +1463,7 @@ def test_create_records_a_per_run_custom_image_boot_fallback(
     context.use_modal_vm_sandbox = True
 
     update_state, _, result = _create_and_record_agent_version(
-        mocker, _MANIFEST_1_2_3, "1.2.3", context=context, extra_state=extra_state, image_fallback=image_fallback
+        mocker, "1.2.3", "1.2.3", context=context, extra_state=extra_state, image_fallback=image_fallback
     )
 
     reason_writes = [

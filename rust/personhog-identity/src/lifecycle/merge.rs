@@ -2069,8 +2069,6 @@ async fn tombstone_sealed_sources(
         UPDATE {person_table} p
         SET is_deleted = true,
             properties = '{{}}'::jsonb,
-            properties_last_updated_at = '{{}}'::jsonb,
-            properties_last_operation = '{{}}'::jsonb,
             version = GREATEST(COALESCE(p.version, 0) + 1, (lop.sealed->>'version')::bigint + 1)
         FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4

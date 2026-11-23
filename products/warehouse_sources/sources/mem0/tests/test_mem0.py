@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.mem0.settings import (
     MEM0_BASE_URL,
     MEMORIES_ENDPOINT,
     MEMORY_HISTORY_ENDPOINT,
+    ORGANIZATION_MEMBERS_ENDPOINT,
     PROJECTS_ENDPOINT,
 )
 from products.warehouse_sources.sources.mem0.source import Mem0Source
@@ -230,26 +231,59 @@ class TestMemoryHistoryRows:
         ]
 
 
-class TestProjectsRows:
-    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self) -> None:
+class TestOrganizationChildRows:
+    @parameterized.expand(
+        [
+            (
+                PROJECTS_ENDPOINT,
+                "projects",
+                [{"project_id": "proj_a", "name": "A"}],
+                [{"project_id": "proj_b", "name": "B"}, {"project_id": "proj_c", "name": "C"}],
+                [
+                    {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
+                    {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
+                    {"project_id": "proj_c", "name": "C", "org_id": "org_2"},
+                ],
+            ),
+            (
+                ORGANIZATION_MEMBERS_ENDPOINT,
+                "members",
+                {"members": [{"user_id": "user_x", "role": "OWNER"}]},
+                # The same user in a second organization must stay a separate row.
+                {"members": [{"user_id": "user_x", "role": "READER"}, {"user_id": "user_y", "role": "READER"}]},
+                [
+                    {"user_id": "user_x", "role": "OWNER", "org_id": "org_1"},
+                    {"user_id": "user_x", "role": "READER", "org_id": "org_2"},
+                    {"user_id": "user_y", "role": "READER", "org_id": "org_2"},
+                ],
+            ),
+            (
+                ORGANIZATION_MEMBERS_ENDPOINT,
+                "members",
+                {"members": []},
+                {"members": [{"user_id": "user_y", "role": "READER"}]},
+                [{"user_id": "user_y", "role": "READER", "org_id": "org_2"}],
+            ),
+        ]
+    )
+    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(
+        self, endpoint: str, child_segment: str, org_1_body: Any, org_2_body: Any, expected_rows: list[dict[str, Any]]
+    ) -> None:
         result = _driver().run(
-            PROJECTS_ENDPOINT,
+            endpoint,
             [
                 ScriptedResponse(json=[{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
-                ScriptedResponse(json=[{"project_id": "proj_a", "name": "A"}]),
-                ScriptedResponse(json=[{"project_id": "proj_b", "name": "B"}]),
+                ScriptedResponse(json=org_1_body),
+                ScriptedResponse(json=org_2_body),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
-            {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
-        ]
+        assert result.rows == expected_rows
         assert result.paths == [
             "/api/v1/orgs/organizations/",
-            "/api/v1/orgs/organizations/org_1/projects/",
-            "/api/v1/orgs/organizations/org_2/projects/",
+            f"/api/v1/orgs/organizations/org_1/{child_segment}/",
+            f"/api/v1/orgs/organizations/org_2/{child_segment}/",
         ]
 
 

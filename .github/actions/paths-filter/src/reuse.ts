@@ -8,7 +8,8 @@ import {Filter, FilterResults} from './filter'
 const BUDGET_MS = 20000
 const CAPTURE_TIMEOUT_MS = 2000
 const COMPARE_FILE_CAP = 300
-const MAX_HEADS_WALKED = 20
+const MAX_EARLIER_HEADS = 30
+const FINGERPRINT_PATHS = 5
 const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000
 const DETAIL_SAMPLE = 5
 const NULL_SHA = '0000000000000000000000000000000000000000'
@@ -16,8 +17,10 @@ const POSTHOG_HOST = 'https://us.i.posthog.com'
 const EVENT_NAME = 'posthog-ci-reuse-decision'
 const MERGE_QUEUE_BRANCH_PREFIX = 'trunk-merge/'
 const PASSING_CONCLUSIONS = ['success', 'skipped']
+const INCONCLUSIVE_CONCLUSIONS = ['cancelled', 'stale']
 const DEFAULT_CHECK_APPS = ['github-actions']
 const TREES_PER_QUERY = 100
+const NEWER_HEADS_PER_BATCH = 5
 
 export type Reason =
   | 'reused'
@@ -79,7 +82,8 @@ export interface ReuseApi {
   filesAt(baseSha: string, headSha: string): Promise<File[] | null>
   checkRuns(sha: string, name: string): Promise<CheckRun[]>
   modes(sha: string, paths: string[]): Promise<Map<string, number | null>>
-  pullCommits(pullNumber: number): Promise<string[]>
+  branchHeads(branch: string): Promise<string[]>
+  blobs(shas: string[], paths: string[]): Promise<Map<string, (string | null)[]>>
   pullsWithCommit(sha: string): Promise<number[]>
   timeline(pullNumber: number): Promise<PullTimeline>
   changedOnBranchSince(branch: string, path: string, since: string): Promise<boolean>
@@ -90,6 +94,8 @@ export interface Decision {
   reason: Reason
   detail: string | null
   previousSha: string | null
+  earlierHeads: number | null
+  headsBehind: number | null
   keys: string[]
   durationMs: number
   pr: PullRequest
@@ -166,23 +172,30 @@ function isSha(value: string | undefined): value is string {
   return value !== undefined && /^[0-9a-f]{40}$/.test(value) && value !== NULL_SHA
 }
 
-type Verdict = Pick<Decision, 'reuse' | 'reason' | 'detail' | 'previousSha'>
+type Verdict = Pick<Decision, 'reuse' | 'reason' | 'detail' | 'previousSha' | 'earlierHeads' | 'headsBehind'>
 
-function miss(reason: Reason, detail: string | null = null): Verdict {
-  return {reuse: false, reason, detail, previousSha: null}
+function miss(reason: Reason, detail: string | null = null, earlierHeads: number | null = null): Verdict {
+  return {reuse: false, reason, detail, previousSha: null, earlierHeads, headsBehind: null}
 }
 
 interface ProvenRun {
   sha: string
   startedAt: string
+  earlierHeads: number | null
+  headsBehind: number
 }
 
-async function compareInputs(
+interface EarlierHeads {
+  shas: string[]
+  listed: number | null
+}
+
+async function differingFrom(
   input: ReuseInput,
   api: ReuseApi,
   current: Map<string, string>,
   sha: string
-): Promise<Verdict | null> {
+): Promise<string[] | Verdict> {
   const previousFiles = await api.filesAt(input.pr.base.sha, sha)
   if (previousFiles === null) {
     return miss('file-list-truncated', sha)
@@ -191,20 +204,46 @@ async function compareInputs(
   if (previous === null) {
     return miss('error', `a file at ${sha} has no blob sha`)
   }
-  const differing = differingFiles(current, previous)
-  if (differing.length > 0) {
-    return miss('inputs-changed', differing.slice(0, DETAIL_SAMPLE).join(', '))
-  }
-  return null
+  return differingFiles(current, previous)
 }
 
-async function headsToWalk(input: ReuseInput & {before: string}, api: ReuseApi): Promise<string[]> {
-  const commits = await api.pullCommits(input.pr.number)
-  const index = commits.lastIndexOf(input.before)
-  if (index < 0) {
-    return [input.before]
+async function earlierHeads(input: ReuseInput, api: ReuseApi, before: string): Promise<EarlierHeads> {
+  const {head} = input.pr
+  let listed: string[] | null = null
+  try {
+    listed = await api.branchHeads(head.ref)
+  } catch (error) {
+    core.info(`reuse: branch activity unavailable (${error instanceof Error ? error.message : String(error)})`)
   }
-  return commits.slice(Math.max(0, index - MAX_HEADS_WALKED + 1), index + 1).reverse()
+  const older = (listed ?? []).slice((listed ?? []).indexOf(head.sha) + 1)
+  const shas = [...new Set([before, ...older])].filter(sha => isSha(sha) && sha !== head.sha)
+  return {shas: shas.slice(0, MAX_EARLIER_HEADS), listed: listed === null ? null : shas.length}
+}
+
+async function headsWithSameContent(
+  input: ReuseInput,
+  api: ReuseApi,
+  heads: string[],
+  before: string,
+  differingFromBefore: string[],
+  current: Map<string, string>
+): Promise<string[]> {
+  const others = heads.filter(sha => sha !== before)
+  const beforeMatches = differingFromBefore.length === 0
+  if (others.length === 0) {
+    return beforeMatches ? [before] : []
+  }
+  const paths = [...new Set([...differingFromBefore, ...current.keys()])].slice(0, FINGERPRINT_PATHS)
+  let blobs: Map<string, (string | null)[]>
+  try {
+    blobs = await api.blobs([input.pr.head.sha, ...others], paths)
+  } catch (error) {
+    core.info(`reuse: earlier head contents unavailable (${error instanceof Error ? error.message : String(error)})`)
+    return beforeMatches ? [before] : []
+  }
+  const now = JSON.stringify(blobs.get(input.pr.head.sha))
+  const matching = new Set(others.filter(sha => JSON.stringify(blobs.get(sha)) === now))
+  return heads.filter(sha => (sha === before ? beforeMatches : matching.has(sha)))
 }
 
 async function checkRunsFrom(input: ReuseInput, api: ReuseApi, sha: string, names: string[]): Promise<CheckRun[][]> {
@@ -217,33 +256,89 @@ function earliestSuite(runs: CheckRun[]): string | null {
   return created.length === runs.length ? created[0] : null
 }
 
-async function proveRun(input: ReuseInput & {before: string}, api: ReuseApi): Promise<ProvenRun | Verdict> {
+function isPassing(run: CheckRun): boolean {
+  return PASSING_CONCLUSIONS.includes(run.conclusion ?? '')
+}
+
+function isFailure(run: CheckRun): boolean {
+  return run.status === 'completed' && !isPassing(run) && !INCONCLUSIVE_CONCLUSIONS.includes(run.conclusion ?? '')
+}
+
+function firstFailure(config: ReuseConfig, shas: string[], gatesByHead: CheckRun[][][]): string | null {
+  for (const [index, gates] of gatesByHead.entries()) {
+    const failedGate = gates.findIndex(runs => runs.some(isFailure))
+    if (failedGate >= 0) {
+      const failed = gates[failedGate].find(isFailure)
+      return `${shas[index]} ${config.checks[failedGate]}: ${failed?.conclusion}`
+    }
+  }
+  return null
+}
+
+async function firstFailedNewerHead(input: ReuseInput, api: ReuseApi, shas: string[]): Promise<string | null> {
+  for (let start = 0; start < shas.length; start += NEWER_HEADS_PER_BATCH) {
+    const batch = shas.slice(start, start + NEWER_HEADS_PER_BATCH)
+    const gatesByHead = await Promise.all(batch.map(async sha => checkRunsFrom(input, api, sha, input.config.checks)))
+    const failure = firstFailure(input.config, batch, gatesByHead)
+    if (failure) {
+      return failure
+    }
+  }
+  return null
+}
+
+async function proveRun(
+  input: ReuseInput,
+  api: ReuseApi,
+  current: Map<string, string>,
+  before: string
+): Promise<ProvenRun | Verdict> {
   const {config} = input
-  for (const sha of await headsToWalk(input, api)) {
+  const differingFromBefore = await differingFrom(input, api, current, before)
+  if (!Array.isArray(differingFromBefore)) {
+    return differingFromBefore
+  }
+  const heads = await earlierHeads(input, api, before)
+  const candidates = await headsWithSameContent(input, api, heads.shas, before, differingFromBefore, current)
+  let unchecked = 0
+  for (const sha of candidates) {
+    if (sha !== before) {
+      const differing = await differingFrom(input, api, current, sha)
+      if (!Array.isArray(differing)) {
+        return {...differing, earlierHeads: heads.listed}
+      }
+      if (differing.length > 0) {
+        continue
+      }
+    }
+    const position = heads.shas.indexOf(sha)
+    const newer = heads.shas.slice(unchecked, position)
+    unchecked = position + 1
+    const newerFailure = await firstFailedNewerHead(input, api, newer)
+    if (newerFailure) {
+      return miss('previous-not-green', newerFailure, heads.listed)
+    }
     const [gates, proofs] = await Promise.all([
       checkRunsFrom(input, api, sha, config.checks),
       checkRunsFrom(input, api, sha, config.proofChecks)
     ])
-    const missing = gates.filter(runs => runs.length === 0).length
-    for (const [index, runs] of gates.entries()) {
-      const notGreen = runs.find(run => !PASSING_CONCLUSIONS.includes(run.conclusion ?? ''))
-      if (notGreen) {
-        return miss('previous-not-green', `${sha} ${config.checks[index]}: ${notGreen.conclusion ?? notGreen.status}`)
-      }
+    const failure = firstFailure(config, [sha], [gates])
+    if (failure) {
+      return miss('previous-not-green', failure, heads.listed)
     }
-    if (missing === config.checks.length && sha !== input.before) {
+    const allGatesPassed = gates.every(runs => runs.length > 0 && runs.every(isPassing))
+    const proof = allGatesPassed ? proofs.flat().find(run => run.conclusion === 'success') : undefined
+    if (!proof) {
       continue
     }
-    if (missing > 0) {
-      return miss('previous-not-green', `${sha}: no check run for ${missing} of ${config.checks.length} checks`)
-    }
-    const proof = proofs.flat().find(run => run.conclusion === 'success')
-    if (proof) {
-      const startedAt = earliestSuite([...gates.flat(), proof])
-      return startedAt ? {sha, startedAt} : miss('error', `${sha}: a check run has no check suite time`)
-    }
+    const startedAt = earliestSuite([...gates.flat(), proof])
+    return startedAt
+      ? {sha, startedAt, earlierHeads: heads.listed, headsBehind: position}
+      : miss('error', `${sha}: a check run has no check suite time`, heads.listed)
   }
-  return miss('no-proven-run')
+  return differingFromBefore.length > 0
+    ? miss('inputs-changed', differingFromBefore.slice(0, DETAIL_SAMPLE).join(', '), heads.listed)
+    : miss('no-proven-run', null, heads.listed)
 }
 
 async function changedModes(
@@ -298,45 +393,46 @@ async function decide(input: ReuseInput, api: ReuseApi): Promise<Verdict> {
   if (current.size === 0) {
     return miss('no-inputs')
   }
-  const againstPrevious = await compareInputs(input, api, current, before)
-  if (againstPrevious) {
-    return againstPrevious
-  }
-  const proven = await proveRun({...input, before}, api)
+  const proven = await proveRun(input, api, current, before)
   if ('reason' in proven) {
     return proven
   }
-  if (proven.sha !== before) {
-    const againstProven = await compareInputs(input, api, current, proven.sha)
-    if (againstProven) {
-      return againstProven
-    }
+  const missed = (reason: Reason, detail: string | null): Verdict => miss(reason, detail, proven.earlierHeads)
+  if (proven.startedAt < pr.created_at) {
+    return missed('shared-head', `${proven.sha} ran before #${pr.number} was opened`)
   }
   const otherPulls = (await api.pullsWithCommit(proven.sha)).filter(number => number !== pr.number)
   if (otherPulls.length > 0) {
-    return miss('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`)
+    return missed('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`)
   }
   const modeChanges = await changedModes(input, api, current, proven.sha)
   if (modeChanges.length > 0) {
-    return miss('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`)
+    return missed('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`)
   }
   if (Date.parse(proven.startedAt) > input.now) {
-    return miss('error', `${proven.sha} started in the future, at ${proven.startedAt}`)
+    return missed('error', `${proven.sha} started in the future, at ${proven.startedAt}`)
   }
   if (input.now - Date.parse(proven.startedAt) > MAX_SOURCE_AGE_MS) {
-    return miss('previous-too-old', `${proven.sha} started ${proven.startedAt}`)
+    return missed('previous-too-old', `${proven.sha} started ${proven.startedAt}`)
   }
   const timeline = await api.timeline(pr.number)
   if (!pr.draft && timeline.readyForReviewAt !== null && proven.startedAt < timeline.readyForReviewAt) {
-    return miss('previous-ran-as-draft', proven.sha)
+    return missed('previous-ran-as-draft', proven.sha)
   }
   if (timeline.baseChangedAt !== null && timeline.baseChangedAt > proven.startedAt) {
-    return miss('base-changed', timeline.baseChangedAt)
+    return missed('base-changed', timeline.baseChangedAt)
   }
   if (await api.changedOnBranchSince(pr.base.ref, config.filterSource, proven.startedAt)) {
-    return miss('filter-changed', config.filterSource)
+    return missed('filter-changed', config.filterSource)
   }
-  return {reuse: true, reason: 'reused', detail: null, previousSha: proven.sha}
+  return {
+    reuse: true,
+    reason: 'reused',
+    detail: null,
+    previousSha: proven.sha,
+    earlierHeads: proven.earlierHeads,
+    headsBehind: proven.headsBehind
+  }
 }
 
 export async function evaluate(input: ReuseInput, apiFor: (signal: AbortSignal) => ReuseApi): Promise<Decision> {
@@ -411,6 +507,8 @@ interface TreeEntry {
 }
 
 type TreesResponse = {repository: Record<string, {entries?: TreeEntry[]} | null>}
+
+type BlobsResponse = {repository: Record<string, {oid: string} | null>}
 
 function directoryOf(path: string): string {
   const slash = path.lastIndexOf('/')
@@ -499,15 +597,35 @@ export function githubApi(token: string, signal: AbortSignal): ReuseApi {
         ])
       )
     },
-    async pullCommits(pullNumber) {
-      const commits = await client.paginate(client.rest.pulls.listCommits, {
+    async branchHeads(branch) {
+      const response = await client.rest.repos.listActivities({
         owner,
         repo,
-        pull_number: pullNumber,
+        ref: `refs/heads/${branch}`,
+        time_period: 'day',
         per_page: 100,
         request
       })
-      return commits.map(commit => commit.sha)
+      return response.data.map(activity => activity.after)
+    },
+    async blobs(shas, paths) {
+      const variables: Record<string, unknown> = {owner, name: repo, request}
+      const names: string[] = []
+      const fields = shas.flatMap((sha, s) =>
+        paths.map((path, p) => {
+          names.push(`e${s}_${p}`)
+          variables[`e${s}_${p}`] = `${sha}:${path}`
+          return `b${s}_${p}: object(expression: $e${s}_${p}) { oid }`
+        })
+      )
+      const declarations = names.map(name => `$${name}: String!`).join(', ')
+      const response = await client.graphql<BlobsResponse>(
+        `query ($owner: String!, $name: String!, ${declarations}) { repository(owner: $owner, name: $name) { ${fields.join(
+          ' '
+        )} } }`,
+        variables
+      )
+      return new Map(shas.map((sha, s) => [sha, paths.map((_, p) => response.repository[`b${s}_${p}`]?.oid ?? null)]))
     },
     async pullsWithCommit(sha) {
       const response = await client.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -564,6 +682,8 @@ async function capture(apiKey: string, decision: Decision): Promise<void> {
         detail: decision.detail,
         filters: decision.keys,
         previous_sha: decision.previousSha,
+        earlier_heads: decision.earlierHeads,
+        heads_behind: decision.headsBehind,
         pr_number: pr.number,
         head_sha: pr.head.sha,
         head_ref: pr.head.ref,

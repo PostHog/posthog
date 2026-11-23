@@ -5,7 +5,9 @@ import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionSetApi,
 } from '../../generated/api.schemas'
+import type { SignalScoutConfigApi } from '../../generated/api.schemas'
 import { AGENT_ROSTER_GROUPS } from '../components/config/agentRosterMeta'
+import type { ScoutSuggestionSurface } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
 import { inboxSetupLogic } from './inboxSetupLogic'
@@ -38,8 +40,8 @@ export interface inboxActivationLogicActions {
     } // inboxSetupLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadSuggestions: (_?: void | undefined) => void // scoutSuggestionsLogic
-    reportSuggestionsShown: (surface: import('../inboxAnalytics').ScoutSuggestionSurface) => {
-        surface: import('../inboxAnalytics').ScoutSuggestionSurface
+    reportSuggestionsShown: (surface: ScoutSuggestionSurface) => {
+        surface: ScoutSuggestionSurface
     } // scoutSuggestionsLogic
     loadSourceConfigs: () => any // signalSourcesLogic
     loadVisionScanners: () => any // signalSourcesLogic
@@ -62,9 +64,7 @@ export interface inboxActivationLogicMeta {
             recommendationsReady: boolean
         ) => ScoutSuggestionItemApi[]
         sourceNames: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => string[]
-        generalScout: (
-            scoutConfigs: import('../../generated/api.schemas').SignalScoutConfigApi[] | null
-        ) => SignalScoutConfig | null
+        generalScout: (scoutConfigs: SignalScoutConfigApi[] | null) => SignalScoutConfig | null
         recommendationsReady: (
             suggestionSet: ScoutSuggestionSetApi | null,
             savedState: InboxOnboardingStateApi | null

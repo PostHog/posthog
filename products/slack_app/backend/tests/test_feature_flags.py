@@ -41,6 +41,7 @@ USER_KEYED_GATES = [
     feature_flags.is_slack_app_connect_tool_from_chat_enabled,
     feature_flags.is_slack_app_daily_work_focus_enabled,
     feature_flags.is_slack_app_slack_mcp_enabled,
+    feature_flags.is_slack_app_daily_summary_enabled,
 ]
 
 
@@ -71,31 +72,19 @@ def test_user_keyed_gate_resolves_against_the_acting_user(
 
 
 @pytest.mark.parametrize(
-    ("adapter", "plan_rollout_on", "slack_flag_on", "expected"),
+    ("adapter", "distinct_id", "plan_rollout_on", "expected"),
     [
-        ("codex", True, True, True),
-        ("codex", False, True, True),
-        ("codex", True, False, False),
-        ("claude", True, True, True),
-        ("claude", False, True, False),
-        ("claude", True, False, False),
+        ("codex", "user-1", False, True),
+        ("codex", None, True, False),
+        ("claude", "user-1", True, True),
+        ("claude", "user-1", False, False),
     ],
-    ids=[
-        "codex both on",
-        "codex ignores plan rollout",
-        "codex slack flag off",
-        "claude both on",
-        "claude plan rollout off",
-        "claude slack flag off",
-    ],
+    ids=["codex is open", "codex needs a user", "claude rollout on", "claude rollout off"],
 )
-def test_byos_gate_respects_slack_and_adapter_rollouts(
-    workspace_integration: Integration, adapter: str, plan_rollout_on: bool, slack_flag_on: bool, expected: bool
+def test_byos_gate_follows_the_plan_rollout(
+    workspace_integration: Integration, adapter: str, distinct_id: str | None, plan_rollout_on: bool, expected: bool
 ) -> None:
-    def feature_enabled(key, *args, **kwargs):
-        if key == feature_flags.SLACK_APP_BYOS_FLAG:
-            return slack_flag_on
-        return plan_rollout_on
-
-    with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
-        assert feature_flags.is_slack_app_byos_enabled(workspace_integration, "user-1", adapter=adapter) is expected
+    # A Slack run marked for a plan whose rollout is off fails when it starts, so the gate
+    # must match the tasks rollout for that plan exactly.
+    with patch("posthoganalytics.feature_enabled", return_value=plan_rollout_on):
+        assert feature_flags.is_slack_app_byos_enabled(workspace_integration, distinct_id, adapter=adapter) is expected

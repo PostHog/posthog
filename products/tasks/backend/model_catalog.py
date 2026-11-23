@@ -177,6 +177,7 @@ _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
 _GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_2_ASTRA_COST = ModelCost(8, 40)
 _GPT_6_1_SOL_COST = ModelCost(
     2,
     10,
@@ -271,6 +272,8 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
+    CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST),
     # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
     # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
     CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
@@ -285,6 +288,8 @@ FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-sol", _THROUGH_MAX),
     (CODEX, "gpt-6.1-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.2-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.2-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
@@ -302,7 +307,7 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 # choice can improve without rewriting anything stored.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CLAUDE: "claude-sonnet-5-5",
-    CODEX: "gpt-6.1-sol",
+    CODEX: "gpt-6.2-sol",
 }
 
 

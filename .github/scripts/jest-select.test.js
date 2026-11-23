@@ -117,12 +117,96 @@ for (const isDraft of [false, true]) {
     }
 }
 
+test('the merge queue and a labeled PR run the full suite even as drafts', () => {
+    for (const files of [['pnpm-lock.yaml'], ['frontend/src/a.ts']]) {
+        const selection = classifyChanges({ ...ready, files, isDraft: true, forceFull: true })
+        assert.equal(selection.mode, 'full')
+        assert.equal(selection.reason.category, 'forced_full')
+        const outputs = workflowOutputs(selection)
+        assert.equal(outputs.should_run, 'true')
+        assert.equal(outputs.matrix, '')
+    }
+    // Without the flag the same draft defers, which is what a normal PR does.
+    assert.equal(classifyChanges({ ...ready, files: ['pnpm-lock.yaml'], isDraft: true }).mode, 'skip')
+})
+
+test('a shard plans a forced-full draft as the full matrix', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
+    try {
+        const changedFiles = path.join(directory, 'changed.txt')
+        fs.writeFileSync(changedFiles, 'frontend/src/a.ts\n')
+        const output = path.join(directory, 'plan-forced')
+        const result = spawnSync(process.execPath, [path.join(__dirname, 'jest-select.js'), 'plan'], {
+            encoding: 'utf8',
+            env: {
+                CHANGED_FILES_PATH: changedFiles,
+                DIFF_OUTCOME: 'success',
+                PR_DRAFT: 'true',
+                FORCE_FULL: 'true',
+                GITHUB_OUTPUT: output,
+            },
+        })
+        assert.deepEqual({ status: result.status, stderr: result.stderr }, { status: 0, stderr: '' })
+        const outputs = Object.fromEntries(
+            fs
+                .readFileSync(output, 'utf8')
+                .trimEnd()
+                .split('\n')
+                .map((line) => {
+                    const equals = line.indexOf('=')
+                    return [line.slice(0, equals), line.slice(equals + 1)]
+                })
+        )
+        assert.equal(outputs.mode, 'full')
+        assert.equal(outputs.should_run, 'true')
+        assert.equal(outputs.needs_dependencies, 'true')
+        assert.equal(outputs.changed_files, '')
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true })
+    }
+})
+
 test('a diff without Jest sources needs neither dependencies nor test listing', () => {
     const selection = selectTests({ ...ready, files: ['frontend/src/a.scss'], installOutcome: 'skipped' }, () => {
         assert.fail('must not invoke Jest for an empty source selection')
     })
     assert.equal(selection.mode, 'selective')
     assert.equal(workflowOutputs(selection).should_run, 'false')
+})
+
+test('a shard plans a draft with an untrusted selection as skip, and a ready one as the full matrix', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
+    try {
+        const changedFiles = path.join(directory, 'changed.txt')
+        // A lockfile change invalidates any selection: the whole suite can be affected.
+        fs.writeFileSync(changedFiles, 'pnpm-lock.yaml\n')
+        for (const [draft, expected] of [
+            ['true', { mode: 'skip', should_run: 'false', changed_files: '' }],
+            ['false', { mode: 'full', should_run: 'true', changed_files: '' }],
+        ]) {
+            const output = path.join(directory, `plan-${draft}`)
+            const result = spawnSync(process.execPath, [path.join(__dirname, 'jest-select.js'), 'plan'], {
+                encoding: 'utf8',
+                env: { CHANGED_FILES_PATH: changedFiles, DIFF_OUTCOME: 'success', PR_DRAFT: draft, GITHUB_OUTPUT: output },
+            })
+            assert.deepEqual({ status: result.status, stderr: result.stderr }, { status: 0, stderr: '' })
+            const outputs = Object.fromEntries(
+                fs
+                    .readFileSync(output, 'utf8')
+                    .trimEnd()
+                    .split('\n')
+                    .map((line) => {
+                        const equals = line.indexOf('=')
+                        return [line.slice(0, equals), line.slice(equals + 1)]
+                    })
+            )
+            for (const [key, value] of Object.entries(expected)) {
+                assert.equal(outputs[key], value)
+            }
+        }
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true })
+    }
 })
 
 test('the CLI prepares dependency installation and writes the final fallback without temporary state', () => {
@@ -132,6 +216,12 @@ test('the CLI prepares dependency installation and writes the final fallback wit
         fs.writeFileSync(changedFiles, 'frontend/src/a.ts\n')
         for (const [args, expected] of [
             [['prepare'], { needs_dependencies: 'true' }],
+            [
+                // The jest job's per-shard plan: classification only, so every shard can
+                // pick its tests without waiting for the selector to install and count.
+                ['plan'],
+                { mode: 'selective', should_run: 'true', changed_files: 'src/a.ts' },
+            ],
             [
                 ['select'],
                 {

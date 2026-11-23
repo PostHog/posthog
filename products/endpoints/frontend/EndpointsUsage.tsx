@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -12,8 +13,10 @@ import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageFilters } from './EndpointsUsageFilters'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
+import { QuillEndpointsUsage } from './QuillEndpointsUsage'
 
 export function EndpointsUsage(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         overviewQuery,
         requestsTrendsQuery,
@@ -65,6 +68,10 @@ export function EndpointsUsage(): JSX.Element {
         }),
         [activeEndpointNames]
     )
+
+    if (todayRailNav) {
+        return <QuillEndpointsUsage />
+    }
 
     return (
         <>

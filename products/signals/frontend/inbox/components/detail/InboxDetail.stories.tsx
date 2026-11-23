@@ -202,10 +202,14 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const StatusBlock: Story = {
     render: function RenderStatusBlock() {
         const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const [selectedPullRequestUrl, setSelectedPullRequestUrl] = useState(
+            'https://github.com/PostHog/posthog/pull/12002'
+        )
         const report = makeReport({
             status: SignalReportStatus.READY,
             priority,
             actionability: 'immediately_actionable',
+            repo_slug: 'posthog/posthog',
             implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
             implementation_pr_state: 'open',
             pull_requests: [
@@ -245,7 +249,12 @@ export const StatusBlock: Story = {
         return (
             <Frame>
                 <div className="w-[26rem] border border-primary bg-surface-primary p-5">
-                    <ReportStatusSection report={report} onPriorityChange={setPriority} />
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        selectedPullRequestUrl={selectedPullRequestUrl}
+                        onSelectPullRequest={setSelectedPullRequestUrl}
+                    />
                 </div>
             </Frame>
         )
@@ -280,12 +289,24 @@ export const StatusBlockWithEditableDecisions: Story = {
     render: function RenderStatusBlockWithEditableDecisions() {
         const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
         const [repository, setRepository] = useState('example-org/web-app')
+        const [actionability, setActionability] =
+            useState<NonNullable<SignalReport['actionability']>>('immediately_actionable')
+        const [alreadyAddressed, setAlreadyAddressed] = useState(false)
         const report = makeReport({
             status: SignalReportStatus.READY,
             priority,
+            actionability,
+            already_addressed: alreadyAddressed,
             repo_slug: repository,
             pull_requests: [],
         })
+        const agentJudgment = {
+            person: null,
+            agent: null,
+            setAt: '2026-06-09T09:00:00Z',
+            reason: 'The failing request path and the checkout handler are both named, and no open pull request covers them.',
+            previousValue: null,
+        }
         return (
             <Frame>
                 <div className="w-[26rem] border border-primary bg-surface-primary p-5">
@@ -293,6 +314,11 @@ export const StatusBlockWithEditableDecisions: Story = {
                         report={report}
                         onPriorityChange={setPriority}
                         onRepositoryChange={setRepository}
+                        onActionabilityChange={(change) =>
+                            'actionability' in change
+                                ? setActionability(change.actionability)
+                                : setAlreadyAddressed(change.alreadyAddressed)
+                        }
                         decisionAttributions={{
                             repository: {
                                 person: null,
@@ -308,8 +334,45 @@ export const StatusBlockWithEditableDecisions: Story = {
                                 reason: null,
                                 previousValue: 'P3',
                             },
+                            actionability: agentJudgment,
+                            already_addressed: agentJudgment,
                         }}
                     />
+                </div>
+            </Frame>
+        )
+    },
+}
+
+export const StatusBlockWithOnePullRequest: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: function RenderStatusBlockWithOnePullRequest() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P2')
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            repo_slug: 'example-org/web-app',
+            pull_requests: [
+                {
+                    id: '019e64b8-0000-7000-8000-000000000201',
+                    url: 'https://github.com/example-org/web-app/pull/12004',
+                    state: 'draft',
+                    merged: false,
+                    review_decision: 'review_required',
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection report={report} onPriorityChange={setPriority} />
                 </div>
             </Frame>
         )

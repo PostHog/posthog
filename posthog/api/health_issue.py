@@ -161,6 +161,10 @@ class HealthIssueCountsSerializer(serializers.Serializer):
         child=serializers.IntegerField(),
         help_text="Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
     )
+    worst_severity_by_kind = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="The most severe severity among the issues of each check kind in this group, keyed by kind.",
+    )
 
 
 class HealthIssueSummarySerializer(serializers.Serializer):
@@ -268,11 +272,13 @@ class HealthIssuePagination(BoundedLimitOffsetPagination):
     max_limit = 250
 
 
-SEVERITY_ORDERING = Case(
-    When(severity=HealthIssue.Severity.CRITICAL, then=0),
-    When(severity=HealthIssue.Severity.WARNING, then=1),
-    When(severity=HealthIssue.Severity.INFO, then=2),
-)
+SEVERITY_RANK: dict[str, int] = {
+    HealthIssue.Severity.CRITICAL.value: 0,
+    HealthIssue.Severity.WARNING.value: 1,
+    HealthIssue.Severity.INFO.value: 2,
+}
+
+SEVERITY_ORDERING = Case(*(When(severity=severity, then=rank) for severity, rank in SEVERITY_RANK.items()))
 
 VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
@@ -376,11 +382,22 @@ class HealthIssueResourceAccessPermission(BasePermission):
 
 
 def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
-    by_severity = {
-        row["severity"]: row["count"] for row in queryset.order_by().values("severity").annotate(count=Count("id"))
+    by_severity: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    worst_severity_by_kind: dict[str, str] = {}
+    for row in queryset.order_by().values("kind", "severity").annotate(count=Count("id")):
+        kind, severity, count = row["kind"], row["severity"], row["count"]
+        by_severity[severity] = by_severity.get(severity, 0) + count
+        by_kind[kind] = by_kind.get(kind, 0) + count
+        worst = worst_severity_by_kind.get(kind)
+        if worst is None or SEVERITY_RANK[severity] < SEVERITY_RANK[worst]:
+            worst_severity_by_kind[kind] = severity
+    return {
+        "total": sum(by_severity.values()),
+        "by_severity": by_severity,
+        "by_kind": by_kind,
+        "worst_severity_by_kind": worst_severity_by_kind,
     }
-    by_kind = {row["kind"]: row["count"] for row in queryset.order_by().values("kind").annotate(count=Count("id"))}
-    return {"total": sum(by_severity.values()), "by_severity": by_severity, "by_kind": by_kind}
 
 
 def _report_triage_actions(
