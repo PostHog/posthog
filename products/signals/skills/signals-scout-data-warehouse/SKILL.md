@@ -78,7 +78,7 @@ WHERE should_sync AND deleted = 0
 ORDER BY status, hours_since_sync DESC
 ```
 
-`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
+`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
 
 - `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`, `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the whole project, and never use `external-data-sources-list` for the schema sweep — each source there embeds all its schemas, so the response is many MB on a large project.**
 - `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
@@ -259,7 +259,7 @@ The sweep is SQL over the metadata system tables; REST is per-candidate drill-do
 `execute-sql` over the warehouse metadata tables (the bulk scan — one query, no pagination):
 
 - `system.source_schemas` — one row per armed/unarmed import table: `should_sync`, `status`, `sync_type`, `last_synced_at` (a real `DateTime`), `latest_error`, `source_id`. The schema sweep and the staleness scan both run off this. **HogQL footguns:** `should_sync` is a `Boolean` (use it bare, `WHERE should_sync` — no `= 1`), but `deleted` is an `Integer` (`deleted = 0`). It has **no** `sync_frequency` column — pull cadence from REST.
-- `system.data_warehouse_sources` — one row per source (`source_type`, `prefix`, `created_at`); has **no** `status` / `latest_error` (those are REST-only — use `-sources-retrieve`).
+- `system.data_warehouse_sources` — one row per source (`source_type`, `prefix`, `created_at`, `status`). `status` rolls up the source's enabled tables, the same as REST, so it can find source-level cascades in SQL. It has **no** `latest_error` (REST-only — use `-sources-retrieve`).
 - `system.data_modeling_views` — saved queries / materialized views: `status`, `is_materialized`, `last_run_at`, `query` (the JSON HogQL definition — the downstream-consumer check searches it). The materialized-view sweep.
 - `system.data_modeling_jobs` — one row per materialization run: `data_modeling_view_id`, `status`, `created_at`. `min(created_at)` per view dates materialization activation for the waste gate.
 - `system.data_warehouse_tables` — queryable warehouse tables: `name` (the **storage** name; synced tables are queried by the dotted HogQL form instead — see the roster step), `row_count` (nullable — direct-access tables have none), `external_data_source_id`. The optimization-lane candidate roster.

@@ -734,7 +734,9 @@ tools:
             Check what external data is already connected before answering any revenue, billing, subscription, CRM,
             support-ticket, or product-database question — call this first so you JOIN against an existing source
             instead of telling the user the data isn't available. Lists every configured import source with its type
-            (Postgres, Stripe, Hubspot, etc.), prefix, health status, latest error, and last sync timestamp. If nothing
+            (Postgres, Stripe, Hubspot, etc.), prefix, health status, latest error, and last sync timestamp. The source
+            `status` and `latest_error` roll up only its enabled tables (`Paused` when all are disabled), the same as
+            `system.data_warehouse_sources.status`. If nothing
             relevant is connected, offer to set one up with 'data-warehouse-source-setup'. By default (`compact: true`)
             each table is one summary row (id, name, should_sync, status, last_synced_at, latest_error), and errors are
             cut to 500 characters. Pass `include_schemas: false` to get source-level health only, which keeps the
@@ -890,7 +892,8 @@ tools:
         title: Get data warehouse source
         description: >
             Get a single data warehouse source by ID. By default (`compact: true`) it returns source health: source
-            type, prefix, status, latest error, last sync timestamp, and one summary row per table (id, name,
+            type, prefix, status and latest error rolled up from its enabled tables, last sync timestamp, and one
+            summary row per table (id, name,
             should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Pass `include_schemas:
             false` to leave out the tables. Pass `compact: false` for connection settings (secrets redacted) and the
             full sync configuration of each table; per-table column definitions are still omitted — use

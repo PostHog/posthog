@@ -119,6 +119,13 @@ class TestWarehouseSourcesFacade(BaseTest):
                 "Paused",
             ),
             ("no_schema_state", [(None, True)], "Running"),
+            # A disabled table keeps the state it stopped in, and that must not leak into the source.
+            (
+                "running_but_disabled",
+                [(ExternalDataSchema.Status.COMPLETED, True), (ExternalDataSchema.Status.RUNNING, False)],
+                "Completed",
+            ),
+            ("all_disabled", [(ExternalDataSchema.Status.COMPLETED, False)], "Paused"),
         ]
     )
     def test_list_source_health_status_matches_source_list(
@@ -138,12 +145,13 @@ class TestWarehouseSourcesFacade(BaseTest):
             )
 
         [health] = api.list_source_health(self.team.pk)
-        serializer_status = ExternalDataSourceSerializers(context={"get_team": lambda: self.team}).get_status(
-            self.source
-        )
+        serializer = ExternalDataSourceSerializers(context={"get_team": lambda: self.team})
 
         assert health.status == expected
-        assert serializer_status == expected
+        assert serializer.get_status(self.source) == expected
+        # Only the disabled tables carry an error, so neither reader reports one.
+        assert health.latest_error is None
+        assert serializer.get_latest_error(self.source) is None
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(

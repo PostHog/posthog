@@ -334,9 +334,8 @@ class ExternalDataSourceViewSet(
             .select_related("created_by", "revenue_analytics_config")
             .annotate(latest_completed_run_at=ExternalDataJob.latest_completed_job_subquery(self.team_id, "created_at"))
             .prefetch_related(
-                # The one place schemas are read during serialization. `active_schemas` used to be a
-                # second prefetch over the same rows — it's now derived in Python from this one (see
-                # `_active_schemas`), so the schema table is scanned once.
+                # The one place schemas are read during serialization. The source status and error
+                # derive from it too (see `_live_schemas`), so the schema table is scanned once.
                 Prefetch("schemas", queryset=schemas_queryset.order_by("name")),
             )
             .order_by(self.ordering)

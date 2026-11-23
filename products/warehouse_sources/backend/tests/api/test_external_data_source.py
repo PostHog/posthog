@@ -683,6 +683,10 @@ class TestExternalDataSource(APIBaseTest):
         )
         # a disabled schema must not drag the source into a failed state
         self._make_schema_with_table(source, "Old", status=ExternalDataSchema.Status.COMPLETED, should_sync=False)
+        # nor lend it a stale error, even when it sorts first
+        self._make_schema_with_table(
+            source, "Accounts", status=ExternalDataSchema.Status.FAILED, latest_error="stale", should_sync=False
+        )
 
         result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
         self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)

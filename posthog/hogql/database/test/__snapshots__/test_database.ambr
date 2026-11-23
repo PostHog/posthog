@@ -6653,7 +6653,7 @@
               },
               "status": {
                   "chain": null,
-                  "description": "Legacy source-level status, deprecated in favour of per-schema status in source_schemas.status; may be stale.",
+                  "description": "Source sync status rolled up from its enabled tables in source_schemas: Failed, Billing limits, Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is disabled. Matches the status the source API reports.",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,
@@ -23600,7 +23600,7 @@
               },
               "status": {
                   "chain": null,
-                  "description": "Legacy source-level status, deprecated in favour of per-schema status in source_schemas.status; may be stale.",
+                  "description": "Source sync status rolled up from its enabled tables in source_schemas: Failed, Billing limits, Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is disabled. Matches the status the source API reports.",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,

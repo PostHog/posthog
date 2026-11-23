@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessi
 from posthog.hogql.database.schema.system import (
     definition_tags_join,
     endpoint_current_version_join,
+    source_schema_status_join,
     task_latest_run_join,
     ticket_assignment_join,
     ticket_tags_join,
@@ -94,6 +95,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.DEFINITION_TAGS: definition_tags_join,
     tags.TICKET_ASSIGNMENT: ticket_assignment_join,
     tags.TASK_LATEST_RUN: task_latest_run_join,
+    tags.SOURCE_SCHEMA_STATUS: source_schema_status_join,
     tags.ENDPOINT_CURRENT_VERSION: endpoint_current_version_join,
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,

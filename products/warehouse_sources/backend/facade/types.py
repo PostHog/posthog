@@ -1623,6 +1623,21 @@ class ExternalDataSchemaStatus(LabeledStrEnum):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
+# The schema states that decide a source's status, strongest first, each with the status the
+# source reports. Only enabled schemas count. Python and the `system.data_warehouse_sources`
+# table both read this, so every surface reports the same source status.
+SOURCE_STATUS_BY_SCHEMA_STATUS: tuple[tuple[str, str], ...] = (
+    (ExternalDataSchemaStatus.FAILED, ExternalDataSchemaStatus.FAILED),
+    (ExternalDataSchemaStatus.BILLING_LIMIT_REACHED, "Billing limits"),
+    (ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW, "Billing limits too low"),
+    (ExternalDataSchemaStatus.PAUSED, ExternalDataSchemaStatus.PAUSED),
+    (ExternalDataSchemaStatus.RUNNING, ExternalDataSchemaStatus.RUNNING),
+    (ExternalDataSchemaStatus.COMPLETED, ExternalDataSchemaStatus.COMPLETED),
+)
+# A source whose tables are all disabled syncs nothing.
+SOURCE_STATUS_WITH_NO_ENABLED_SCHEMA = ExternalDataSchemaStatus.PAUSED
+
+
 class ExternalDataSchemaSyncType(LabeledStrEnum):
     FULL_REFRESH = "full_refresh", "full_refresh"
     INCREMENTAL = "incremental", "incremental"

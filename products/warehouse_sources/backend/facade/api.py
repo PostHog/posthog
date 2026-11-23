@@ -74,7 +74,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
-from products.warehouse_sources.backend.source_status import effective_source_status
+from products.warehouse_sources.backend.source_status import effective_source_status, latest_source_error
 from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
@@ -126,6 +126,7 @@ __all__ = [
     "sources_missing_webhook",
     # framework-free helper transforms
     "effective_source_status",
+    "latest_source_error",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
     "trino_columns_to_dwh_columns",
@@ -306,42 +307,30 @@ def list_sources(
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
     """Live sources with their effective status, newest completed run and newest schema error.
 
-    The status rolls up the source's active schemas the same way the source list does.
+    The status and error roll up the source's schemas the same way the source list does.
 
-    One correlated probe per source for each of the two lookups, so the cost tracks the number
-    of sources rather than the length of the team's job history.
+    One correlated probe per source for the newest run, so the cost tracks the number of sources
+    rather than the length of the team's job history.
     """
-    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
-    # recently updated so a consumer sees the freshest failure.
-    latest_error = Subquery(
-        _ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
-        .order_by("-updated_at")
-        .values("latest_error")[:1]
-    )
     rows = (
         _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
-        .annotate(
-            last_run_at=latest_completed_job_subquery(team_id, "created_at"),
-            latest_error=latest_error,
-        )
+        .annotate(last_run_at=latest_completed_job_subquery(team_id, "created_at"))
         .order_by("source_type", "id")
-        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at")
     )
-    active_schemas_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
-    for schema in (
-        _ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__deleted=False)
-        .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
-        .only("source_id", "status", "should_sync")
+    schemas_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
+    for schema in _ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__deleted=False).only(
+        "source_id", "status", "should_sync", "latest_error", "updated_at"
     ):
-        active_schemas_by_source[schema.source_id].append(schema)
+        schemas_by_source[schema.source_id].append(schema)
     return [
         contracts.ExternalDataSourceHealth(
             source_type=row["source_type"],
-            status=effective_source_status(active_schemas_by_source[row["id"]], fallback=row["status"]),
+            status=effective_source_status(schemas_by_source[row["id"]], fallback=row["status"]),
             prefix=row["prefix"],
             created_at=row["created_at"],
             last_run_at=row["last_run_at"],
-            latest_error=row["latest_error"],
+            latest_error=latest_source_error(schemas_by_source[row["id"]]),
         )
         for row in rows
     ]

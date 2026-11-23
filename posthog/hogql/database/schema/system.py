@@ -8,6 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     DEFINITION_TAGS,
     ENDPOINT_CURRENT_VERSION,
+    SOURCE_SCHEMA_STATUS,
     TASK_LATEST_RUN,
     TICKET_ASSIGNMENT,
     TICKET_TAGS,
@@ -78,7 +79,11 @@ from products.customer_analytics.backend.facade.hogql import (
 from products.dashboards.backend.facade.hogql import dashboard_tiles, dashboards
 from products.signals.backend.facade.constants import SIGNAL_USAGE_START
 from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
-from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
+from products.warehouse_sources.backend.facade.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    SOURCE_STATUS_BY_SCHEMA_STATUS,
+    SOURCE_STATUS_WITH_NO_ENABLED_SCHEMA,
+)
 
 # Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
 # connection. Plain strings, not the enum members: these end up in the pickled catalog, which only
@@ -945,6 +950,84 @@ experiments: PostgresTable = PostgresTable(
     },
 )
 
+
+def _enabled_schemas_with_status(status: str | None) -> ast.Expr:
+    should_sync = ast.Field(chain=["should_sync"])
+    if status is None:
+        return ast.Call(name="countIf", args=[should_sync])
+    is_status = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["status"]), right=ast.Constant(value=status)
+    )
+    return ast.Call(name="countIf", args=[ast.And(exprs=[should_sync, is_status])])
+
+
+def _source_schema_status_select() -> ast.SelectQuery:
+    # Mirrors `effective_source_status`: only enabled schemas count, the strongest state wins, and a
+    # source with no enabled schema is paused. NULL when no enabled schema has a known state.
+    no_enabled = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq, left=_enabled_schemas_with_status(None), right=ast.Constant(value=0)
+    )
+    branches: list[ast.Expr] = [no_enabled, ast.Constant(value=str(SOURCE_STATUS_WITH_NO_ENABLED_SCHEMA))]
+    for schema_status, source_status in SOURCE_STATUS_BY_SCHEMA_STATUS:
+        branches.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=_enabled_schemas_with_status(str(schema_status)),
+                right=ast.Constant(value=0),
+            )
+        )
+        branches.append(ast.Constant(value=str(source_status)))
+    branches.append(ast.Constant(value=None))
+    return ast.SelectQuery(
+        select=[
+            ast.Field(chain=["source_id"]),
+            ast.Alias(alias="status", expr=ast.Call(name="multiIf", args=branches)),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["system", "source_schemas"])),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["deleted"]), right=ast.Constant(value=0)
+        ),
+        group_by=[ast.Field(chain=["source_id"])],
+    )
+
+
+class _SourceSchemaStatusTable(LazyTable):
+    description: str = "Internal table backing `system.data_warehouse_sources.status`: each source's schema states."
+    fields: dict[str, FieldOrTable] = {
+        "source_id": StringDatabaseField(name="source_id", description="Source the schemas belong to."),
+        "status": StringDatabaseField(name="status", nullable=True, description="Status derived from the schemas."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _source_schema_status_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "source_schema_status"
+
+    def to_printed_hogql(self) -> str:
+        return "source_schema_status"
+
+
+def source_schema_status_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `data_warehouse_sources.schema_status`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_source_schema_status_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "source_id"]),
+            ),
+        ),
+    )
+
+
 data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
@@ -963,9 +1046,24 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
         ),
-        "status": StringDatabaseField(
+        "_status": StringDatabaseField(name="status", hidden=True),
+        "schema_status": LazyJoin(
+            from_field=["id"],
+            join_table=_SourceSchemaStatusTable(),
+            resolver=SOURCE_SCHEMA_STATUS,
+            hidden=True,
+        ),
+        "status": ExpressionField(
             name="status",
-            description="Legacy source-level status, deprecated in favour of per-schema status in source_schemas.status; may be stale.",
+            expr=ast.Call(
+                name="coalesce",
+                args=[ast.Field(chain=["schema_status", "status"]), ast.Field(chain=["_status"])],
+            ),
+            description=(
+                "Source sync status rolled up from its enabled tables in source_schemas: Failed, Billing limits, "
+                "Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is "
+                "disabled. Matches the status the source API reports."
+            ),
         ),
         "access_method": StringDatabaseField(
             name="access_method",

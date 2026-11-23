@@ -54870,12 +54870,16 @@ export namespace Schemas {
        * * `wizard` - wizard
        * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceCreatedViaEnum | null;
+      /** Sync status rolled up from the enabled tables: Failed, Billing limits, Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is disabled. Disabled tables never count. `system.data_warehouse_sources.status` applies the same rule. */
       readonly status: string;
       client_secret: string;
       account_id: string;
       /** The source type (e.g. 'Postgres', 'Stripe'). */
       readonly source_type: string;
-      /** @nullable */
+      /**
+         * The newest error among the source's enabled tables, with secrets redacted. Null when none has one.
+         * @nullable
+         */
       readonly latest_error: string | null;
       /**
          * @maxLength 100
@@ -93429,12 +93433,16 @@ export namespace Schemas {
        * * `wizard` - wizard
        * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceCreatedViaEnum | null;
+      /** Sync status rolled up from the enabled tables: Failed, Billing limits, Billing limits too low, Paused, Running or Completed, strongest first. Paused when every table is disabled. Disabled tables never count. `system.data_warehouse_sources.status` applies the same rule. */
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
       /** The source type (e.g. 'Postgres', 'Stripe'). */
       readonly source_type?: string;
-      /** @nullable */
+      /**
+         * The newest error among the source's enabled tables, with secrets redacted. Null when none has one.
+         * @nullable
+         */
       readonly latest_error?: string | null;
       /**
          * @maxLength 100
