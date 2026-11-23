@@ -48,20 +48,18 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                         language: 'kotlin',
                                         file: 'MyApplication.kt',
                                         code: dedent`
-                                            import com.posthog.kmp.ErrorTrackingConfig
                                             import com.posthog.kmp.PostHog
                                             import com.posthog.kmp.PostHogConfig
                                             import com.posthog.kmp.PostHogContext
 
                                             PostHog.setup(
-                                                config = PostHogConfig(
-                                                    projectToken = "<ph_project_token>",
-                                                    host = "<ph_client_api_host>",
-                                                    errorTracking = ErrorTrackingConfig(
-                                                        autoCapture = true,
-                                                        inAppIncludes = listOf("com.example"),
-                                                    ),
-                                                ),
+                                                config = PostHogConfig("<ph_project_token>") {
+                                                    host = "<ph_client_api_host>"
+                                                    errorTracking {
+                                                        autoCapture = true
+                                                        inAppIncludes = listOf("com.example")
+                                                    }
+                                                },
                                                 context = PostHogContext(this),
                                             )
                                         `,
@@ -80,20 +78,18 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                         language: 'kotlin',
                                         file: 'Kotlin',
                                         code: dedent`
-                                            import com.posthog.kmp.ErrorTrackingConfig
                                             import com.posthog.kmp.PostHog
                                             import com.posthog.kmp.PostHogConfig
                                             import com.posthog.kmp.PostHogContext
 
                                             PostHog.setup(
-                                                config = PostHogConfig(
-                                                    projectToken = "<ph_project_token>",
-                                                    host = "<ph_client_api_host>",
-                                                    errorTracking = ErrorTrackingConfig(
-                                                        autoCapture = true,
-                                                        inAppIncludes = listOf("com.example"),
-                                                    ),
-                                                ),
+                                                config = PostHogConfig("<ph_project_token>") {
+                                                    host = "<ph_client_api_host>"
+                                                    errorTracking {
+                                                        autoCapture = true
+                                                        inAppIncludes = listOf("com.example")
+                                                    }
+                                                },
                                                 context = PostHogContext(),
                                             )
                                         `,
