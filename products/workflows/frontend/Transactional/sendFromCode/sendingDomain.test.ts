@@ -49,4 +49,16 @@ describe('sendingDomain', () => {
 
         expect(sendingDomainOf(integrations, defaultIntegrationId)).toMatchObject({ status: 'verified', email })
     })
+
+    it('sends from the project default when every verified sender stopped sending', () => {
+        const integrations = [
+            stoppedSender(1, 'hello@first.example.com'),
+            stoppedSender(2, 'hello@default.example.com'),
+        ]
+
+        expect(sendingDomainOf(integrations, 2)).toMatchObject({
+            status: 'verified',
+            email: 'hello@default.example.com',
+        })
+    })
 })
