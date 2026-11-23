@@ -138,7 +138,7 @@ Before adding the first channel, review the selective role, source reads, origin
 
 ## Bound work before activation
 
-The workflow allows forty channels and eight concurrent registry workers. The time bound covers only twenty-four channels that all publish in one build at the full channel registry work bound, in three waves of eight. The action's committed-policy test checks the committed channel count against this bound. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. The action's tests publish to forty channels with at most eight in progress and refuse a forty-one-channel policy before any registry command; they measure fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
+The workflow allows forty channels and eight concurrent registry workers. The time bound covers only thirty-two channels that all publish in one build at the full channel registry work bound, in four waves of eight. The action's committed-policy test checks the committed channel count against this bound. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. The action's tests publish to forty channels with at most eight in progress and refuse a forty-one-channel policy before any registry command; they measure fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
@@ -149,8 +149,8 @@ The workflow allows forty channels and eight concurrent registry workers. The ti
 | Registry operation             | 15 seconds         |
 | Selective copy and readback    | 120 and 30 seconds |
 | Channel registry work          | 300 seconds        |
-| Action total                   | 1,020 seconds      |
-| Publish step and selective job | 18 and 23 minutes  |
+| Action total                   | 1,320 seconds      |
+| Publish step and selective job | 23 and 28 minutes  |
 
 Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. The helper's own timeout then signals only the client; its descendants remain bounded by the caller's group kill or the step timeout. Bounded policy-blob fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
 
