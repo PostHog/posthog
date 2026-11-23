@@ -212,6 +212,7 @@ class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
     @parameterized.expand(
         [
             ("create_with_entries", None, {"blocked_hosts": ["example.com"]}),
+            ("create_with_allowed_entries", None, {"allowed_ips": ["203.0.113.7"]}),
             ("set_on_existing_row", {}, {"blocked_hosts": ["example.com"], "blocked_ips": ["203.0.113.7"]}),
             (
                 "clear_on_existing_row",
