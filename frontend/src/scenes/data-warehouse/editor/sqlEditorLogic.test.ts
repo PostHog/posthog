@@ -2399,6 +2399,7 @@ describe('sqlEditorLogic', () => {
                 source: { ...logic.values.sourceQuery.source, variables: {} },
             })
             expect(logic.values.isSourceQueryLastRun).toBe(true)
+            expect(logic.values.hasEditorChanges).toBe(false)
             logic.actions.setSourceQuery({
                 ...logic.values.sourceQuery,
                 source: {
@@ -2409,6 +2410,7 @@ describe('sqlEditorLogic', () => {
                 },
             })
             expect(logic.values.isSourceQueryLastRun).toBe(false)
+            expect(logic.values.hasEditorChanges).toBe(true)
         })
 
         it('treats changed filters as different from the latest run', async () => {

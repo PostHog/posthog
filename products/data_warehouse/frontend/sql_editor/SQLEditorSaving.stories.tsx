@@ -6,9 +6,7 @@ import { App } from 'scenes/App'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
-import { DataVisualizationNode } from '~/queries/schema/schema-general'
-
-import { expect, userEvent } from 'storybook/test'
+import { expect, fn, userEvent } from 'storybook/test'
 
 import {
     Story,
@@ -78,6 +76,8 @@ export const SaveAsFlowQuill: Story = {
     },
 }
 
+const saveInsight = fn((patch: Partial<typeof DISCARD_INSIGHT>) => ({ ...DISCARD_INSIGHT, ...patch }))
+
 const discardMocks = {
     get: {
         '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: [DISCARD_VIEW] }],
@@ -94,12 +94,13 @@ const discardMocks = {
         ],
         '/api/:scope/:team_id/insights/:id/': async ({ request }: { request: Request }) => [
             200,
-            { ...DISCARD_INSIGHT, ...(await request.json()) },
+            saveInsight(await request.json()),
         ],
     },
 }
 
 const exerciseSaveConfirmation = async (canvasElement: HTMLElement, kind: 'view' | 'insight'): Promise<void> => {
+    saveInsight.mockClear()
     await waitForEditor(canvasElement)
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
@@ -152,13 +153,12 @@ const exerciseSaveConfirmation = async (canvasElement: HTMLElement, kind: 'view'
     await waitFor(() =>
         expect(body.queryByRole('dialog', { name: 'Save query without running' })).not.toBeInTheDocument()
     )
-    await waitFor(() =>
-        expect(
-            kind === 'view'
-                ? logic.values.editingView?.query?.query
-                : (logic.values.editingInsight?.query as DataVisualizationNode)?.source.query
-        ).toBe('SELECT 3')
-    )
+    if (kind === 'insight') {
+        await waitFor(() => expect(saveInsight.mock.lastCall?.[0].query?.source.query).toBe('SELECT 3'))
+        await waitFor(() => expect(canvas.queryByRole('button', { name: updateName })).not.toBeInTheDocument())
+        return
+    }
+    await waitFor(() => expect(logic.values.editingView?.query?.query).toBe('SELECT 3'))
     expect(logic.values.suggestionPayload).toBeNull()
     expect(canvas.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
 }
