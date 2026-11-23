@@ -181,6 +181,28 @@ describe('SessionThread', () => {
         expect(JSON.stringify(capture.mock.calls)).not.toContain('SELECT 1')
     })
 
+    test('opens pasted web links and keeps the original sent message available to copy', async () => {
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+        const review = 'https://example.com/pull/123?tab=files#diff'
+        const guide = 'https://example.com/wiki/Example_(page)'
+        const status = 'http://example.com/status'
+        const text = `Check <${review}|the review>, then (${guide}).\nStatus: <${status}>. Ignore <file:///tmp/test|test>.`
+        const items: SessionThreadItem[] = [{ kind: 'user', id: 'message', text }]
+        render(<SessionThread session={session({ items })} onRetryHistory={jest.fn()} />)
+
+        expect(screen.getAllByRole('link')).toHaveLength(3)
+        await act(async () => {
+            fireEvent.press(screen.getByRole('link', { name: 'the review' }))
+            fireEvent.press(screen.getByRole('link', { name: guide }))
+            fireEvent.press(screen.getByRole('link', { name: status }))
+            fireEvent.press(screen.getByLabelText('Copy message text'))
+        })
+
+        expect(open.mock.calls).toEqual([[review], [guide], [status]])
+        expect(copy).toHaveBeenCalledWith(text)
+    })
+
     test.each(['assistant', 'visualization'] as const)(
         'copies updated notebook text from its final %s item',
         async (kind) => {
