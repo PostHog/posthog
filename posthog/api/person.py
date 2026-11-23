@@ -992,7 +992,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
-            actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            actors_runner = ActorsQueryRunner(team=team, query=actors_query, user=cast(User, request.user))
             # ClickHouse can lag behind personhog or fail, so the hit leads the first page regardless.
             hit_leads_page = email_property_search and offset == 0
             actor_ids: list[Any] = []
@@ -1013,7 +1013,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         select=[ast.Call(name="count", args=[])],
                         select_from=ast.JoinExpr(table=count_inner),
                     )
-                    total_count = execute_hogql_query(count_query, team=team).results[0][0]
+                    total_count = execute_hogql_query(count_query, team=team, user=cast(User, request.user)).results[0][
+                        0
+                    ]
             except Exception as err:
                 if classify_query_error(err) is QueryErrorCategory.CANCELLED:
                     # The caller killed this search, so there is no body to return and nothing went

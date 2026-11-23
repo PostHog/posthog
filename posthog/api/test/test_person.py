@@ -2765,6 +2765,26 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(kwargs["user"], self.user)
         self.assertEqual(kwargs["context"].user, self.user)
 
+    def test_list_filter_and_total_apply_a_member_scoped_restriction(self) -> None:
+        tier = PropertyDefinition.objects.create(
+            team=self.team, name="tier", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=tier,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_person(team=self.team, distinct_ids=["gold_user"], properties={"tier": "gold"}, immediate=True)
+        flush_persons_and_events()
+        filters = json.dumps([{"key": "tier", "value": "gold", "type": "person", "operator": "exact"}])
+
+        response = self.client.get("/api/person/", {"properties": filters, "include_total": ""})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["results"], [])
+        self.assertEqual(response.json()["count"], 0)
+
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(
             team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
