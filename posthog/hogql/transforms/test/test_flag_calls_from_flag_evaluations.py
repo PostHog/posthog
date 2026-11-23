@@ -692,3 +692,27 @@ class TestSwapFlagCallsBesideJoinedTable(BaseTest):
         )
 
         assert ("flag_evaluations" in swap.source.to_hogql()) is expected
+
+
+class TestFlagCallMemoryCap(BaseTest):
+    def test_a_later_swap_does_not_clear_the_cap_an_earlier_swap_set(self):
+        database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
+        database._read_flag_calls_from_flag_evaluations = True
+        database._flag_calls_only_in_flag_evaluations = True
+        context = HogQLContext(
+            team_id=self.team.pk, database=database, enable_select_queries=True, use_new_events_schema=True
+        )
+
+        def swap(query: str) -> None:
+            swap_flag_calls(
+                parse_select(query),
+                context,
+                lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+            )
+
+        flag_calls = "SELECT count() FROM events WHERE event = '$feature_flag_called'"
+        swap(f"{flag_calls} AND properties.`$feature/new-checkout` = 'true'")
+        assert context.cap_flag_call_memory
+        swap(flag_calls)
+
+        assert context.cap_flag_call_memory
