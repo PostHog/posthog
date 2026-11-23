@@ -7,7 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -90,7 +90,12 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
     upsert_batch,
     upsert_stats_fields,
 )
-from products.data_modeling.backend.temporal.activities.run_usage import RunUsage, live_file_sizes, record_run_usage
+from products.data_modeling.backend.temporal.activities.run_usage import (
+    CURRENT_RUN_USAGE,
+    RunUsage,
+    live_file_sizes,
+    record_run_usage,
+)
 from products.data_modeling.backend.temporal.activities.utils import (
     bind_data_modeling_log_context,
     strip_hostname_from_error,
@@ -633,7 +638,7 @@ async def hogql_table(
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
-    on_bytes_received: Callable[[int], None] | None = None,
+    on_bytes_received: typing.Callable[[int], None] | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -1063,7 +1068,6 @@ async def _materialize_fully(
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
-    usage: RunUsage,
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
@@ -1104,7 +1108,7 @@ async def _materialize_fully(
     batch_index = 0
     try:
         async for batch, ch_types in hogql_table(
-            hogql_query, objects.team, logger, on_bytes_received=usage.add_received
+            hogql_query, objects.team, logger, on_bytes_received=CURRENT_RUN_USAGE.get().add_received
         ):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
@@ -1149,15 +1153,15 @@ async def _materialize_fully(
         if delta_table is not None:
             # The rebuild started from an empty location, so every live file is one this attempt
             # wrote. Counted here so that an attempt that fails partway still reports its writes.
-            usage.add_written(await live_file_sizes(delta_table))
+            CURRENT_RUN_USAGE.get().add_written(await live_file_sizes(delta_table))
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
-        usage.add_compaction(await _compact(delta_table))
+        CURRENT_RUN_USAGE.get().add_compaction(await _compact(delta_table))
         await _vacuum(delta_table, logger)
-        usage.set_table(await live_file_sizes(delta_table))
+        CURRENT_RUN_USAGE.get().set_table(await live_file_sizes(delta_table))
         file_uris = delta_table.file_uris()
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
@@ -1187,7 +1191,6 @@ async def _materialize_incrementally(
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
-    usage: RunUsage,
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
@@ -1217,7 +1220,7 @@ async def _materialize_incrementally(
 
     try:
         async for batch, ch_types in hogql_table(
-            hogql_query, objects.team, logger, window=window, on_bytes_received=usage.add_received
+            hogql_query, objects.team, logger, window=window, on_bytes_received=CURRENT_RUN_USAGE.get().add_received
         ):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
@@ -1280,14 +1283,14 @@ async def _materialize_incrementally(
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
     delta_table = await _open_delta_table(table_uri, storage_options)
-    usage.add_written(await live_file_sizes(delta_table), already_there=files_before)
+    CURRENT_RUN_USAGE.get().add_written(await live_file_sizes(delta_table), already_there=files_before)
 
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
         await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        usage.add_compaction(await _compact(delta_table))
+        CURRENT_RUN_USAGE.get().add_compaction(await _compact(delta_table))
     await _vacuum(delta_table, logger)
-    usage.set_table(await live_file_sizes(delta_table))
+    CURRENT_RUN_USAGE.get().set_table(await live_file_sizes(delta_table))
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
@@ -1364,6 +1367,7 @@ def _watermark_table_uri(objects: MatviewInputObjects) -> str:
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
     usage = RunUsage()
+    CURRENT_RUN_USAGE.set(usage)
     started = time.monotonic()
     try:
         return await _materialize_view(inputs, usage)
@@ -1463,7 +1467,6 @@ async def _materialize_view(inputs: MaterializeViewInputs, usage: RunUsage) -> M
                         storage_options,
                         logger,
                         cdp_sink,
-                        usage,
                         person_property_sink,
                     )
                 else:
@@ -1475,7 +1478,6 @@ async def _materialize_view(inputs: MaterializeViewInputs, usage: RunUsage) -> M
                         storage_options,
                         logger,
                         cdp_sink,
-                        usage,
                         person_property_sink,
                     )
             except (Exception, asyncio.CancelledError):

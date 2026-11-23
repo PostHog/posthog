@@ -8,6 +8,7 @@ put in object storage, and how long it held an activity slot.
 import json
 import asyncio
 from collections.abc import Collection, Mapping
+from contextvars import ContextVar
 from typing import Any, cast
 
 from django.db.models import F, Value
@@ -91,6 +92,10 @@ class RunUsage:
             return
         self.delta_table_files = len(sizes)
         self.delta_table_bytes = sum(sizes.values())
+
+
+# Holds the attempt's usage for the write paths, which do not take it as an argument.
+CURRENT_RUN_USAGE: ContextVar[RunUsage] = ContextVar("data_modeling_run_usage")
 
 
 def _added_to(field: str, amount: int | float) -> CombinedExpression:
