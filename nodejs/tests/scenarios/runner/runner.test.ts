@@ -1489,6 +1489,50 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('spreads the intake offers over every cdp-api replica the profile starts', async () => {
+        const received = [0, 0]
+        const intakes = await Promise.all(
+            received.map(async (_, replica) => {
+                const intake = http.createServer((request, response) => {
+                    received[replica] += 1
+                    request.resume()
+                    response.writeHead(202, { 'content-type': 'application/json' }).end('{"status":"queued"}')
+                })
+                await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+                return intake
+            })
+        )
+        const environment = environmentOf('none')
+        try {
+            const result = await createRunner(
+                {
+                    ...environment,
+                    roles: () =>
+                        environment.roles().map((handle) =>
+                            handle.name === 'cdp-api'
+                                ? {
+                                      ...handle,
+                                      url: `http://127.0.0.1:${(intakes[handle.replica].address() as AddressInfo).port}`,
+                                  }
+                                : handle
+                        ),
+                },
+                env
+            ).run(shortSmoke([], 'transactional_email', { replicas: { 'cdp-api': 2 } }), NEVER_ABORTED)
+            results.push(result)
+
+            expect({ received, offeredUnits: result.units?.offeredUnits }).toEqual({
+                received: [2, 2],
+                offeredUnits: 4,
+            })
+        } finally {
+            for (const intake of intakes) {
+                intake.closeAllConnections()
+                await new Promise((resolve) => intake.close(resolve))
+            }
+        }
+    }, 30_000)
+
     it('samples every replica the profile starts, follows every sample live, and seeds flows that park as often as it asks', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
