@@ -105,6 +105,11 @@ export function QuillPersonalAPIKeysTable(): JSX.Element {
                         >
                             {row.original.label}
                         </Button>
+                        {row.original.provisioned_by_name && (
+                            <Text size="xs" variant="muted" render={<span />} className="max-w-60 truncate">
+                                {`Created by ${row.original.provisioned_by_name}`}
+                            </Text>
+                        )}
                         {row.original.description && (
                             <Tooltip>
                                 <TooltipTrigger

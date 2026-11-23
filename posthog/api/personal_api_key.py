@@ -147,6 +147,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     current_team_id = serializers.SerializerMethodField(
         help_text="ID of the project the key's owner last had open in the app. Null if they have none."
     )
+    provisioned_by_name = serializers.CharField(
+        source="provisioned_by.name",
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Name of the partner application that created this key while provisioning a project for the "
+            "owner. Null for keys the owner created."
+        ),
+    )
 
     class Meta:
         model = PersonalAPIKey
@@ -169,6 +178,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "user_distinct_id",
             "current_organization_id",
             "current_team_id",
+            "provisioned_by_name",
         ]
         read_only_fields = [
             "id",
@@ -183,6 +193,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "user_distinct_id",
             "current_organization_id",
             "current_team_id",
+            "provisioned_by_name",
         ]
 
     def _owner(self, obj: PersonalAPIKey) -> User:
@@ -380,7 +391,11 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     queryset = PersonalAPIKey.objects.none()
 
     def get_queryset(self):
-        return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
+        return (
+            PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id)
+            .select_related("provisioned_by")
+            .order_by("-created_at")
+        )
 
     def get_object(self) -> PersonalAPIKey:
         lookup_value = self.kwargs[self.lookup_field]
