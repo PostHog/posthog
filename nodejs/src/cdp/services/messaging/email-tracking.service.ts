@@ -26,13 +26,17 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-const LINK_REGEX =
-    /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
+
+const OPENING_TAG =
+    /^<a\b(?:[\t\n\f\r /]+(?![\t\n\f\r /])|[^\t\n\f\r />][^\t\n\f\r />=]*(?![^\t\n\f\r />=])(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?![\t\n\f\r ])(?:"[^"]*"|'[^']*'|(?:[^\t\n\f\r >"'][^\t\n\f\r >]*)?(?![^\t\n\f\r >]))|(?![\t\n\f\r ]*=)))*>/i
+const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
@@ -46,12 +50,18 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
  * `ses` leaves hrefs pointing at their real destination and instead annotates each anchor with the
  * attributes SES reads when it rewrites links for its own click tracking. SES is the sole click
  * source on this path, so wrapping the href as well would only bury the destination inside a
- * per-send URL that the Click event then reports verbatim.
+ * per-send URL that the Click event then reports verbatim. SES also adds its own open pixel, and
+ * the pixel handler records nothing in production, so this mode adds no pixel of ours.
  */
 export type EmailTrackingMode = 'redirect' | 'ses'
 
 const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
-    return openingTag.replace(/\s*\/?>$/, ` ${attribute}>`)
+    if (!openingTag.endsWith('>')) {
+        return openingTag
+    }
+    const attributes = openingTag.slice(0, -1)
+    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
 const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
@@ -90,7 +100,7 @@ const emailTrackingLogSkipsCounter = new Counter({
 
 export const sesQueuedNotificationsCounter = new Counter({
     name: 'email_tracking_ses_queued_notifications_total',
-    help: 'SES notifications through the queue, by stage: queued, then recorded, skipped, or failed for a retry',
+    help: 'SES notifications through the queue, by stage: queued, then recorded, redelivered, skipped, or failed for a retry',
     labelNames: ['stage'],
 })
 
@@ -218,21 +228,20 @@ export const addTrackingToEmail = (
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
     const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
-    const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
-    // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
+    // Incremented for every anchor with an href, including ones that turn out to be opted
     // out or unsafe, so the index stays tied to document position instead of shifting with how
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
-    // a click-tracking redirect. Opens and deliveries are still tracked.
-    const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+    // PostHog keeps only the link's origin from a sensitive email's click events (see helpers/ses.ts),
+    // but SES still sees the full link, so a send whose links carry tokens opts out with clicks: false.
+    const allLinksOptedOut = invocation.state?.send?.tracking.clicks === false
 
-    html = html.replace(LINK_REGEX, (m, d, s, u) => {
+    html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
-        const href = decodeHtmlEntitiesInHref(d || s || u || '')
-        // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
+        const href = decodeHtmlEntitiesInHref(rawHref)
+        // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
         if (isJavascriptHref(href)) {
             return m
@@ -241,8 +250,8 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitive || hasClickTrackingOptOut(openingTag)
+        const openingTag = m.match(OPENING_TAG)?.[0] ?? m.match(OPENING_TAG_PLAIN_CUT)?.[0] ?? ''
+        const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -266,9 +275,11 @@ export const addTrackingToEmail = (
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
-
-    return html
+    if (mode === 'ses') {
+        return html
+    }
+    const pixelUrl = signer.pixelUrl(trackingInvocation, isTest)
+    return html.replace('</body>', `<img src="${pixelUrl}" style="display: none;" /></body>`)
 }
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
@@ -341,9 +352,9 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private emailStatusService: EmailStatusService | null = null,
-        private engagementRedis: RedisV2 | null = null,
-        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput> | null = null
+        private emailStatusService: EmailStatusService | null,
+        private engagementRedis: RedisV2 | null,
+        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput>
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -629,22 +640,12 @@ export class EmailTrackingService {
             countSesWebhookError(error)
             throw error
         }
-        if (this.sesWebhooksOutputs) {
-            return await this.queueSesNotification(body, this.sesWebhooksOutputs)
-        }
-        const recording = await this.recordSesNotification({ body, verifySignature: true })
-        await this.flush()
-        switch (recording.outcome) {
-            case 'recorded':
-                return { status: 200, message: recording.body }
-            case 'rejected':
-                return { status: recording.status, message: recording.body }
-        }
+        return await this.queueSesNotification(body)
     }
 
     // The signature was verified on the request that queued this envelope.
     public async recordQueuedSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
-        const recording = await this.recordSesNotification({ body: envelope, verifySignature: false })
+        const recording = await this.recordSesNotification(envelope)
         if (recording.outcome === 'recorded') {
             sesQueuedNotificationsCounter.inc({ stage: 'recorded' })
         } else {
@@ -657,10 +658,7 @@ export class EmailTrackingService {
         return recording
     }
 
-    private async queueSesNotification(
-        body: unknown,
-        outputs: IngestionOutputs<SesWebhooksOutput>
-    ): Promise<{ status: number; message?: unknown }> {
+    private async queueSesNotification(body: unknown): Promise<{ status: number; message?: unknown }> {
         let verified: Awaited<ReturnType<SesWebhookHandler['verifyDelivery']>>
         try {
             verified = await this.sesWebhookHandler.verifyDelivery(body)
@@ -672,7 +670,7 @@ export class EmailTrackingService {
             return { status: verified.status, message: verified.body }
         }
         try {
-            await outputs.produce(SES_WEBHOOKS_OUTPUT, {
+            await this.sesWebhooksOutputs.produce(SES_WEBHOOKS_OUTPUT, {
                 key: Buffer.from(verified.envelope.MessageId),
                 value: Buffer.from(JSON.stringify(verified.envelope)),
             })
@@ -686,10 +684,7 @@ export class EmailTrackingService {
     }
 
     // Queues the Kafka writes; the caller flushes.
-    private async recordSesNotification(opts: {
-        body: unknown
-        verifySignature: boolean
-    }): Promise<SesRecordingOutcome> {
+    private async recordSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
         try {
             const {
                 status,
@@ -701,7 +696,7 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
                 emailStatusUpdates,
-            } = await this.sesWebhookHandler.handleWebhook(opts)
+            } = await this.sesWebhookHandler.handleWebhook({ body: envelope, verifySignature: false })
             if (status !== 200) {
                 return { outcome: 'rejected', status, body }
             }
@@ -753,6 +748,8 @@ export class EmailTrackingService {
                         status: update.status,
                         reason: update.reason,
                         statusAt: new Date(update.timestamp),
+                        messageCreatedAt:
+                            update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
             }
@@ -778,7 +775,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            { eventId: envelope.MessageId }
                         )
                     }
                 }

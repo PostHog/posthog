@@ -44,7 +44,10 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.facade import api as dashboards_api
 from products.posthog_ai.backend.models.assistant import AgentArtifact
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    record_agent_insight_read,
+)
 from products.warehouse_sources.backend.facade.api import column_sensitivity, column_sensitivity_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -440,6 +443,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if isinstance(result, ModelArtifactResult):
             await self.check_object_access(result.model, "viewer", action="read")
+            await database_sync_to_async(record_agent_insight_read)(
+                team=self._team, user_id=self._user.id, insight_id=result.model.id
+            )
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 

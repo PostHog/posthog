@@ -6,6 +6,7 @@ so import-linter's strict-mode contract holds.
 """
 
 import math
+import random
 import datetime as dt
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -27,9 +28,10 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
@@ -41,33 +43,44 @@ from products.metrics.backend.derived import (
     derived_metrics_enabled,
     get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
+    list_derived_attribute_keys,
+    list_derived_attribute_values,
     list_derived_metric_names,
+    team_has_derived_sources,
 )
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardTemplateSummary,
+    DerivedSeriesStatus,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
     MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
+    MetricInstantWindow,
     MetricPoint,
     MetricQueryClause,
     MetricQueryCount,
+    MetricQueryProvenance,
     MetricQueryRequest,
+    MetricQueryResult,
+    MetricQueryShadowCheck,
+    MetricQueryTooManyRowsError,
     MetricSeries,
     MetricsOverview,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
+    RecordingRule,
     SuggestedDashboard,
 )
 from products.metrics.backend.facade.enums import (
     DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -79,26 +92,58 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_names_query_runner import (
+    MetricNamesQueryRunner,
+    cached_metric_names,
+    fold_classic_histograms,
+    name_matches,
+)
 from products.metrics.backend.metric_query_runner import (
     MAX_QUERY_SPAN,
     MAX_RAW_SERIES,
     MetricQueryRunner,
+    _align_to_interval,
+    _interval_step,
     _pick_interval,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
-from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.precompute.fill import (
+    fill_precomputed_metrics as _fill_precomputed_metrics,
+    teams_with_precomputed_metrics as _teams_with_precomputed_metrics,
+)
+from products.metrics.backend.precompute.gate import precompute_enabled
+from products.metrics.backend.precompute.planner import (
+    ClausePlan,
+    PrecomputedClauseRunner,
+    plan_clause,
+    provenance_mode,
+    read_plan_entries,
+)
+from products.metrics.backend.precompute.promql_plan import (
+    evaluate_stored,
+    plan_promql,
+    read_promql_entries,
+    read_raw_tail_entries,
+)
+from products.metrics.backend.precompute.store import TooManySeriesError, TooManyStoredPointsError, merge_entries
+from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
+from products.metrics.backend.promql import run_promql_instant, run_promql_range, series_from_results
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_counts import (
     list_metric_query_counts as _list_metric_query_counts,
     record_metric_queries,
     record_promql_query as _record_promql_query,
 )
+from products.metrics.backend.recording_rules import logic as recording_rule_logic
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
+
+# The share of precomputed tile queries that also run raw, to measure how far the two answers are apart.
+PRECOMPUTE_SHADOW_CHECK_RATE = 0.1
+_PRECOMPUTE_OFF = "precomputing is off for this project"
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -111,6 +156,8 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.MAX: "max",
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
+    MetricAggregation.COUNT_RATE: "count_rate",
+    MetricAggregation.COUNT_INCREASE: "count_increase",
 }
 
 
@@ -170,17 +217,33 @@ def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[in
     return unit
 
 
+# Prometheus names carry the base unit as a suffix, and a scraped metric has no unit field.
+_PROMETHEUS_UNIT_SUFFIXES = (("_seconds", "s"), ("_milliseconds", "ms"), ("_bytes", "By"))
+
+
+def _prometheus_name_unit(metric_name: str) -> str | None:
+    return next((unit for suffix, unit in _PROMETHEUS_UNIT_SUFFIXES if metric_name.endswith(suffix)), None)
+
+
 def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
     """The unit of the values a clause returns, which differs from the
     ingested unit when the clause transforms the values. COUNT returns a
     number of series, so it has no unit, even after a range function. RATE
     divides by the bucket length in seconds, so it returns the ingested unit
     per second, as a UCUM string the frontend formatter reads. Every other
-    aggregation keeps the ingested unit."""
-    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+    aggregation keeps the ingested unit.
+
+    A histogram quantile of series that all carry no unit reads the unit from
+    a Prometheus name suffix: a percentile is in the unit of the observations,
+    and `http_request_duration_seconds` observes seconds."""
+    if ingested is None or clause.aggregation in (MetricAggregation.COUNT, MetricAggregation.COUNT_INCREASE):
         return None
+    if clause.aggregation is MetricAggregation.COUNT_RATE:
+        return "1/s"
     if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
         return f"{ingested or '1'}/s"
+    if not ingested and clause.aggregation is MetricAggregation.HISTOGRAM_QUANTILE:
+        return _prometheus_name_unit(clause.metric_name)
     return ingested or None
 
 
@@ -210,12 +273,15 @@ def _assemble_series(
     by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
     fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
     bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
+    layouts_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], int] = {}
     for row in rows:
         key = (tuple(sorted(row["labels"].items())), row.get("series_key"))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
         fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
         if "histogram_bounds" in row:
             bounds_by_labels.setdefault(key, set()).update(row["histogram_bounds"])
+        if "histogram_layout_count" in row:
+            layouts_by_labels[key] = max(layouts_by_labels.get(key, 0), row["histogram_layout_count"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -237,6 +303,7 @@ def _assemble_series(
                 clause,
             ),
             histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
+            histogram_layout_count=layouts_by_labels.get(key),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -356,15 +423,25 @@ def _evaluate_formula(
 
     result: list[MetricSeries] = []
     for label_set in sorted(label_sets):
-        per_clause_points: dict[str, tuple[MetricPoint, ...]] = {
-            name: (grouped[name][label_set].points if name in grouped else broadcasts[name].points)
-            for name in series_by_clause
-        }
+        inputs = {name: grouped[name][label_set] if name in grouped else broadcasts[name] for name in series_by_clause}
+        per_clause_points = {name: series.points for name, series in inputs.items()}
         points = tuple(
             MetricPoint(time=time, value=_evaluate_formula_point(node, per_clause_points, index))
             for index, time in enumerate(grid)
         )
-        result.append(MetricSeries(labels=dict(label_set), points=points, metric_name=None, clause="formula"))
+        # The formula inherits any mixed-layout estimate it was computed from, so the response still warns about it.
+        layout_count = max(
+            (s.histogram_layout_count for s in inputs.values() if s.histogram_layout_count is not None), default=None
+        )
+        result.append(
+            MetricSeries(
+                labels=dict(label_set),
+                points=points,
+                metric_name=None,
+                clause="formula",
+                histogram_layout_count=layout_count,
+            )
+        )
     return result
 
 
@@ -390,18 +467,174 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    return _run_metric_query(team, request, {})
+
+
+def run_precomputed_metric_query(
+    *, team: Team, request: MetricQueryRequest, record_use: bool = True
+) -> MetricQueryResult:
+    """`run_metric_query` for a dashboard-v2 tile: each clause that a precomputed metric covers reads its stored
+    buckets and runs raw only for the newest ones. The first long-range tile that needs a precomputed metric
+    creates it and runs raw meanwhile. The result says where its buckets came from.
+
+    Pass `record_use=False` for a viewer who isn't a project member: the tile then reads stored buckets but
+    creates no precomputed metric and doesn't keep one in use."""
+    result = run_planned_metric_query(team=team, request=request, record_use=record_use)
+    if isinstance(result, MetricQueryResult):
+        return result
+    return MetricQueryResult(series=_run_metric_query(team, request, {}), provenance=result)
+
+
+def run_planned_metric_query(
+    *, team: Team, request: MetricQueryRequest, record_use: bool = True
+) -> MetricQueryResult | MetricQueryProvenance:
+    """`run_precomputed_metric_query` when a precomputed metric covers at least one clause. Otherwise it runs
+    nothing and returns the raw provenance, with why each clause has no plan, so the caller picks the raw path.
+    Planning still creates the precomputed metric that a long-range tile needs."""
+    if not precompute_enabled(team):
+        return MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(_PRECOMPUTE_OFF,))
+    plans: list[ClausePlan] = []
+    reasons: list[str] = []
+    runners: dict[str, PrecomputedClauseRunner] = {}
+    entries_cache: dict = {}
+    for clause in request.clauses:
+        plan = plan_clause(team, clause, request, record_use=record_use)
+        if isinstance(plan, str):
+            reasons.append(f"{clause.name}: {plan}")
+            continue
+        try:
+            entries = read_plan_entries(plan, entries_cache)
+        except TooManyStoredPointsError:
+            reasons.append(f"{clause.name}: too much stored data to load")
+            continue
+        plans.append(plan)
+        runners[clause.name] = PrecomputedClauseRunner(team, request, plan, entries)
+    if not plans:
+        return MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=tuple(reasons))
+    series = _run_metric_query(team, request, runners)
+    provenance = MetricQueryProvenance(
+        mode=provenance_mode(plans, len(reasons), request.date_to),
+        precomputed_until=min(plan.cut for plan in plans),
+        reasons=tuple(reasons),
+    )
+    shadow = None
+    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
+        shadow = _shadow_check(
+            team, provenance, series, lambda: _run_metric_query(team, request, {}, record_query=False)
+        )
+    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
+
+
+def run_precomputed_promql_query(
+    *,
+    team: Team,
+    promql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    record_use: bool = True,
+) -> MetricQueryResult:
+    """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored buckets and only the newer
+    buckets raw. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
+
+    def raw(record_query: bool = True) -> list[MetricSeries]:
+        return run_promql_range(team, promql, date_from, date_to, interval, record_query=record_query)
+
+    def raw_result(reason: str) -> MetricQueryResult:
+        return MetricQueryResult(
+            series=raw(), provenance=MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(reason,))
+        )
+
+    if not precompute_enabled(team):
+        return raw_result(_PRECOMPUTE_OFF)
+    plan = plan_promql(team, promql, date_from, date_to, interval, record_use=record_use)
+    if isinstance(plan, str):
+        return raw_result(plan)
+    try:
+        entries = read_promql_entries(plan)
+        merge_entries(entries, read_raw_tail_entries(team, plan))
+        results = evaluate_stored(plan, entries)
+    except TooManyStoredPointsError:
+        return raw_result("too much stored data to load")
+    except (MetricQueryTooManyRowsError, TooManySeriesError):
+        return raw_result("the newest buckets have too many label sets")
+    # The raw tail doesn't record the query, so a tile answered fully from storage still counts as a query.
+    _record_promql_query(team, plan.expr)
+    series = series_from_results(team, promql, results)
+    provenance = MetricQueryProvenance(
+        mode=MetricQueryProvenanceMode.MIXED if plan.cut < plan.last_step else MetricQueryProvenanceMode.PRECOMPUTED,
+        precomputed_until=plan.cut,
+    )
+    shadow = None
+    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
+        shadow = _shadow_check(team, provenance, series, lambda: raw(record_query=False))
+    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
+
+
+def _shadow_check(
+    team: Team,
+    provenance: MetricQueryProvenance,
+    series: list[MetricSeries],
+    run_raw: Callable[[], list[MetricSeries]],
+) -> MetricQueryShadowCheck:
+    """Run the query raw as well and measure how far the precomputed answer is from it."""
+    try:
+        raw = run_raw()
+    except Exception:
+        logger.exception("metrics_precompute_shadow_check_failed", team_id=team.pk)
+        return MetricQueryShadowCheck(max_relative_difference=None, mismatched_points=None)
+
+    def points(result: list[MetricSeries]) -> dict[tuple, float | None]:
+        return {(s.clause, tuple(sorted(s.labels.items())), p.time): p.value for s in result for p in s.points}
+
+    precomputed_points, raw_points = points(series), points(raw)
+    differences = [
+        abs(value - raw_value) / max(abs(raw_value), 1e-12)
+        for key, raw_value in raw_points.items()
+        if raw_value is not None and (value := precomputed_points.get(key)) is not None
+    ]
+    check = MetricQueryShadowCheck(
+        max_relative_difference=max(differences, default=0.0),
+        mismatched_points=sum(
+            1
+            for key in precomputed_points.keys() | raw_points.keys()
+            if (precomputed_points.get(key) is None) != (raw_points.get(key) is None)
+        ),
+    )
+    logger.info(
+        "metrics_precompute_shadow_check",
+        team_id=team.pk,
+        mode=provenance.mode.value,
+        max_relative_difference=check.max_relative_difference,
+        mismatched_points=check.mismatched_points,
+    )
+    return check
+
+
+def _run_metric_query(
+    team: Team,
+    request: MetricQueryRequest,
+    precomputed_runners: dict[str, PrecomputedClauseRunner],
+    record_query: bool = True,
+) -> list[MetricSeries]:
     formula_node_checked = (
         parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
         if request.formula is not None
         else None
     )
-    record_metric_queries(team, (clause.metric_name for clause in request.clauses))
-    runners: list[tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner, bool]] = []
+    if record_query:
+        record_metric_queries(team, (clause.metric_name for clause in request.clauses))
+    runners: list[
+        tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner | PrecomputedClauseRunner, bool]
+    ] = []
     derived_units: dict[str, str] = {}
     derived_enabled = any(_is_derived_metric_name(c.metric_name) for c in request.clauses) and derived_metrics_enabled(
         team
     )
     for clause in request.clauses:
+        if clause.name in precomputed_runners:
+            runners.append((clause, precomputed_runners[clause.name], False))
+            continue
         if derived_enabled and _is_derived_metric_name(clause.metric_name):
             derived_runner = DerivedMetricQueryRunner(
                 team=team,
@@ -431,7 +664,11 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
     units_by_fingerprint: dict[int, str] = {}
 
-    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner | DerivedMetricQueryRunner, raw: bool) -> None:
+    def run_clause(
+        clause: MetricQueryClause,
+        runner: MetricQueryRunner | DerivedMetricQueryRunner | PrecomputedClauseRunner,
+        raw: bool,
+    ) -> None:
         rows = runner.run()
         if raw:
             _attach_series_labels(team, clause.metric_name, rows)
@@ -496,6 +733,15 @@ def record_promql_query(*, team: Team, expr: str) -> None:
     _record_promql_query(team, expr)
 
 
+def report_prometheus_api_usage(
+    *, team: Team, user: User, auth_method: str, client: str, analytics_props: AnalyticsProps
+) -> None:
+    """Report use of the Prometheus-compatible API as an analytics event, at most once an hour for each team, user and client."""
+    _report_prometheus_api_usage(
+        team=team, user=user, auth_method=auth_method, client=client, analytics_props=analytics_props
+    )
+
+
 def run_promql_query(
     *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
 ) -> list[MetricSeries]:
@@ -509,6 +755,55 @@ def run_promql_query(
     return [
         replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
     ]
+
+
+# An instant builder query reads 5-minute buckets unless told otherwise: every series scraped at least once
+# every 5 minutes has a sample in each one, as with PromQL's 5-minute lookback.
+DEFAULT_INSTANT_INTERVAL = "minute_5"
+# The instant value is the last of a few complete buckets, so a range function sees the buckets before it.
+_INSTANT_BUCKETS = 3
+
+
+def run_promql_instant_query(*, team: Team, expr: str, time: dt.datetime) -> list[MetricSeries]:
+    """Run a PromQL instant query on Snuffle at `time`: one point per series. The caller checks the Snuffle flag."""
+    with query_concurrency_slots(team):
+        return run_promql_instant(team, expr, time)
+
+
+def run_metric_instant_query(
+    *,
+    team: Team,
+    clauses: tuple[MetricQueryClause, ...],
+    time: dt.datetime,
+    interval: str | None = None,
+    formula: str | None = None,
+) -> list[MetricSeries]:
+    """The last complete bucket before `time` of a builder query: one point per series.
+
+    The buckets are `interval` wide (5 minutes by default) and end at the bucket boundary at or before `time`,
+    so the value is the one the chart shows for that bucket.
+    """
+    resolved = interval or DEFAULT_INSTANT_INTERVAL
+    window = metric_instant_window(team=team, time=time, interval=resolved)
+    end = window.date_to
+    request = MetricQueryRequest(
+        clauses=clauses, date_from=window.date_from, date_to=end, interval=resolved, formula=formula
+    )
+    # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
+    # buckets follow the project timezone and can be an hour off a whole step across a DST change.
+    step = _interval_step(resolved)
+    last_bucket_after = end - step - step / 2
+    return [
+        replace(s, points=tuple(p for p in s.points[-1:] if dt.datetime.fromisoformat(p.time) > last_bucket_after))
+        for s in run_metric_query(team=team, request=request)
+    ]
+
+
+def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None) -> MetricInstantWindow:
+    """The range an instant builder query at `time` reads: its value is the bucket that ends at the range's end."""
+    resolved = interval or DEFAULT_INSTANT_INTERVAL
+    end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
+    return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
@@ -531,12 +826,23 @@ def list_metric_names(
     limit: int = 100,
     services: Sequence[str] = (),
     names: Sequence[str] = (),
+    match: str = "substring",
+    include_sparklines: bool = True,
+    include_first_seen: bool = False,
+    include_series_stats: bool = False,
+    fold_histograms: bool = False,
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts.
+    Returns a list of `{"name": str, "metric_type": str, ...}` dicts.
     Passing `services` narrows the list to names those services reported.
-    Raises `ValueError` for an out-of-range limit or too many services.
+    `match` decides how `search` matches a name: a case-insensitive `substring`
+    or `prefix`, or an RE2 `regex`. `include_first_seen` adds each name's
+    earliest hour within retention, `include_series_stats` adds each name's
+    approximate `series_count` and `tag_key_count`, and `fold_histograms` folds a Prometheus
+    classic histogram's `_bucket`/`_sum`/`_count` rows into the `_bucket` row.
+    Raises `ValueError` for an out-of-range limit, too many services, an
+    unknown match mode or an invalid regex.
 
     The unsearched list is cached per team and service scope for a minute;
     searches are not. Behind the derived series flag, the derived metrics the
@@ -554,21 +860,44 @@ def list_metric_names(
             return ingested
         available = {metric.name for metric in list_derived_metric_names(team)}
         return [*ingested, *(_derived_name_row(get_derived_metric(n)) for n in derived_names if n in available)]
-    ingested = cached_metric_names(team=team, search=search, limit=limit, services=services)
+    ingested = cached_metric_names(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        match=match,
+        include_sparklines=include_sparklines,
+        include_first_seen=include_first_seen,
+        include_series_stats=include_series_stats,
+    )
+    if fold_histograms:
+        ingested = fold_classic_histograms(ingested)
     if not derived_metrics_enabled(team):
         return ingested
-    derived = [_derived_name_row(metric) for metric in list_derived_metric_names(team, search=search)]
+    derived = [
+        _derived_name_row(metric, include_first_seen=include_first_seen, include_series_stats=include_series_stats)
+        for metric in list_derived_metric_names(team)
+        if name_matches(metric.name, search, match)
+    ]
     return [*ingested, *derived][:limit]
 
 
-def _derived_name_row(metric: DerivedMetric) -> dict[str, Any]:
-    return {
+def _derived_name_row(
+    metric: DerivedMetric, *, include_first_seen: bool = False, include_series_stats: bool = False
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "name": metric.name,
         "metric_type": metric.metric_type.value,
         "unit": metric.unit,
         "last_seen": None,
         "sparkline": [],
     }
+    if include_first_seen:
+        row["first_seen"] = None
+    if include_series_stats:
+        row["series_count"] = 0
+        row["tag_key_count"] = 0
+    return row
 
 
 def list_metric_picker_names(
@@ -592,6 +921,16 @@ def list_metric_picker_names(
 def is_derived_metric_name(name: str) -> bool:
     """True for a name that the query computes from spans and logs instead of reading ingested samples."""
     return _is_derived_metric_name(name)
+
+
+def get_derived_series_status(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> DerivedSeriesStatus:
+    """Whether the team has spans or logs to derive series from, and whether derived series are on for it.
+
+    `can_read` says whether the caller can read a source's resource (`logs`, `tracing`). A source the
+    caller cannot read counts as absent, so the answer does not reveal that the team sends it.
+    """
+    has_sources = team_has_derived_sources(team, can_read=can_read)
+    return DerivedSeriesStatus(has_sources=has_sources, enabled=has_sources and derived_metrics_enabled(team))
 
 
 def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:
@@ -618,6 +957,7 @@ def list_metric_attribute_keys(
     team: Team,
     metric_name: str = "",
     search: str = "",
+    search_values: bool = False,
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
@@ -628,14 +968,27 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
+    With `search_values`, keys whose values contain the search term are listed
+    after the keys whose name does, and carry `matchedOn: "value"` plus the
+    matching `matchedValue`.
     The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
+
+    For a derived metric, the keys are the span or log dimensions it can be
+    filtered and grouped by, and only those with values in the window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_keys(
+            team, metric_name=metric_name, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeKeysQueryRunner(
         team=team,
         metric_name=metric_name,
         search=search,
+        search_values=search_values,
         date_from=date_from,
         date_to=date_to,
         limit=limit,
@@ -662,6 +1015,12 @@ def list_metric_attribute_values(
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_values(
+            team, metric_name=metric_name, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeValuesQueryRunner(
         team=team,
         key=key,
@@ -992,6 +1351,19 @@ def create_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) ->
     return service.create_from_suggestion(team, user, suggestion_id)
 
 
+def dismiss_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) -> None:
+    """Remove a suggestion from the suggestions of the team, for every user of the team. It does not come back.
+
+    A dashboard that the team created from the suggestion stays. A second call does nothing.
+    Raises `SuggestedDashboardNotFound` when the team has no such suggestion.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    service.dismiss_suggestion(team, user, suggestion_id)
+
+
 def analyze_team_metrics_now(*, team: Team) -> None:
     """Start an analysis of the team's metric names now, even when nothing changed. For the staff review."""
     from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
@@ -1059,3 +1431,48 @@ def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes 
     )
 
     return service.picture(template_id, round_number)
+
+
+def list_recording_rules(*, team: Team) -> list[RecordingRule]:
+    return recording_rule_logic.list_rules(team.id)
+
+
+def get_recording_rule(*, team: Team, rule_id: str) -> RecordingRule:
+    """Raises `RecordingRuleNotFound`."""
+    return recording_rule_logic.get_rule(team.id, rule_id)
+
+
+def create_recording_rule(
+    *, team: Team, user: User, metric_name: str, query: str, description: str, enabled: bool
+) -> RecordingRule:
+    """Raises `RecordingRuleError` with a message for the user."""
+    return recording_rule_logic.create_rule(
+        team.id, created_by_id=user.id, metric_name=metric_name, query=query, description=description, enabled=enabled
+    )
+
+
+def update_recording_rule(
+    *,
+    team: Team,
+    rule_id: str,
+    query: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
+) -> RecordingRule:
+    """Raises `RecordingRuleError` with a message for the user. The metric name cannot change."""
+    return recording_rule_logic.update_rule(team.id, rule_id, query=query, description=description, enabled=enabled)
+
+
+def delete_recording_rule(*, team: Team, rule_id: str) -> None:
+    """Raises `RecordingRuleNotFound`."""
+    recording_rule_logic.delete_rule(team.id, rule_id)
+
+
+def fill_precomputed_metrics(*, team_id: int) -> None:
+    """One pass of the fill loop over a team's precomputed metrics: forward, a day of backfill, retention."""
+    _fill_precomputed_metrics(team_id)
+
+
+def teams_with_precomputed_metrics() -> list[int]:
+    """The teams with at least one precomputed metric, active or paused, for the fill schedule."""
+    return _teams_with_precomputed_metrics()

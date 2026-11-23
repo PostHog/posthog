@@ -5,6 +5,7 @@ import {
   flattenBranchPages,
   type GithubBranchesPage,
 } from "@posthog/core/integrations/branches";
+import { combineGitlabProjects } from "@posthog/core/integrations/gitlabProjects";
 import { REPOSITORIES_SERVICE } from "@posthog/core/integrations/identifiers";
 import {
   combineGithubRepositories,
@@ -357,6 +358,52 @@ export function useUserGithubRepositories(
     hasMore,
     loadMore,
   };
+}
+
+/**
+ * The gitlab.com project of each connection, with the integration to send for
+ * each, and the token scopes that coding tasks need and a token lacks.
+ */
+export function useGitlabProjects(
+  integrationIds: ReadonlyArray<number>,
+  search: string,
+  enabled: boolean,
+) {
+  const client = useOptionalAuthenticatedClient();
+  const normalizedSearch = search.trim().toLowerCase();
+  return useQueries({
+    queries: integrationIds.map((integrationId) => ({
+      queryKey: integrationKeys.gitlabProjects(integrationId),
+      queryFn: async () => {
+        if (!client) throw new Error("Not authenticated");
+        return await client.getGitlabProjects(integrationId);
+      },
+      enabled: enabled && !!client,
+      staleTime: 5 * 60 * 1000,
+      meta: AUTH_SCOPED_QUERY_META,
+    })),
+    combine: (results) => {
+      const combined = combineGitlabProjects(
+        results.map((result, index) => ({
+          integrationId: integrationIds[index],
+          response: result.data,
+        })),
+      );
+      return {
+        ...combined,
+        projects: combined.projects.filter((project) =>
+          project.toLowerCase().includes(normalizedSearch),
+        ),
+        isPending: enabled && results.some((result) => result.isPending),
+        isError: enabled && results.some((result) => result.isError),
+        retry: () => {
+          for (const result of results) {
+            if (result.isError) void result.refetch();
+          }
+        },
+      };
+    },
+  });
 }
 
 export function useGithubBranches(

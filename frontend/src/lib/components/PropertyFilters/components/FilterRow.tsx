@@ -7,9 +7,9 @@ import { IconPlus, IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PathCleaningFilter, PropertyFilterRow } from '~/types'
 
@@ -86,7 +86,9 @@ export const FilterRow = React.memo(function FilterRow({
             <div
                 className={clsx('property-filter-row flex items-center max-w-full', {
                     'flex-wrap gap-2': !!suffix,
-                    'flex-nowrap deprecated-space-x-2': !suffix,
+                    'flex-nowrap deprecated-space-x-2': !suffix && !quillSurface,
+                    // The quill popover adds focus guards beside its trigger; gap skips them, margins would shift the button.
+                    'flex-nowrap gap-2': !suffix && quillSurface,
                     'grow sm:grow-0': isValid,
                     'grow-0': !isValid,
                     'wrap-filters': !disablePopover,

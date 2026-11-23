@@ -26,6 +26,7 @@ import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/ware
 
 import {
     CampaignChannelTypes,
+    RECOMMENDED_SEARCH_PLATFORMS,
     SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
@@ -88,6 +89,7 @@ export interface searchPerformanceLogicValues extends Pick<
     detailSourceNotices: SearchSourceNotice[]
     detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
+    hasReadySourceInAnyBreakdown: boolean
     query: MarketingAnalyticsSearchQuery
 }
 
@@ -117,6 +119,8 @@ export interface searchPerformanceLogicActions
 }
 
 export type searchPerformanceLogicType = MakeLogicType<searchPerformanceLogicValues, searchPerformanceLogicActions>
+
+const SEARCH_BREAKDOWNS: SearchBreakdown[] = ['keyword', 'search_term', 'page']
 
 export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
@@ -214,9 +218,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         missingSources: [
             (s) => [s.allSearchSources],
             (sources: ExternalDataSource[]): SearchPlatform[] =>
-                (['GoogleAds', 'GoogleSearchConsole'] as SearchPlatform[]).filter(
-                    (type) => !sources.some((source) => source.source_type === type)
-                ),
+                RECOMMENDED_SEARCH_PLATFORMS.filter((type) => !sources.some((source) => source.source_type === type)),
         ],
         hasActiveFilters: [
             (s) => [s.querySearch, s.channel, s.integrationFilter, s.allSearchSources],
@@ -276,6 +278,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     const querySource = searchPerformanceSource(source, breakdown)
                     return querySource ? [querySource] : []
                 }),
+        ],
+        hasReadySourceInAnyBreakdown: [
+            (s) => [s.sources],
+            (sources: ExternalDataSource[]): boolean =>
+                sources.some((source) =>
+                    SEARCH_BREAKDOWNS.some((breakdown) => !!searchPerformanceSource(source, breakdown))
+                ),
         ],
         hasPaidSources: [
             (s) => [s.readySources],

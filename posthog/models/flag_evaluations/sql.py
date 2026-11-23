@@ -1,4 +1,6 @@
+import json
 from collections.abc import Iterable
+from pathlib import Path
 
 from django.conf import settings
 
@@ -49,8 +51,11 @@ FLAG_EVALUATIONS_RETENTION_DAYS = 90
 # the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
 # This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
 # migration, such as 0362_flag_evaluations_ttl_92_days.
-# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
-FLAG_EVALUATIONS_TTL_DAYS = 92
+# crosslang/flag_evaluations.json is the source of this value. Node and Rust mirror it.
+# crosslang/README.md lists the mirrors.
+FLAG_EVALUATIONS_TTL_DAYS: int = json.loads(
+    (Path(__file__).parent / "crosslang" / "flag_evaluations.json").read_text()
+)["ttl_days"]
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
 # for deletion requests that name other events, so a producer writing a second event name here has

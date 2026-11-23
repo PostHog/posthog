@@ -51,7 +51,12 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
-COOKIELESS_MODE_FIELD = "$cookieless_mode"
+DEVICE_ID_FIELD = "$device_id"
+# Cookieless ingestion gives every event it processes a `$device_id` with this prefix
+# (`baseHashToDeviceId` in nodejs/src/ingestion/common/cookieless/cookieless-manager.ts). The
+# check reads the materialized `$device_id` column. `$cookieless_mode` marks the same events but
+# has no materialized column, so reading it reads the whole `properties` column of every row.
+COOKIELESS_DEVICE_ID_PREFIX = "cookielessd_"
 LIB_FIELD = "$lib"
 
 
@@ -120,13 +125,12 @@ def _expected_missing_user_agent(
     """
     reasons: list[ast.Expr] = []
     if modifiers is not None and modifiers.cookielessTrafficIsRegular:
-        cookieless_expr = _property_expr(COOKIELESS_MODE_FIELD, args)
-        if cookieless_expr is not None:
+        device_id_expr = _property_expr(DEVICE_ID_FIELD, args)
+        if device_id_expr is not None:
             reasons.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=_string_property(cookieless_expr),
-                    right=ast.Constant(value="true"),
+                ast.Call(
+                    name="startsWith",
+                    args=[_string_property(device_id_expr), ast.Constant(value=COOKIELESS_DEVICE_ID_PREFIX)],
                 )
             )
     lib_expr = _property_expr(LIB_FIELD, args)

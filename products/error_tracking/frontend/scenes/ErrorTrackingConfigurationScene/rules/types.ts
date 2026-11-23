@@ -3,6 +3,7 @@ import { JsonType, UniversalFiltersGroup } from '~/types'
 
 import type {
     ErrorTrackingIssueSeverityRuleEnumApi,
+    ErrorTrackingIssueTagRuleApi,
     ErrorTrackingSeverityRuleApi,
 } from '../../../generated/api.schemas'
 
@@ -38,6 +39,11 @@ export type ErrorTrackingSeverityRuleNew = Omit<ErrorTrackingSeverityRule, 'id' 
     severity: ErrorTrackingIssueSeverityRuleEnumApi | null
 }
 
+export type ErrorTrackingTagRule = Omit<ErrorTrackingBaseRule, 'disabled_data'> &
+    Pick<ErrorTrackingIssueTagRuleApi, 'key' | 'label' | 'description' | 'disabled_data'>
+
+export type ErrorTrackingTagRuleNew = Omit<ErrorTrackingTagRule, 'id' | 'key'> & { id: 'new' }
+
 export type ErrorTrackingRule =
     | ErrorTrackingSuppressionRule
     | ErrorTrackingGroupingRule
@@ -45,6 +51,7 @@ export type ErrorTrackingRule =
     | ErrorTrackingBypassRule
     | ErrorTrackingSeverityRule
     | ErrorTrackingSeverityRuleNew
+    | ErrorTrackingTagRule
 export type ErrorTrackingRuleNew = ErrorTrackingRule & { id: 'new' }
 
 export enum ErrorTrackingRuleType {
@@ -53,6 +60,7 @@ export enum ErrorTrackingRuleType {
     Grouping = 'grouping_rules',
     Severity = 'severity_rules',
     Suppression = 'suppression_rules',
+    Tag = 'tag_rules',
 }
 
 export type ErrorTrackingRulesLogicProps = {

@@ -17,7 +17,7 @@ from products.warehouse_sources.sources.frill.frill import (
 )
 from products.warehouse_sources.sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
 from products.warehouse_sources.sources.frill.source import FrillSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -175,10 +175,70 @@ class TestCommentsFanOut:
         assert result.requests[0].param("after") == "ideas-resume"
 
 
+class TestIntegrationLinks:
+    def test_pages_each_type_and_stages_state_before_each_page(self) -> None:
+        responses = [
+            ScriptedResponse(json=_page([{"idx": "link_1", "type": "zendesk"}], has_next=True, end_cursor="z1")),
+            ScriptedResponse(json=_page([{"idx": "link_2", "type": "zendesk"}], has_next=False)),
+            # Frill returns `data: null` and empty cursors when nothing matches.
+            ScriptedResponse(json={"data": None, "pagination": {"hasNextPage": False, "endCursor": ""}, "meta": []}),
+        ]
+
+        result = _driver().run("integration_links", responses)
+
+        assert result.raised is None
+        assert [(r.path, r.param("type"), r.param("after")) for r in result.requests] == [
+            ("/v1/integration-links", "zendesk", None),
+            ("/v1/integration-links", "zendesk", "z1"),
+            ("/v1/integration-links", "intercom", None),
+        ]
+        assert result.items == [[{"idx": "link_1", "type": "zendesk"}], [{"idx": "link_2", "type": "zendesk"}]]
+        # The terminal zendesk page stages the start of the intercom walk, so a resume after it
+        # moves on instead of re-reading zendesk or skipping intercom.
+        assert result.saved_states == [
+            FrillResumeConfig(after="z1", link_type="zendesk"),
+            FrillResumeConfig(link_type="intercom"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_requests"),
+        [
+            (
+                FrillResumeConfig(after="z9", link_type="zendesk"),
+                [("zendesk", "z9"), ("intercom", None)],
+            ),
+            (
+                FrillResumeConfig(link_type="intercom"),
+                [("intercom", None)],
+            ),
+            (
+                FrillResumeConfig(after="i3", link_type="intercom"),
+                [("intercom", "i3")],
+            ),
+            # A type no longer in the catalog restarts the walk rather than sending its cursor.
+            (
+                FrillResumeConfig(after="x1", link_type="removed"),
+                [("zendesk", None), ("intercom", None)],
+            ),
+        ],
+    )
+    def test_resume_starts_at_saved_type_and_cursor(
+        self, resume_state: FrillResumeConfig, expected_requests: list[tuple[str, Optional[str]]]
+    ) -> None:
+        result = _driver().run(
+            "integration_links",
+            always(ScriptedResponse(json=_page([], has_next=False))),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [(r.param("type"), r.param("after")) for r in result.requests] == expected_requests
+
+
 class TestFrillSource:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_response_shape(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, [ScriptedResponse(json=_page([], has_next=False))])
+        result = _driver().run(endpoint, always(ScriptedResponse(json=_page([], has_next=False))))
 
         config = FRILL_ENDPOINTS[endpoint]
         assert result.raised is None

@@ -20,6 +20,8 @@ from products.workflows.backend.providers.ses import (
     METRIC_QUERY_BUDGET_SECONDS,
     SESProvider,
 )
+from products.workflows.backend.services.email_domain_dns import PublishedRecords
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -36,6 +38,14 @@ class TestSESProvider(TestCase):
         cls.boto3_client_patcher = patcher
         cls.mock_boto3_client = patcher.start()
         cls.addClassCleanup(patcher.stop)
+
+        # These tests fake DNS by replacing `Resolver`, which the zone lookup behind the apex SPF check cannot run against.
+        spf_patcher = patch(
+            "products.workflows.backend.providers.ses.find_published_records",
+            return_value=PublishedRecords(records=frozenset()),
+        )
+        spf_patcher.start()
+        cls.addClassCleanup(spf_patcher.stop)
 
         # Set up a default mock client with safe return values
         mock_client_instance = cls.mock_boto3_client.return_value
@@ -237,6 +247,28 @@ class TestSESProvider(TestCase):
                 },
             ],
         }
+
+    @patch("products.workflows.backend.providers.ses.is_cloud", return_value=True)
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verify_email_domain_looks_up_no_records_for_an_out_of_band_domain(self, mock_resolver_cls, _mock_is_cloud):
+        listed = "abc.oast.live"
+        provider = SESProvider()
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {listed: {"VerificationStatus": "Success"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {listed: {"DkimVerificationStatus": "Pending"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {listed: {"MailFromDomainStatus": "Success"}}
+            }
+
+            result = provider.verify_email_domain(listed, mail_from_subdomain="mail", team_id=1)
+
+        mock_resolver_cls.assert_not_called()
+        assert result["status"] == "pending"
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_success(self, mock_resolver_cls):
@@ -922,6 +954,25 @@ class TestGetIdentityIspMetrics(TestCase):
         assert [(row.isp, row.emails_sent) for row in rows] == [(ISP_OTHER, 92), ("Gmail", 16)]
         assert rows[0].delivery_rate == pytest.approx(84 / 92)
 
+    def test_yandex_and_mail_ru_get_their_own_rows_by_default(self):
+        self._serve(
+            {
+                (ISP_IDENTITY_TOTAL, "SEND"): 100,
+                ("Gmail", "SEND"): 50,
+                ("Yandex", "SEND"): 30,
+                ("MailRu", "SEND"): 15,
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30)
+
+        assert [(row.isp, row.emails_sent) for row in rows] == [
+            ("Gmail", 50),
+            ("Yandex", 30),
+            ("MailRu", 15),
+            (ISP_OTHER, 5),
+        ]
+
     def test_no_remainder_row_when_a_named_provider_did_not_answer(self):
         # A provider whose SEND query failed has no counts to subtract, so its volume would show up
         # as unattributed. Reporting nothing beats moving one provider's mail into another row.
@@ -948,3 +999,35 @@ class TestGetIdentityIspMetrics(TestCase):
         rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo"])
 
         assert [row.isp for row in rows] == ["Yahoo", "Gmail"]
+
+
+class TestVerifyEmailDomainApexSpf(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "merged_into_one_record",
+                ("v=spf1 include:_spf.google.com include:amazonses.com ~all", "site-verification=abc"),
+                "success",
+            ),
+            (
+                "split_across_two_records",
+                ("v=spf1 include:_spf.google.com ~all", "v=spf1 include:amazonses.com ~all"),
+                "pending",
+            ),
+        ]
+    )
+    def test_apex_spf_status_follows_the_published_spf(
+        self, _name: str, spf_values: tuple[str, ...], expected_status: str
+    ) -> None:
+        domain = "mail.example.com"
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.ses.add_identity(domain, verification_token="token")
+        world.dns.publish_txt(f"_amazonses.{domain}", "token")
+        world.dns.publish_txt(domain, *spf_values)
+
+        with world.installed():
+            result = SESProvider().verify_email_domain(domain, mail_from_subdomain="feedback", team_id=1)
+
+        [apex_spf] = [record for record in result["dnsRecords"] if record["recordHostname"] == "@"]
+        assert apex_spf["status"] == expected_status

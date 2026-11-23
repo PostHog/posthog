@@ -21,9 +21,17 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         totals=stats,
         has_error=False,
         error_count=0,
+        totals_partial=False,
         tree=[
             contracts.TraceNode(
-                id="trace-1", kind="trace", name="Trace", model=None, stats=stats, has_error=False, children=[]
+                id="trace-1",
+                kind="trace",
+                name="Trace",
+                label="Trace",
+                model=None,
+                stats=stats,
+                has_error=False,
+                children=[],
             )
         ],
         timeline=[],
@@ -45,6 +53,7 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         "totals",
         "hasError",
         "errorCount",
+        "totalsPartial",
         "tree",
         "timeline",
         "totalMs",
@@ -60,6 +69,7 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         "id",
         "kind",
         "name",
+        "label",
         "model",
         "stats",
         "hasError",

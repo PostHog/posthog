@@ -2,6 +2,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 from products.warehouse_sources.sources.vapi._config import VapiSourceConfig
 from products.warehouse_sources.sources.vapi.settings import VAPI_VERSION_V1, VAPI_VERSION_V2
 from products.warehouse_sources.sources.vapi.source import VapiSource
@@ -38,6 +39,43 @@ class TestVapiSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_5xx",
+                "Vapi API error (retryable): status=503, url=https://api.vapi.ai/eval/simulation/run?limit=100&page=1",
+                True,
+            ),
+            (
+                "exhausted_429",
+                "Vapi API error (retryable): status=429, url=https://api.vapi.ai/call?limit=100",
+                True,
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vapi.ai', port=443): Read timed out. (read timeout=60)",
+                True,
+            ),
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vapi.ai', port=443): Max retries exceeded with url: /call?limit=100 "
+                "(Caused by NewConnectionError('Failed to establish a new connection: [Errno 111] Connection refused'))",
+                True,
+            ),
+            # Client errors are not transient: they must stay reported.
+            ("bad_request", "400 Client Error: Bad Request for url: https://api.vapi.ai/call?limit=100", False),
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vapi.ai/call?limit=100", False),
+            # A timeout against another host is not Vapi's to classify.
+            (
+                "other_host_timeout",
+                "HTTPSConnectionPool(host='api.example.com', port=443): Read timed out. (read timeout=60)",
+                False,
+            ),
+        ]
+    )
+    def test_retryable_errors_cover_exhausted_transient_failures(self, _name, error_msg, expected):
+        assert error_message_matches(error_msg, self.source.get_retryable_errors()) is expected
 
     def test_calls_offers_updated_at_incremental_field(self):
         # updatedAt re-syncs calls whose analysis/artifacts land after the call ends.

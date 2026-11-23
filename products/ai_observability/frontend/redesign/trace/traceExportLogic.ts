@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import type { ExportStatusFetcher } from 'lib/components/ExportButton/exportsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -15,17 +16,13 @@ import {
     COPY_TRACE_MAX_MEGABYTES,
     TraceExportFailedError,
     TraceTooLargeToCopyError,
+    isNetworkFailure,
     readTraceExportText,
     writePendingTextToClipboard,
 } from './traceExportCopy'
 import { encodeTraceIdSegment } from './traceIdSegment'
 import { traceViewLogic } from './traceViewLogic'
-
-type CopyFailureReason = 'too_large' | 'export_failed' | 'error'
-
-function trackCopyFailure(reason: CopyFailureReason): void {
-    posthog.capture('llma trace export copy failed', { reason })
-}
+import { traceViewTracking } from './traceViewTracking'
 
 export interface TraceExportLogicProps {
     traceId: string
@@ -59,10 +56,10 @@ export interface traceExportLogicActions {
     } // exportsLogic
     trackExport: (
         exportedAsset: ExportedAssetType,
-        fetchLatest?: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest?: ExportStatusFetcher | undefined
     ) => {
         exportedAsset: ExportedAssetType
-        fetchLatest: import('lib/components/ExportButton/exportsLogic').ExportStatusFetcher | undefined
+        fetchLatest: ExportStatusFetcher | undefined
     } // exportsLogic
     copyTrace: () => {
         value: true
@@ -148,17 +145,14 @@ export const traceExportLogic = kea<traceExportLogicType>([
                 const [copied, { text, sizeBytes }] = await Promise.all([written, reading])
                 if (copied) {
                     lemonToast.info('Copied trace to clipboard')
-                    posthog.capture('llma trace export copied', { size_bytes: sizeBytes, fallback: false })
+                    traceViewTracking.exportCopied(sizeBytes, false)
                 } else {
                     lemonToast.info('The trace is ready to copy.', {
                         button: {
                             label: 'Copy',
                             action: async () => {
                                 if (await copyToClipboard(text, 'trace')) {
-                                    posthog.capture('llma trace export copied', {
-                                        size_bytes: sizeBytes,
-                                        fallback: true,
-                                    })
+                                    traceViewTracking.exportCopied(sizeBytes, true)
                                 }
                             },
                         },
@@ -174,13 +168,16 @@ export const traceExportLogic = kea<traceExportLogicType>([
                         `This trace is larger than ${COPY_TRACE_MAX_MEGABYTES} MB, so it can't be copied. Download it as a JSON file instead.`,
                         { button: { label: 'Download', action: () => actions.downloadExport(exportedAsset) } }
                     )
-                    trackCopyFailure('too_large')
+                    traceViewTracking.exportCopyFailed('too_large')
                 } else if (error instanceof TraceExportFailedError) {
                     lemonToast.error(error.message)
-                    trackCopyFailure('export_failed')
+                    traceViewTracking.exportCopyFailed('export_failed')
+                } else if (isNetworkFailure(error)) {
+                    lemonToast.error("Couldn't copy this trace. Try again.")
+                    traceViewTracking.exportCopyFailed('network')
                 } else {
                     lemonToast.error("Couldn't copy this trace. Try again.")
-                    trackCopyFailure('error')
+                    traceViewTracking.exportCopyFailed('error')
                     posthog.captureException(error)
                 }
             }

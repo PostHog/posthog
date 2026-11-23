@@ -1,0 +1,23 @@
+hoglint: this commit is blocked: 1 new finding.
+New findings by rule:
+     1  contracts-no-django
+Fix each finding, or stop and tell the person. Do not edit hoglint.ledger, hoglint.exceptions.toml, hoglint.toml or a preset to make this check pass.
+new findings (1)
+  contracts-no-django: products.visual_review.backend.facade.contracts reaches django.db.models: products.visual_review.backend.facade.contracts -> django.db.models
+    at products/visual_review/backend/facade/contracts.py:863  [team-devex]
+    why: A contracts module must import without Django. Other products and tools import contracts where Django is not set up.
+    fix (needs care): Break the chain at its first step. Move that import into the function that uses it, or under TYPE_CHECKING if only a type needs it.
+    fix (needs care): Move the code that needs Django out of the contracts module.
+    see: hoglint explain contracts-no-django
+advisory rows (6041)
+  public-surface: bin.build-dashboard-widget-types names products.dashboards.backend.constants.WIDGET_DATE_FROM_LABELS, which is not exported to it
+    at bin/build-dashboard-widget-types.py:55  [team-devex]
+  public-surface: products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.event_definition.EventDefinition, which is not exported to it
+    at products/visual_review/backend/logic/shadow_probe.py:1  [team-devex]
+unknowns (114)
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:94: signal 'model' did not resolve
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:95: signal 'model' did not resolve
+unknowns attributed against HEAD (tree f5b7c014173c, stored summary): 0 introduced, 0 ambiguous, 114 inherited
+level isolated: 25 pass, 74 fail
+4831 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.

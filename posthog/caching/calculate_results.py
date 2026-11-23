@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import orjson
 import structlog
@@ -8,16 +8,23 @@ from posthog.schema import CacheMissResponse, DashboardFilter
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse, process_query_dict
+from posthog.api.services.query import (
+    ExecutionMode,
+    PlannedQuery,
+    RawCachedQueryResponse,
+    plan_query_dict,
+    process_query_dict,
+    run_planned_query,
+)
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
+from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.contracts import AppliedDashboard
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -56,46 +63,39 @@ def _model_list_field_as_dicts(model: BaseModel, field: str) -> Optional[list]:
     return [item.model_dump(by_alias=True) if isinstance(item, BaseModel) else item for item in value]
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
-    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
+def calculate_cache_key(insight: Insight, *, dashboard: AppliedDashboard | None) -> Optional[str]:
+    """The cache key of the insight's query, with the dashboard's filters applied when the insight runs on one.
 
-    if insight is not None:
-        with upgrade_insight(insight):
-            if insight.query:
-                query_runner = get_query_runner_or_none(insight.query, insight.team)
-                if query_runner is None:
-                    return None  # Uncacheable query-based insight
-                if dashboard is not None and dashboard.filters:
-                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-                return query_runner.get_cache_key()
+    The filter overrides of the insight's tile are not applied.
+    """
+    with upgrade_insight(insight):
+        if insight.query:
+            query_runner = get_query_runner_or_none(insight.query, insight.team)
+            if query_runner is None:
+                return None  # Uncacheable query-based insight
+            if dashboard is not None and dashboard.filters:
+                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+            return query_runner.get_cache_key()
 
     return None
 
 
-def calculate_for_query_based_insight(
+@frozen
+class _ResolvedInsightQuery:
+    query: dict
+    dashboard_filters: Optional[dict]
+    variables_override: Optional[dict]
+
+
+def _resolve_insight_query(
     insight: Insight,
     *,
-    team: Team,
-    dashboard: Optional[Dashboard] = None,
-    execution_mode: ExecutionMode,
-    user: Optional[User],
-    user_access_control: Optional["UserAccessControl"] = None,
-    filters_override: Optional[dict] = None,
-    variables_override: Optional[dict] = None,
-    tile_filters_override: Optional[dict] = None,
-    query_override: Optional[dict] = None,
-    cache_age_seconds: Optional[int] = None,
-    analytics_props: Optional[AnalyticsProps] = None,
-    allow_raw_results: bool = False,
-    limit_context: LimitContext = LimitContext.QUERY_ASYNC,
-) -> "InsightResult":
-    from posthog.caching.insight_result import InsightResult, NothingInCacheResult
-
-    tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
-    if dashboard:
-        tag_queries(dashboard_id=dashboard.pk)
-
+    dashboard: AppliedDashboard | None,
+    filters_override: Optional[dict],
+    variables_override: Optional[dict],
+    tile_filters_override: Optional[dict],
+    query_override: Optional[dict],
+) -> _ResolvedInsightQuery:
     dashboard_filters_json = (
         filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
     )
@@ -109,24 +109,128 @@ def calculate_for_query_based_insight(
         raise ValueError("Insight has no query and no query_override was provided")
 
     effective = resolve_effective_dashboard_filters(query_json, dashboard_filters_json, tile_filters_override)
-    query_json = effective.query
-    dashboard_filters_json = effective.filters
+    return _ResolvedInsightQuery(
+        query=effective.query, dashboard_filters=effective.filters, variables_override=variables_override_json
+    )
+
+
+def plan_query_based_insight(
+    insight: Insight,
+    *,
+    team: Team,
+    dashboard: AppliedDashboard | None,
+    user: Optional[User],
+    user_access_control: Optional["UserAccessControl"],
+    filters_override: Optional[dict],
+    variables_override: Optional[dict],
+    tile_filters_override: Optional[dict],
+    allow_raw_results: bool,
+    limit_context: LimitContext,
+) -> Optional[PlannedQuery]:
+    """The query `calculate_for_query_based_insight` would run for these arguments, before it runs. None when the
+    insight has to go through the unplanned path."""
+    resolved = _resolve_insight_query(
+        insight,
+        dashboard=dashboard,
+        filters_override=filters_override,
+        variables_override=variables_override,
+        tile_filters_override=tile_filters_override,
+        query_override=None,
+    )
+    return plan_query_dict(
+        team,
+        resolved.query,
+        dashboard_filters_json=resolved.dashboard_filters,
+        variables_override_json=resolved.variables_override,
+        limit_context=limit_context,
+        user=user,
+        user_access_control=user_access_control,
+        allow_raw_results=allow_raw_results,
+    )
+
+
+def calculate_for_query_based_insight(
+    insight: Insight,
+    *,
+    team: Team,
+    dashboard: AppliedDashboard | None = None,
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    user_access_control: Optional["UserAccessControl"] = None,
+    filters_override: Optional[dict] = None,
+    variables_override: Optional[dict] = None,
+    tile_filters_override: Optional[dict] = None,
+    query_override: Optional[dict] = None,
+    cache_age_seconds: Optional[int] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
+    allow_raw_results: bool = False,
+    limit_context: LimitContext = LimitContext.QUERY_ASYNC,
+) -> "InsightResult":
+    tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
+    if dashboard:
+        tag_queries(dashboard_id=dashboard.id)
+
+    resolved = _resolve_insight_query(
+        insight,
+        dashboard=dashboard,
+        filters_override=filters_override,
+        variables_override=variables_override,
+        tile_filters_override=tile_filters_override,
+        query_override=query_override,
+    )
 
     process_response = process_query_dict(
         team,
-        query_json,
-        dashboard_filters_json=dashboard_filters_json,
-        variables_override_json=variables_override_json,
+        resolved.query,
+        dashboard_filters_json=resolved.dashboard_filters,
+        variables_override_json=resolved.variables_override,
         execution_mode=execution_mode,
         user=user,
         user_access_control=user_access_control,
         insight_id=insight.pk,
-        dashboard_id=dashboard.pk if dashboard else None,
+        dashboard_id=dashboard.id if dashboard else None,
         limit_context=limit_context,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
     )
+    return _insight_result_from_response(process_response)
+
+
+def calculate_planned_query_based_insight(
+    insight: Insight,
+    planned: PlannedQuery,
+    *,
+    team: Team,
+    dashboard: AppliedDashboard | None,
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    cache_age_seconds: Optional[int],
+    analytics_props: Optional[AnalyticsProps],
+) -> "InsightResult":
+    """`calculate_for_query_based_insight` for a query `plan_query_based_insight` planned. Runs the planned runner
+    instead of planning it again, and shapes the response the same way."""
+    tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
+    if dashboard:
+        tag_queries(dashboard_id=dashboard.id)
+
+    process_response = run_planned_query(
+        planned,
+        execution_mode=execution_mode,
+        user=user,
+        insight_id=insight.pk,
+        dashboard_id=dashboard.id if dashboard else None,
+        cache_age_seconds=cache_age_seconds,
+        analytics_props=analytics_props,
+    )
+
+    return _insight_result_from_response(process_response)
+
+
+def _insight_result_from_response(
+    process_response: dict | BaseModel | RawCachedQueryResponse,
+) -> "InsightResult":
+    from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 
     raw_results: Optional[bytes] = None
     if isinstance(process_response, RawCachedQueryResponse):

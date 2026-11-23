@@ -39,6 +39,12 @@ class JumpcloudEndpointConfig:
     # Page size to request; None uses the console's default cap of 100. System Insights allows
     # up to 10,000 rows per page and returns many small rows per device.
     page_size: int | None = None
+    # Name of the offset query param. The console APIs use `skip`; SaaS Management uses `offset`.
+    offset_param: str = "skip"
+    # False for endpoints that take no limit/offset and return every row in one response.
+    paginated: bool = True
+    # Fixed query params sent on every request.
+    params: dict[str, str] = field(default_factory=dict)
 
     @property
     def primary_keys(self) -> list[str] | None:
@@ -186,6 +192,84 @@ JUMPCLOUD_ENDPOINTS: dict[str, JumpcloudEndpointConfig] = {
         primary_key="objectId",
         partition_key="createdAt",
         data_key="riskEvents",
+    ),
+    # Command definitions and results carry the script text and its output, which can hold
+    # credentials, so both are redacted the same way as policy output.
+    "commands": JumpcloudEndpointConfig(
+        name="commands",
+        path="/api/commands",
+        api="v1",
+        sort="_id",
+        redact_keys=["command"],
+    ),
+    "command_results": JumpcloudEndpointConfig(
+        name="command_results",
+        path="/api/commandresults",
+        api="v1",
+        partition_key="requestTime",
+        sort="_id",
+        redact_keys=["command", "response.data.output", "response.error"],
+    ),
+    "software_apps": JumpcloudEndpointConfig(
+        name="software_apps",
+        path="/api/v2/softwareapps",
+        api="v2",
+        primary_key="id",
+        partition_key="createdAt",
+    ),
+    "software_app_statuses": JumpcloudEndpointConfig(
+        name="software_app_statuses",
+        path="/api/v2/softwareapps/{parent_id}/statuses",
+        api="v2",
+        primary_key="id",
+        parent="software_apps",
+        parent_id_column="software_app_id",
+    ),
+    "directories": JumpcloudEndpointConfig(
+        name="directories",
+        path="/api/v2/directories",
+        api="v2",
+        primary_key="id",
+    ),
+    "saas_applications": JumpcloudEndpointConfig(
+        name="saas_applications",
+        path="/api/v2/saas-management/applications",
+        api="v2",
+        primary_key="id",
+        partition_key="discovered_at",
+        data_key="results",
+        offset_param="offset",
+    ),
+    "saas_application_licenses": JumpcloudEndpointConfig(
+        name="saas_application_licenses",
+        path="/api/v2/saas-management/application-licenses",
+        api="v2",
+        primary_key="id",
+        data_key="results",
+        offset_param="offset",
+    ),
+    "saas_application_accounts": JumpcloudEndpointConfig(
+        name="saas_application_accounts",
+        path="/api/v2/saas-management/applications/{parent_id}/accounts",
+        api="v2",
+        primary_key="id",
+        parent="saas_applications",
+        parent_id_column="application_id",
+        data_key="results",
+        offset_param="offset",
+    ),
+    # Usage is one unpaginated list of accounts per application, each with its latest use in the
+    # last `day_count` days (90 is the API maximum).
+    "saas_application_usage": JumpcloudEndpointConfig(
+        name="saas_application_usage",
+        path="/api/v2/saas-management/applications/{parent_id}/usage",
+        api="v2",
+        primary_key="account_id",
+        parent="saas_applications",
+        parent_id_column="application_id",
+        data_key="results",
+        paginated=False,
+        params={"day_count": "90"},
     ),
     "events": JumpcloudEndpointConfig(
         name="events",

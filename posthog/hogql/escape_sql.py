@@ -328,7 +328,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 def quote_clickhouse_identifier(identifier: str) -> str:
     """Quote an identifier without validating whether it is safe to interpolate into SQL."""
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
         return identifier
     return backquote_clickhouse_identifier(identifier)
 
@@ -381,10 +381,11 @@ class SQLValueEscaper:
 
     # Unlike posthog.hogql.visitor.Visitor, this tiny visitor works on primitives.
     def visit(self, node: Any) -> str:
-        method_name = f"visit_{node.__class__.__name__.lower()}"
-        if hasattr(self, method_name):
-            return getattr(self, method_name)(node)
-        raise ResolutionError(f"SQLValueEscaper has no method {method_name}")
+        for cls in type(node).__mro__:
+            method = getattr(self, f"visit_{cls.__name__.lower()}", None)
+            if method is not None:
+                return method(node)
+        raise ResolutionError(f"SQLValueEscaper has no method visit_{node.__class__.__name__.lower()}")
 
     def visit_nonetype(self, value: None):
         return "NULL"

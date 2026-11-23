@@ -17,7 +17,7 @@ import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import type { DashboardLayoutSize, InsightColor } from '~/types'
 
-import type { CrossProjectDashboardFilters, CrossProjectTileProject } from './crossProjectDashboardLogic'
+import type { CrossProjectTileProject } from './crossProjectDashboardLogic'
 import {
     GRID_BREAKPOINTS,
     GRID_COLUMN_COUNTS,
@@ -26,6 +26,7 @@ import {
     type ResponsiveTileLayouts,
 } from './crossProjectLayouts'
 import { CrossProjectTile } from './CrossProjectTile'
+import type { TileFetchResult } from './crossProjectTileFetch'
 import type { CrossProjectDashboardTileApi } from './generated/api.schemas'
 
 const CONTAINER_PADDING: [number, number] = [0, 0]
@@ -45,7 +46,8 @@ export interface CrossProjectDashboardGridProps {
     tileProjects: Record<number, CrossProjectTileProject>
     timezonesDiverge: boolean
     missingPropertyKeys: Record<number, string[]>
-    dashboardFilters: CrossProjectDashboardFilters
+    tileResults: Record<string, TileFetchResult>
+    loadingTileIds: string[]
     onLayoutsChange: (layouts: Partial<ResponsiveTileLayouts>) => void
     onSetTileColor: (tileId: string, color: InsightColor | null) => void
     onSetTileOverride: (tile: CrossProjectDashboardTileApi) => void
@@ -60,7 +62,8 @@ export function CrossProjectDashboardGrid({
     tileProjects,
     timezonesDiverge,
     missingPropertyKeys,
-    dashboardFilters,
+    tileResults,
+    loadingTileIds,
     onLayoutsChange,
     onSetTileColor,
     onSetTileOverride,
@@ -76,7 +79,7 @@ export function CrossProjectDashboardGrid({
     )
 
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({ enabled: layoutEditMode, updateLayouts })
 
     // Debounce width changes to the grid. Rapidly crossing the width leaves tiles squashed at one column.
     const [gridWidth, setGridWidth] = useState(width)
@@ -224,8 +227,8 @@ export function CrossProjectDashboardGrid({
                         className={
                             layoutEditMode
                                 ? // Dragging is bounded to the grid's height, so the padding leaves room to drop a tile in a new row.
-                                  'dashboard-edit-mode box-content pb-[40vh]'
-                                : 'dashboard-view-mode mb-8'
+                                  'dashboard-layout-editable box-content pb-[40vh]'
+                                : 'dashboard-layout-static mb-8'
                         }
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
@@ -251,7 +254,8 @@ export function CrossProjectDashboardGrid({
                                 projectTimezone={tileProjects[tile.project_id]?.timezone}
                                 showTimezone={timezonesDiverge}
                                 missingPropertyKeys={missingPropertyKeys[tile.project_id]}
-                                dashboardFilters={dashboardFilters}
+                                result={tileResults[tile.id]}
+                                loading={loadingTileIds.includes(tile.id)}
                                 showResizeHandles={canEditLayout}
                                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}

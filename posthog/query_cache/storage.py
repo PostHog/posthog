@@ -28,7 +28,7 @@ import io
 import time
 import pickle
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Literal, NoReturn, Optional, cast
@@ -156,6 +156,17 @@ def entry_redis_key(cache_key: str) -> str:
 
 def load_entry_value(cache_key: str) -> Optional[bytes]:
     return cast(Optional[bytes], query_cache_read_client().get(entry_redis_key(cache_key)))
+
+
+def load_entry_values(cache_keys: Sequence[str]) -> list[Optional[bytes]]:
+    """The stored values of `cache_keys` in one round trip, in the same order; None where a key holds nothing."""
+    client = query_cache_read_client()
+    redis_keys = [entry_redis_key(cache_key) for cache_key in cache_keys]
+    if isinstance(client, RedisCluster):
+        # A cluster rejects MGET across hash slots. The non-atomic variant sends one MGET per slot in a single
+        # pipeline and puts the values back in key order.
+        return cast(list[Optional[bytes]], client.mget_nonatomic(redis_keys))
+    return cast(list[Optional[bytes]], client.mget(redis_keys))
 
 
 def delete_entry(cache_key: str) -> None:

@@ -8,6 +8,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.canvas.backend.facade.api import (
     CANVAS_LAYOUT_SCHEMA_VERSION,
     GRID_COLUMN_CHOICES,
@@ -20,6 +22,7 @@ from products.canvas.backend.facade.api import (
     ConnectorKind,
     canvas_sdk_version,
     contract_limits,
+    editable_canvas_ids,
 )
 from products.canvas.backend.facade.contracts import CanvasBuildRecord, CanvasRecord
 from products.canvas.backend.facade.enums import (
@@ -89,7 +92,7 @@ class CanvasComponentMetaSerializer(serializers.Serializer):
     )
 
 
-class CanvasSerializer(serializers.Serializer):
+class CanvasSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
     id = serializers.UUIDField(read_only=True)
@@ -142,6 +145,35 @@ class CanvasSerializer(serializers.Serializer):
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
     def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
         return canvas.component_meta
+
+    def get_user_access_level(self, obj: CanvasRecord | ObjectAccessRef | models.Model) -> str | None:
+        if isinstance(obj, CanvasRecord):
+            obj = ObjectAccessRef(
+                resource="canvas", id=str(obj.id), team_id=obj.team_id, created_by_id=obj.created_by_id
+            )
+        level = super().get_user_access_level(obj)
+        if level == "editor" and isinstance(obj, ObjectAccessRef) and not self._can_edit(obj.id):
+            # The space rule narrows editing beyond the object-level grant, so don't offer edit controls that 404.
+            return "viewer"
+        return level
+
+    def _can_edit(self, canvas_id: str) -> bool:
+        """Whether the viewer may edit the canvas, answered for the whole page being serialised at once.
+
+        The answers stay on the view, so a list costs one query however many rows it holds.
+        """
+        view = self.context.get("view")
+        viewer_for = getattr(view, "_viewer", None)
+        if view is None or viewer_for is None:
+            return False
+        answers: dict[str, bool] = view.__dict__.setdefault("_canvas_edit_answers", {})
+        if canvas_id not in answers:
+            siblings = self.parent.instance if isinstance(self.parent, serializers.ListSerializer) else [self.instance]
+            batch = {canvas_id, *(str(row.id) for row in siblings or [] if isinstance(row, CanvasRecord))}
+            unanswered = batch - answers.keys()
+            editable = editable_canvas_ids(viewer_for(), unanswered)
+            answers.update({pending: pending in editable for pending in unanswered})
+        return answers[canvas_id]
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -1143,6 +1175,37 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     connectors_added = CanvasConnectorDeclarationSerializer(
         many=True,
         help_text="Connector providers and tools the draft newly declares it may call via ph.connectors.",
+    )
+
+
+class CanvasCreatorRequiredCode(models.TextChoices):
+    CAPABILITY_WIDENING = "capability_widening_requires_creator", "Capability widening requires creator"
+    PINNED_VERSION = "pinned_version_requires_creator", "Pinned version requires creator"
+    PERMISSION_DENIED = "permission_denied", "Permission denied"
+
+
+class CanvasCreatorRequiredSerializer(serializers.Serializer):
+    """403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+    or pinning a component version other than that component's live version."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the refusal.")
+    code = serializers.ChoiceField(
+        choices=CanvasCreatorRequiredCode.choices,
+        help_text="`capability_widening_requires_creator`: the change adds capabilities and the caller did not "
+        "create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than "
+        "that component's live version and the caller did not create that component. `permission_denied`: a "
+        "publish or edit supplied a name and the caller did not create the canvas.",
+    )
+    capability_widening = CanvasCapabilityWideningSerializer(
+        required=False,
+        help_text="Set for capability_widening_requires_creator. The capabilities the change adds, so the caller "
+        "can ask the canvas creator to publish them.",
+    )
+    components = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Set for pinned_version_requires_creator. IDs of the components whose placements must use the "
+        "live version or `latest` instead.",
     )
 
 

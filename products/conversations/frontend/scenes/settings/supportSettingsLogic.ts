@@ -219,7 +219,7 @@ export interface supportSettingsLogicActions {
     ) => {
         channels: {
             id: string
-            membership_type?: string | null | undefined
+            membership_type?: string | null
             name: string
         }[]
         teamId: string

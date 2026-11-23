@@ -17,7 +17,9 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
+import { EmailInfrastructureCard } from './EmailInfrastructureCard'
 import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
+import { MetricLabel } from './MetricLabel'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 function formatRate(rate: number): string {
@@ -109,33 +111,6 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
 const WINDOW_TOOLTIP = 'Calculated over your workflow email from the last 30 days.'
 const WORKFLOW_LIMIT = 50
 
-function MetricLabel({
-    label,
-    tooltip,
-    description,
-}: {
-    label: string
-    tooltip: string
-    description?: string
-}): JSX.Element {
-    const labelNode = (
-        <Tooltip title={tooltip}>
-            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
-                {label}
-            </div>
-        </Tooltip>
-    )
-    if (!description) {
-        return labelNode
-    }
-    return (
-        <div>
-            {labelNode}
-            <div className="text-secondary text-xs mt-1">{description}</div>
-        </div>
-    )
-}
-
 function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | null {
     if (aws.findings.length === 0) {
         return null
@@ -168,6 +143,7 @@ const ISP_DISPLAY_NAMES: Record<string, string> = {
     Aol: 'AOL',
     Gmx: 'GMX',
     Icloud: 'Apple iCloud',
+    MailRu: 'Mail.ru',
     __other__: 'Other providers',
 }
 
@@ -307,6 +283,38 @@ function IspCoverage({
     )
 }
 
+function HighBounceRateNotice({
+    bounceRate,
+    emailsSent,
+}: {
+    bounceRate: number
+    emailsSent: number
+}): JSX.Element | null {
+    if (emailsSent < minimumVolumeToClassify('bounce')) {
+        return null
+    }
+    const level = classifyRate(bounceRate, 'bounce')
+    if (level === 'healthy') {
+        return null
+    }
+    return (
+        <LemonBanner
+            type={level === 'high' ? 'warning' : 'info'}
+            className="mt-3"
+            action={{
+                children: 'View suppression list',
+                to: urls.workflows('suppression'),
+                'data-attr': 'workflows-reputation-high-bounce-suppression-list',
+            }}
+        >
+            Your bounce rate is above {formatRate(RATE_THRESHOLDS.bounce[level])}. This usually means an older list,
+            such as addresses of people who have left a company. Mailbox providers count every bounce against your
+            sending reputation, even when the email isn't spam. Addresses that hard-bounce are added to your suppression
+            list and aren't emailed again. To bring the rate down, send to people who were active recently.
+        </LemonBanner>
+    )
+}
+
 function TeamRatesCard({
     reputation,
     aws,
@@ -333,26 +341,29 @@ function TeamRatesCard({
                 )}
             </div>
             {reputation ? (
-                <div className="flex flex-wrap gap-8 mt-3">
-                    <div>
-                        <MetricLabel
-                            label="Bounce rate"
-                            tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                <>
+                    <div className="flex flex-wrap gap-8 mt-3">
+                        <div>
+                            <MetricLabel
+                                label="Bounce rate"
+                                tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. An address that hard-bounces is added to your suppression list and isn't emailed again. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel
+                                label="Spam complaint rate"
+                                tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
+                            <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
+                        </div>
                     </div>
-                    <div>
-                        <MetricLabel
-                            label="Spam complaint rate"
-                            tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
-                    </div>
-                    <div>
-                        <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
-                        <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
-                    </div>
-                </div>
+                    <HighBounceRateNotice bounceRate={reputation.bounce_rate} emailsSent={reputation.emails_sent} />
+                </>
             ) : isps.length > 0 ? (
                 <div className="text-secondary mt-3">
                     No workflow email in the last 30 days. The breakdown below covers all email sent from your verified
@@ -424,6 +435,12 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         tooltip="The biggest audience this tier allows for a single batch send."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                    {allowance.rate_limited_max_batch_audience ? (
+                        <div className="text-xs text-secondary" data-attr="workflows-rate-limited-batch-audience">
+                            Up to {humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a sending rate
+                            limit
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -548,6 +565,7 @@ export function WorkflowsReputation(): JSX.Element {
                     },
                 ]}
             />
+            <EmailInfrastructureCard />
         </div>
     )
 }

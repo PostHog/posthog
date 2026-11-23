@@ -154,6 +154,7 @@ def fetch_source_products_for_reports(
     report_ids: list[str],
     *,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
     max_execution_time: int | None = None,
 ) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
@@ -212,6 +213,7 @@ def fetch_source_products_for_reports(
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         ch_user=ch_user,
+        workload=workload,
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,

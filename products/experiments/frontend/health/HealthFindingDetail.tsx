@@ -46,6 +46,7 @@ export function HealthFindingDetail({
             {finding.actions.length > 0 && (
                 <HealthFindingFixes
                     actions={finding.actions}
+                    evidence={finding.evidence}
                     onActedOn={(actionKind) => {
                         reportActedOn(actionKind)
                         onActedOn?.()

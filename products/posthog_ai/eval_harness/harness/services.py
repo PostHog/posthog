@@ -27,6 +27,7 @@ from redis.exceptions import (
     TimeoutError as RedisTimeoutError,
 )
 
+from posthog.models.team.team import Team
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
 
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
@@ -249,6 +250,13 @@ async def maintain_ai_gateway_mint_key(team_id: int, mint_key: str) -> AsyncIter
             task.cancel()
 
 
+def _team_organization_id(team_id: int) -> str:
+    try:
+        return str(Team.objects.only("organization_id").get(pk=team_id).organization_id)
+    finally:
+        close_old_connections()
+
+
 def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     """Give the master demo team a ``phs_`` key the worker mints per-run tokens with.
 
@@ -263,7 +271,7 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
 
     base_url = f"http://localhost:{AI_GATEWAY_PORT}"
     credits = requests.post(
-        f"{base_url}/internal/teams/{team_id}/credits",
+        f"{base_url}/internal/accounts/{_team_organization_id(team_id)}/credits",
         json={"amount_usd": AI_GATEWAY_EVAL_CREDITS_USD, "reason": "Local eval test credits"},
         headers={
             "Authorization": f"Bearer {_AI_GATEWAY_INTERNAL_TOKEN}",
@@ -337,17 +345,12 @@ def start_mcp_server(
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
-        # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
-        # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
-        # being mutually exclusive makes unavoidable — an eval of the legacy tools
-        # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
+        # the widget batch tools that the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
-                "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
+                "notebook-app-builder": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),

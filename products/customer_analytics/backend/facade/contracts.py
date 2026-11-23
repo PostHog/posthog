@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
 
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
+
+
 class AccountPersonsPropertyAccessError(Exception):
     pass
 
@@ -60,6 +70,18 @@ class AccountPersonsPage:
     offset: int
     has_more: bool
     next_offset: int | None
+
+
+@frozen
+class AccountAutomation:
+    workflow_id: str
+    workflow_name: str
+    invocation_id: str
+    status: str
+    triggered_at: datetime
+    last_completed_step_at: datetime | None
+    expected_resume_at: datetime | None
+    last_completed_step_name: str | None = None
 
 
 class InvalidCustomPropertyOptions(ValueError):
@@ -1360,6 +1382,17 @@ class CustomPropertyValue:
     created_by_id: int | None
 
 
+@dataclass(frozen=True)
+class CustomPropertyValueHistoryEntry:
+    """One value an account held for a custom property, and when it held it."""
+
+    value: float | bool | str | datetime | None
+    set_at: datetime
+    set_by_id: int | None
+    replaced_at: datetime | None
+    is_current: bool
+
+
 class ExternalAccountCustomPropertiesError(Enum):
     """Failure modes of the external custom-property write, each mapping to a distinct
     HTTP response in the view."""
@@ -1482,6 +1515,10 @@ class CustomerTaskArchived(Exception):
     pass
 
 
+class CustomerTaskTagLimitExceeded(Exception):
+    pass
+
+
 class CustomerTaskAccessDenied(Exception):
     pass
 
@@ -1521,6 +1558,7 @@ class CustomerTaskView:
     updated_at: datetime
     can_edit: bool
     can_restore: bool
+    tags: list[str]
 
 
 @stdlib_dataclass(frozen=True)
@@ -1551,6 +1589,7 @@ class CustomerTaskListFilters:
     due_before: datetime | None = None
     has_due_at: bool | None = None
     ordering: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1561,6 +1600,7 @@ class CreateCustomerTaskInput:
     assigned_to_id: int | None = None
     due_at: datetime | None = None
     status: str = "open"
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1577,6 +1617,9 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+    tags: tuple[str, ...] = ()
+    tags_provided: bool = False
+    tags_mode: str = "set"
 
 
 @dataclass(frozen=True)

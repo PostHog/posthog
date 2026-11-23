@@ -1,5 +1,4 @@
 import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
-import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +9,8 @@ import type { SnapshotTheme, SupportedBrowserName, ViewportWidthName } from '~/@
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+type StoryContext = Awaited<ReturnType<typeof getStoryContext>>
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -22,7 +23,7 @@ const VIEWPORT_WIDTHS = {
 
 const RETRY_TIMES = 2
 // A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
-// changing, which then keeps its last capture.
+// changing; readiness stories fail instead of keeping an unstable capture.
 const MAX_SNAPSHOT_CAPTURES = 4
 const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
@@ -45,6 +46,7 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
+const IN_PAGE_WAIT_TIMEOUT_MS = 5000
 
 // Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
 // cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
@@ -55,6 +57,9 @@ const NAVIGATION_ATTEMPTS = 3
 const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+// The jest environment replaces a page that stops responding. A retry on the new page must not ask the
+// preview to remount the story, because that preview has not rendered it and does not answer the request.
+const STORY_VISITED_BY_PAGE = new WeakMap<Page, string>()
 
 // Storybook channel events that mean a forced remount's play function failed. Shared between the
 // in-page listener (which also waits for the success event, `storyRendered`) and the outer check
@@ -155,7 +160,7 @@ export default {
         // does NOT re-run loaders or the play function — the retry would just re-snapshot the
         // page the failed attempt left behind. Force a full remount so retries start fresh,
         // and surface the replayed play function's error if it throws again.
-        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+        if (STORY_VISITED_BY_PAGE.get(page) === context.id) {
             const remountResult = await page
                 .evaluate(
                     ({ storyId, failureEvents }) => {
@@ -235,10 +240,12 @@ export default {
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
         await resizeViewportAndWait(page, effectiveViewport)
+        await applyTestRunnerBodyClasses(page, storyContext.parameters?.layout || 'padded')
     },
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        STORY_VISITED_BY_PAGE.set(page, context.id)
         // The generated test also calls postVisit when the story or its play function already
         // failed (so configs can do failure handling — our jest environment takes the failure
         // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
@@ -247,6 +254,11 @@ export default {
             return
         }
         const storyContext = await getStoryContext(page, context)
+        if (storyContext.parameters?.testOptions?.waitForSceneReady !== false) {
+            sceneReadyStories.set(page, storyContext.id)
+        } else {
+            sceneReadyStories.delete(page)
+        }
         const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
@@ -288,6 +300,24 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+/**
+ * Runs before the story renders, because the classes hide scrollbars. Chromium keeps a scroll container's
+ * height from a layout with scrollbars after they are hidden, so a story laid out first can carry
+ * stale extra height into the first snapshot.
+ */
+async function applyTestRunnerBodyClasses(page: Page, layout: string): Promise<void> {
+    await page.evaluate((layout: string) => {
+        // Stop all animations for consistent snapshots, and adjust other styles
+        document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
+        document.body.classList.add(`storybook-test-runner--${layout}`)
+    }, layout)
+}
 
 async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
     const unreachable = (detail: string): Error =>
@@ -376,31 +406,6 @@ async function expectStoryToMatchSnapshot(
         ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
     })
 
-    await page.evaluate((layout: string) => {
-        // Stop all animations for consistent snapshots, and adjust other styles
-        document.body.classList.add('storybook-test-runner')
-        document.body.classList.remove(
-            'storybook-test-runner--fullscreen',
-            'storybook-test-runner--padded',
-            'storybook-test-runner--centered'
-        )
-        document.body.classList.add(`storybook-test-runner--${layout}`)
-
-        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
-        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
-        // page heights depending on timing. We override it and trigger a synchronous reflow.
-        document.querySelectorAll('*').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                const style = getComputedStyle(el)
-                if (style.contentVisibility === 'auto') {
-                    el.style.contentVisibility = 'visible'
-                }
-            }
-        })
-        // Force synchronous reflow so the browser recalculates layout
-        void document.body.offsetHeight
-    }, storyContext.parameters?.layout || 'padded')
-
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
     // asynchronously after render, so without this nudge the observer may not have reported
@@ -414,18 +419,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-        waitForSelectorTimeout,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForSelector, waitForSelectorTimeout } = storyContext.parameters?.testOptions ?? {}
 
-    if (waitForLoadersToDisappear) {
-        // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
-        // to account for slower CI environments while still catching stuck elements
-        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await waitForEveryLoaderHidden(page, timeout)
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -445,6 +443,22 @@ async function expectStoryToMatchSnapshot(
     }
 }
 
+/** The loader wait timeout for the story, or null when the story shows a loader on purpose. */
+function getLoaderWaitTimeout(context: TestContext, storyContext: StoryContext): number | null {
+    const { waitForLoadersToDisappear = true } = storyContext.parameters?.testOptions ?? {}
+    if (!waitForLoadersToDisappear) {
+        return null
+    }
+    // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
+    // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+    // to account for slower CI environments while still catching stuck elements
+    return context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+}
+
+function locateVisibleLoaders(page: Page): Locator {
+    return page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+}
+
 /**
  * Wait until no loader on the page is visible.
  *
@@ -456,7 +470,7 @@ async function expectStoryToMatchSnapshot(
  * toolbar stories render their loaders.
  */
 async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
-    const visibleLoaders = page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+    const visibleLoaders = locateVisibleLoaders(page)
     try {
         await visibleLoaders.first().waitFor({ state: 'hidden', timeout })
     } catch (error) {
@@ -514,6 +528,35 @@ async function waitForChartCanvasesPainted(page: Page): Promise<void> {
         .catch(() => {})
 }
 
+const sceneReadyStories = new WeakMap<Page, string>()
+
+async function waitForSceneReady(page: Page): Promise<string | null> {
+    const storyId = sceneReadyStories.get(page)
+    if (!storyId) {
+        return null
+    }
+    try {
+        const handle = await page.waitForFunction((id) => {
+            const readiness = window.__STORYBOOK_SCENE_READINESS__
+            if (readiness?.storyId !== id) {
+                return false
+            }
+            const version = readiness.getReadyVersion()
+            return version === null ? false : { version: `${readiness.instanceId}:${version}` }
+        }, storyId)
+        const readiness = await handle.jsonValue()
+        await handle.dispose()
+        if (!readiness) {
+            throw new Error('Scene readiness resolved without a ready version')
+        }
+        return readiness.version
+    } catch (error) {
+        throw new Error(`Story "${storyId}" did not signal scene readiness. Check its pending content holds.`, {
+            cause: error,
+        })
+    }
+}
+
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -528,9 +571,17 @@ async function takeSnapshotWithTheme(
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
+    await waitForSceneReady(page)
+
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
+    // A request can start after the wait in expectStoryToMatchSnapshot, for example one that waits for
+    // earlier mocked calls and a debounce, so its loader can show up between the two themes.
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         // A lazy image far below the fold stays unfetched until it nears the viewport, and the
@@ -574,8 +625,11 @@ async function takeSnapshotWithTheme(
             return areAllImagesLoaded
         })
         // `decoding="async"` lets a loaded image paint a frame later, so wait for its pixels.
-        await page.evaluate(() =>
-            Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+        await waitAtMost(
+            page.evaluate(() =>
+                Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+            ),
+            IN_PAGE_WAIT_TIMEOUT_MS
         )
     }
 
@@ -649,8 +703,11 @@ async function takeSnapshotWithTheme(
             // if content keeps changing, that's okay - we'll proceed anyway
         })
 
-    // final wait for any remaining renders
-    await page.waitForTimeout(1000)
+    if (sceneReadyStories.has(page)) {
+        await waitForSceneReady(page)
+    } else {
+        await page.waitForTimeout(1000)
+    }
 
     await waitForChartCanvasesPainted(page)
 
@@ -695,6 +752,7 @@ async function doTakeSnapshotWithTheme(
         context: TestContext,
         browser: SupportedBrowserName,
         theme: SnapshotTheme,
+        loaderWaitTimeout: number | null,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -714,28 +772,36 @@ async function doTakeSnapshotWithTheme(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    await check(page, context, browser, theme, snapshotTargetSelector)
+    await check(page, context, browser, theme, getLoaderWaitTimeout(context, storyContext), snapshotTargetSelector)
 }
 
 async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, loaderWaitTimeout)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(
+        page.locator('body, main').last(),
+        context,
+        browser,
+        theme,
+        loaderWaitTimeout
+    )
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -743,6 +809,7 @@ async function expectStoryToMatchComponentSnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -772,7 +839,7 @@ async function expectStoryToMatchComponentSnapshot(
     // Widening the root for a popover can resize a chart again.
     await waitForChartCanvasesPainted(page)
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, loaderWaitTimeout, {
         omitBackground: true,
     })
 }
@@ -782,9 +849,10 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSettledSnapshotImage(locator, context, theme, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, loaderWaitTimeout, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -792,6 +860,7 @@ async function expectLocatorToMatchStorySnapshot(
 
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
+        runInProcess: true,
         customSnapshotIdentifier,
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
@@ -806,24 +875,43 @@ async function expectLocatorToMatchStorySnapshot(
  * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
  * Between captures the chart paint and animation finish run again, so a page that changed after the
  * waits is captured again once it settles.
+ *
+ * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
+ * of a loading state match too. So unless the story opts out of the loader wait, each capture waits
+ * for loaders first, and a capture is kept only when no loader shows after it.
  */
 async function takeSettledSnapshotImage(
     locator: Locator | Page,
     context: TestContext,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
     const page = 'page' in locator ? locator.page() : locator
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
+    let previousVersion = await waitForSceneReady(page)
     let previous = await takeSnapshotImage(locator, context, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
         await page.waitForTimeout(RECAPTURE_SETTLE_MS)
         await waitForChartCanvasesPainted(page)
         await finishAnimations(page)
+        if (loaderWaitTimeout !== null) {
+            await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+        }
+        const version = await waitForSceneReady(page)
         const image = await takeSnapshotImage(locator, context, options)
-        if (image.equals(previous)) {
+        const versionAfterCapture = await waitForSceneReady(page)
+        const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
+        if (image.equals(previous) && !loaderShowed && previousVersion === version && version === versionAfterCapture) {
             return image
         }
         previous = image
+        previousVersion = version
+    }
+    if (sceneReadyStories.has(page)) {
+        throw new Error(`Story "${context.id}" (${theme}) did not settle after ${MAX_SNAPSHOT_CAPTURES} captures.`)
     }
     // eslint-disable-next-line no-console
     console.warn(
@@ -877,16 +965,29 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     // only close to capture time, and the screenshot races the font-display:swap repaint. Kicking
     // the loads off explicitly here means late-mounted text renders in the real fonts directly, so
     // there is no swap left to race. No-op once the fonts are cached.
-    await page
-        .evaluate(() =>
+    await waitAtMost(
+        page.evaluate(() =>
             Promise.all(
                 ['400', '500', '700', '800'].flatMap((weight) => [
                     document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`italic ${weight} 16px RoundHog`),
                     document.fonts.load(`${weight} 16px Inter`),
                 ])
             ).then(() => document.fonts.ready)
-        )
-        .catch(() => undefined)
+        ),
+        IN_PAGE_WAIT_TIMEOUT_MS
+    )
+}
+
+async function waitAtMost(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+        promise.catch(() => undefined),
+        new Promise<void>((resolve) => {
+            timeoutId = setTimeout(resolve, timeoutMs)
+        }),
+    ])
+    clearTimeout(timeoutId)
 }
 
 function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[], jestTimeout?: number): void {
@@ -910,6 +1011,28 @@ async function waitForInnerViewport(
     )
 }
 
+// A page can stop painting while it still answers script, and page.evaluate has no timeout. Failing here
+// lets the jest environment replace the page before the retry, instead of the attempt reaching the jest timeout.
+async function waitForTwoAnimationFrames(page: Page): Promise<void> {
+    try {
+        await page.waitForFunction(
+            () =>
+                new Promise<boolean>((resolve) =>
+                    requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+                ),
+            undefined,
+            { timeout: IN_PAGE_WAIT_TIMEOUT_MS }
+        )
+    } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'TimeoutError') {
+            throw error
+        }
+        throw new Error(`The page painted no animation frame within ${IN_PAGE_WAIT_TIMEOUT_MS}ms.`, {
+            cause: error,
+        })
+    }
+}
+
 async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
     const currentViewport = page.viewportSize()
     if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
@@ -927,11 +1050,11 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
         await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() => undefined)
     })
 
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
         void document.body.offsetHeight
         window.dispatchEvent(new Event('resize'))
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     })
+    await waitForTwoAnimationFrames(page)
 
     await page
         .waitForFunction(

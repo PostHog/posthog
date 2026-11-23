@@ -9,7 +9,9 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import F
+from django.db.models import F, QuerySet
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -675,9 +677,10 @@ class DataDeletionRequest(UUIDModel):
     property_removal_marker = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="inserted_at/_timestamp stamp applied to cleaned re-inserts of this property_removal "
-        "request. Set once on the first execution attempt and reused by every retry so re-runs recognize "
-        "already-cleaned rows and never insert a second copy. Cleared when deletion criteria change.",
+        help_text="Cutoff of this property_removal request: rows ingested at or after it are out of scope, and "
+        "cleaned re-inserts carry a _timestamp one second past it. Set once on the first execution attempt and "
+        "reused by every retry so re-runs recognize already-cleaned rows and never insert a second copy. Cleared "
+        "when deletion criteria change.",
     )
 
     # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
@@ -813,6 +816,13 @@ class DataDeletionRequest(UUIDModel):
             self.created_by = user
             self.created_by_staff = user.is_staff
         elif CRITERIA_FIELDS & set(changed_fields):
+            # The edit clears the marker, which lets another property removal on the team start. This run may
+            # still restore its staged copy over the rows that removal rewrites.
+            if unfinished_property_removals().filter(pk=self.pk).exists():
+                raise ValidationError(
+                    "This property removal's run started and did not complete. Retry it until it completes "
+                    "before you change its criteria."
+                )
             self.criteria_updated_by = user
             self.criteria_updated_at = timezone.now()
             invalidate_compiled_predicate_cache(self.pk)
@@ -823,8 +833,7 @@ class DataDeletionRequest(UUIDModel):
             self.min_timestamp = None
             self.max_timestamp = None
             self.stats_calculated_at = None
-            # Rows cleaned under the old criteria are ordinary candidates for the new ones. A stale marker would
-            # make the copy pass skip them as already cleaned.
+            # A stale marker would leave out every row ingested since the earlier run.
             self.property_removal_marker = None
             if self.status != RequestStatus.DRAFT:
                 self.status = RequestStatus.DRAFT
@@ -1168,6 +1177,11 @@ class AdhocEventDeletionBacklog:
     for_team: int
 
 
+# The approval preview waits on this count, and the preview shows a notice when the count fails, so a short
+# limit keeps staff from waiting on a FINAL scan of the whole queue.
+_BACKLOG_MAX_EXECUTION_TIME = 5
+
+
 def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklog:
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
@@ -1190,6 +1204,7 @@ def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklo
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _BACKLOG_MAX_EXECUTION_TIME},
         )
     total, for_team = result[0] if result else (0, 0)
     return AdhocEventDeletionBacklog(total=int(total), for_team=int(for_team))
@@ -1470,6 +1485,28 @@ def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"
             if reaches_target_through_event_uuids(request, target):
                 selected.setdefault(request.pk, request)
     return list(selected.values())
+
+
+def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
+    """Property removals whose run started and did not complete.
+
+    Such a run may hold rows only in its staged files, or may still restore a staged copy over rows that
+    another removal rewrote, so no other property removal on the team may start meanwhile.
+    """
+    return DataDeletionRequest.objects.filter(
+        request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False
+    ).exclude(status=RequestStatus.COMPLETED)
+
+
+@receiver(pre_delete, sender=DataDeletionRequest)
+def refuse_to_delete_an_unfinished_property_removal(sender, instance: DataDeletionRequest, **kwargs) -> None:
+    # Deleting the row would let another property removal on the team start while this run may still
+    # restore its staged copy. Django sends this signal for each row of a queryset delete too.
+    if unfinished_property_removals().filter(pk=instance.pk).exists():
+        raise ValidationError(
+            "This property removal's run started and did not complete. Retry it until it completes before you "
+            "delete it."
+        )
 
 
 # An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys

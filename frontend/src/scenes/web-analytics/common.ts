@@ -123,12 +123,16 @@ export enum ProductTab {
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
     AGENTS = 'agents',
-    CONTENT_AUTOPILOT = 'content-autopilot',
+    CONTENT_AUTOPILOT = 'ai-visibility',
 }
 
-// One flag gates the whole AI visibility page: prompt tracking, bots and content autopilot.
+// One flag gates the whole AI visibility page: prompt tracking and content autopilot.
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
+
+// pinned: the AI visibility filters' URL search params, links people share depend on them
+// 'days' is the window param of links from before the date range. Listing it drops it when the filters rewrite the URL.
+export const AI_VISIBILITY_URL_PARAMS = ['date_from', 'date_to', 'days', 'engine', 'topic', 'branded'] as const
 
 export type DeviceType = 'Desktop' | 'Mobile'
 

@@ -5,7 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, PersonUpdateFields, Team } from '~/types'
 
 import { LifecycleMarkPerson } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
@@ -20,8 +20,6 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
@@ -32,8 +30,6 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,

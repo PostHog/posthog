@@ -223,7 +223,7 @@ class ResaveCohortsTool(ConsoleTool):
     key = "resave-cohorts"
     title = "Re-save cohorts"
     owner = FEATURE_FLAGS
-    group = "Data"
+    group = "Product data"
     description = (
         "Re-saves cohorts so their compiled bytecode and cohort type match the current backend logic, and re-syncs "
         "static cohorts from their source query."
@@ -263,3 +263,10 @@ class ResaveCohortsTool(ConsoleTool):
                 undo_hint="PostHog Admin cannot remove the added people. Remove them from the cohort in the app.",
             ),
         ]
+
+
+console.register_moved_page(
+    old_path="admin/resave-cohorts/",
+    title="Re-save cohorts",
+    url="/admin/console/tools/resave-cohorts/",
+)

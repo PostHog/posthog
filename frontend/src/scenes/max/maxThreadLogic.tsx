@@ -67,6 +67,7 @@ import {
     PendingApproval,
     SidePanelTab,
 } from '~/types'
+import type { UserType } from '~/types'
 
 import {
     getRandomThinkingMessage,
@@ -81,12 +82,12 @@ import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
+import type { StagedAttachment } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
-    MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
     getToolDefinition,
@@ -98,6 +99,7 @@ import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLo
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
 import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -266,9 +268,11 @@ export interface maxThreadLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean | undefined,
-        uiContext?: Partial<MaxUIContext> | undefined
+        uiContext?: Partial<MaxUIContext> | undefined,
+        agentMode?: AgentMode | null | undefined
     ) => {
         addToThread: boolean
+        agentMode: AgentMode | null | undefined
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
@@ -327,13 +331,13 @@ export interface maxThreadLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     } // runStreamLogic
     cancelSandboxRun: (
         run?:
@@ -352,9 +356,9 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     openSandboxSse: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     } // runStreamLogic
     pushSandboxError: (
         errorMessage: string,
@@ -365,14 +369,10 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxHumanMessage: (
         content: string,
-        stagedAttachments?:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
         content: string
-        stagedAttachments:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -446,11 +446,11 @@ export interface maxThreadLogicActions {
         contextualTools?: Record<string, any>
         uiContext?: MaxUIContext
     }) => {
-        agentMode?: AgentMode | null | undefined
-        billingContext?: MaxBillingContext | null | undefined
+        agentMode?: AgentMode | null
+        billingContext?: MaxBillingContext | null
         content: string
-        contextualTools?: Record<string, any> | undefined
-        uiContext?: MaxUIContext | undefined
+        contextualTools?: Record<string, any>
+        uiContext?: MaxUIContext
     }
     executePendingClientToolCall: () => {
         value: true
@@ -603,10 +603,10 @@ export interface maxThreadLogicActions {
         streamData: {
             agent_mode: AgentMode | null
             content: string | null
-            contextual_tools?: Record<string, any> | undefined
-            conversation?: string | undefined
-            is_sandbox?: boolean | undefined
-            resume_payload?: ResumePayload | null | undefined
+            contextual_tools?: Record<string, any>
+            conversation?: string
+            is_sandbox?: boolean
+            resume_payload?: ResumePayload | null
             ui_context?: any
         }
     }
@@ -645,11 +645,11 @@ export interface maxThreadLogicMeta {
                 status: ApprovalDecisionStatus
             }
         >
-        isSharedThread: (conversation: Conversation | null, user: null | import('~/types').UserType) => boolean
+        isSharedThread: (conversation: Conversation | null, user: UserType | null) => boolean
         isImpersonatingExistingConversation: (
             conversation: Conversation | null,
             supportOverrideEnabled: boolean,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => boolean
         threadLoading: (conversationLoading: boolean, streamingActive: boolean) => boolean
         queueingEnabled: (featureFlags: FeatureFlagsSet, isSandboxMode: boolean) => boolean
@@ -1566,7 +1566,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
@@ -1751,15 +1752,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                const conversationAgentMode = conversation.agent_mode as AgentMode
-                // Older conversations can store the retired user interview mode, which has no selector
-                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
-                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
-                actions.syncAgentModeFromConversation(
-                    conversationAgentMode === AgentMode.UserInterview
-                        ? AgentMode.ProductAnalytics
-                        : conversationAgentMode
-                )
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
@@ -2000,10 +1993,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, agentMode: requestedAgentMode }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            if (requestedAgentMode !== undefined) {
+                actions.setAgentMode(requestedAgentMode)
             }
             // Enforced here (not just hidden from the autocomplete) so typing /ticket by hand
             // can't create a ticket the support panel would refuse.
@@ -3032,29 +3028,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (typeof options === 'string' && options.startsWith('mode=')) {
                 const colonIndex = options.indexOf(':', 5)
                 const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
-                // Parse the mode value (gated modes fall back to null if their feature flags are off)
-                let parsedMode: AgentMode | null = null
-                if (modeValue === 'auto') {
-                    parsedMode = null
-                } else if (modeValue === 'research') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
-                } else if (modeValue === 'plan') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
-                } else if (modeValue === 'sandbox') {
+                if (modeValue === 'sandbox') {
                     if (values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]) {
                         actions.setIsSandboxMode(true)
                     }
-                    parsedMode = null
-                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
-                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
-                        parsedMode = null
-                    } else {
-                        parsedMode = modeValue as AgentMode
-                    }
-                }
-                if (parsedMode !== undefined) {
-                    actions.setAgentMode(parsedMode)
+                    actions.setAgentMode(null)
+                } else {
+                    actions.setAgentMode(agentModeFromParam(modeValue, values.featureFlags))
                 }
             }
         }

@@ -7,7 +7,7 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
-import { ProjectIdSchema } from './ids'
+import { ProjectIdSchema, type ProjectId } from './ids'
 import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
 import { stepUpCommand } from './scope-challenge'
 import { OAuthRefreshTokenSchema } from './tokens'
@@ -97,6 +97,8 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
     userCode: z.string(),
     scopes: z.array(z.string()),
     requiredScopes: z.array(z.string()).default([]),
+    // The project whose login a step-up adds scopes to, which `--wait` can run without naming.
+    projectId: ProjectIdSchema.optional(),
 })
 
 export type PendingLogin = z.output<typeof PendingLoginSchema>
@@ -145,6 +147,7 @@ export interface DeviceLoginRequest {
     scopes: readonly string[]
     requiredScopes: readonly string[]
     command: string
+    projectId?: ProjectId
 }
 
 export async function startDeviceLogin(
@@ -152,7 +155,7 @@ export async function startDeviceLogin(
     host: Host,
     request: DeviceLoginRequest
 ): Promise<PendingLogin> {
-    const { scopes, requiredScopes, command } = request
+    const { scopes, requiredScopes, command, projectId } = request
     const response = await oauthPost(runtime, host, 'oauth/device-authorization/', {
         client_id: HOG_CLIENT_ID,
         scope: scopes.join(' '),
@@ -194,6 +197,7 @@ export async function startDeviceLogin(
         intervalSeconds: body.interval ?? 5,
         scopes: [...scopes],
         requiredScopes: [...requiredScopes],
+        ...(projectId === undefined ? {} : { projectId }),
     }
 }
 

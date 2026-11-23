@@ -86,8 +86,8 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                     "result_counts": {"pass": 0, "fail": 0, "na": 0},
                 },
                 {"pass": 0, "fail": 0, "na": 0},
-                {"pass": 0.0, "fail": 0.0, "na": 0.0},
-                0.0,
+                {},
+                None,
             ),
             (
                 "explicit_legacy_zero_counts",
@@ -98,8 +98,8 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                     "na_count": 0,
                 },
                 {"pass": 0, "fail": 0, "na": 0},
-                {"pass": 0.0, "fail": 0.0, "na": 0.0},
-                0.0,
+                {},
+                None,
             ),
             (
                 "partial_rates_without_counts",
@@ -147,7 +147,7 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
                 self.assertEqual(serialized_metrics["result_rates"], expected_rates)
 
             if expected_pass_rate is None:
-                self.assertNotIn("pass_rate", serialized_metrics)
+                self.assertIsNone(serialized_metrics.get("pass_rate"))
             else:
                 self.assertEqual(serialized_metrics["pass_rate"], expected_pass_rate)
 
@@ -509,6 +509,31 @@ class TestEvaluationReportApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}{report.id}/generate/")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # The page waits for the first run created after this server time.
+        self.assertIsNotNone(dt.datetime.fromisoformat(response.json()["requested_at"]).tzinfo)
+
+    @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_duplicate_generate_answers_with_the_running_jobs_start_time(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        class WorkflowAlreadyStartedError(Exception):
+            pass
+
+        def start_workflow(*args, **kwargs):
+            raise WorkflowAlreadyStartedError()
+
+        started_at = dt.datetime(2026, 11, 12, 10, 0, 5, tzinfo=dt.UTC)
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.side_effect = [start_workflow, lambda: MagicMock(start_time=started_at)]
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(dt.datetime.fromisoformat(response.json()["requested_at"]), started_at)
 
     @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
     def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
@@ -660,10 +685,24 @@ class TestEvaluationReportApi(APIBaseTest):
         assert report is not None
         self.assertEqual(report.cooldown_minutes, 6 * 60)
 
-    def test_validate_email_target(self):
+    @parameterized.expand(
+        [
+            ("missing_value", [{"type": "email"}]),
+            ("only_separators", [{"type": "email", "value": " , "}]),
+            ("not_a_string", [{"type": "email", "value": ["a@example.com"]}]),
+            (
+                "too_many_addresses_across_targets",
+                [
+                    {"type": "email", "value": ",".join(f"a{i}@example.com" for i in range(60))},
+                    {"type": "email", "value": ",".join(f"b{i}@example.com" for i in range(41))},
+                ],
+            ),
+        ]
+    )
+    def test_validate_email_target(self, _name, targets):
         response = self.client.post(
             self.base_url,
-            self._scheduled_payload(delivery_targets=[{"type": "email"}]),
+            self._scheduled_payload(delivery_targets=targets),
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

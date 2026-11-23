@@ -15,6 +15,7 @@ from posthog.hogql.parser import (
     _user_parse_cache,
     clear_parse_caches,
     parse_expr,
+    parse_program,
     parse_select,
     parse_string_template,
 )
@@ -178,6 +179,17 @@ class TestParserCache(SimpleTestCase):
         parse_select(sql, cache_origin=origin)
         self.assertEqual(_builtin_parse_cache.currsize, 0)
         self.assertEqual(_user_parse_cache.currsize, 0)
+
+    @parameterized.expand(
+        [
+            ("program", parse_program),
+            ("string_template", parse_string_template),
+            ("select", parse_select),
+        ]
+    )
+    def test_sensitive_input_skips_both_caches(self, _name, parse):
+        parse("SELECT 'a secret value, plenty long enough to cache'", cache_origin=CacheOrigin.SENSITIVE)
+        self.assertEqual(self._total_cache_size(), 0)
 
     def test_oversized_query_still_caches_under_explicit_builtin(self):
         # Explicit BUILTIN bypasses the upper bound (trusted opt-in for

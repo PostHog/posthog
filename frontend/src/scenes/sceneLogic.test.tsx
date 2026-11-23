@@ -124,32 +124,6 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('plays when 5 is pressed after the holiday flag arrives', () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date(2026, 9, 22))
-        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
-        const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
-        let playsBeforeFlag = 0
-        let playsAfterFlag = 0
-
-        try {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
-            playsBeforeFlag = play.mock.calls.length
-
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
-                [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
-            })
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
-            playsAfterFlag = play.mock.calls.length
-        } finally {
-            play.mockRestore()
-            pause.mockRestore()
-            jest.useRealTimers()
-        }
-        expect(playsBeforeFlag).toBe(0)
-        expect(playsAfterFlag).toBe(1)
-    })
-
     // A scene that never mounts must not leave the address bar on it with the previous scene still
     // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {
@@ -394,6 +368,20 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
         }
     )
+
+    it.each([
+        ['/data-pipelines/overview', urls.sources()],
+        ['/data-pipelines/destinations', urls.destinations()],
+        ['/data-pipelines/transformations', urls.transformations()],
+        ['/data-pipelines/batch-exports', urls.destinations('batch')],
+        ['/data-pipelines/new/destination', urls.dataPipelinesNew('destination')],
+    ])('redirects the unrouted %s to %s instead of a 404', async (path, expected) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search).toEqual(
+            expected
+        )
+    })
 
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
@@ -760,50 +748,62 @@ describe('sceneLogic', () => {
     it.each([
         [
             'sends the homepage to the welcome page and keeps the side panel prompt',
+            'connector',
             `${urls.projectHomepage()}#panel=max:hello`,
             urls.onboardingWelcome(),
             { panel: 'max:hello' },
         ],
         [
             'keeps a deep link open',
+            'connector',
             urls.insightView('abc123' as InsightShortId),
             urls.insightView('abc123' as InsightShortId),
             {},
         ],
-    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
-        const priorAppContext = window.POSTHOG_APP_CONTEXT
-        try {
-            logic.unmount()
-            window.POSTHOG_APP_CONTEXT = {
-                ...priorAppContext,
-                current_user: {
-                    ...MOCK_DEFAULT_USER,
-                    organization: MOCK_DEFAULT_ORGANIZATION,
-                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
-                    onboarding_skipped_reason: 'connector',
-                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
-                },
-            } as AppContext
-            initKeaTests(true, {
-                ...MOCK_DEFAULT_TEAM,
-                ingested_event: false,
-                completed_snippet_onboarding: false,
-                has_completed_onboarding_for: {},
-            })
-            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
-            featureFlagLogic.mount()
-            logic = sceneLogic.build({ scenes: testScenes })
-            logic.mount()
+        [
+            'sends a device login signup to the welcome page too',
+            'device_login',
+            urls.projectHomepage(),
+            urls.onboardingWelcome(),
+            {},
+        ],
+    ] as const)(
+        'OAuth signup with no data: %s',
+        async (_name, skippedReason, target, expectedRoute, expectedHashParams) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                logic.unmount()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...priorAppContext,
+                    current_user: {
+                        ...MOCK_DEFAULT_USER,
+                        organization: MOCK_DEFAULT_ORGANIZATION,
+                        onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                        onboarding_skipped_reason: skippedReason,
+                        onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                    },
+                } as AppContext
+                initKeaTests(true, {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                logic = sceneLogic.build({ scenes: testScenes })
+                logic.mount()
 
-            router.actions.push(target)
-            await expectLogic(logic).delay(1)
+                router.actions.push(target)
+                await expectLogic(logic).delay(1)
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
-            expect(router.values.hashParams).toEqual(expectedHashParams)
-        } finally {
-            window.POSTHOG_APP_CONTEXT = priorAppContext
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+                expect(router.values.hashParams).toEqual(expectedHashParams)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         }
-    })
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

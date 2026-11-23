@@ -10,10 +10,12 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
+    CurrencyCode,
     ExperimentMetric,
     ExperimentQueryResponse,
     ExperimentStatsBaseValidated,
@@ -55,7 +57,8 @@ function isNewResponse(response: ExperimentQueryResponse): response is NewExperi
 function buildComparisonRows(
     direct: ExperimentQueryResponse,
     precomputed: ExperimentQueryResponse,
-    metric: ExperimentMetric
+    metric: ExperimentMetric,
+    baseCurrency: CurrencyCode
 ): ComparisonRow[] {
     if (!isNewResponse(direct) || !isNewResponse(precomputed)) {
         return []
@@ -66,7 +69,7 @@ function buildComparisonRows(
     const directBaseline = direct.baseline
     const precomputedBaseline = precomputed.baseline
     if (directBaseline && precomputedBaseline) {
-        rows.push(buildRow(directBaseline, precomputedBaseline, metric))
+        rows.push(buildRow(directBaseline, precomputedBaseline, metric, baseCurrency))
     }
 
     const directVariants = direct.variant_results || []
@@ -74,7 +77,7 @@ function buildComparisonRows(
 
     for (const dv of directVariants) {
         const pv = precomputedVariants.find((v) => v.key === dv.key)
-        rows.push(buildRow(dv, pv ?? null, metric))
+        rows.push(buildRow(dv, pv ?? null, metric, baseCurrency))
     }
 
     return rows
@@ -83,14 +86,15 @@ function buildComparisonRows(
 function buildRow(
     direct: ExperimentStatsBaseValidated,
     precomputed: ExperimentStatsBaseValidated | null,
-    metric: ExperimentMetric
+    metric: ExperimentMetric,
+    baseCurrency: CurrencyCode
 ): ComparisonRow {
     return {
         variant: direct.key,
         directCount: direct.number_of_samples,
         precomputedCount: precomputed?.number_of_samples ?? null,
-        directValue: formatMetricValue(direct, metric),
-        precomputedValue: precomputed ? formatMetricValue(precomputed, metric) : '—',
+        directValue: formatMetricValue(direct, metric, baseCurrency),
+        precomputedValue: precomputed ? formatMetricValue(precomputed, metric, baseCurrency) : '—',
         match:
             precomputed != null
                 ? direct.number_of_samples === precomputed.number_of_samples &&
@@ -166,12 +170,15 @@ function MetricComparisonResults({
     direct: PathResult
     precomputed: PathResult
 }): JSX.Element | null {
+    const { baseCurrency } = useValues(teamLogic)
     if (!direct.loading && !direct.response && !direct.error) {
         return null
     }
 
     const hasResults = direct.response && precomputed.response
-    const comparisonRows = hasResults ? buildComparisonRows(direct.response!, precomputed.response!, metric) : []
+    const comparisonRows = hasResults
+        ? buildComparisonRows(direct.response!, precomputed.response!, metric, baseCurrency)
+        : []
     const directSig = direct.response ? getSignificance(direct.response) : null
     const precomputedSig = precomputed.response ? getSignificance(precomputed.response) : null
 

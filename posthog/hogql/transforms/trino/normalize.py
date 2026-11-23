@@ -1,3 +1,5 @@
+import bisect
+import dataclasses
 from typing import TypeVar
 
 from posthog.hogql import ast
@@ -6,6 +8,7 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
@@ -14,6 +17,8 @@ from posthog.hogql.transforms.trino.expressions import expression_key, positiona
 from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
 from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFinder, lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
+from posthog.dataclasses import frozen
 
 _T_AST = TypeVar("_T_AST", bound=ast.AST | None)
 
@@ -259,6 +264,51 @@ class TrinoScalarCTELowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class _InlineAliasCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: dict[str, ast.Expr] = {}
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not node.hidden:
+            self.aliases.setdefault(node.alias, node.expr)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
+class _InlineAliasHider(TraversingVisitor):
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        node.hidden = True
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
 class _QualifiedFieldFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -295,10 +345,15 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         outer_in_window = self.in_window
         self.in_order_by = False
         self.in_window = False
-        self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self.alias_positions = {
-            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
-        }
+        named_projections = self._named_projections(node.select)
+        self.aliases = {name: expr.expr for name, (_, expr) in named_projections.items()}
+        # Trino can't read a name given inside a projection, as in `(id AS y) + 1 AS x`, so those expand too.
+        inline_aliases = _InlineAliasCollector()
+        for expr in node.select:
+            inline_aliases.visit(expr.expr if isinstance(expr, ast.Alias) else expr)
+        for name, expr in inline_aliases.aliases.items():
+            self.aliases.setdefault(name, expr)
+        self.alias_positions = {name: position for name, (position, _) in named_projections.items()}
         lowered = super().visit_select_query(node)
         if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
             projections = [expression_key(expr) for expr in lowered.select]
@@ -310,9 +365,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 if key in projections:
                     lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
         if node.order_by is not None and lowered.order_by is not None:
-            alias_positions = {
-                expr.alias: index + 1 for index, expr in enumerate(node.select) if isinstance(expr, ast.Alias)
-            }
+            alias_positions = self.alias_positions
             for original, order in zip(node.order_by, lowered.order_by, strict=True):
                 expr = original.expr
                 while isinstance(expr, ast.Alias) and expr.hidden:
@@ -335,7 +388,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 and isinstance(order_expression.chain[0], str)
                 and order_expression.chain[0] in self.aliases
                 and isinstance(order_expression.chain[-1], str)
-                and order_expression.chain[-1] in self.aliases
+                and order_expression.chain[-1] in self.alias_positions
             ):
                 order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
         self.aliases = outer_aliases
@@ -343,6 +396,17 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.in_order_by = outer_in_order_by
         self.in_window = outer_in_window
         return lowered
+
+    @staticmethod
+    def _named_projections(select: list[ast.Expr]) -> dict[str, tuple[int, ast.Alias]]:
+        # The resolver names every plain column after itself with a hidden alias. A name the query gave explicitly
+        # refers to that projection, as in ClickHouse, even when a later column has the same name.
+        explicit = {expr.alias for expr in select if isinstance(expr, ast.Alias) and not expr.hidden}
+        return {
+            expr.alias: (index, expr)
+            for index, expr in enumerate(select, start=1)
+            if isinstance(expr, ast.Alias) and (not expr.hidden or expr.alias not in explicit)
+        }
 
     def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
         outer_in_order_by = self.in_order_by
@@ -413,6 +477,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and isinstance(node.chain[0], str)
             and node.chain[0] in self.aliases
             and node.chain[0] not in self.expanding
+            and not _is_lambda_argument(node)
         ):
             alias = node.chain[0]
             self.expanding.add(alias)
@@ -420,6 +485,9 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 expanded = self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+            # ClickHouse allows a projection to name a part of itself, as in `(id AS y) + 1 AS x`. The copy must
+            # not define `y` again in the same scope, while the projection it came from still does.
+            _InlineAliasHider().visit(expanded)
             # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
             # alias would read that output column. The output column itself already holds this value.
             if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):
@@ -511,6 +579,56 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
         return lowered
 
 
+class TrinoDuplicateOutputNameLowerer(CloningVisitor):
+    """Give a later projection of a name an internal alias in a nested query.
+
+    ClickHouse names the first of two columns `id` and the second `b.id`, so an outer `id` reads the first one. Trino
+    keeps both as `id` and reports an outer reference to either as ambiguous.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+        self.depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        self.depth += 1
+        try:
+            lowered = super().visit_select_query(node)
+        finally:
+            self.depth -= 1
+        if self.depth == 0:
+            return lowered
+        taken = {projection.alias for projection in lowered.select if isinstance(projection, ast.Alias)}
+        holders: dict[str, ast.Alias] = {}
+        # The suffix only grows, so each taken name is probed once and a crafted query cannot make this quadratic.
+        suffix = 0
+        for index, projection in enumerate(lowered.select):
+            if not isinstance(projection, ast.Alias):
+                continue
+            holder = holders.get(projection.alias)
+            if holder is None:
+                holders[projection.alias] = projection
+                continue
+            # An outer reference binds to an explicit alias, so it is the plain column that gives up the name.
+            renamed = holder if holder.hidden and not projection.hidden else projection
+            if renamed is holder:
+                holders[projection.alias] = projection
+            suffix = max(suffix, index)
+            while (alias := f"__hogql_duplicate_{renamed.alias}_{suffix}") in taken:
+                suffix += 1
+            suffix += 1
+            taken.add(alias)
+            renamed.alias = alias
+            renamed.hidden = False
+        return lowered
+
+
+@frozen
+class _AggregatedUnnest:
+    query: ast.SelectQuery
+    pending_unnests: list[tuple[str, str, ast.Expr]]
+
+
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
@@ -524,6 +642,9 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         lowered = super().visit_select_query(node)
         pending = self.pending_unnests
         self.pending_unnests = outer_pending
+        if any(_reads_an_aggregate(array_expr) for _, _, array_expr in pending):
+            aggregated = self._aggregate_before_unnest(lowered, pending)
+            lowered, pending = aggregated.query, aggregated.pending_unnests
         for table_name, output_name, array_expr in pending:
             join = ast.JoinExpr(
                 join_type="CROSS JOIN" if lowered.select_from is not None else None,
@@ -541,6 +662,76 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
                 final_join.next_join = join
         return lowered
 
+    def _aggregate_before_unnest(
+        self, query: ast.SelectQuery, pending: list[tuple[str, str, ast.Expr]]
+    ) -> _AggregatedUnnest:
+        output_names = _aggregated_unnest_output_names(query, pending)
+        assert isinstance(query.type, ast.SelectQueryType)
+        unnested_positions = _positions_reading_names(
+            query.select, output_names, {output_name for _, output_name, _ in pending}
+        )
+        unnested_names = {output_name for _, output_name, _ in pending} | {
+            output_names[position] for position in unnested_positions
+        }
+        if any(_unresolved_names(projection) & unnested_names for projection in query.select):
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_AGGREGATE_FORWARD_REFERENCE",
+                "a projection that reads an arrayJoin over aggregates defined after it",
+                query,
+            )
+        for clause in [query.where, query.prewhere, query.having, *(query.group_by or [])]:
+            if clause is not None and _read_names(clause) & unnested_names:
+                raise TrinoLoweringError(
+                    "TRINO_ARRAY_JOIN_AGGREGATE_FILTER_UNSUPPORTED",
+                    "a filter or GROUP BY that reads an arrayJoin over aggregates",
+                    clause,
+                )
+
+        source_alias = f"__trino_array_function_source_{self.unnest_index}"
+        self.unnest_index += 1
+        inner_select = [
+            _named_projection(projection, name)
+            for position, (projection, name) in enumerate(zip(query.select, output_names, strict=True))
+            if position not in unnested_positions
+        ]
+        inner_columns = {name: query.type.columns[name] for name in output_names if name not in unnested_names}
+        unnest_pending: list[tuple[str, str, ast.Expr]] = []
+        for table_name, output_name, array_expr in pending:
+            array_name = f"{table_name}_array"
+            inner_select.append(ast.Alias(alias=array_name, expr=array_expr))
+            inner_columns[array_name] = array_expr.type or ast.UnknownType()
+            unnest_pending.append((table_name, output_name, ast.Field(chain=[source_alias, array_name])))
+
+        reader = _UnnestedQueryReader(
+            source_alias=source_alias, inner_select=inner_select, unnested_names=unnested_names
+        )
+        outer = ast.SelectQuery(
+            ctes=query.ctes,
+            type=ast.SelectQueryType(columns=dict(query.type.columns)),
+            select=[
+                ast.Alias(alias=name, expr=reader.visit(_unwrap_alias(projection)))
+                if position in unnested_positions
+                else ast.Field(chain=[source_alias, name])
+                for position, (projection, name) in enumerate(zip(query.select, output_names, strict=True))
+            ],
+            select_from=ast.JoinExpr(table=query, alias=source_alias),
+            distinct=query.distinct,
+            order_by=[reader.visit_order_expr(order) for order in query.order_by] if query.order_by else None,
+            limit=query.limit,
+            offset=query.offset,
+            limit_with_ties=query.limit_with_ties,
+            limit_percent=query.limit_percent,
+            view_name=query.view_name,
+        )
+        sorted_unnested_positions = sorted(unnested_positions)
+        query.group_by = [
+            _inner_group_by(expr, unnested_positions, sorted_unnested_positions) for expr in query.group_by or []
+        ] or None
+        query.select = inner_select
+        query.type = dataclasses.replace(query.type, columns=inner_columns)
+        _clear_outer_clauses(query)
+        return _AggregatedUnnest(query=outer, pending_unnests=unnest_pending)
+
     def visit_call(self, node: ast.Call) -> ast.Expr:
         if node.name.lower() != "arrayjoin":
             return super().visit_call(node)
@@ -551,6 +742,181 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         self.unnest_index += 1
         self.pending_unnests.append((table_name, output_name, self.visit(node.args[0])))
         return ast.Field(chain=[output_name], start=node.start, end=node.end)
+
+
+def _reads_an_aggregate(node: ast.Expr) -> bool:
+    finder = _AggregateFunctionFinder()
+    finder.visit(node)
+    return finder.found
+
+
+def _aggregated_unnest_output_names(query: ast.SelectQuery, pending: list[tuple[str, str, ast.Expr]]) -> list[str]:
+    if not all(_reads_an_aggregate(array_expr) for _, _, array_expr in pending):
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_MIXED_AGGREGATION", "arrayJoin over aggregates next to arrayJoin over rows", query
+        )
+    if query.limit_by is not None or query.qualify is not None or query.window_exprs:
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+            "arrayJoin over aggregates with LIMIT BY, QUALIFY, or WINDOW",
+            query,
+        )
+    if not isinstance(query.type, ast.SelectQueryType) or len(query.type.columns) != len(query.select):
+        raise TrinoLoweringError(
+            "TRINO_WRAPPER_OUTPUT_TYPE_UNRESOLVED", "arrayJoin over aggregates without resolved output names", query
+        )
+    return list(query.type.columns)
+
+
+def _inner_group_by(expr: ast.Expr, unnested_positions: set[int], sorted_unnested_positions: list[int]) -> ast.Expr:
+    position = positional_index(expr)
+    if position is None:
+        return expr
+    if position - 1 in unnested_positions:
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_AGGREGATE_FILTER_UNSUPPORTED", "GROUP BY an arrayJoin over aggregates", expr
+        )
+    return ast.PositionalRef(index=position - bisect.bisect_left(sorted_unnested_positions, position - 1))
+
+
+def _clear_outer_clauses(query: ast.SelectQuery) -> None:
+    query.ctes = None
+    query.distinct = None
+    query.order_by = None
+    query.limit = None
+    query.offset = None
+    query.limit_with_ties = None
+    query.limit_percent = None
+    query.view_name = None
+
+
+def _unwrap_alias(node: ast.Expr) -> ast.Expr:
+    while isinstance(node, ast.Alias):
+        node = node.expr
+    return node
+
+
+def _named_projection(projection: ast.Expr, name: str) -> ast.Expr:
+    if isinstance(projection, ast.Alias) and projection.alias == name and not projection.hidden:
+        return projection
+    return ast.Alias(alias=name, expr=projection)
+
+
+class _NameReadFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if (
+            node.chain
+            and isinstance(node.chain[0], str)
+            and (node.type is None or isinstance(node.type, ast.FieldAliasType))
+            and not _is_lambda_argument(node)
+        ):
+            self.names.add(node.chain[0])
+
+
+def _is_lambda_argument(node: ast.Field) -> bool:
+    field_type = node.type
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return isinstance(field_type, ast.LambdaArgumentType)
+
+
+class _UnresolvedNameFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if isinstance(node.type, ast.UnresolvedFieldType) and node.chain and isinstance(node.chain[0], str):
+            self.names.add(node.chain[0])
+
+
+def _unresolved_names(node: ast.Expr) -> set[str]:
+    finder = _UnresolvedNameFinder()
+    finder.visit(node)
+    return finder.names
+
+
+def _read_names(node: ast.Expr) -> set[str]:
+    finder = _NameReadFinder()
+    finder.visit(node)
+    return finder.names
+
+
+def _positions_reading_names(select: list[ast.Expr], output_names: list[str], names: set[str]) -> set[int]:
+    readers: dict[str, list[int]] = {}
+    for position, projection in enumerate(select):
+        for name in _read_names(projection):
+            readers.setdefault(name, []).append(position)
+    positions: set[int] = set()
+    pending = list(names)
+    while pending:
+        for position in readers.pop(pending.pop(), []):
+            if position not in positions:
+                positions.add(position)
+                pending.append(output_names[position])
+    return positions
+
+
+class _UnnestedQueryReader(CloningVisitor):
+    def __init__(self, *, source_alias: str, inner_select: list[ast.Expr], unnested_names: set[str]) -> None:
+        super().__init__(clear_types=False)
+        self.source_alias = source_alias
+        self.unnested_names = unnested_names
+        self.inner_names = {projection.alias for projection in inner_select if isinstance(projection, ast.Alias)}
+        self.inner_keys = {
+            expression_key(projection): projection.alias
+            for projection in inner_select
+            if isinstance(projection, ast.Alias) and isinstance(_unwrap_alias(projection), ast.Field)
+        }
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
+        if positional_index(node.expr) is not None:
+            return clone_expr(node, clear_types=False)
+        return super().visit_order_expr(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED", "a subquery next to an arrayJoin over aggregates", node
+        )
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        if find_hogql_aggregation(node.name):
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+                "an aggregate outside an arrayJoin over aggregates",
+                node,
+            )
+        return super().visit_call(node)
+
+    def visit_window_function(self, node: ast.WindowFunction) -> ast.Expr:
+        raise TrinoLoweringError(
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+            "a window function that reads an arrayJoin over aggregates",
+            node,
+        )
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        head = node.chain[0] if node.chain else None
+        if (
+            node.type is None
+            or _is_lambda_argument(node)
+            or (isinstance(node.type, ast.FieldAliasType) and head in self.unnested_names)
+        ):
+            return clone_expr(node, clear_types=False)
+        if isinstance(node.type, ast.FieldAliasType) and head in self.inner_names:
+            return ast.Field(chain=[self.source_alias, *node.chain], start=node.start, end=node.end)
+        name = self.inner_keys.get(expression_key(node))
+        if name is None:
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_AGGREGATE_REFERENCE_NOT_PROJECTED",
+                "a column next to an arrayJoin over aggregates that the aggregated query does not select",
+                node,
+            )
+        return ast.Field(chain=[self.source_alias, name], start=node.start, end=node.end)
 
 
 class TrinoNormalizer(TraversingVisitor):
@@ -726,5 +1092,6 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
+    lowered = TrinoDuplicateOutputNameLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

@@ -10,6 +10,8 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from opentelemetry import trace
+from rest_framework import exceptions
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError
@@ -17,18 +19,7 @@ from temporalio.service import RPCError
 from posthog.hogql.database.database import Database
 
 from posthog.models import User
-from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
-    is_managed_warehouse_shadow_enabled,
-)
-from posthog.temporal.data_modeling.workflows.execute_dag import (
-    TRINO_SHADOW_RUN_TIMEOUT,
-    ExecuteDAGInputs,
-    manual_trino_workflow_id,
-    trino_build_workflow_id,
-)
-from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import (
@@ -37,12 +28,17 @@ from products.data_modeling.backend.facade.contracts import (
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    MissingDagNodeError,
+    SavedQueryNotFoundError,
+    SavedQueryNotOnV2ScheduleError,
+    SkippedRunNode,
+    StartedNodeRun,
 )
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
-from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
-from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
+from products.data_modeling.backend.logic.node_suspension import suspended_nodes, unsuspend_nodes
+from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -53,8 +49,19 @@ from products.data_modeling.backend.models import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
+    is_managed_warehouse_shadow_enabled,
+)
+from products.data_modeling.backend.temporal.workflows.execute_dag import (
+    TRINO_SHADOW_RUN_TIMEOUT,
+    ExecuteDAGInputs,
+    manual_trino_workflow_id,
+    trino_build_workflow_id,
+)
+from products.data_modeling.backend.temporal.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
@@ -69,6 +76,9 @@ RELATED_RUN_RAN_RECENTLY_REFUSAL = (
     f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet. "
     "To retry a failed view now, run that view on its own."
 )
+UNRESOLVED_VIEW_SKIP_REASON = "Its query doesn't compile: {error}"
+UPSTREAM_UNRESOLVED_SKIP_REASON = "It depends on {name}, whose query doesn't compile."
+EMPTY_RUN_REFUSAL = "Every view in this run depends on {name}, whose query doesn't compile: {error}"
 RUN_IN_PROGRESS_REFUSAL = "This view is still running. Try again when the run finishes."
 RELATED_RUN_IN_PROGRESS_REFUSAL = "A view in this run is still running. Try again when that run finishes."
 # A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
@@ -80,6 +90,7 @@ BUILDING_LOOKUP_CONCURRENCY = 20
 BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
+@tracer.start_as_current_span("data_modeling.start_node_materialization")
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
     """Start a one-off materialization workflow for a single node.
 
@@ -198,19 +209,79 @@ def _get_node(team_id: int, node_id: UUID | str) -> Node:
         raise MissingDagNodeError(f"Node {node_id} not found")
 
 
-def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> None:
+@tracer.start_as_current_span("data_modeling.assert_user_can_run_nodes")
+def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> dict[str, str]:
+    """Refuse the run unless the user may edit every view in it and read every source those views read.
+
+    Returns the compile error of each view whose query does not resolve, keyed by node id. Such a view
+    cannot have its sources checked, so the caller must leave it out of the run. A denial in any view
+    refuses the whole run, also when another view in it does not resolve.
+    """
+    trace.get_current_span().set_attribute("node_count", len(node_ids))
     # A run materializes every node it touches, so it needs the same edit and data access checks as
     # enabling materialization for each view.
-    database = Database.create_for(team_id=node.team_id, user=user)
+    database = Database.create_for(team_id=node.team_id, user=user, trigger="node_run_access_check")
     access_control = UserAccessControl(user=user, team=node.team)
-    saved_queries = DataWarehouseSavedQuery.objects.filter(
-        team_id=node.team_id,
-        node__id__in=node_ids,
-    ).distinct()
-    for saved_query in saved_queries:
+    nodes = Node.objects.filter(team_id=node.team_id, id__in=node_ids, saved_query__isnull=False).select_related(
+        "saved_query"
+    )
+    unresolved: dict[str, str] = {}
+    for run_node in nodes:
+        saved_query = run_node.saved_query
+        assert saved_query is not None
         if not access_control.check_access_level_for_object(saved_query, "editor"):
             raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
-        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+        try:
+            assert_user_can_read_saved_query(saved_query, user, database=database)
+        except exceptions.ValidationError as error:
+            # Resolution stops at the first error, so the sources after it stay unchecked. A denial can
+            # also look like a compile error, because a saved expression the user is denied is left out
+            # of their schema and reads as an unknown field. The managed warehouse reads sources without
+            # the user's access control, and a rebuild of an upstream view in the same run can make this
+            # query compile at run time, so letting it run could read what the user is denied.
+            unresolved[str(run_node.id)] = _first_error_message(error)
+    return unresolved
+
+
+def _first_error_message(error: exceptions.ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, list) and detail:
+        return str(detail[0])
+    return str(detail)
+
+
+def _raise_if_picked_node_does_not_resolve(node: Node, unresolved: dict[str, str]) -> None:
+    if str(node.id) in unresolved:
+        raise exceptions.ValidationError(unresolved[str(node.id)])
+
+
+def _leave_out_unresolved_nodes(
+    team_id: int, graph: Graph, node_ids: set[str], unresolved: dict[str, str]
+) -> tuple[set[str], list[SkippedRunNode]]:
+    """Drop every view that does not resolve, and the views in the run that depend on it.
+
+    A DAG run skips the downstream of a failed node, so the run left after this matches what the DAG
+    would build had those views failed.
+    """
+    if not unresolved:
+        return node_ids, []
+    names = dict(Node.objects.filter(team_id=team_id, id__in=node_ids).values_list("id", "name"))
+    name_of = {str(node_id): name for node_id, name in names.items()}
+    reasons = {node_id: UNRESOLVED_VIEW_SKIP_REASON.format(error=error) for node_id, error in unresolved.items()}
+    for root_id in sorted(unresolved, key=lambda node_id: name_of.get(node_id, "")):
+        for descendant_id in graph.get_downstream(root_id) & node_ids:
+            reasons.setdefault(descendant_id, UPSTREAM_UNRESOLVED_SKIP_REASON.format(name=name_of.get(root_id, "")))
+    skipped = [
+        SkippedRunNode(node_id=node_id, name=name_of.get(node_id, ""), reason=reason)
+        for node_id, reason in sorted(reasons.items(), key=lambda item: name_of.get(item[0], ""))
+    ]
+    remaining = node_ids - reasons.keys()
+    if not remaining:
+        root_id = min(unresolved, key=lambda node_id: name_of.get(node_id, ""))
+        raise exceptions.ValidationError(
+            EMPTY_RUN_REFUSAL.format(name=name_of.get(root_id, ""), error=unresolved[root_id])
+        )
+    return remaining, skipped
 
 
 def _related_node_ids(
@@ -219,7 +290,7 @@ def _related_node_ids(
     direction: MaterializationRunDirection | str,
     user: User,
     hidden_types: frozenset[str],
-) -> set[str]:
+) -> tuple[set[str], list[SkippedRunNode]]:
     graph = Graph(team_id=node.team_id, dag_id=node.dag_id, hidden_types=hidden_types)
     if direction == MaterializationRunDirection.UPSTREAM:
         node_ids = graph.get_upstream(node.id)
@@ -237,8 +308,9 @@ def _related_node_ids(
     node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
     node_ids.add(str(node.id))
 
-    _assert_user_can_run_nodes(node, node_ids, user)
-    return node_ids
+    unresolved = _assert_user_can_run_nodes(node, node_ids, user)
+    _raise_if_picked_node_does_not_resolve(node, unresolved)
+    return _leave_out_unresolved_nodes(node.team_id, graph, node_ids, unresolved)
 
 
 def run_related_node_materializations(
@@ -249,9 +321,9 @@ def run_related_node_materializations(
     user: User,
     from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
-) -> list[str]:
+) -> StartedNodeRun:
     node = _get_node(team_id, node_id)
-    node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
+    node_ids, skipped = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
     built_saved_query_ids = set(
         Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
         .exclude(saved_query__deleted=True)
@@ -264,7 +336,7 @@ def run_related_node_materializations(
         _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
-    unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")
+    unsuspend_nodes(suspended_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids)), by="manual_run")
 
     inputs = ExecuteDAGInputs(
         team_id=node.team_id,
@@ -286,7 +358,7 @@ def run_related_node_materializations(
             ),
         )
     )
-    return sorted(node_ids)
+    return StartedNodeRun(node_ids=sorted(node_ids), skipped=skipped)
 
 
 async def _nodes_building_on_trino(temporal: Client, dag_id: str, node_ids: list[str]) -> list[str]:
@@ -329,7 +401,7 @@ def run_trino_node_materializations(
     user: User,
     full_refresh: bool = False,
     hidden_types: frozenset[str] = frozenset(),
-) -> list[str]:
+) -> StartedNodeRun:
     """Build the node, and optionally its upstreams or downstreams, on the managed warehouse only.
 
     Runs the same managed_warehouse_only DAG run as the scheduled Trino shadow, so ClickHouse is not
@@ -345,11 +417,11 @@ def run_trino_node_materializations(
     if not is_managed_warehouse_shadow_enabled(node.team):
         raise ManagedWarehouseUnavailableError(MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL)
     if direction:
-        node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
+        node_ids, skipped = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
     else:
-        node_ids = {str(node.id)}
+        node_ids, skipped = {str(node.id)}, []
         # The managed warehouse reads source tables without the caller's access control, so check it here.
-        _assert_user_can_run_nodes(node, node_ids, user)
+        _raise_if_picked_node_does_not_resolve(node, _assert_user_can_run_nodes(node, node_ids, user))
 
     dag_id = str(node.dag_id)
     temporal = sync_connect()
@@ -383,7 +455,7 @@ def run_trino_node_materializations(
             if full_refresh and node.saved_query is not None:
                 clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
             unsuspend_nodes(
-                Node.objects.filter(team_id=node.team_id, id__in=node_ids),
+                suspended_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids)),
                 by="manual_run",
                 engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
             )
@@ -391,7 +463,7 @@ def run_trino_node_materializations(
         # The run would otherwise start on state the caller did not ask for, while the caller sees an error.
         asyncio.run(handle.terminate("Could not prepare the models for the run"))
         raise
-    return sorted(node_ids)
+    return StartedNodeRun(node_ids=sorted(node_ids), skipped=skipped)
 
 
 def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
@@ -401,15 +473,6 @@ def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
     team can be schedule-migrated without being flagged.
     """
     return saved_query.id in get_v2_saved_query_ids([saved_query.id])
-
-
-class SavedQueryNotFoundError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query no longer resolves."""
-
-
-class SavedQueryNotOnV2ScheduleError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query still runs on the older
-    per-query schedule, whose frozen workflow lacks what the caller needs from a materialization."""
 
 
 def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) -> None:
