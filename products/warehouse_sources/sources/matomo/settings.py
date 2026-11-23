@@ -40,6 +40,8 @@ class MatomoEndpointConfig:
     # Extra request parameters sent alongside the method, e.g. `flat` for hierarchical reports.
     params: dict[str, Any] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Row fields joined into a `_row_key` column, for reports whose label is not unique.
+    row_key_fields: tuple[str, ...] = ()
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Delta partitioning for this endpoint. Left unset (None) means the table is written
     # unpartitioned — correct for the tiny per-day report tables. `visits` sets a datetime
@@ -255,19 +257,22 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         primary_keys=["_date", "label"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
-    # Region and city labels carry their parent names ("Bavaria, Germany"), so (_date, label) stays unique.
+    # Matomo groups these reports by codes and only maps them to names for the label, so two
+    # region codes can share one label. Key the rows on the codes Matomo groups by.
     "regions": MatomoEndpointConfig(
         name="regions",
         kind="report",
         method="UserCountry.getRegion",
-        primary_keys=["_date", "label"],
+        primary_keys=["_date", "_row_key"],
+        row_key_fields=("country", "region"),
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
     "cities": MatomoEndpointConfig(
         name="cities",
         kind="report",
         method="UserCountry.getCity",
-        primary_keys=["_date", "label"],
+        primary_keys=["_date", "_row_key"],
+        row_key_fields=("country", "region", "city_name", "lat", "long"),
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
     # A site with a page title category delimiter nests titles under category rows, like page URLs.
